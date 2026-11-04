@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Theater3D.Engine.Interop</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <NativeOutDir>$(RepoRoot)artifacts\native\x64\$(Configuration)\</NativeOutDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="3DTheater.Engine.Interop.Tests" />
+  </ItemGroup>
+
+  <!-- C++ エンジンを先にビルドさせ、できた DLL をこのプロジェクトと参照元の出力へコピーする。
+       C++ を含むため dotnet build ではなく Visual Studio の MSBuild でビルドする（build.ps1 参照）。 -->
+  <ItemGroup>
+    <ProjectReference Include="..\3DTheater.Engine.Native\3DTheater.Engine.Native.vcxproj"
+                      ReferenceOutputAssembly="false"
+                      SkipGetTargetFrameworkProperties="true"
+                      SetPlatform="Platform=x64"
+                      Private="false" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="$(NativeOutDir)3DTheater.Engine.Native.dll" Link="3DTheater.Engine.Native.dll" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+    <None Include="$(NativeOutDir)3DTheater.Engine.Native.pdb" Link="3DTheater.Engine.Native.pdb" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+  </ItemGroup>
+
+</Project>

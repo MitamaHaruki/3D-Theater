@@ -1,0 +1,13 @@
+{
+  "profiles": {
+    "3DTheater": {
+      "commandName": "Project",
+      "nativeDebugging": true
+    },
+    "3DTheater (ソフトウェア描画)": {
+      "commandName": "Project",
+      "commandLineArgs": "--warp",
+      "nativeDebugging": true
+    }
+  }
+}

@@ -1,0 +1,12 @@
+# ビルド生成物
+artifacts/
+bin/
+obj/
+x64/
+*.user
+*.suo
+.vs/
+TestResults/
+
+# 受け取った資料の圧縮ファイル（展開済みのフォルダを管理する）
+*.zip
