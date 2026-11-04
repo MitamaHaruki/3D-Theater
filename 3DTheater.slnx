@@ -8,12 +8,21 @@
     <Project Path="src/3DTheater.App/3DTheater.App.csproj">
       <Platform Project="x64" />
     </Project>
+    <Project Path="src/3DTheater.Domain/3DTheater.Domain.csproj">
+      <Platform Project="x64" />
+    </Project>
+    <Project Path="src/3DTheater.Editor/3DTheater.Editor.csproj">
+      <Platform Project="x64" />
+    </Project>
     <Project Path="src/3DTheater.Engine.Interop/3DTheater.Engine.Interop.csproj">
       <Platform Project="x64" />
     </Project>
     <Project Path="src/3DTheater.Engine.Native/3DTheater.Engine.Native.vcxproj" Id="1a745fae-c32c-4add-8be6-151c2fa9a983" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/3DTheater.Editor.Tests/3DTheater.Editor.Tests.csproj">
+      <Platform Project="x64" />
+    </Project>
     <Project Path="tests/3DTheater.Engine.Interop.Tests/3DTheater.Engine.Interop.Tests.csproj">
       <Platform Project="x64" />
     </Project>

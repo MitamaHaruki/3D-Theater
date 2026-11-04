@@ -24,7 +24,7 @@ extern "C" {
 
 // 上位 16 ビットが大きな版、下位 16 ビットが小さな版。大きな版が違う DLL とは組み合わせない。
 #define TT_API_VERSION_MAJOR 0
-#define TT_API_VERSION_MINOR 1
+#define TT_API_VERSION_MINOR 2
 #define TT_API_VERSION ((TT_API_VERSION_MAJOR << 16) | TT_API_VERSION_MINOR)
 
 // 0 以上は成功、負の値は失敗。
@@ -87,9 +87,24 @@ enum {
     TT_VIEW_FLAG_SHARE_D3D9 = 1u << 0,
 };
 
+enum {
+    TT_FRAME_SHOW_GRID = 1u << 0,
+    TT_FRAME_SHOW_AXIS_X = 1u << 1,
+    TT_FRAME_SHOW_AXIS_Y = 1u << 2,
+    TT_FRAME_SHOW_AXIS_Z = 1u << 3,
+    TT_FRAME_SHOW_TEST_OBJECT = 1u << 4,
+    TT_FRAME_TEST_OBJECT_SELECTED = 1u << 5, // 確認用の立方体の輪郭を強調する
+};
+
+// 行列はすべて「行ベクトル × 行列」の並び（DirectXMath・System.Numerics と同じ）で、16 個の float を行ごとに並べる。
+// 座標は左手系・Y が上。
 typedef struct TtFrameParams {
     uint32_t struct_size;
-    float time_seconds; // Phase 0 の確認用の立方体の回転に使う
+    uint32_t flags;
+    float view[16];
+    float projection[16];
+    float grid_world[16];        // XZ 平面の格子をどこへ置くか（固定視点では画面に平行な面へ回す）
+    float test_object_world[16]; // 原点中心・1 辺 1 の確認用の立方体の置き方
 } TtFrameParams;
 
 TT_API uint32_t TT_CALL tt_get_api_version(void);
@@ -102,6 +117,8 @@ TT_API TtResult TT_CALL tt_engine_create(const TtEngineDesc* desc, TtEngine** ou
 TT_API TtResult TT_CALL tt_engine_destroy(TtEngine* engine); // NULL なら何もせず TT_OK
 TT_API TtResult TT_CALL tt_engine_get_info(TtEngine* engine, TtEngineInfo* out_info);
 TT_API TtResult TT_CALL tt_engine_query_video_memory(TtEngine* engine, TtVideoMemoryInfo* out_info);
+// それまでに頼んだ描画を GPU が終えるまで待つ。共有ビューを全部描いてから 1 回だけ呼び、WPF へ渡す
+TT_API TtResult TT_CALL tt_engine_wait_for_gpu(TtEngine* engine);
 
 // parent_hwnd の子ウィンドウを作り、そこへ直接描画するビュー（WPF の HwndHost 用）
 TT_API TtResult TT_CALL tt_view_create_for_window(
@@ -117,7 +134,8 @@ TT_API TtResult TT_CALL tt_view_get_d3d9_surface(TtView* view, void** out_surfac
 
 // 幅か高さが 0 のときは描画を止める（最小化など）。tt_view_render は何もせず TT_OK
 TT_API TtResult TT_CALL tt_view_resize(TtView* view, int32_t width, int32_t height);
-// ウィンドウ用ビューは、前の表示が終わっていなければ待たずに TT_S_NOT_READY を返す（UI を止めないため）
+// ウィンドウ用ビューは、前の表示が終わっていなければ待たずに TT_S_NOT_READY を返す（UI を止めないため）。
+// 画面外ビューは描画を頼むだけで、GPU の完了は待たない（tt_engine_wait_for_gpu か tt_view_read_pixels で待つ）
 TT_API TtResult TT_CALL tt_view_render(TtView* view, const TtFrameParams* params);
 
 // 画面外ビューの内容を BGRA 8 ビットで読み出す。テスト・保存用で、毎フレーム呼ぶものではない

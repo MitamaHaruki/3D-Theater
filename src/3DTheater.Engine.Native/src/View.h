@@ -38,7 +38,6 @@ private:
 
     void CreateSizeDependentResources();
     void ReleaseSizeDependentResources() noexcept;
-    void WaitForGpu();
 
     uint32_t magic_ = kMagic;
     Engine& engine_;
@@ -58,7 +57,6 @@ private:
 
     ComPtr<IDirect3DTexture9> d3d9Texture_;
     ComPtr<IDirect3DSurface9> d3d9Surface_;
-    ComPtr<ID3D11Query> gpuDoneQuery_;
 };
 
 } // namespace tt

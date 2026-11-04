@@ -46,10 +46,12 @@ if (-not $SkipTests) {
     & $vstest (Join-Path $root "artifacts\native\x64\$Configuration\3DTheater.Engine.Native.Tests.dll") /Platform:x64
     if ($LASTEXITCODE -ne 0) { throw 'C++ のテストに失敗しました' }
 
-    Write-Host '==> C# のテスト' -ForegroundColor Cyan
-    dotnet test (Join-Path $root 'tests\3DTheater.Engine.Interop.Tests\3DTheater.Engine.Interop.Tests.csproj') `
-        --no-build -c $Configuration -p:Platform=x64
-    if ($LASTEXITCODE -ne 0) { throw 'C# のテストに失敗しました' }
+    foreach ($project in 'tests\3DTheater.Engine.Interop.Tests\3DTheater.Engine.Interop.Tests.csproj',
+                         'tests\3DTheater.Editor.Tests\3DTheater.Editor.Tests.csproj') {
+        Write-Host "==> C# のテスト（$([IO.Path]::GetFileNameWithoutExtension($project))）" -ForegroundColor Cyan
+        dotnet test (Join-Path $root $project) --no-build -c $Configuration -p:Platform=x64
+        if ($LASTEXITCODE -ne 0) { throw "C# のテストに失敗しました: $project" }
+    }
 }
 
 $exe = Join-Path $root "src\3DTheater.App\bin\x64\$Configuration\net10.0-windows\3DTheater.exe"

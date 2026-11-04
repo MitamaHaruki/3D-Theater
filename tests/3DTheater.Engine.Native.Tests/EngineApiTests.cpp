@@ -3,6 +3,7 @@
 #include <windows.h>
 
 #include <CppUnitTest.h>
+#include <DirectXMath.h>
 
 #include <cstdlib>
 #include <string>
@@ -40,6 +41,31 @@ bool IsNear(uint8_t actual, int expected, int tolerance)
 constexpr int kBackgroundB = 41;
 constexpr int kBackgroundG = 36;
 constexpr int kBackgroundR = 33;
+
+constexpr uint32_t kDefaultFlags = TT_FRAME_SHOW_GRID | TT_FRAME_SHOW_AXIS_X | TT_FRAME_SHOW_AXIS_Z | TT_FRAME_SHOW_TEST_OBJECT;
+
+// 斜め上から確認用の立方体（中心 (0, 0.5, 0)）を見る描画条件
+TtFrameParams MakeParams(uint32_t flags = kDefaultFlags)
+{
+    using namespace DirectX;
+    auto store = [](float (&dst)[16], FXMMATRIX m) { XMStoreFloat4x4(reinterpret_cast<XMFLOAT4X4*>(dst), m); };
+
+    TtFrameParams params{};
+    params.struct_size = sizeof(params);
+    params.flags = flags;
+    store(params.view, XMMatrixLookAtLH(XMVectorSet(4.0f, 3.0f, -6.0f, 1.0f), XMVectorSet(0.0f, 0.5f, 0.0f, 1.0f),
+                           XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f)));
+    store(params.projection, XMMatrixPerspectiveFovLH(XMConvertToRadians(45.0f), 4.0f / 3.0f, 0.1f, 1000.0f));
+    store(params.grid_world, XMMatrixIdentity());
+    store(params.test_object_world, XMMatrixTranslation(0.0f, 0.5f, 0.0f));
+    return params;
+}
+
+bool IsBackground(const uint8_t* pixel, int tolerance)
+{
+    return IsNear(pixel[0], kBackgroundB, tolerance) && IsNear(pixel[1], kBackgroundG, tolerance)
+        && IsNear(pixel[2], kBackgroundR, tolerance);
+}
 
 } // namespace
 
@@ -88,8 +114,9 @@ public:
         TtView* view = nullptr;
         Assert::AreEqual<int>(TT_OK, tt_view_create_offscreen(engine, width, height, 0, &view));
 
-        const TtFrameParams params{sizeof(TtFrameParams), 0.0f};
+        const TtFrameParams params = MakeParams();
         Assert::AreEqual<int>(TT_OK, tt_view_render(view, &params));
+        Assert::AreEqual<int>(TT_OK, tt_engine_wait_for_gpu(engine));
 
         std::vector<uint8_t> pixels(static_cast<size_t>(width) * height * 4);
         Assert::AreEqual<int>(TT_OK, tt_view_read_pixels(view, pixels.data(), width * 4, static_cast<int>(pixels.size())));
@@ -97,15 +124,51 @@ public:
 
         // 左上は空（背景色）
         const uint8_t* corner = pixel(0, 0);
-        Assert::IsTrue(IsNear(corner[0], kBackgroundB, 1) && IsNear(corner[1], kBackgroundG, 1)
-                && IsNear(corner[2], kBackgroundR, 1) && corner[3] == 255,
-            L"左上は背景色であること");
+        Assert::IsTrue(IsBackground(corner, 1) && corner[3] == 255, L"左上は背景色であること");
 
         // 中央にはカメラが見ている立方体が写る
-        const uint8_t* center = pixel(width / 2, height / 2);
-        Assert::IsFalse(IsNear(center[0], kBackgroundB, 40) && IsNear(center[1], kBackgroundG, 40)
-                && IsNear(center[2], kBackgroundR, 40),
-            L"中央は背景色ではないこと");
+        Assert::IsFalse(IsBackground(pixel(width / 2, height / 2), 40), L"中央は背景色ではないこと");
+
+        Assert::AreEqual<int>(TT_OK, tt_view_destroy(view));
+        Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
+    }
+
+    TEST_METHOD(FlagsControlWhatIsDrawn)
+    {
+        TtEngine* engine = CreateWarpEngine();
+        constexpr int width = 64;
+        constexpr int height = 48;
+        TtView* view = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_view_create_offscreen(engine, width, height, 0, &view));
+        std::vector<uint8_t> pixels(static_cast<size_t>(width) * height * 4);
+        const uint8_t* center = &pixels[(static_cast<size_t>(height / 2) * width + width / 2) * 4];
+
+        // 何も表示しない指定なら、中央も背景色のまま
+        const TtFrameParams nothing = MakeParams(0);
+        Assert::AreEqual<int>(TT_OK, tt_view_render(view, &nothing));
+        Assert::AreEqual<int>(TT_OK, tt_view_read_pixels(view, pixels.data(), width * 4, static_cast<int>(pixels.size())));
+        Assert::IsTrue(IsBackground(center, 1), L"立方体を表示しない指定なら写らないこと");
+
+        const TtFrameParams cube = MakeParams(TT_FRAME_SHOW_TEST_OBJECT);
+        Assert::AreEqual<int>(TT_OK, tt_view_render(view, &cube));
+        Assert::AreEqual<int>(TT_OK, tt_view_read_pixels(view, pixels.data(), width * 4, static_cast<int>(pixels.size())));
+        Assert::IsFalse(IsBackground(center, 40), L"立方体を表示する指定なら写ること");
+
+        // 選択中の指定では、立方体の辺が強調色（橙）で描かれる
+        auto countHighlight = [&] {
+            int count = 0;
+            for (size_t i = 0; i < pixels.size(); i += 4) {
+                if (pixels[i + 2] > 230 && pixels[i + 1] > 130 && pixels[i + 1] < 190 && pixels[i] < 80) {
+                    ++count;
+                }
+            }
+            return count;
+        };
+        const int before = countHighlight();
+        const TtFrameParams selected = MakeParams(TT_FRAME_SHOW_TEST_OBJECT | TT_FRAME_TEST_OBJECT_SELECTED);
+        Assert::AreEqual<int>(TT_OK, tt_view_render(view, &selected));
+        Assert::AreEqual<int>(TT_OK, tt_view_read_pixels(view, pixels.data(), width * 4, static_cast<int>(pixels.size())));
+        Assert::IsTrue(countHighlight() > before + 20, L"選択中は強調色の辺が増えること");
 
         Assert::AreEqual<int>(TT_OK, tt_view_destroy(view));
         Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
@@ -116,7 +179,7 @@ public:
         TtEngine* engine = CreateWarpEngine();
         TtView* view = nullptr;
         Assert::AreEqual<int>(TT_OK, tt_view_create_offscreen(engine, 32, 32, 0, &view));
-        const TtFrameParams params{sizeof(TtFrameParams), 0.0f};
+        const TtFrameParams params = MakeParams();
 
         Assert::AreEqual<int>(TT_OK, tt_view_resize(view, 0, 0));
         Assert::AreEqual<int>(TT_OK, tt_view_render(view, &params));
@@ -191,7 +254,7 @@ public:
         Assert::IsTrue(IsWindow(static_cast<HWND>(child)) != FALSE);
         Assert::IsTrue(GetParent(static_cast<HWND>(child)) == parent);
 
-        const TtFrameParams params{sizeof(TtFrameParams), 0.0f};
+        const TtFrameParams params = MakeParams();
         const TtResult first = tt_view_render(view, &params);
         Assert::IsTrue(first == TT_OK || first == TT_S_NOT_READY);
         Assert::AreEqual<int>(TT_OK, tt_view_resize(view, 80, 60));

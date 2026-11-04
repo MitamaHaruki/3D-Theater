@@ -55,14 +55,23 @@ public sealed unsafe class NativeView : IDisposable
     /// <summary>
     /// 1 枚描く。ウィンドウ用ビューで前の表示がまだ終わっていないときは、待たずに false を返す
     /// （UI スレッドを止めないため。次のフレームで呼び直す）。
+    /// 画面外ビューは描画を頼むだけなので、WPF へ渡す前に <see cref="NativeEngine.WaitForGpu"/> を呼ぶこと。
     /// </summary>
-    public bool Render(float timeSeconds)
+    public bool Render(in FrameParameters frame)
     {
-        var parameters = new TtFrameParams { StructSize = (uint)sizeof(TtFrameParams), TimeSeconds = timeSeconds };
+        var parameters = new TtFrameParams
+        {
+            StructSize = (uint)sizeof(TtFrameParams),
+            Flags = (uint)frame.Flags,
+            View = frame.View,
+            Projection = frame.Projection,
+            GridWorld = frame.GridWorld,
+            TestObjectWorld = frame.TestObjectWorld,
+        };
         return NativeError.Check(NativeMethods.ViewRender(Handle, &parameters)) == NativeResult.Ok;
     }
 
-    /// <summary>画面外ビューの内容を BGRA 8 ビットで読み出す。テスト・保存用。</summary>
+    /// <summary>画面外ビューの内容を BGRA 8 ビットで読み出す。テスト・保存用と、共有できない環境での表示用。</summary>
     public void ReadPixels(Span<byte> destination, int stride)
     {
         fixed (byte* buffer = destination)
@@ -70,6 +79,10 @@ public sealed unsafe class NativeView : IDisposable
             NativeError.Check(NativeMethods.ViewReadPixels(Handle, buffer, stride, destination.Length));
         }
     }
+
+    /// <summary>WriteableBitmap の BackBuffer など、確保済みの領域へ直接読み出す。</summary>
+    public void ReadPixels(nint destination, int stride, int bufferSize) =>
+        NativeError.Check(NativeMethods.ViewReadPixels(Handle, (void*)destination, stride, bufferSize));
 
     public void Dispose()
     {

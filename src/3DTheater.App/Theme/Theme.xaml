@@ -1,0 +1,199 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:c="clr-namespace:Theater3D.App.Controls">
+  <!-- 3D Theater の配色。参考画像のダークテーマに合わせる。標準部品の暗色化は WPF の Fluent テーマ（ThemeMode=Dark）に任せる -->
+  <Color x:Key="BackgroundColor">#FF1B1D22</Color>
+  <Color x:Key="TitleBarColor">#FF15171B</Color>
+  <Color x:Key="PanelColor">#FF22252B</Color>
+  <Color x:Key="PanelHeaderColor">#FF2A2D34</Color>
+  <Color x:Key="BorderColor">#FF363A43</Color>
+  <Color x:Key="TextColor">#FFE4E6EB</Color>
+  <Color x:Key="SubTextColor">#FF9AA1AD</Color>
+  <Color x:Key="DisabledTextColor">#FF5E636D</Color>
+  <Color x:Key="AccentColor">#FF3B82F6</Color>
+  <Color x:Key="SelectionColor">#FF2C4A7E</Color>
+  <Color x:Key="HoverColor">#FF30343C</Color>
+  <Color x:Key="PressedColor">#FF3A3F49</Color>
+
+  <SolidColorBrush x:Key="BackgroundBrush" Color="{StaticResource BackgroundColor}" />
+  <SolidColorBrush x:Key="TitleBarBrush" Color="{StaticResource TitleBarColor}" />
+  <SolidColorBrush x:Key="PanelBrush" Color="{StaticResource PanelColor}" />
+  <SolidColorBrush x:Key="PanelHeaderBrush" Color="{StaticResource PanelHeaderColor}" />
+  <SolidColorBrush x:Key="BorderBrush" Color="{StaticResource BorderColor}" />
+  <SolidColorBrush x:Key="TextBrush" Color="{StaticResource TextColor}" />
+  <SolidColorBrush x:Key="SubTextBrush" Color="{StaticResource SubTextColor}" />
+  <SolidColorBrush x:Key="DisabledTextBrush" Color="{StaticResource DisabledTextColor}" />
+  <SolidColorBrush x:Key="AccentBrush" Color="{StaticResource AccentColor}" />
+  <SolidColorBrush x:Key="SelectionBrush" Color="{StaticResource SelectionColor}" />
+  <SolidColorBrush x:Key="HoverBrush" Color="{StaticResource HoverColor}" />
+  <SolidColorBrush x:Key="PressedBrush" Color="{StaticResource PressedColor}" />
+  <SolidColorBrush x:Key="ViewportOverlayBrush" Color="#C01B1D22" />
+  <SolidColorBrush x:Key="CloseHoverBrush" Color="#FFC42B1C" />
+
+  <!-- TextBox を継いだ数値入力欄にも、標準の TextBox と同じ見た目を当てる -->
+  <Style TargetType="c:NumberBox" BasedOn="{StaticResource {x:Type TextBox}}">
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="Padding" Value="4,1" />
+    <Setter Property="FontSize" Value="12" />
+  </Style>
+
+  <!-- Windows 11 は Segoe Fluent Icons、Windows 10 は Segoe MDL2 Assets（どちらも OS に付属） -->
+  <FontFamily x:Key="IconFont">Segoe Fluent Icons, Segoe MDL2 Assets</FontFamily>
+
+  <!-- アイコンだけのボタン（ツールバー・パネル内） -->
+  <Style x:Key="IconButtonStyle" TargetType="ButtonBase">
+    <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="FontFamily" Value="{StaticResource IconFont}" />
+    <Setter Property="FontSize" Value="15" />
+    <Setter Property="Width" Value="30" />
+    <Setter Property="Height" Value="28" />
+    <Setter Property="Margin" Value="1,0" />
+    <Setter Property="Focusable" Value="False" />
+    <Setter Property="ToolTipService.ShowOnDisabled" Value="True" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="ButtonBase">
+          <Border x:Name="Root" Background="{TemplateBinding Background}" CornerRadius="4" BorderThickness="1" BorderBrush="Transparent">
+            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+          </Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+              <Setter TargetName="Root" Property="Background" Value="{StaticResource HoverBrush}" />
+            </Trigger>
+            <Trigger Property="IsPressed" Value="True">
+              <Setter TargetName="Root" Property="Background" Value="{StaticResource PressedBrush}" />
+            </Trigger>
+            <Trigger Property="ToggleButton.IsChecked" Value="True">
+              <Setter TargetName="Root" Property="Background" Value="{StaticResource SelectionBrush}" />
+              <Setter TargetName="Root" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+              <Setter Property="Foreground" Value="{StaticResource DisabledTextBrush}" />
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+  <Style x:Key="IconToggleButtonStyle" TargetType="ToggleButton" BasedOn="{StaticResource IconButtonStyle}" />
+
+  <!-- 文字付きの小さなボタン（「プレビューを追加」など） -->
+  <Style x:Key="TextButtonStyle" TargetType="ButtonBase" BasedOn="{StaticResource IconButtonStyle}">
+    <Setter Property="FontFamily" Value="Yu Gothic UI" />
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="Width" Value="Auto" />
+    <Setter Property="Padding" Value="8,0" />
+  </Style>
+
+  <Style x:Key="ToolbarSeparatorStyle" TargetType="Rectangle">
+    <Setter Property="Width" Value="1" />
+    <Setter Property="Height" Value="18" />
+    <Setter Property="Margin" Value="6,0" />
+    <Setter Property="Fill" Value="{StaticResource BorderBrush}" />
+  </Style>
+
+  <!-- タイトルバー右端の最小化・最大化・閉じる -->
+  <Style x:Key="CaptionButtonStyle" TargetType="Button">
+    <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="FontFamily" Value="{StaticResource IconFont}" />
+    <Setter Property="FontSize" Value="10" />
+    <Setter Property="Width" Value="46" />
+    <Setter Property="Focusable" Value="False" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="Button">
+          <Border x:Name="Root" Background="{TemplateBinding Background}">
+            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+          </Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+              <Setter TargetName="Root" Property="Background" Value="{StaticResource HoverBrush}" />
+            </Trigger>
+            <!-- 最大化ボタンは Windows 11 のスナップ機能のためにマウスを OS 側で扱うので、Tag で見た目を切り替える -->
+            <Trigger Property="Tag" Value="Hover">
+              <Setter TargetName="Root" Property="Background" Value="{StaticResource HoverBrush}" />
+            </Trigger>
+            <Trigger Property="Tag" Value="Pressed">
+              <Setter TargetName="Root" Property="Background" Value="{StaticResource PressedBrush}" />
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+  <Style x:Key="CloseCaptionButtonStyle" TargetType="Button" BasedOn="{StaticResource CaptionButtonStyle}">
+    <Style.Triggers>
+      <Trigger Property="IsMouseOver" Value="True">
+        <Setter Property="Background" Value="{StaticResource CloseHoverBrush}" />
+      </Trigger>
+    </Style.Triggers>
+  </Style>
+
+  <!-- タイトルバーのメニューの一番上の項目（ファイル・編集…）。中の項目は標準（Fluent）の見た目のまま -->
+  <Style x:Key="TitleMenuItemStyle" TargetType="MenuItem">
+    <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+    <Setter Property="Padding" Value="9,0" />
+    <Setter Property="Height" Value="28" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="MenuItem">
+          <Grid SnapsToDevicePixels="True">
+            <Border x:Name="Bd" Background="Transparent" CornerRadius="4" Padding="{TemplateBinding Padding}">
+              <ContentPresenter ContentSource="Header" RecognizesAccessKey="True" VerticalAlignment="Center" />
+            </Border>
+            <Popup x:Name="PART_Popup" Placement="Bottom" AllowsTransparency="True" Focusable="False" PopupAnimation="Fade"
+                   IsOpen="{Binding IsSubmenuOpen, RelativeSource={RelativeSource TemplatedParent}}">
+              <Border Margin="0,2,10,10" Padding="4" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}"
+                      BorderThickness="1" CornerRadius="6">
+                <Border.Effect>
+                  <DropShadowEffect BlurRadius="10" ShadowDepth="2" Opacity="0.45" />
+                </Border.Effect>
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                  <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Cycle" KeyboardNavigation.TabNavigation="Cycle"
+                                  Grid.IsSharedSizeScope="True" />
+                </ScrollViewer>
+              </Border>
+            </Popup>
+          </Grid>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsHighlighted" Value="True">
+              <Setter TargetName="Bd" Property="Background" Value="{StaticResource HoverBrush}" />
+            </Trigger>
+            <Trigger Property="IsSubmenuOpen" Value="True">
+              <Setter TargetName="Bd" Property="Background" Value="{StaticResource PressedBrush}" />
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <!-- 3D ビューの上に重ねる小さな札 -->
+  <Style x:Key="ViewportHeaderButtonStyle" TargetType="ButtonBase" BasedOn="{StaticResource TextButtonStyle}">
+    <Setter Property="Height" Value="22" />
+    <Setter Property="Padding" Value="6,0" />
+    <Setter Property="Background" Value="{StaticResource ViewportOverlayBrush}" />
+  </Style>
+  <Style x:Key="ViewportIconButtonStyle" TargetType="ButtonBase" BasedOn="{StaticResource IconButtonStyle}">
+    <Setter Property="Width" Value="24" />
+    <Setter Property="Height" Value="22" />
+    <Setter Property="FontSize" Value="11" />
+    <Setter Property="Background" Value="{StaticResource ViewportOverlayBrush}" />
+  </Style>
+
+  <!-- パネル内の見出し -->
+  <Style x:Key="SectionHeaderStyle" TargetType="TextBlock">
+    <Setter Property="Foreground" Value="{StaticResource SubTextBrush}" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Margin" Value="0,8,0,4" />
+  </Style>
+
+  <!-- 未実装の機能に付ける注記 -->
+  <Style x:Key="PlannedNoteStyle" TargetType="TextBlock">
+    <Setter Property="Foreground" Value="{StaticResource DisabledTextBrush}" />
+    <Setter Property="FontSize" Value="11" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+  </Style>
+</ResourceDictionary>

@@ -17,7 +17,8 @@ TtResult Guard(F&& body) noexcept
         return TT_OK;
     } catch (const tt::Error& e) {
         tt::SetLastErrorMessage(e.Message());
-        tt::Log(TT_LOG_ERROR, e.Message());
+        // 「この環境では使えない」は呼び出し側が別の方法へ切り替える想定なので、警告にとどめる
+        tt::Log(e.Result() == TT_E_NOT_SUPPORTED ? TT_LOG_WARNING : TT_LOG_ERROR, e.Message());
         return e.Result();
     } catch (const std::bad_alloc&) {
         tt::SetLastErrorMessage(L"メモリが足りません");
@@ -129,6 +130,11 @@ TT_API TtResult TT_CALL tt_engine_query_video_memory(TtEngine* engine, TtVideoMe
         Require(out_info->struct_size == sizeof(TtVideoMemoryInfo), L"TtVideoMemoryInfo の struct_size が合いません");
         e.QueryVideoMemory(*out_info);
     });
+}
+
+TT_API TtResult TT_CALL tt_engine_wait_for_gpu(TtEngine* engine)
+{
+    return Guard([&] { ToEngine(engine).WaitForGpu(); });
 }
 
 TT_API TtResult TT_CALL tt_view_create_for_window(

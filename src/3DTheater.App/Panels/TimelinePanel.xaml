@@ -1,0 +1,32 @@
+<UserControl x:Class="Theater3D.App.Panels.TimelinePanel"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:c="clr-namespace:Theater3D.App.Controls"
+             Background="{StaticResource PanelBrush}">
+  <DockPanel>
+    <Border DockPanel.Dock="Top" Padding="6,3" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1">
+      <DockPanel LastChildFill="False">
+        <StackPanel DockPanel.Dock="Left" Orientation="Horizontal">
+          <Button Style="{StaticResource IconButtonStyle}" Content="&#xE892;" ToolTip="先頭へ（Home）" Click="OnGoToStart" />
+          <Button Style="{StaticResource IconButtonStyle}" Content="&#xE76B;" ToolTip="1 フレーム戻る（←）" Click="OnStepBack" />
+          <Button Style="{StaticResource IconButtonStyle}" Content="{Binding PlayGlyph}" ToolTip="{Binding PlayToolTip}" Click="OnPlayPause" />
+          <Button Style="{StaticResource IconButtonStyle}" Content="&#xE76C;" ToolTip="1 フレーム進む（→）" Click="OnStepForward" />
+          <Button Style="{StaticResource IconButtonStyle}" Content="&#xE893;" ToolTip="末尾へ（End）" Click="OnGoToEnd" />
+          <Rectangle Style="{StaticResource ToolbarSeparatorStyle}" />
+          <c:NumberBox Width="64" Height="24" FontSize="12" Format="0" Step="1" Value="{Binding CurrentFrame}" ToolTip="今のフレーム" />
+          <TextBlock Margin="6,0" VerticalAlignment="Center" Foreground="{StaticResource SubTextBrush}" Text="/" />
+          <c:NumberBox Width="64" Height="24" FontSize="12" Format="0" Step="10" Value="{Binding EndFrame}" ToolTip="終わりのフレーム" />
+          <Rectangle Style="{StaticResource ToolbarSeparatorStyle}" />
+          <ToggleButton Style="{StaticResource IconToggleButtonStyle}" Content="&#xE8EE;" IsChecked="{Binding Loop}" ToolTip="ループ再生" />
+          <ComboBox Margin="6,0,0,0" Width="96" MinHeight="0" Padding="8,2" FontSize="12" VerticalAlignment="Center"
+                    ItemsSource="{Binding FrameRates}" SelectedItem="{Binding FrameRate}" ItemStringFormat="{}{0} fps" ToolTip="フレームレート" />
+        </StackPanel>
+        <TextBlock DockPanel.Dock="Right" Margin="12,0,4,0" VerticalAlignment="Center" Style="{StaticResource PlannedNoteStyle}"
+                   Text="キーフレームの登録・編集とグラフエディターは Phase 2 以降で対応します" />
+      </DockPanel>
+    </Border>
+    <ScrollBar x:Name="HorizontalBar" DockPanel.Dock="Bottom" Orientation="Horizontal" Height="12" MinHeight="0"
+               Margin="190,0,0,0" Scroll="OnHorizontalScroll" />
+    <Border x:Name="CanvasHost" />
+  </DockPanel>
+</UserControl>

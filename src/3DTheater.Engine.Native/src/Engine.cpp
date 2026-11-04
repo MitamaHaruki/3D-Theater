@@ -160,12 +160,42 @@ void Engine::CreateSceneResources()
     gridVertexBuffer_ = CreateImmutableBuffer(device_.Get(), grid, D3D11_BIND_VERTEX_BUFFER, L"格子の頂点バッファー作成");
     gridVertexCount_ = static_cast<UINT>(grid.size());
 
+    axisVertexBuffer_ = CreateImmutableBuffer(device_.Get(), BuildAxisLines(10.0f), D3D11_BIND_VERTEX_BUFFER, L"座標軸の頂点バッファー作成");
+
     std::vector<DemoVertex> cubeVertices;
     std::vector<uint16_t> cubeIndices;
     BuildCube(cubeVertices, cubeIndices);
     cubeVertexBuffer_ = CreateImmutableBuffer(device_.Get(), cubeVertices, D3D11_BIND_VERTEX_BUFFER, L"立方体の頂点バッファー作成");
     cubeIndexBuffer_ = CreateImmutableBuffer(device_.Get(), cubeIndices, D3D11_BIND_INDEX_BUFFER, L"立方体の索引バッファー作成");
     cubeIndexCount_ = static_cast<UINT>(cubeIndices.size());
+
+    const std::vector<DemoVertex> edges = BuildCubeEdges(1.004f);
+    cubeEdgeVertexBuffer_ = CreateImmutableBuffer(device_.Get(), edges, D3D11_BIND_VERTEX_BUFFER, L"立方体の辺の頂点バッファー作成");
+    cubeEdgeVertexCount_ = static_cast<UINT>(edges.size());
+
+    D3D11_QUERY_DESC queryDesc{};
+    queryDesc.Query = D3D11_QUERY_EVENT;
+    CheckHr(device_->CreateQuery(&queryDesc, &gpuDoneQuery_), L"GPU 完了確認用クエリの作成");
+}
+
+void Engine::WaitForGpu()
+{
+    ID3D11DeviceContext* ctx = context_.Get();
+    ctx->End(gpuDoneQuery_.Get());
+    ctx->Flush();
+
+    const ULONGLONG start = GetTickCount64();
+    for (;;) {
+        const HRESULT hr = ctx->GetData(gpuDoneQuery_.Get(), nullptr, 0, 0);
+        if (hr == S_OK) {
+            return;
+        }
+        CheckHr(hr, L"GPU の描画完了の確認");
+        if (GetTickCount64() - start > 2000) {
+            throw Error(TT_E_GRAPHICS, L"GPU の描画完了を 2 秒待っても確認できませんでした");
+        }
+        SwitchToThread();
+    }
 }
 
 IDirect3DDevice9Ex* Engine::D3D9Device()
@@ -243,10 +273,12 @@ void Engine::SetConstants(DirectX::FXMMATRIX worldViewProj)
     context_->Unmap(constantBuffer_.Get(), 0);
 }
 
-void Engine::DrawDemoScene(
-    ID3D11RenderTargetView* rtv, ID3D11DepthStencilView* dsv, int width, int height, float timeSeconds)
+void Engine::DrawScene(
+    ID3D11RenderTargetView* rtv, ID3D11DepthStencilView* dsv, int width, int height, const TtFrameParams& params)
 {
     using namespace DirectX;
+
+    auto load = [](const float (&m)[16]) { return XMLoadFloat4x4(reinterpret_cast<const XMFLOAT4X4*>(m)); };
 
     ID3D11DeviceContext* ctx = context_.Get();
     ctx->OMSetRenderTargets(1, &rtv, dsv);
@@ -262,26 +294,40 @@ void Engine::DrawDemoScene(
     ctx->RSSetState(rasterizerState_.Get());
     ctx->OMSetDepthStencilState(depthState_.Get(), 0);
 
-    // 座標系は MMD に合わせた仮の決め（左手系・Y 上）。正式な決めは docs/設計判断記録.md を参照
-    const XMMATRIX view = XMMatrixLookAtLH(XMVectorSet(4.0f, 3.0f, -6.0f, 1.0f), XMVectorSet(0.0f, 0.5f, 0.0f, 1.0f),
-        XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f));
-    const XMMATRIX proj = XMMatrixPerspectiveFovLH(
-        XMConvertToRadians(45.0f), static_cast<float>(width) / static_cast<float>(height), 0.1f, 1000.0f);
-    const XMMATRIX viewProj = view * proj;
-
+    const XMMATRIX viewProj = load(params.view) * load(params.projection);
     const UINT stride = sizeof(DemoVertex);
     const UINT offset = 0;
 
-    SetConstants(viewProj);
     ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_LINELIST);
-    ctx->IASetVertexBuffers(0, 1, gridVertexBuffer_.GetAddressOf(), &stride, &offset);
-    ctx->Draw(gridVertexCount_, 0);
+    if (params.flags & TT_FRAME_SHOW_GRID) {
+        SetConstants(load(params.grid_world) * viewProj);
+        ctx->IASetVertexBuffers(0, 1, gridVertexBuffer_.GetAddressOf(), &stride, &offset);
+        ctx->Draw(gridVertexCount_, 0);
+    }
 
-    SetConstants(XMMatrixRotationY(timeSeconds * 0.8f) * XMMatrixTranslation(0.0f, 0.5f, 0.0f) * viewProj);
-    ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    ctx->IASetVertexBuffers(0, 1, cubeVertexBuffer_.GetAddressOf(), &stride, &offset);
-    ctx->IASetIndexBuffer(cubeIndexBuffer_.Get(), DXGI_FORMAT_R16_UINT, 0);
-    ctx->DrawIndexed(cubeIndexCount_, 0, 0);
+    SetConstants(viewProj);
+    ctx->IASetVertexBuffers(0, 1, axisVertexBuffer_.GetAddressOf(), &stride, &offset);
+    const uint32_t axisFlags[] = {TT_FRAME_SHOW_AXIS_X, TT_FRAME_SHOW_AXIS_Y, TT_FRAME_SHOW_AXIS_Z};
+    for (UINT axis = 0; axis < 3; ++axis) {
+        if (params.flags & axisFlags[axis]) {
+            ctx->Draw(2, axis * 2);
+        }
+    }
+
+    if (params.flags & TT_FRAME_SHOW_TEST_OBJECT) {
+        const XMMATRIX worldViewProj = load(params.test_object_world) * viewProj;
+        SetConstants(worldViewProj);
+        ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        ctx->IASetVertexBuffers(0, 1, cubeVertexBuffer_.GetAddressOf(), &stride, &offset);
+        ctx->IASetIndexBuffer(cubeIndexBuffer_.Get(), DXGI_FORMAT_R16_UINT, 0);
+        ctx->DrawIndexed(cubeIndexCount_, 0, 0);
+
+        if (params.flags & TT_FRAME_TEST_OBJECT_SELECTED) {
+            ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_LINELIST);
+            ctx->IASetVertexBuffers(0, 1, cubeEdgeVertexBuffer_.GetAddressOf(), &stride, &offset);
+            ctx->Draw(cubeEdgeVertexCount_, 0);
+        }
+    }
 
     ctx->OMSetRenderTargets(0, nullptr, nullptr);
 }

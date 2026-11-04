@@ -26,7 +26,7 @@ public readonly record struct VideoMemoryInfo(ulong Usage, ulong Budget);
 public sealed unsafe class NativeEngine : IDisposable
 {
     public const int ExpectedApiVersionMajor = 0;
-    public const int ExpectedApiVersionMinor = 1;
+    public const int ExpectedApiVersionMinor = 2;
 
     private nint _handle;
 
@@ -82,6 +82,9 @@ public sealed unsafe class NativeEngine : IDisposable
         NativeError.Check(NativeMethods.EngineQueryVideoMemory(Handle, &info));
         return new VideoMemoryInfo(info.Usage, info.Budget);
     }
+
+    /// <summary>それまでに頼んだ描画を GPU が終えるまで待つ。共有ビューを全部描いてから 1 回だけ呼ぶ。</summary>
+    public void WaitForGpu() => NativeError.Check(NativeMethods.EngineWaitForGpu(Handle));
 
     /// <summary>親ウィンドウの子ウィンドウに直接描くビュー（WPF の HwndHost 用）。</summary>
     public NativeView CreateWindowView(nint parentHwnd, int width, int height)

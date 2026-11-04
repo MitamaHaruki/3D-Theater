@@ -4,15 +4,34 @@ using System.Text;
 
 namespace Theater3D.App.Logging;
 
+public sealed record LogEntry(DateTime Time, string Level, string Message);
+
 /// <summary>
 /// アプリ全体のログ。%LOCALAPPDATA%\3DTheater\Logs に日付ごとのファイルで残す。
 /// どのスレッドから呼んでもよい。毎フレームの出力には使わないこと。
 /// </summary>
 public static class AppLog
 {
+    private const int RecentCapacity = 500;
     private static readonly TimeSpan RetentionPeriod = TimeSpan.FromDays(14);
     private static readonly object Gate = new();
+    private static readonly Queue<LogEntry> s_recent = new();
     private static StreamWriter? s_writer;
+
+    /// <summary>1 行書かれた。どのスレッドから届くかは決まっていない。</summary>
+    public static event Action<LogEntry>? Written;
+
+    /// <summary>最近のログ（ログパネルを後から開いたときのため）。</summary>
+    public static IReadOnlyList<LogEntry> RecentEntries
+    {
+        get
+        {
+            lock (Gate)
+            {
+                return [.. s_recent];
+            }
+        }
+    }
 
     public static string LogDirectory { get; } = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "3DTheater", "Logs");
@@ -59,15 +78,22 @@ public static class AppLog
 
     private static void Write(string level, string message, Exception? exception)
     {
-        var line = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} [{level}] [T{Environment.CurrentManagedThreadId:D2}] {message}";
+        DateTime now = DateTime.Now;
+        var line = $"{now:yyyy-MM-dd HH:mm:ss.fff} [{level}] [T{Environment.CurrentManagedThreadId:D2}] {message}";
         if (exception is not null)
         {
             line += Environment.NewLine + exception;
         }
 
+        var entry = new LogEntry(now, level.Trim(), exception is null ? message : $"{message}（{exception.Message}）");
         System.Diagnostics.Debug.WriteLine(line);
         lock (Gate)
         {
+            s_recent.Enqueue(entry);
+            if (s_recent.Count > RecentCapacity)
+            {
+                s_recent.Dequeue();
+            }
             try
             {
                 s_writer?.WriteLine(line);
@@ -77,6 +103,7 @@ public static class AppLog
                 // ディスクがいっぱいなどで書けないときは諦める（アプリは止めない）
             }
         }
+        Written?.Invoke(entry);
     }
 
     private static void DeleteOldLogs()

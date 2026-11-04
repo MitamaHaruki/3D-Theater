@@ -7,9 +7,20 @@
     <AssemblyName>3DTheater</AssemblyName>
     <RootNamespace>Theater3D.App</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- Win32 の呼び出し（LibraryImport）が生成するコードに必要 -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- 日本語の画面に必要な分だけ残し、AvalonDock の他言語の資源を出力に入れない -->
+    <SatelliteResourceLanguages>ja</SatelliteResourceLanguages>
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Dirkster.AvalonDock" Version="4.74.1" />
+    <PackageReference Include="Dirkster.AvalonDock.Themes.VS2013" Version="4.74.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\3DTheater.Domain\3DTheater.Domain.csproj" />
+    <ProjectReference Include="..\3DTheater.Editor\3DTheater.Editor.csproj" />
     <ProjectReference Include="..\3DTheater.Engine.Interop\3DTheater.Engine.Interop.csproj" />
   </ItemGroup>
 

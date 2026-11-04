@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- 指示書の「Application 層」にあたる（選択・再生・視点の計算など）。
+       名前空間を Theater3D.Application にすると WPF の Application クラスとぶつかるため Editor とした。
+       画面（WPF）にもネイティブエンジンにも依存しない -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Theater3D.Editor</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="3DTheater.Editor.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\3DTheater.Domain\3DTheater.Domain.csproj" />
+  </ItemGroup>
+
+</Project>

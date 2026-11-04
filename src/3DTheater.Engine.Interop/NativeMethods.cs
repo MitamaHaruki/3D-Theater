@@ -1,3 +1,4 @@
+using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
@@ -36,7 +37,11 @@ internal struct TtVideoMemoryInfo
 internal struct TtFrameParams
 {
     public uint StructSize;
-    public float TimeSeconds;
+    public uint Flags;
+    public Matrix4x4 View;
+    public Matrix4x4 Projection;
+    public Matrix4x4 GridWorld;
+    public Matrix4x4 TestObjectWorld;
 }
 
 internal static unsafe partial class NativeMethods
@@ -70,6 +75,10 @@ internal static unsafe partial class NativeMethods
     [LibraryImport(Library, EntryPoint = "tt_engine_query_video_memory")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial int EngineQueryVideoMemory(nint engine, TtVideoMemoryInfo* outInfo);
+
+    [LibraryImport(Library, EntryPoint = "tt_engine_wait_for_gpu")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial int EngineWaitForGpu(nint engine);
 
     [LibraryImport(Library, EntryPoint = "tt_view_create_for_window")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]

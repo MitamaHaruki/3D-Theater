@@ -136,10 +136,6 @@ std::unique_ptr<View> View::CreateOffscreen(Engine& engine, int width, int heigh
     std::unique_ptr<View> view(new View(engine, Kind::Offscreen, flags));
     if (flags & TT_VIEW_FLAG_SHARE_D3D9) {
         engine.D3D9Device(); // 共有できない環境ならここで分かる
-
-        D3D11_QUERY_DESC queryDesc{};
-        queryDesc.Query = D3D11_QUERY_EVENT;
-        CheckHr(engine.Device()->CreateQuery(&queryDesc, &view->gpuDoneQuery_), L"GPU 完了確認用クエリの作成");
     }
     view->width_ = width;
     view->height_ = height;
@@ -232,35 +228,13 @@ bool View::Render(const TtFrameParams& params)
         return false; // 前の表示がまだ終わっていない。待たずに次の機会に描く
     }
 
-    engine_.DrawDemoScene(rtv_.Get(), dsv_.Get(), width_, height_, params.time_seconds);
+    engine_.DrawScene(rtv_.Get(), dsv_.Get(), width_, height_, params);
 
     if (kind_ == Kind::Window) {
         CheckHr(swapChain_->Present(0, 0), L"画面への表示 (Present)");
-    } else if (flags_ & TT_VIEW_FLAG_SHARE_D3D9) {
-        // WPF が読み出す前に GPU の描画を終わらせておく
-        WaitForGpu();
     }
+    // 画面外ビューは待たない。WPF へ渡す前に、呼び出し側が全ビュー分まとめて tt_engine_wait_for_gpu で待つ
     return true;
-}
-
-void View::WaitForGpu()
-{
-    ID3D11DeviceContext* ctx = engine_.Context();
-    ctx->End(gpuDoneQuery_.Get());
-    ctx->Flush();
-
-    const ULONGLONG start = GetTickCount64();
-    for (;;) {
-        const HRESULT hr = ctx->GetData(gpuDoneQuery_.Get(), nullptr, 0, 0);
-        if (hr == S_OK) {
-            return;
-        }
-        CheckHr(hr, L"GPU の描画完了の確認");
-        if (GetTickCount64() - start > 2000) {
-            throw Error(TT_E_GRAPHICS, L"GPU の描画完了を 2 秒待っても確認できませんでした");
-        }
-        SwitchToThread();
-    }
 }
 
 void View::ReadPixels(void* buffer, int stride, int bufferSize)

@@ -26,7 +26,7 @@ public partial class App : Application
         var options = StartupOptions.Parse(e.Args);
         _engine = CreateEngine(options, out string? engineError);
 
-        var window = new MainWindow(_engine, engineError);
+        var window = new Shell.MainWindow(new EditorContext(_engine), engineError);
         MainWindow = window;
         window.Show();
     }

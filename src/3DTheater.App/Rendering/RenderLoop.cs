@@ -1,76 +1,81 @@
 using System.Diagnostics;
 using System.Windows.Media;
 using Theater3D.App.Logging;
+using Theater3D.Editor;
+using Theater3D.Engine.Interop;
 
 namespace Theater3D.App.Rendering;
 
-/// <summary>描画ループに登録できる描画先。</summary>
+/// <summary>描画ループに登録できる描画先（プレビューの 1 区画）。</summary>
 public interface IRenderTarget
 {
-    /// <summary>大きさが変わったなど、アニメーションが止まっていても描き直しが必要なとき true。</summary>
+    /// <summary>画面に見えていて大きさがあり、描ける状態か。</summary>
+    bool CanRender { get; }
+
+    /// <summary>前に描いてから見た目が変わったか。</summary>
     bool NeedsRender { get; }
 
-    void RenderFrame(float timeSeconds);
+    void Invalidate();
+
+    /// <summary>1 枚の描画を GPU へ頼む。頼んだら true（あとで必ず <see cref="Complete"/> が呼ばれる）。</summary>
+    bool Submit();
+
+    /// <summary>GPU の完了を待った後に呼ばれる。<paramref name="succeeded"/> が false なら表示を更新しない。</summary>
+    void Complete(bool succeeded);
 }
 
 /// <summary>
-/// WPF の画面更新（CompositionTarget.Rendering）に合わせて、登録された描画先を描く。
-/// アニメーションが止まっていて描き直しも要らないときは購読をやめ、GPU と CPU を休ませる。
-/// Phase 0 では UI スレッドで描く。描画専用スレッドへの分離は Phase 1 以降の課題。
+/// WPF の画面更新（CompositionTarget.Rendering）に合わせて、変化のあった描画先だけを描く。
+/// 再生中は再生位置を進める。何も変わらず再生もしていないときは購読をやめて GPU と CPU を休ませる。
+/// 描き方は「全区画の描画を頼む → GPU の完了を 1 回だけ待つ → 全区画を表示に反映」の 3 段階。
+/// Phase 1 では UI スレッドで描く。描画専用スレッドへの分離は Phase 2 までの課題。
 /// </summary>
-public sealed class RenderLoop
+public sealed class RenderLoop(NativeEngine? engine, PlaybackService playback)
 {
     private static readonly TimeSpan MaxStep = TimeSpan.FromMilliseconds(100);
 
     private readonly List<IRenderTarget> _targets = [];
+    private readonly List<IRenderTarget> _submitted = [];
     private bool _subscribed;
-    private bool _animating;
-    private double _animationSeconds;
     private long _lastTimestamp;
     private TimeSpan _lastRenderingTime = TimeSpan.MinValue;
     private int _framesInSample;
     private long _sampleStart;
+    private readonly FrameTimer _frameTimer = new();
 
     public event EventHandler<RenderFailedEventArgs>? RenderFailed;
 
-    public bool Animating
-    {
-        get => _animating;
-        set
-        {
-            _animating = value;
-            if (value)
-            {
-                Subscribe();
-            }
-        }
-    }
-
-    /// <summary>直近 1 秒ほどで実際に描いたフレーム数。止まっているときは 0。</summary>
+    /// <summary>直近 1 秒ほどで実際に描いた回数。止まっているときは 0。</summary>
     public double FramesPerSecond { get; private set; }
+
+    /// <summary>1 回の描画（全区画）にかかった UI スレッドの時間の平均。</summary>
+    public double AverageFrameMilliseconds => _frameTimer.AverageMilliseconds;
 
     public bool IsRunning => _subscribed;
 
-    public void Add(IRenderTarget target)
+    public int LastRenderedTargetCount { get; private set; }
+
+    public void Register(IRenderTarget target)
     {
         if (!_targets.Contains(target))
         {
             _targets.Add(target);
         }
-        Subscribe();
+        RequestRender();
     }
 
-    public void Remove(IRenderTarget target) => _targets.Remove(target);
+    public void Unregister(IRenderTarget target) => _targets.Remove(target);
 
-    public void RequestRender() => Subscribe();
-
-    public void Stop()
+    public void InvalidateAll()
     {
-        _animating = false;
-        Unsubscribe();
+        foreach (IRenderTarget target in _targets)
+        {
+            target.Invalidate();
+        }
+        RequestRender();
     }
 
-    private void Subscribe()
+    public void RequestRender()
     {
         if (_subscribed)
         {
@@ -83,7 +88,7 @@ public sealed class RenderLoop
         CompositionTarget.Rendering += OnRendering;
     }
 
-    private void Unsubscribe()
+    public void Stop()
     {
         if (!_subscribed)
         {
@@ -107,48 +112,87 @@ public sealed class RenderLoop
         }
 
         long now = Stopwatch.GetTimestamp();
-        if (_animating)
-        {
-            TimeSpan step = Stopwatch.GetElapsedTime(_lastTimestamp, now);
-            _animationSeconds += (step > MaxStep ? MaxStep : step).TotalSeconds;
-        }
+        TimeSpan step = Stopwatch.GetElapsedTime(_lastTimestamp, now);
         _lastTimestamp = now;
+        playback.Advance(step > MaxStep ? MaxStep : step); // 再生位置が進むと、各区画は Invalidate される
 
-        bool rendered = false;
+        int rendered = RenderChangedTargets();
+        LastRenderedTargetCount = rendered;
+        if (rendered > 0)
+        {
+            _frameTimer.Add(Stopwatch.GetElapsedTime(now));
+            _framesInSample++;
+        }
+        UpdateFrameRate(now);
+
+        if (!playback.IsPlaying && !_targets.Any(t => t.CanRender && t.NeedsRender))
+        {
+            Stop();
+        }
+    }
+
+    private int RenderChangedTargets()
+    {
+        _submitted.Clear();
         foreach (IRenderTarget target in _targets.ToArray())
         {
-            if (!_animating && !target.NeedsRender)
+            if (!target.CanRender || !target.NeedsRender)
             {
                 continue;
             }
             try
             {
-                target.RenderFrame((float)_animationSeconds);
-                rendered = true;
+                if (target.Submit())
+                {
+                    _submitted.Add(target);
+                }
             }
             catch (Exception ex)
             {
-                // 失敗した描画先は外し、ほかの描画先は動かし続ける
-                AppLog.Error($"描画に失敗したため、この描画先を止めます: {target.GetType().Name}", ex);
-                _targets.Remove(target);
-                RenderFailed?.Invoke(this, new RenderFailedEventArgs(target, ex));
+                Fail(target, ex);
             }
         }
-
-        UpdateFrameRate(now, rendered);
-
-        if (!_animating && !_targets.Any(t => t.NeedsRender))
+        if (_submitted.Count == 0)
         {
-            Unsubscribe();
+            return 0;
         }
+
+        bool succeeded = true;
+        try
+        {
+            engine?.WaitForGpu();
+        }
+        catch (NativeEngineException ex)
+        {
+            succeeded = false;
+            AppLog.Error("GPU の描画完了を待てませんでした", ex);
+            RenderFailed?.Invoke(this, new RenderFailedEventArgs(null, ex));
+        }
+
+        foreach (IRenderTarget target in _submitted)
+        {
+            try
+            {
+                target.Complete(succeeded);
+            }
+            catch (Exception ex)
+            {
+                Fail(target, ex);
+            }
+        }
+        return _submitted.Count;
     }
 
-    private void UpdateFrameRate(long now, bool rendered)
+    private void Fail(IRenderTarget target, Exception ex)
     {
-        if (rendered)
-        {
-            _framesInSample++;
-        }
+        // 失敗した区画は外し、ほかの区画は動かし続ける
+        AppLog.Error($"描画に失敗したため、この区画の描画を止めます: {target}", ex);
+        _targets.Remove(target);
+        RenderFailed?.Invoke(this, new RenderFailedEventArgs(target, ex));
+    }
+
+    private void UpdateFrameRate(long now)
+    {
         TimeSpan elapsed = Stopwatch.GetElapsedTime(_sampleStart, now);
         if (elapsed >= TimeSpan.FromSeconds(1))
         {
@@ -159,14 +203,15 @@ public sealed class RenderLoop
     }
 }
 
-public sealed class RenderFailedEventArgs(IRenderTarget target, Exception exception) : EventArgs
+public sealed class RenderFailedEventArgs(IRenderTarget? target, Exception exception) : EventArgs
 {
-    public IRenderTarget Target { get; } = target;
+    /// <summary>失敗した区画。GPU 全体の失敗なら null。</summary>
+    public IRenderTarget? Target { get; } = target;
 
     public Exception Exception { get; } = exception;
 }
 
-/// <summary>1 フレームの描画にかかった時間（CPU 側）の移動平均。</summary>
+/// <summary>かかった時間の移動平均。</summary>
 public sealed class FrameTimer
 {
     private const int SampleCount = 60;

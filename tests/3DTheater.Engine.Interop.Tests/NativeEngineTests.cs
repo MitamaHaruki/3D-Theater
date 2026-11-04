@@ -10,6 +10,14 @@ public sealed class NativeEngineTests
     // 背景色 (0.13, 0.14, 0.16) を BGRA 8 ビットにしたもの
     private static readonly byte[] BackgroundBgra = [41, 36, 33, 255];
 
+    // 斜め上から確認用の立方体（中心 (0, 0.5, 0)）を見る描画条件
+    private static readonly FrameParameters DefaultFrame = new(
+        FrameFlags.ShowGrid | FrameFlags.ShowAxisX | FrameFlags.ShowAxisZ | FrameFlags.ShowTestObject,
+        System.Numerics.Matrix4x4.CreateLookAtLeftHanded(new(4f, 3f, -6f), new(0f, 0.5f, 0f), System.Numerics.Vector3.UnitY),
+        System.Numerics.Matrix4x4.CreatePerspectiveFieldOfViewLeftHanded(MathF.PI / 4f, 4f / 3f, 0.1f, 1000f),
+        System.Numerics.Matrix4x4.Identity,
+        System.Numerics.Matrix4x4.CreateTranslation(0f, 0.5f, 0f));
+
     [TestMethod]
     public void ApiVersionMatchesExpected()
     {
@@ -35,7 +43,8 @@ public sealed class NativeEngineTests
         const int height = 96;
         using (var view = engine.CreateOffscreenView(width, height))
         {
-            Assert.IsTrue(view.Render(0f));
+            Assert.IsTrue(view.Render(DefaultFrame));
+            engine.WaitForGpu();
             var pixels = new byte[width * height * 4];
             view.ReadPixels(pixels, width * 4);
 
@@ -67,7 +76,7 @@ public sealed class NativeEngineTests
         var view = engine.CreateOffscreenView(8, 8);
         view.Dispose();
         view.Dispose(); // 2 回目は何もしない
-        Assert.ThrowsExactly<ObjectDisposedException>(() => view.Render(0f));
+        Assert.ThrowsExactly<ObjectDisposedException>(() => view.Render(DefaultFrame));
 
         engine.Dispose();
         Assert.ThrowsExactly<ObjectDisposedException>(() => engine.CreateOffscreenView(8, 8));

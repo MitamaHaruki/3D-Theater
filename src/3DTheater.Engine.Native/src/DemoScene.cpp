@@ -20,9 +20,6 @@ std::vector<DemoVertex> BuildGridLines(int halfLineCount, float spacing)
 {
     constexpr Color minor{0.24f, 0.25f, 0.28f, 1.0f};
     constexpr Color major{0.34f, 0.35f, 0.39f, 1.0f};
-    constexpr Color xAxis{0.86f, 0.27f, 0.27f, 1.0f};
-    constexpr Color yAxis{0.33f, 0.78f, 0.36f, 1.0f};
-    constexpr Color zAxis{0.27f, 0.47f, 0.92f, 1.0f};
 
     std::vector<DemoVertex> vertices;
     const float extent = static_cast<float>(halfLineCount) * spacing;
@@ -36,10 +33,40 @@ std::vector<DemoVertex> BuildGridLines(int halfLineCount, float spacing)
         AddLine(vertices, -extent, 0.0f, p, extent, 0.0f, p, c);
         AddLine(vertices, p, 0.0f, -extent, p, 0.0f, extent, c);
     }
+    return vertices;
+}
 
+std::vector<DemoVertex> BuildAxisLines(float extent)
+{
+    constexpr Color xAxis{0.86f, 0.27f, 0.27f, 1.0f};
+    constexpr Color yAxis{0.33f, 0.78f, 0.36f, 1.0f};
+    constexpr Color zAxis{0.27f, 0.47f, 0.92f, 1.0f};
+
+    std::vector<DemoVertex> vertices;
     AddLine(vertices, -extent, 0.0f, 0.0f, extent, 0.0f, 0.0f, xAxis);
+    AddLine(vertices, 0.0f, -extent, 0.0f, 0.0f, extent, 0.0f, yAxis);
     AddLine(vertices, 0.0f, 0.0f, -extent, 0.0f, 0.0f, extent, zAxis);
-    AddLine(vertices, 0.0f, 0.0f, 0.0f, 0.0f, 2.5f, 0.0f, yAxis);
+    return vertices;
+}
+
+std::vector<DemoVertex> BuildCubeEdges(float scale)
+{
+    constexpr Color highlight{1.0f, 0.62f, 0.15f, 1.0f};
+    const float h = 0.5f * scale;
+
+    std::vector<DemoVertex> vertices;
+    for (int a = 0; a < 8; ++a) {
+        for (int bit = 1; bit < 8; bit <<= 1) {
+            const int b = a | bit;
+            if (b == a) {
+                continue; // a から 1 つの軸だけ + 側へ進んだ角とつなぐと、12 本の辺がちょうど 1 回ずつ出る
+            }
+            auto x = [&](int i) { return (i & 1) ? h : -h; };
+            auto y = [&](int i) { return (i & 2) ? h : -h; };
+            auto z = [&](int i) { return (i & 4) ? h : -h; };
+            AddLine(vertices, x(a), y(a), z(a), x(b), y(b), z(b), highlight);
+        }
+    }
     return vertices;
 }
 

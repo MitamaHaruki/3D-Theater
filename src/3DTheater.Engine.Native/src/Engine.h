@@ -28,8 +28,11 @@ public:
     void FillInfo(TtEngineInfo& info) const;
     void QueryVideoMemory(TtVideoMemoryInfo& info) const;
 
-    // Phase 0 の確認用の場面を描く。描き終えたら描画先の割り当てを外す。
-    void DrawDemoScene(ID3D11RenderTargetView* rtv, ID3D11DepthStencilView* dsv, int width, int height, float timeSeconds);
+    // 1 つのビューの場面を描く（GPU へ頼むだけで完了は待たない）。描き終えたら描画先の割り当てを外す。
+    void DrawScene(ID3D11RenderTargetView* rtv, ID3D11DepthStencilView* dsv, int width, int height, const TtFrameParams& params);
+
+    // それまでに頼んだ描画を GPU が終えるまで待つ。
+    void WaitForGpu();
 
     void AddView() noexcept { ++liveViewCount_; }
     void RemoveView() noexcept { --liveViewCount_; }
@@ -65,9 +68,14 @@ private:
 
     ComPtr<ID3D11Buffer> gridVertexBuffer_;
     UINT gridVertexCount_ = 0;
+    ComPtr<ID3D11Buffer> axisVertexBuffer_;
     ComPtr<ID3D11Buffer> cubeVertexBuffer_;
     ComPtr<ID3D11Buffer> cubeIndexBuffer_;
     UINT cubeIndexCount_ = 0;
+    ComPtr<ID3D11Buffer> cubeEdgeVertexBuffer_;
+    UINT cubeEdgeVertexCount_ = 0;
+
+    ComPtr<ID3D11Query> gpuDoneQuery_;
 };
 
 } // namespace tt
