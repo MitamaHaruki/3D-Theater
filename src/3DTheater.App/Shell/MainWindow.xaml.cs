@@ -59,6 +59,8 @@ public partial class MainWindow : Window
         context.RenderLoop.RenderFailed += OnRenderFailed;
         context.Playback.StateChanged += (_, _) => UpdatePlayButton();
         context.Playback.FrameChanged += (_, _) => UpdateFrameText();
+        context.Undo.Changed += (_, _) => UpdateUndoButtons();
+        UpdateUndoButtons();
 
         _statusTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(500), DispatcherPriority.Background, (_, _) => UpdateStatus(), Dispatcher);
         _statusTimer.Start();
@@ -142,6 +144,31 @@ public partial class MainWindow : Window
                 _context.Playback.GoToEnd();
                 e.Handled = true;
                 break;
+            case Key.Z when modifiers == ModifierKeys.Control:
+            case Key.Y when modifiers == ModifierKeys.Control:
+            case Key.Z when modifiers == (ModifierKeys.Control | ModifierKeys.Shift):
+                if (key == Key.Z && modifiers == ModifierKeys.Control)
+                {
+                    UndoOnce();
+                }
+                else
+                {
+                    RedoOnce();
+                }
+                e.Handled = true;
+                break;
+            case Key.Delete when KeyCommands.HasSelection(_context):
+                KeyCommands.Delete(_context);
+                e.Handled = true;
+                break;
+            case Key.C when modifiers == ModifierKeys.Control && KeyCommands.HasSelection(_context):
+                KeyCommands.Copy(_context);
+                e.Handled = true;
+                break;
+            case Key.V when modifiers == ModifierKeys.Control && KeyCommands.CanPaste(_context):
+                KeyCommands.Paste(_context, _context.Playback.CurrentFrame);
+                e.Handled = true;
+                break;
             case Key.A when modifiers == ModifierKeys.Control:
                 SelectAll();
                 e.Handled = true;
@@ -156,6 +183,7 @@ public partial class MainWindow : Window
                 break;
             case Key.Escape:
                 _context.Selection.Clear(this);
+                _context.KeySelection.Clear();
                 e.Handled = true;
                 break;
         }
@@ -361,7 +389,8 @@ public partial class MainWindow : Window
     {
         _context.Playback.Pause();
         IReadOnlyList<Domain.SceneNode> targets = _context.Animation.RegistrationTargets(_context.Selection.Items);
-        int count = _context.Animation.Register(targets);
+        int count = 0;
+        _context.Edits.Change("キーの登録", targets, () => count = _context.Animation.Register(targets), includeKeys: true);
         if (count > 0)
         {
             AppLog.Info($"フレーム {_context.Playback.CurrentFrame} にキーを {count} 個登録しました");
@@ -371,6 +400,53 @@ public partial class MainWindow : Window
             SetStatus("登録するボーン・モーフがありません（ボーンかモーフを選ぶか、モデルを選んで動かしてから登録してください）", isError: false);
         }
     }
+
+    private void OnUndoClick(object sender, RoutedEventArgs e) => UndoOnce();
+
+    private void OnRedoClick(object sender, RoutedEventArgs e) => RedoOnce();
+
+    private void UndoOnce()
+    {
+        string? what = _context.Undo.UndoDescription;
+        if (_context.Undo.Undo())
+        {
+            SetStatus($"元に戻しました: {what}", isError: false);
+        }
+    }
+
+    private void RedoOnce()
+    {
+        string? what = _context.Undo.RedoDescription;
+        if (_context.Undo.Redo())
+        {
+            SetStatus($"やり直しました: {what}", isError: false);
+        }
+    }
+
+    private void UpdateUndoButtons()
+    {
+        UndoButton.IsEnabled = _context.Undo.CanUndo;
+        RedoButton.IsEnabled = _context.Undo.CanRedo;
+        UndoButton.ToolTip = _context.Undo.CanUndo ? $"元に戻す: {_context.Undo.UndoDescription}（Ctrl+Z）" : "元に戻す（Ctrl+Z）";
+        RedoButton.ToolTip = _context.Undo.CanRedo ? $"やり直し: {_context.Undo.RedoDescription}（Ctrl+Y）" : "やり直し（Ctrl+Y）";
+    }
+
+    private void OnEditMenuOpened(object sender, RoutedEventArgs e)
+    {
+        UndoMenuItem.IsEnabled = _context.Undo.CanUndo;
+        UndoMenuItem.Header = _context.Undo.CanUndo ? $"元に戻す: {_context.Undo.UndoDescription}" : "元に戻す(_U)";
+        RedoMenuItem.IsEnabled = _context.Undo.CanRedo;
+        RedoMenuItem.Header = _context.Undo.CanRedo ? $"やり直し: {_context.Undo.RedoDescription}" : "やり直し(_R)";
+        CopyKeysMenuItem.IsEnabled = KeyCommands.HasSelection(_context);
+        DeleteKeysMenuItem.IsEnabled = KeyCommands.HasSelection(_context);
+        PasteKeysMenuItem.IsEnabled = KeyCommands.CanPaste(_context);
+    }
+
+    private void OnCopyKeysClick(object sender, RoutedEventArgs e) => KeyCommands.Copy(_context);
+
+    private void OnPasteKeysClick(object sender, RoutedEventArgs e) => KeyCommands.Paste(_context, _context.Playback.CurrentFrame);
+
+    private void OnDeleteKeysClick(object sender, RoutedEventArgs e) => KeyCommands.Delete(_context);
 
     private void OnMotionMenuOpened(object sender, RoutedEventArgs e) => AutoKeyMenuItem.IsChecked = _context.Animation.AutoKey;
 

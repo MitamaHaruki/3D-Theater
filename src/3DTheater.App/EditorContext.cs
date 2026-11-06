@@ -104,6 +104,10 @@ public sealed class EditorContext
         Playback = new PlaybackService();
         RenderLoop = new RenderLoop(engine, Playback);
         Animation = new AnimationService(Scene, Playback);
+        Undo = new UndoService();
+        Edits = new EditService(Undo, Animation, Playback);
+        KeySelection = new KeySelectionService();
+        Undo.Changed += (_, _) => KeySelection.Prune(); // 元に戻したキーは選択から外す
         Poses = new PoseUpdater(this);
 
         Scene.NodeChanged += (_, _) => RenderLoop.InvalidateAll();
@@ -121,6 +125,18 @@ public sealed class EditorContext
     public PlaybackService Playback { get; }
 
     public RenderLoop RenderLoop { get; }
+
+    /// <summary>元に戻す・やり直しの履歴。</summary>
+    public UndoService Undo { get; }
+
+    /// <summary>シーンの項目の編集の入口（元に戻せるように変える前後の値を残す）。画面からの編集はすべてここを通す。</summary>
+    public EditService Edits { get; }
+
+    /// <summary>タイムラインで選んでいるキー。</summary>
+    public KeySelectionService KeySelection { get; }
+
+    /// <summary>コピーしたキー（アプリの中だけで使う）。</summary>
+    public KeyClipboard? KeyClipboard { get; set; }
 
     /// <summary>キーフレームを再生位置に合わせて当てはめ、未登録の変更を管理する。</summary>
     public AnimationService Animation { get; }

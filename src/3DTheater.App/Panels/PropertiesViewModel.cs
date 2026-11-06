@@ -51,7 +51,8 @@ public sealed class PropertiesViewModel : ObservableObject
             }
             try
             {
-                _node.Name = value;
+                SceneNode node = _node;
+                _context.Edits.Change($"「{node.Name}」の名前", [node], () => node.Name = value);
             }
             catch (ArgumentException ex)
             {
@@ -74,7 +75,8 @@ public sealed class PropertiesViewModel : ObservableObject
         {
             if (_node is not null)
             {
-                _node.IsVisible = value;
+                SceneNode node = _node;
+                _context.Edits.Change($"{node.Name}の表示", [node], () => node.IsVisible = value);
             }
         }
     }
@@ -180,11 +182,11 @@ public sealed class PropertiesViewModel : ObservableObject
     public double MorphWeight
     {
         get => (_node as MorphNode)?.Weight ?? 0;
-        set => Edit(n => ((MorphNode)n).Weight = (float)value);
+        set => Edit("値", n => ((MorphNode)n).Weight = (float)value);
     }
 
     /// <summary>ボーンを初期の姿勢へ戻す。</summary>
-    public void ResetBone() => Edit(n =>
+    public void ResetBone() => Edit("初期の姿勢に戻す", n =>
     {
         n.Position = System.Numerics.Vector3.Zero;
         n.Rotation = System.Numerics.Vector3.Zero;
@@ -196,61 +198,62 @@ public sealed class PropertiesViewModel : ObservableObject
         if (_node is ModelNode model && model.CanEdit)
         {
             _context.Playback.Pause();
-            model.ResetPose();
+            _context.Edits.Change($"{model.Name}のポーズを初期化", [.. model.Bones, .. model.Morphs], model.ResetPose);
         }
     }
 
-    public double PositionX { get => Get(n => n.Position.X); set => Edit(n => n.Position = n.Position with { X = (float)value }); }
+    public double PositionX { get => Get(n => n.Position.X); set => Edit(PositionLabel, n => n.Position = n.Position with { X = (float)value }); }
 
-    public double PositionY { get => Get(n => n.Position.Y); set => Edit(n => n.Position = n.Position with { Y = (float)value }); }
+    public double PositionY { get => Get(n => n.Position.Y); set => Edit(PositionLabel, n => n.Position = n.Position with { Y = (float)value }); }
 
-    public double PositionZ { get => Get(n => n.Position.Z); set => Edit(n => n.Position = n.Position with { Z = (float)value }); }
+    public double PositionZ { get => Get(n => n.Position.Z); set => Edit(PositionLabel, n => n.Position = n.Position with { Z = (float)value }); }
 
-    public double RotationX { get => Get(n => n.Rotation.X); set => Edit(n => n.Rotation = n.Rotation with { X = (float)value }); }
+    public double RotationX { get => Get(n => n.Rotation.X); set => Edit("回転", n => n.Rotation = n.Rotation with { X = (float)value }); }
 
-    public double RotationY { get => Get(n => n.Rotation.Y); set => Edit(n => n.Rotation = n.Rotation with { Y = (float)value }); }
+    public double RotationY { get => Get(n => n.Rotation.Y); set => Edit("回転", n => n.Rotation = n.Rotation with { Y = (float)value }); }
 
-    public double RotationZ { get => Get(n => n.Rotation.Z); set => Edit(n => n.Rotation = n.Rotation with { Z = (float)value }); }
+    public double RotationZ { get => Get(n => n.Rotation.Z); set => Edit("回転", n => n.Rotation = n.Rotation with { Z = (float)value }); }
 
-    public double ScaleX { get => Get(n => n.Scale.X); set => Edit(n => n.Scale = n.Scale with { X = (float)value }); }
+    public double ScaleX { get => Get(n => n.Scale.X); set => Edit("拡大", n => n.Scale = n.Scale with { X = (float)value }); }
 
-    public double ScaleY { get => Get(n => n.Scale.Y); set => Edit(n => n.Scale = n.Scale with { Y = (float)value }); }
+    public double ScaleY { get => Get(n => n.Scale.Y); set => Edit("拡大", n => n.Scale = n.Scale with { Y = (float)value }); }
 
-    public double ScaleZ { get => Get(n => n.Scale.Z); set => Edit(n => n.Scale = n.Scale with { Z = (float)value }); }
+    public double ScaleZ { get => Get(n => n.Scale.Z); set => Edit("拡大", n => n.Scale = n.Scale with { Z = (float)value }); }
 
     public double FieldOfView
     {
         get => (_node as CameraNode)?.FieldOfView ?? 0;
-        set => Edit(n => ((CameraNode)n).FieldOfView = (float)value);
+        set => Edit("視野角", n => ((CameraNode)n).FieldOfView = (float)value);
     }
 
     public double NearClip
     {
         get => (_node as CameraNode)?.NearClip ?? 0;
-        set => Edit(n => ((CameraNode)n).NearClip = (float)value);
+        set => Edit("クリップ（近）", n => ((CameraNode)n).NearClip = (float)value);
     }
 
     public double FarClip
     {
         get => (_node as CameraNode)?.FarClip ?? 0;
-        set => Edit(n => ((CameraNode)n).FarClip = (float)value);
+        set => Edit("クリップ（遠）", n => ((CameraNode)n).FarClip = (float)value);
     }
 
     public double Intensity
     {
         get => (_node as LightNode)?.Intensity ?? 0;
-        set => Edit(n => ((LightNode)n).Intensity = (float)value);
+        set => Edit("明るさ", n => ((LightNode)n).Intensity = (float)value);
     }
 
     public bool SpinWithFrame
     {
         get => (_node as TestObjectNode)?.SpinWithFrame ?? false;
-        set => Edit(n => ((TestObjectNode)n).SpinWithFrame = value);
+        set => Edit("回転の確認", n => ((TestObjectNode)n).SpinWithFrame = value);
     }
 
     private double Get(Func<SceneNode, float> read) => _node is null ? 0 : read(_node);
 
-    private void Edit(Action<SceneNode> apply)
+    // 値を変える。元に戻せるように履歴へ積み、同じ欄を続けて変えたとき（ホイール・つまみ）は 1 つにまとめる
+    private void Edit(string what, Action<SceneNode> apply)
     {
         if (_node is null || !_node.CanEdit)
         {
@@ -258,7 +261,8 @@ public sealed class PropertiesViewModel : ObservableObject
             return;
         }
         _context.Playback.Pause();
-        apply(_node);
+        SceneNode node = _node;
+        _context.Edits.Change($"{node.Name}の{what}", [node], () => apply(node), mergeKey: $"{node.Id}:{what}");
     }
 
     private void Refresh()

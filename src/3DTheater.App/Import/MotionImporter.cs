@@ -64,7 +64,9 @@ internal static class MotionImporter
                 Finish(owner, path, result.Report, "ポーズ", $"ポーズを読み込めませんでした: {path}");
                 return;
             }
-            PoseImportResult applied = MotionImport.ApplyVpd(result.Document!, model, result.Report);
+            PoseImportResult applied = null!;
+            context.Edits.Change($"ポーズの読み込み（{Path.GetFileName(path)}）", [.. model.Bones, .. model.Morphs],
+                () => applied = MotionImport.ApplyVpd(result.Document!, model, result.Report));
             Finish(owner, path, result.Report, "ポーズ",
                 $"ポーズを「{model.Name}」に当てはめました（ボーン {applied.Bones:N0}・モーフ {applied.Morphs:N0}、{stopwatch.Elapsed.TotalMilliseconds:F0} ms）。" +
                 "キーにするにはタイムラインの「登録」を押してください");
@@ -77,7 +79,9 @@ internal static class MotionImporter
             Finish(owner, path, motion.Report, "モーション", $"モーションを読み込めませんでした: {path}");
             return;
         }
-        MotionImportResult imported = MotionImport.ApplyVmd(motion.Document!, model, context.Playback.FrameRate, motion.Report);
+        MotionImportResult imported = null!;
+        context.Edits.Change($"モーションの読み込み（{Path.GetFileName(path)}）", [.. model.Bones, .. model.Morphs],
+            () => imported = MotionImport.ApplyVmd(motion.Document!, model, context.Playback.FrameRate, motion.Report), includeKeys: true);
         if (imported.LastFrame > context.Playback.EndFrame)
         {
             context.Playback.EndFrame = imported.LastFrame;

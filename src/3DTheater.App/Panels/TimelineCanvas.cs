@@ -9,10 +9,12 @@ namespace Theater3D.App.Panels;
 
 /// <summary>
 /// タイムラインの本体。左にトラック名、上に目盛り、右にトラックの帯と再生位置の線を描く。
-/// 目盛りか帯をクリック・ドラッグで再生位置を動かす（再生中なら一時停止する）。
+/// 目盛りをクリック・ドラッグで再生位置を動かす。帯の空いている所をクリックしても、その位置へ動かす（再生中なら一時停止する）。
+/// キー: クリックで選ぶ（Ctrl で追加・解除、Shift で追加）、帯の空いている所からドラッグで範囲選択、
+/// 選んだキーをドラッグで移動（Ctrl を押しながらドラッグで複製）、ダブルクリックでそのキーのフレームへ、右クリックでメニュー。
+/// まとまりの行の◆は中のキーをまとめたもので、選ぶと中のキーすべてを選ぶ。
 /// ホイール = 上下、Shift + ホイール = 左右、Ctrl + ホイール = 拡大縮小。
-/// ボーン・モーフの行にはキーフレームを◆で描き、まとまりの行には中のキーをまとめて薄く描く（今のフレームのキーは強調色）。
-/// 未登録の変更がある項目は名前を橙色にする。キーの選択・移動は次の段階で作る。
+/// 未登録の変更がある項目は名前を橙色にする。
 /// </summary>
 public sealed class TimelineCanvas : FrameworkElement
 {
@@ -30,7 +32,15 @@ public sealed class TimelineCanvas : FrameworkElement
     private double _pixelsPerFrame = 4;
     private double _firstFrame;
     private double _scrollY;
-    private bool _scrubbing;
+    private const double KeyHitTolerance = 6;
+    private const double DragThreshold = 3;
+
+    private DragMode _drag;
+    private Point _dragStart;
+    private int _dragDelta;
+    private bool _duplicate;
+    private KeyRef[] _toggleOffOnClick = [];
+    private readonly Dictionary<SceneNode, HashSet<int>> _selectedFrames = [];
 
     private readonly Brush _background;
     private readonly Brush _rowAlt;
@@ -47,6 +57,10 @@ public sealed class TimelineCanvas : FrameworkElement
     private readonly Brush _summaryKey = Frozen(new SolidColorBrush(Color.FromArgb(0xA0, 0xB0, 0xB8, 0xC8)));
     private readonly Brush _unregistered = Frozen(new SolidColorBrush(Color.FromRgb(0xE0, 0xA0, 0x40)));
     private readonly Pen _keyOutline = FrozenPen(Color.FromArgb(0xC0, 0x10, 0x10, 0x10));
+    private readonly Brush _selectedKey = Frozen(new SolidColorBrush(Color.FromRgb(0xFF, 0xB0, 0x30)));
+    private readonly Brush _movingKey = Frozen(new SolidColorBrush(Color.FromArgb(0x50, 0xE6, 0xE6, 0xE6)));
+    private readonly Brush _bandFill = Frozen(new SolidColorBrush(Color.FromArgb(0x30, 0x4A, 0x9E, 0xFF)));
+    private readonly Pen _bandPen = FrozenPen(Color.FromArgb(0xC0, 0x4A, 0x9E, 0xFF));
     private readonly Typeface _face = new("Yu Gothic UI");
     private readonly Typeface _iconFace;
 
@@ -72,6 +86,11 @@ public sealed class TimelineCanvas : FrameworkElement
         context.Playback.FrameChanged += (_, _) => OnFrameChanged();
         context.Playback.StateChanged += (_, _) => InvalidateVisual();
         context.Selection.Changed += (_, _) => InvalidateVisual();
+        context.KeySelection.Changed += (_, _) =>
+        {
+            RebuildSelectedFrames();
+            InvalidateVisual();
+        };
         context.Scene.NodeChanged += (_, e) =>
         {
             // 行の組み直しは項目が増減したときだけ（ボーンやモーフの値を動かすたびには組み直さない）
@@ -182,6 +201,12 @@ public sealed class TimelineCanvas : FrameworkElement
             DrawKeys(dc, _rows[i].Node, y + (RowHeight / 2), Math.Max(0, first), last);
         }
 
+        // 範囲選択の四角
+        if (_drag == DragMode.Band)
+        {
+            dc.DrawRectangle(_bandFill, _bandPen, BandRect());
+        }
+
         // 終わりのフレームより後ろは暗くする
         double endX = FrameToX(_context.Playback.EndFrame);
         if (endX < width)
@@ -207,23 +232,70 @@ public sealed class TimelineCanvas : FrameworkElement
         dc.DrawLine(_borderPen, new Point(0, RulerHeight), new Point(laneLeft, RulerHeight));
     }
 
+    private enum DragMode
+    {
+        None,
+        Scrub,
+        PendingKey,
+        Keys,
+        PendingEmpty,
+        Band,
+    }
+
     protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e)
     {
         base.OnMouseLeftButtonDown(e);
         Focus();
         Point p = e.GetPosition(this);
+        ModifierKeys modifiers = Keyboard.Modifiers;
         if (p.X >= NameColumnWidth)
         {
-            _scrubbing = true;
             CaptureMouse();
-            _context.Playback.Pause();
-            SeekTo(p.X);
+            _dragStart = p;
+            if (p.Y < RulerHeight)
+            {
+                // 目盛り: 再生位置を動かす
+                _drag = DragMode.Scrub;
+                _context.Playback.Pause();
+                SeekTo(p.X);
+            }
+            else if (HitKeys(p) is { Count: > 0 } hit)
+            {
+                if (e.ClickCount == 2)
+                {
+                    _context.Playback.Pause();
+                    _context.Playback.Seek(hit[0].Frame);
+                    ReleaseMouseCapture();
+                    e.Handled = true;
+                    return;
+                }
+                bool allSelected = hit.All(_context.KeySelection.Contains);
+                _toggleOffOnClick = [];
+                if (modifiers.HasFlag(ModifierKeys.Control) && allSelected)
+                {
+                    _toggleOffOnClick = [.. hit]; // ドラッグしなければ、離したときに選択から外す
+                }
+                else if (modifiers.HasFlag(ModifierKeys.Control) || modifiers.HasFlag(ModifierKeys.Shift))
+                {
+                    _context.KeySelection.Add(hit);
+                }
+                else if (!allSelected)
+                {
+                    _context.KeySelection.Set(hit);
+                }
+                _drag = DragMode.PendingKey;
+                _dragDelta = 0;
+            }
+            else
+            {
+                _drag = DragMode.PendingEmpty;
+            }
             e.Handled = true;
             return;
         }
 
-        int row = (int)Math.Floor((p.Y - RulerHeight + _scrollY) / RowHeight);
-        if (p.Y < RulerHeight || row < 0 || row >= _rows.Count)
+        int row = RowAt(p.Y);
+        if (p.Y < RulerHeight || row < 0)
         {
             return;
         }
@@ -240,7 +312,7 @@ public sealed class TimelineCanvas : FrameworkElement
         }
         else
         {
-            _context.Selection.Select(node, Keyboard.Modifiers.HasFlag(ModifierKeys.Control) ? SelectMode.Toggle : SelectMode.Replace, this);
+            _context.Selection.Select(node, modifiers.HasFlag(ModifierKeys.Control) ? SelectMode.Toggle : SelectMode.Replace, this);
         }
         e.Handled = true;
     }
@@ -248,19 +320,238 @@ public sealed class TimelineCanvas : FrameworkElement
     protected override void OnMouseMove(MouseEventArgs e)
     {
         base.OnMouseMove(e);
-        if (_scrubbing)
+        Point p = e.GetPosition(this);
+        bool moved = (p - _dragStart).Length > DragThreshold;
+        switch (_drag)
         {
-            SeekTo(e.GetPosition(this).X);
+            case DragMode.Scrub:
+                SeekTo(p.X);
+                break;
+            case DragMode.PendingKey when moved:
+                _drag = DragMode.Keys;
+                _duplicate = Keyboard.Modifiers.HasFlag(ModifierKeys.Control);
+                _toggleOffOnClick = [];
+                _context.Playback.Pause();
+                goto case DragMode.Keys;
+            case DragMode.Keys:
+                int delta = (int)Math.Round((p.X - _dragStart.X) / _pixelsPerFrame);
+                delta = KeyEditing.ClampDelta(_context.KeySelection.Items, delta);
+                if (delta != _dragDelta)
+                {
+                    _dragDelta = delta;
+                    InvalidateVisual();
+                }
+                break;
+            case DragMode.PendingEmpty when moved:
+                _drag = DragMode.Band;
+                InvalidateVisual();
+                break;
+            case DragMode.Band:
+                _bandEnd = p;
+                InvalidateVisual();
+                break;
+        }
+        if (_drag == DragMode.Band)
+        {
+            _bandEnd = p;
         }
     }
 
     protected override void OnMouseLeftButtonUp(MouseButtonEventArgs e)
     {
         base.OnMouseLeftButtonUp(e);
-        if (_scrubbing)
+        Point p = e.GetPosition(this);
+        ModifierKeys modifiers = Keyboard.Modifiers;
+        switch (_drag)
         {
-            _scrubbing = false;
+            case DragMode.Keys:
+                KeyCommands.Move(_context, _dragDelta, _duplicate);
+                break;
+            case DragMode.PendingKey when _toggleOffOnClick.Length > 0:
+                _context.KeySelection.Remove(_toggleOffOnClick);
+                break;
+            case DragMode.PendingEmpty:
+                // 空いている所のクリック: キーの選択を外し、そのフレームへ動かす
+                if (!modifiers.HasFlag(ModifierKeys.Control) && !modifiers.HasFlag(ModifierKeys.Shift))
+                {
+                    _context.KeySelection.Clear();
+                }
+                _context.Playback.Pause();
+                SeekTo(p.X);
+                break;
+            case DragMode.Band:
+                SelectInBand(modifiers);
+                break;
+        }
+        bool wasDragging = _drag != DragMode.None;
+        _drag = DragMode.None;
+        _dragDelta = 0;
+        _toggleOffOnClick = [];
+        if (wasDragging)
+        {
             ReleaseMouseCapture();
+            InvalidateVisual();
+        }
+    }
+
+    protected override void OnLostMouseCapture(MouseEventArgs e)
+    {
+        base.OnLostMouseCapture(e);
+        if (_drag != DragMode.None)
+        {
+            _drag = DragMode.None; // ほかの窓に移ったときなどは、動かさずにやめる
+            _dragDelta = 0;
+            InvalidateVisual();
+        }
+    }
+
+    protected override void OnMouseRightButtonUp(MouseButtonEventArgs e)
+    {
+        base.OnMouseRightButtonUp(e);
+        Point p = e.GetPosition(this);
+        if (p.X < NameColumnWidth || p.Y < RulerHeight)
+        {
+            return;
+        }
+        if (HitKeys(p) is { Count: > 0 } hit && !hit.All(_context.KeySelection.Contains))
+        {
+            _context.KeySelection.Set(hit);
+        }
+        int frame = Math.Max(0, (int)Math.Round(XToFrame(p.X)));
+        bool hasKeys = KeyCommands.HasSelection(_context);
+        var menu = new System.Windows.Controls.ContextMenu();
+        var interpolation = new System.Windows.Controls.MenuItem { Header = "補間", IsEnabled = hasKeys };
+        interpolation.Items.Add(MenuItem("線形（一定の速さ）", null, () => KeyCommands.SetInterpolation(_context, InterpolationPreset.Linear), hasKeys));
+        interpolation.Items.Add(MenuItem("なめらか（ゆっくり動き出して止まる）", null, () => KeyCommands.SetInterpolation(_context, InterpolationPreset.Smooth), hasKeys));
+        interpolation.Items.Add(MenuItem("段階（次のキーまで変えない）", null, () => KeyCommands.SetInterpolation(_context, InterpolationPreset.Step), hasKeys));
+        menu.Items.Add(interpolation);
+        menu.Items.Add(new System.Windows.Controls.Separator());
+        menu.Items.Add(MenuItem("キーをコピー", "Ctrl+C", () => KeyCommands.Copy(_context), hasKeys));
+        menu.Items.Add(MenuItem($"フレーム {frame} に貼り付け", null, () => KeyCommands.Paste(_context, frame), KeyCommands.CanPaste(_context)));
+        menu.Items.Add(MenuItem("今のフレームに貼り付け", "Ctrl+V", () => KeyCommands.Paste(_context, _context.Playback.CurrentFrame), KeyCommands.CanPaste(_context)));
+        menu.Items.Add(MenuItem("キーを削除", "Delete", () => KeyCommands.Delete(_context), hasKeys));
+        menu.Items.Add(new System.Windows.Controls.Separator());
+        menu.Items.Add(MenuItem($"フレーム {frame} へ移動", null, () =>
+        {
+            _context.Playback.Pause();
+            _context.Playback.Seek(frame);
+        }, true));
+        menu.PlacementTarget = this;
+        menu.IsOpen = true;
+        e.Handled = true;
+    }
+
+    private static System.Windows.Controls.MenuItem MenuItem(string header, string? gesture, Action action, bool enabled)
+    {
+        var item = new System.Windows.Controls.MenuItem { Header = header, InputGestureText = gesture ?? string.Empty, IsEnabled = enabled };
+        item.Click += (_, _) => action();
+        return item;
+    }
+
+    private int RowAt(double y)
+    {
+        int row = (int)Math.Floor((y - RulerHeight + _scrollY) / RowHeight);
+        return y < RulerHeight || row < 0 || row >= _rows.Count ? -1 : row;
+    }
+
+    // マウスの下のキー（まとまりの行なら、そのフレームの中のキーすべて）
+    private IReadOnlyList<KeyRef>? HitKeys(Point p)
+    {
+        int row = RowAt(p.Y);
+        if (row < 0)
+        {
+            return null;
+        }
+        SceneNode node = _rows[row].Node;
+        int low = (int)Math.Floor(XToFrame(p.X - KeyHitTolerance));
+        int high = (int)Math.Ceiling(XToFrame(p.X + KeyHitTolerance));
+        double best = double.MaxValue;
+        int bestFrame = -1;
+        foreach (int frame in FramesOf(node, Math.Max(0, low), high))
+        {
+            double distance = Math.Abs(FrameToX(frame) - p.X);
+            if (distance <= KeyHitTolerance && distance < best)
+            {
+                best = distance;
+                bestFrame = frame;
+            }
+        }
+        if (bestFrame < 0)
+        {
+            return null;
+        }
+        return node is BoneNode or MorphNode ? [new KeyRef(node, bestFrame)] : KeyEditing.AtFrame(node, bestFrame);
+    }
+
+    private IEnumerable<int> FramesOf(SceneNode node, int first, int last)
+    {
+        switch (node)
+        {
+            case BoneNode bone:
+                var (bs, be) = bone.Keys.Range(first, last);
+                for (int i = bs; i < be; i++)
+                {
+                    yield return bone.Keys.Keys[i].Frame;
+                }
+                break;
+            case MorphNode morph:
+                var (ms, me) = morph.Keys.Range(first, last);
+                for (int i = ms; i < me; i++)
+                {
+                    yield return morph.Keys.Keys[i].Frame;
+                }
+                break;
+            default:
+                int[] frames = SummaryFrames(node);
+                int start = Array.BinarySearch(frames, first);
+                for (int k = start < 0 ? ~start : start; k < frames.Length && frames[k] <= last; k++)
+                {
+                    yield return frames[k];
+                }
+                break;
+        }
+    }
+
+    private Point _bandEnd;
+
+    private Rect BandRect() => new(_dragStart, _bandEnd);
+
+    private void SelectInBand(ModifierKeys modifiers)
+    {
+        Rect band = BandRect();
+        int firstRow = RowAt(Math.Max(band.Top, RulerHeight));
+        int lastRow = RowAt(Math.Min(band.Bottom, RulerHeight + (_rows.Count * RowHeight) - _scrollY - 1));
+        var keys = new List<KeyRef>();
+        if (firstRow >= 0 && lastRow >= firstRow)
+        {
+            int firstFrame = Math.Max(0, (int)Math.Ceiling(XToFrame(band.Left)));
+            int lastFrame = (int)Math.Floor(XToFrame(band.Right));
+            keys.AddRange(KeyEditing.InRange(_rows.Skip(firstRow).Take(lastRow - firstRow + 1).Select(r => r.Node), firstFrame, lastFrame));
+        }
+        if (modifiers.HasFlag(ModifierKeys.Control) || modifiers.HasFlag(ModifierKeys.Shift))
+        {
+            _context.KeySelection.Add(keys);
+        }
+        else
+        {
+            _context.KeySelection.Set(keys);
+        }
+    }
+
+    // まとまりの行で「選ばれている◆」を描くため、選んだキーのフレームを、その項目と親のまとまりごとにまとめておく
+    private void RebuildSelectedFrames()
+    {
+        _selectedFrames.Clear();
+        foreach (KeyRef key in _context.KeySelection.Items)
+        {
+            for (SceneNode? n = key.Node; n is not null; n = n.Parent)
+            {
+                if (!_selectedFrames.TryGetValue(n, out HashSet<int>? frames))
+                {
+                    _selectedFrames[n] = frames = [];
+                }
+                frames.Add(key.Frame);
+            }
         }
     }
 
@@ -300,53 +591,48 @@ public sealed class TimelineCanvas : FrameworkElement
     private void DrawKeys(DrawingContext dc, SceneNode node, double centerY, int firstFrame, int lastFrame)
     {
         int current = _context.Playback.CurrentFrame;
+        bool leaf = node is BoneNode or MorphNode;
+        double size = leaf ? 4.5 : 3.5;
+        Brush normal = leaf ? _key : _summaryKey;
+        _selectedFrames.TryGetValue(node, out HashSet<int>? selected);
+        bool moving = _drag == DragMode.Keys && selected is not null;
         double lastX = double.NegativeInfinity;
-        void Diamond(int frame, Brush brush, double size)
+
+        int margin = moving ? Math.Abs(_dragDelta) : 0;
+        foreach (int frame in FramesOf(node, Math.Max(0, firstFrame - margin), lastFrame + margin))
         {
-            double x = FrameToX(frame);
-            if (x - lastX < 1.5 && frame != current)
+            bool isSelected = selected?.Contains(frame) == true;
+            if (isSelected && moving)
             {
-                return; // 縮めて表示していて重なるときは描かない
+                // 動かしている間は、元の位置を薄く（複製なら普通に）描き、動かす先に選択の色で描く
+                Diamond(dc, frame, centerY, size, _duplicate ? normal : _movingKey);
+                Diamond(dc, frame + _dragDelta, centerY, size + 0.5, _selectedKey);
+                continue;
+            }
+            double x = FrameToX(frame);
+            if (x - lastX < 1.5 && frame != current && !isSelected)
+            {
+                continue; // 縮めて表示していて重なるときは描かない
             }
             lastX = x;
-            var geometry = new StreamGeometry();
-            using (StreamGeometryContext g = geometry.Open())
-            {
-                g.BeginFigure(new Point(x, centerY - size), true, true);
-                g.LineTo(new Point(x + size, centerY), false, false);
-                g.LineTo(new Point(x, centerY + size), false, false);
-                g.LineTo(new Point(x - size, centerY), false, false);
-            }
-            geometry.Freeze();
-            dc.DrawGeometry(frame == current ? _accent : brush, _keyOutline, geometry);
+            Brush brush = isSelected ? _selectedKey : frame == current ? _accent : normal;
+            Diamond(dc, frame, centerY, isSelected ? size + 0.5 : size, brush);
         }
+    }
 
-        switch (node)
+    private void Diamond(DrawingContext dc, int frame, double centerY, double size, Brush brush)
+    {
+        double x = FrameToX(frame);
+        var geometry = new StreamGeometry();
+        using (StreamGeometryContext g = geometry.Open())
         {
-            case BoneNode bone:
-                DrawTrack(bone.Keys.Keys, bone.Keys.Range(firstFrame, lastFrame));
-                break;
-            case MorphNode morph:
-                DrawTrack(morph.Keys.Keys, morph.Keys.Range(firstFrame, lastFrame));
-                break;
-            default:
-                int[] frames = SummaryFrames(node);
-                int start = Array.BinarySearch(frames, firstFrame);
-                start = start < 0 ? ~start : start;
-                for (int k = start; k < frames.Length && frames[k] <= lastFrame; k++)
-                {
-                    Diamond(frames[k], _summaryKey, 3.5);
-                }
-                break;
+            g.BeginFigure(new Point(x, centerY - size), true, true);
+            g.LineTo(new Point(x + size, centerY), false, false);
+            g.LineTo(new Point(x, centerY + size), false, false);
+            g.LineTo(new Point(x - size, centerY), false, false);
         }
-
-        void DrawTrack<TKey>(IReadOnlyList<TKey> keys, (int Start, int End) range) where TKey : struct, IKeyframe
-        {
-            for (int k = range.Start; k < range.End; k++)
-            {
-                Diamond(keys[k].Frame, _key, 4.5);
-            }
-        }
+        geometry.Freeze();
+        dc.DrawGeometry(brush, _keyOutline, geometry);
     }
 
     // まとまり（モデル・表示枠など）の中にあるキーのフレームの一覧。キーが変わるまで使い回す
@@ -391,7 +677,7 @@ public sealed class TimelineCanvas : FrameworkElement
         InvalidateVisual();
     }
 
-    private void SeekTo(double x) => _context.Playback.Seek((int)Math.Round(XToFrame(x)));
+    private void SeekTo(double x) => _context.Playback.Seek(Math.Max(0, (int)Math.Round(XToFrame(x))));
 
     private double FrameToX(double frame) => NameColumnWidth + LeftPadding + ((frame - _firstFrame) * _pixelsPerFrame);
 

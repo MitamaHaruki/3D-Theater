@@ -139,6 +139,37 @@ public class SceneNode : ObservableObject
         return null;
     }
 
+    /// <summary>編集できる値を写す（元に戻すため）。<paramref name="includeKeys"/> が true ならキーも写す。</summary>
+    public NodeState CaptureState(bool includeKeys = false) =>
+        new(Name, IsVisible, IsLocked, Position, Rotation, Scale, CaptureExtra(includeKeys));
+
+    /// <summary><see cref="CaptureState"/> で写した値に戻す。</summary>
+    public void RestoreState(NodeState state)
+    {
+        if (CanRename && state.Name != Name)
+        {
+            Name = state.Name;
+        }
+        IsVisible = state.IsVisible;
+        IsLocked = state.IsLocked;
+        if (HasTransform)
+        {
+            Position = state.Position;
+            Scale = state.Scale;
+            if (this is not BoneNode)
+            {
+                Rotation = state.Rotation; // ボーンの回転は四元数で戻す
+            }
+        }
+        RestoreExtra(state.Extra);
+    }
+
+    protected virtual object? CaptureExtra(bool includeKeys) => null;
+
+    protected virtual void RestoreExtra(object? extra)
+    {
+    }
+
     public IEnumerable<SceneNode> DescendantsAndSelf()
     {
         yield return this;
@@ -194,6 +225,20 @@ public sealed class CameraNode(string name) : SceneNode(SceneNodeKind.Camera, na
         get => _farClip;
         set => SetProperty(ref _farClip, Math.Max(value, _nearClip * 1.001f));
     }
+
+    protected override object? CaptureExtra(bool includeKeys) => new CameraState(FieldOfView, NearClip, FarClip);
+
+    protected override void RestoreExtra(object? extra)
+    {
+        if (extra is CameraState s)
+        {
+            // 近と遠は互いに制限し合うので、遠 → 近 → 遠 の順に戻す
+            FieldOfView = s.FieldOfView;
+            FarClip = s.FarClip;
+            NearClip = s.NearClip;
+            FarClip = s.FarClip;
+        }
+    }
 }
 
 public sealed class LightNode(string name) : SceneNode(SceneNodeKind.Light, name, canScale: false)
@@ -205,6 +250,16 @@ public sealed class LightNode(string name) : SceneNode(SceneNodeKind.Light, name
     {
         get => _intensity;
         set => SetProperty(ref _intensity, Math.Max(0f, value));
+    }
+
+    protected override object? CaptureExtra(bool includeKeys) => new LightState(Intensity);
+
+    protected override void RestoreExtra(object? extra)
+    {
+        if (extra is LightState s)
+        {
+            Intensity = s.Intensity;
+        }
     }
 }
 
@@ -368,6 +423,22 @@ public sealed class BoneNode : SceneNode
 
     /// <summary>初期の姿勢から動かしているか。</summary>
     public bool IsPosed => Position != Vector3.Zero || _orientation != Quaternion.Identity;
+
+    protected override object? CaptureExtra(bool includeKeys) =>
+        new BoneState(_orientation, _hasUnregisteredChange, includeKeys ? new KeySnapshot<BoneKey>(Keys.ToArray()) : null);
+
+    protected override void RestoreExtra(object? extra)
+    {
+        if (extra is BoneState s)
+        {
+            if (s.Keys is not null)
+            {
+                Keys.ReplaceAll(s.Keys.Keys);
+            }
+            Orientation = s.Orientation;
+            HasUnregisteredChange = s.HasUnregisteredChange;
+        }
+    }
 }
 
 /// <summary>モーフを並べるときの分け方（PMX の「パネル」）。</summary>
@@ -419,6 +490,22 @@ public sealed class MorphNode : SceneNode
     }
 
     public ModelNode? Model => FindAncestor<ModelNode>();
+
+    protected override object? CaptureExtra(bool includeKeys) =>
+        new MorphState(_weight, _hasUnregisteredChange, includeKeys ? new KeySnapshot<MorphKey>(Keys.ToArray()) : null);
+
+    protected override void RestoreExtra(object? extra)
+    {
+        if (extra is MorphState s)
+        {
+            if (s.Keys is not null)
+            {
+                Keys.ReplaceAll(s.Keys.Keys);
+            }
+            Weight = s.Weight;
+            HasUnregisteredChange = s.HasUnregisteredChange;
+        }
+    }
 }
 
 /// <summary>モデル読み込みができるまでの確認用の立方体（1 辺 1）。</summary>
@@ -431,5 +518,15 @@ public sealed class TestObjectNode(string name) : SceneNode(SceneNodeKind.TestOb
     {
         get => _spinWithFrame;
         set => SetProperty(ref _spinWithFrame, value);
+    }
+
+    protected override object? CaptureExtra(bool includeKeys) => new TestObjectState(SpinWithFrame);
+
+    protected override void RestoreExtra(object? extra)
+    {
+        if (extra is TestObjectState s)
+        {
+            SpinWithFrame = s.SpinWithFrame;
+        }
     }
 }

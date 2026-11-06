@@ -67,21 +67,24 @@ public partial class TimelinePanel : UserControl
     private void OnRegisterAllClick(object sender, RoutedEventArgs e)
     {
         _playback.Pause();
-        int count = _context.Animation.RegisterUnregistered();
+        int count = 0;
+        _context.Edits.Change("未登録の変更をすべて登録", _context.Animation.Unregistered, () => count = _context.Animation.RegisterUnregistered(), includeKeys: true);
         Logging.AppLog.Info($"フレーム {_playback.CurrentFrame} に、未登録の変更 {count} 個をキーとして登録しました");
     }
 
     private void OnDiscardClick(object sender, RoutedEventArgs e)
     {
         int count = _context.Animation.UnregisteredCount;
-        _context.Animation.DiscardUnregistered();
+        _context.Edits.Change("未登録の変更を破棄", _context.Animation.Unregistered, _context.Animation.DiscardUnregistered);
         Logging.AppLog.Info($"未登録の変更 {count} 個を破棄しました");
     }
 
     private void OnRegisterSelectionClick(object sender, RoutedEventArgs e)
     {
         _playback.Pause();
-        int count = _context.Animation.Register(_context.Animation.RegistrationTargets(_context.Selection.Items));
+        IReadOnlyList<Domain.SceneNode> targets = _context.Animation.RegistrationTargets(_context.Selection.Items);
+        int count = 0;
+        _context.Edits.Change("キーの登録", targets, () => count = _context.Animation.Register(targets), includeKeys: true);
         if (count > 0)
         {
             Logging.AppLog.Info($"フレーム {_playback.CurrentFrame} にキーを {count} 個登録しました");

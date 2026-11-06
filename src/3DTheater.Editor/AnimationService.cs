@@ -12,7 +12,6 @@ public sealed class AnimationService
 {
     private readonly SceneDocument _scene;
     private readonly PlaybackService _playback;
-    private readonly HashSet<SceneNode> _unregistered = [];
     private int _applying;
     private bool _autoKey;
 
@@ -42,9 +41,24 @@ public sealed class AnimationService
         }
     }
 
-    public IReadOnlyCollection<SceneNode> Unregistered => _unregistered;
+    /// <summary>未登録の変更があるボーン・モーフ（項目の印が元。元に戻すで印が戻っても数が合う）。</summary>
+    public IReadOnlyList<SceneNode> Unregistered =>
+        [.. Models.SelectMany(m => m.Bones.Where(b => b.HasUnregisteredChange).Cast<SceneNode>()
+            .Concat(m.Morphs.Where(x => x.HasUnregisteredChange)))];
 
-    public int UnregisteredCount => _unregistered.Count;
+    public int UnregisteredCount => Models.Sum(m => m.Bones.Count(b => b.HasUnregisteredChange) + m.Morphs.Count(x => x.HasUnregisteredChange));
+
+    /// <summary>
+    /// この間は、値やキーが変わっても「手で変えた」とみなさず、キーの当てはめもしない（元に戻すで値を書き戻すときに使う）。
+    /// </summary>
+    public IDisposable SuspendTracking()
+    {
+        _applying++;
+        return new Scope(() => _applying--);
+    }
+
+    /// <summary>未登録の変更の数などが外から変わったことを知らせる。</summary>
+    public void NotifyStateChanged() => StateChanged?.Invoke(this, EventArgs.Empty);
 
     public int CurrentFrame => _playback.CurrentFrame;
 
@@ -93,7 +107,7 @@ public sealed class AnimationService
                 }
                 continue;
             }
-            foreach (SceneNode child in node.DescendantsAndSelf().Where(n => n is BoneNode or MorphNode && _unregistered.Contains(n)))
+            foreach (SceneNode child in node.DescendantsAndSelf().Where(IsUnregistered))
             {
                 if (seen.Add(child))
                 {
@@ -144,17 +158,17 @@ public sealed class AnimationService
         return count;
     }
 
-    public int RegisterUnregistered() => Register([.. _unregistered]);
+    public int RegisterUnregistered() => Register(Unregistered);
 
     /// <summary>未登録の変更を捨て、キーの値（キーが無ければ初期の値）に戻す。</summary>
     public void DiscardUnregistered()
     {
-        if (_unregistered.Count == 0)
+        IReadOnlyList<SceneNode> nodes = Unregistered;
+        if (nodes.Count == 0)
         {
             return;
         }
         float frame = _playback.CurrentFrame;
-        List<SceneNode> nodes = [.. _unregistered];
         _applying++;
         try
         {
@@ -273,16 +287,19 @@ public sealed class AnimationService
             Register([node]);
             return;
         }
-        if (_unregistered.Add(node))
+        if (!IsUnregistered(node))
         {
             Apply(() => SetUnregisteredFlag(node, true));
             StateChanged?.Invoke(this, EventArgs.Empty);
         }
     }
 
-    private void ClearUnregistered(SceneNode node)
+    private static bool IsUnregistered(SceneNode node) =>
+        node is BoneNode { HasUnregisteredChange: true } or MorphNode { HasUnregisteredChange: true };
+
+    private static void ClearUnregistered(SceneNode node)
     {
-        if (_unregistered.Remove(node))
+        if (IsUnregistered(node))
         {
             SetUnregisteredFlag(node, false);
         }
@@ -298,6 +315,17 @@ public sealed class AnimationService
             case MorphNode morph:
                 morph.HasUnregisteredChange = value;
                 break;
+        }
+    }
+
+    private sealed class Scope(Action dispose) : IDisposable
+    {
+        private Action? _dispose = dispose;
+
+        public void Dispose()
+        {
+            _dispose?.Invoke();
+            _dispose = null;
         }
     }
 

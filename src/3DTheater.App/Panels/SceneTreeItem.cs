@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.ComponentModel;
 using Theater3D.Domain;
+using Theater3D.Editor;
 
 namespace Theater3D.App.Panels;
 
@@ -14,12 +15,15 @@ public sealed class SceneTreeItem : ObservableObject
     private bool _isRenaming;
     private string _editName = string.Empty;
 
-    public SceneTreeItem(SceneNode node, SceneTreeItem? parent)
+    private readonly EditService _edits;
+
+    public SceneTreeItem(SceneNode node, SceneTreeItem? parent, EditService edits)
     {
         Node = node;
         Parent = parent;
+        _edits = edits;
         _isExpanded = !node.StartsCollapsed;
-        Children = new ObservableCollection<SceneTreeItem>(node.Children.Select(c => new SceneTreeItem(c, this)));
+        Children = new ObservableCollection<SceneTreeItem>(node.Children.Select(c => new SceneTreeItem(c, this, edits)));
         node.PropertyChanged += OnNodePropertyChanged;
         ((INotifyCollectionChanged)node.Children).CollectionChanged += OnNodeChildrenChanged;
     }
@@ -47,14 +51,17 @@ public sealed class SceneTreeItem : ObservableObject
     public bool IsVisible
     {
         get => Node.IsVisible;
-        set => Node.IsVisible = value;
+        set => _edits.Change($"{Node.Name}の表示", [Node], () => Node.IsVisible = value);
     }
 
     public bool IsLocked
     {
         get => Node.IsLocked;
-        set => Node.IsLocked = value;
+        set => _edits.Change($"{Node.Name}のロック", [Node], () => Node.IsLocked = value);
     }
+
+    /// <summary>名前を変える（元に戻せる）。</summary>
+    public void Rename(string name) => _edits.Change($"「{Node.Name}」の名前", [Node], () => Node.Name = name);
 
     public bool CanRename => Node.CanRename && Node.CanEdit;
 
@@ -144,7 +151,7 @@ public sealed class SceneTreeItem : ObservableObject
         Children.Clear();
         foreach (SceneNode child in Node.Children)
         {
-            Children.Add(existing.TryGetValue(child, out SceneTreeItem? item) ? item : new SceneTreeItem(child, this));
+            Children.Add(existing.TryGetValue(child, out SceneTreeItem? item) ? item : new SceneTreeItem(child, this, _edits));
         }
         IsExpanded = true;
     }

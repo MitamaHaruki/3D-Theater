@@ -23,7 +23,7 @@ public partial class ScenePanel : UserControl
     {
         InitializeComponent();
         _context = context;
-        _root = new SceneTreeItem(context.Scene.Root, null);
+        _root = new SceneTreeItem(context.Scene.Root, null, context.Edits);
         Tree.ItemsSource = new[] { _root };
         context.Selection.Changed += (_, _) => SyncSelection();
         SyncSelection();
@@ -197,7 +197,7 @@ public partial class ScenePanel : UserControl
         }
         try
         {
-            item.Node.Name = item.EditName;
+            item.Rename(item.EditName);
         }
         catch (ArgumentException ex)
         {

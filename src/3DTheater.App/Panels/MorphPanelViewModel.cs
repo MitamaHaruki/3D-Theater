@@ -46,7 +46,7 @@ public sealed class MorphRow : ObservableObject
                 return;
             }
             _context.Playback.Pause(); // 再生中の編集は止めてから行う（指示書 3.4）
-            Node.Weight = (float)value;
+            _context.Edits.Change($"{Node.Name}の値", [Node], () => Node.Weight = (float)value, mergeKey: $"{Node.Id}:値");
         }
     }
 
@@ -140,10 +140,14 @@ public sealed class MorphPanelViewModel : ObservableObject
             return;
         }
         _context.Playback.Pause();
-        foreach (MorphNode morph in _model.Morphs.Where(m => m.CanEdit))
+        MorphNode[] morphs = [.. _model.Morphs.Where(m => m.CanEdit)];
+        _context.Edits.Change($"{_model.Name}のモーフをすべて 0 に", morphs, () =>
         {
-            morph.Weight = 0;
-        }
+            foreach (MorphNode morph in morphs)
+            {
+                morph.Weight = 0;
+            }
+        });
     }
 
     public void Select(MorphRow row) => _context.Selection.Select(row.Node, Editor.SelectMode.Replace, this);

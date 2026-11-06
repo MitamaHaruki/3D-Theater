@@ -171,6 +171,36 @@ public sealed class KeyTrack<TKey> where TKey : struct, IKeyframe
         Changed?.Invoke(this, EventArgs.Empty);
     }
 
+    /// <summary>すべてのキーを置き換える（通知は 1 回）。同じフレームのキーは後ろのものを使う。</summary>
+    public void ReplaceAll(IEnumerable<TKey> keys)
+    {
+        var sorted = new SortedDictionary<int, TKey>();
+        foreach (TKey key in keys)
+        {
+            if (key.Frame >= 0)
+            {
+                sorted[key.Frame] = key;
+            }
+        }
+        if (sorted.Count == _keys.Count && sorted.Values.SequenceEqual(_keys))
+        {
+            return;
+        }
+        _keys.Clear();
+        _keys.AddRange(sorted.Values);
+        Changed?.Invoke(this, EventArgs.Empty);
+    }
+
+    public TKey[] ToArray() => [.. _keys];
+
+    /// <summary>フレームのキーを探す。</summary>
+    public bool TryGet(int frame, out TKey key)
+    {
+        int index = IndexOf(frame);
+        key = index >= 0 ? _keys[index] : default;
+        return index >= 0;
+    }
+
     public bool HasKeyAt(int frame) => IndexOf(frame) >= 0;
 
     /// <summary>

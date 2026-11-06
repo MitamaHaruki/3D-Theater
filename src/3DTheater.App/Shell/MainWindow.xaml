@@ -50,13 +50,14 @@
             <Separator />
             <MenuItem Header="終了(_X)" InputGestureText="Alt+F4" Click="OnExitClick" />
           </MenuItem>
-          <MenuItem Header="編集(_E)">
-            <MenuItem Header="元に戻す(_U)" Style="{StaticResource PlannedItemStyle}" ToolTip="Phase 2 で対応します（Ctrl+Z）" />
-            <MenuItem Header="やり直し(_R)" Style="{StaticResource PlannedItemStyle}" ToolTip="Phase 2 で対応します（Ctrl+Y）" />
+          <MenuItem Header="編集(_E)" SubmenuOpened="OnEditMenuOpened">
+            <MenuItem x:Name="UndoMenuItem" Header="元に戻す(_U)" InputGestureText="Ctrl+Z" Click="OnUndoClick" />
+            <MenuItem x:Name="RedoMenuItem" Header="やり直し(_R)" InputGestureText="Ctrl+Y" Click="OnRedoClick" />
             <Separator />
-            <MenuItem Header="コピー(_C)" Style="{StaticResource PlannedItemStyle}" ToolTip="キーフレームのコピーは Phase 2 で対応します" />
-            <MenuItem Header="貼り付け(_P)" Style="{StaticResource PlannedItemStyle}" ToolTip="キーフレームの貼り付けは Phase 2 で対応します" />
-            <MenuItem Header="削除(_D)" Style="{StaticResource PlannedItemStyle}" ToolTip="Phase 2 で対応します" />
+            <MenuItem x:Name="CopyKeysMenuItem" Header="キーをコピー(_C)" InputGestureText="Ctrl+C" Click="OnCopyKeysClick"
+                      ToolTip="タイムラインで選んだキーをコピーします" />
+            <MenuItem x:Name="PasteKeysMenuItem" Header="キーを今のフレームに貼り付け(_P)" InputGestureText="Ctrl+V" Click="OnPasteKeysClick" />
+            <MenuItem x:Name="DeleteKeysMenuItem" Header="キーを削除(_D)" InputGestureText="Delete" Click="OnDeleteKeysClick" />
             <Separator />
             <MenuItem Header="すべて選択(_A)" InputGestureText="Ctrl+A" Click="OnSelectAllClick" />
             <MenuItem Header="選択を解除" InputGestureText="Esc" Click="OnClearSelectionClick" />
@@ -135,8 +136,10 @@
             <Button Style="{StaticResource IconButtonStyle}" Content="&#xE8E5;" IsEnabled="False" ToolTip="開く（Phase 2 で対応）" />
             <Button Style="{StaticResource IconButtonStyle}" Content="&#xE74E;" IsEnabled="False" ToolTip="保存（Phase 2 で対応）" />
             <Rectangle Style="{StaticResource ToolbarSeparatorStyle}" />
-            <Button Style="{StaticResource IconButtonStyle}" Content="&#xE7A7;" IsEnabled="False" ToolTip="元に戻す（Phase 2 で対応）" />
-            <Button Style="{StaticResource IconButtonStyle}" Content="&#xE7A6;" IsEnabled="False" ToolTip="やり直し（Phase 2 で対応）" />
+            <Button x:Name="UndoButton" Style="{StaticResource IconButtonStyle}" Content="&#xE7A7;" IsEnabled="False" ToolTip="元に戻す（Ctrl+Z）"
+                    Click="OnUndoClick" ToolTipService.ShowOnDisabled="True" />
+            <Button x:Name="RedoButton" Style="{StaticResource IconButtonStyle}" Content="&#xE7A6;" IsEnabled="False" ToolTip="やり直し（Ctrl+Y）"
+                    Click="OnRedoClick" ToolTipService.ShowOnDisabled="True" />
             <Rectangle Style="{StaticResource ToolbarSeparatorStyle}" />
             <ToggleButton Style="{StaticResource IconToggleButtonStyle}" Content="&#xE7C9;" IsChecked="True" ToolTip="選択（左クリックで選ぶ）" />
             <ToggleButton Style="{StaticResource IconToggleButtonStyle}" Content="&#xE7C2;" IsEnabled="False" ToolTip="移動（ギズモは Phase 2 で対応）" />
