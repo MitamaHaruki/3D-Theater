@@ -4,6 +4,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Theater3D.Animation;
 using Theater3D.Domain;
+using Theater3D.Editor;
 using Theater3D.Engine.Interop;
 
 namespace Theater3D.App.Rendering;
@@ -83,10 +84,12 @@ public sealed class PoseUpdater
         }
         model.BoundsMin = min;
         model.BoundsMax = max;
+        (model.DisplayBoundsMin, model.DisplayBoundsMax) = DisplayBounds.Compute(model.Positions, model.CoreVertices);
 
         if (model.Mesh is { } mesh)
         {
-            mesh.UpdateVertices(MemoryMarshal.Cast<SkinnedVertex, MeshVertex>(model.Vertices), min, max);
+            // エンジンの箱は選択の枠を描くだけなので、見た目の箱を渡す
+            mesh.UpdateVertices(MemoryMarshal.Cast<SkinnedVertex, MeshVertex>(model.Vertices), model.DisplayBoundsMin, model.DisplayBoundsMax);
             if (model.HasMaterialMorphs)
             {
                 for (int i = 0; i < model.MaterialStates.Length; i++)

@@ -47,7 +47,7 @@ internal sealed class BoneOverlay
     }
 
     /// <summary>十字の大きさ（モデルの大きさに合わせる）。</summary>
-    public static float MarkerSize(LoadedModel model) => Math.Max(0.002f, (model.BoundsMax - model.BoundsMin).Length() * 0.006f);
+    public static float MarkerSize(LoadedModel model) => Math.Max(0.002f, model.DisplaySize * 0.006f);
 
     public ReadOnlyMemory<LineVertex> Build(EditorContext context)
     {

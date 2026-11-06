@@ -16,22 +16,26 @@ namespace Theater3D.App;
 /// </summary>
 public sealed class LoadedModel : IDisposable
 {
-    public LoadedModel(PmxDocument document, LoadReport report, NativeMesh? mesh, ModelRig rig, uint[] indices, Vector3 boundsMin, Vector3 boundsMax)
+    internal LoadedModel(PmxDocument document, LoadReport report, NativeMesh? mesh, ModelRig rig, Import.PreparedModel prepared)
     {
         Document = document;
         Report = report;
         Mesh = mesh;
         Rig = rig;
-        Indices = indices;
+        Indices = prepared.Indices;
+        CoreVertices = prepared.CoreVertices;
+        DisplayBoundsMin = prepared.DisplayBoundsMin;
+        DisplayBoundsMax = prepared.DisplayBoundsMax;
         Input = new PoseInput(rig);
         State = new PoseState(rig);
         Vertices = new SkinnedVertex[rig.RestPositions.Length];
         Positions = (Vector3[])rig.RestPositions.Clone();
         MaterialStates = new MaterialState[rig.BaseMaterials.Length];
         HasMaterialMorphs = rig.Morphs.Any(m => m.Type == PmxMorphType.Material && m.MaterialOffsets.Length > 0);
-        BoundsMin = boundsMin;
-        BoundsMax = boundsMax;
+        BoundsMin = prepared.BoundsMin;
+        BoundsMax = prepared.BoundsMax;
         PoseEvaluator.Evaluate(rig, Input, State); // ボーンの表示のため、初期の姿勢も計算しておく
+        IsPoseDirty = true; // 最初の描画の前に 1 回変形し、選択の枠を見た目の箱にそろえる
     }
 
     public PmxDocument Document { get; }
@@ -60,10 +64,21 @@ public sealed class LoadedModel : IDisposable
     /// <summary>描画に使っている（壊れた番号を無害にした後の）面の頂点番号。</summary>
     public uint[] Indices { get; }
 
-    /// <summary>今の姿勢の頂点を囲む箱（モデルの座標で）。</summary>
+    /// <summary>今の姿勢のすべての頂点を囲む箱（モデルの座標で）。当たり判定に使う。</summary>
     public Vector3 BoundsMin { get; internal set; }
 
     public Vector3 BoundsMax { get; internal set; }
+
+    /// <summary>見た目の箱に入れる頂点の印（遠くに隠した部品は false。<see cref="Editor.DisplayBounds"/>）。</summary>
+    public bool[] CoreVertices { get; }
+
+    /// <summary>今の姿勢の「見た目の箱」。画面に収めるとき・選択の枠・ボーンの印の大きさに使う。</summary>
+    public Vector3 DisplayBoundsMin { get; internal set; }
+
+    public Vector3 DisplayBoundsMax { get; internal set; }
+
+    /// <summary>見た目の大きさ（見た目の箱の対角線の長さ）。</summary>
+    public float DisplaySize => (DisplayBoundsMax - DisplayBoundsMin).Length();
 
     /// <summary>姿勢を変えたが、まだ変形し直していない。</summary>
     public bool IsPoseDirty { get; set; }

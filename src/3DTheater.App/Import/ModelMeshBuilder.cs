@@ -1,5 +1,6 @@
 using System.IO;
 using System.Numerics;
+using Theater3D.Editor;
 using Theater3D.Engine.Interop;
 using Theater3D.Formats;
 using Theater3D.Formats.Images;
@@ -15,7 +16,10 @@ internal sealed record PreparedModel(
     int[] MaterialTextureIndices,
     IReadOnlyDictionary<int, DecodedImage> Textures,
     Vector3 BoundsMin,
-    Vector3 BoundsMax);
+    Vector3 BoundsMax,
+    bool[] CoreVertices,
+    Vector3 DisplayBoundsMin,
+    Vector3 DisplayBoundsMax);
 
 /// <summary>
 /// PMX の中身から、描画エンジンに渡す頂点・面・材質を組み立てる。
@@ -98,7 +102,31 @@ internal static class ModelMeshBuilder
             }
         }
 
-        return new PreparedModel(vertices, indices, materials, textureIndices, textures, min, max);
+        // 画面に収めるときの箱は、遠くに隠した部品（使わない眼鏡など）を除いて求める
+        Vector3[] positions = [.. d.Vertices.Select(v => v.Position)];
+        bool[] core = DisplayBounds.CoreVertices(positions, indices);
+        var (displayMin, displayMax) = DisplayBounds.Compute(positions, core);
+        int hidden = core.Count(c => !c) - CountUnused(indices, positions.Length);
+        if (hidden > 0)
+        {
+            report.Info(LoadIssueCategory.Note,
+                $"ほかから大きく離れた頂点が {hidden:N0} 個あります（使わない部品を遠くに隠しておく作りと思われます）。画面に収めるときと選択の枠では除いて扱います");
+        }
+
+        return new PreparedModel(vertices, indices, materials, textureIndices, textures, min, max, core, displayMin, displayMax);
+    }
+
+    private static int CountUnused(uint[] indices, int vertexCount)
+    {
+        var used = new bool[vertexCount];
+        foreach (uint i in indices)
+        {
+            if (i < (uint)vertexCount)
+            {
+                used[i] = true;
+            }
+        }
+        return indices.Length == 0 ? 0 : used.Count(u => !u);
     }
 
     /// <summary>組み立て済みの形を GPU に載せる（エンジンを作ったスレッドで呼ぶ）。</summary>

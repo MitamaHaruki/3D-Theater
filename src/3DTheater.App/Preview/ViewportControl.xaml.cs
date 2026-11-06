@@ -149,10 +149,10 @@ public partial class ViewportControl : UserControl, IDisposable
             // ボーンは今の姿勢での位置に、モデルは今の姿勢を囲む球に合わせる
             BoneNode bone when bone.Model is { } model && _context.GetLoaded(model) is { } loaded => (
                 Vector3.Transform(loaded.State.BonePosition(bone.Index), model.GetLocalMatrix()),
-                Math.Max(0.05f, (loaded.BoundsMax - loaded.BoundsMin).Length() * 0.12f)),
+                Math.Max(0.05f, loaded.DisplaySize * 0.12f)),
             ModelNode model when _context.GetLoaded(model) is { } loaded => (
-                Vector3.Transform((loaded.BoundsMin + loaded.BoundsMax) * 0.5f, model.GetLocalMatrix()),
-                SceneEvaluator.BoundingSphere(model).Radius),
+                Vector3.Transform((loaded.DisplayBoundsMin + loaded.DisplayBoundsMax) * 0.5f, model.GetLocalMatrix()),
+                Math.Max(0.01f, loaded.DisplaySize * 0.5f * MaxScale(model))),
             _ => SceneEvaluator.BoundingSphere(node),
         };
         Camera.Focus(center, radius, _context.MainCamera);
@@ -240,6 +240,8 @@ public partial class ViewportControl : UserControl, IDisposable
         ReadOnlyMemory<LineVertex> bones = ShowBones ? _boneOverlay.Build(_context) : ReadOnlyMemory<LineVertex>.Empty;
         return new FrameParameters(flags, matrices.View, matrices.Projection, gridWorld, testWorld, _drawItems, bones);
     }
+
+    private static float MaxScale(SceneNode node) => Math.Max(Math.Abs(node.Scale.X), Math.Max(Math.Abs(node.Scale.Y), Math.Abs(node.Scale.Z)));
 
     private void OnCameraChanged()
     {
