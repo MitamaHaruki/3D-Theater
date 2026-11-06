@@ -185,6 +185,33 @@ public sealed class LightNode(string name) : SceneNode(SceneNodeKind.Light, name
     }
 }
 
+/// <summary>読み込んだモデルの概要（シーン一覧とプロパティに出す）。</summary>
+public sealed record ModelSummary(
+    string Format,
+    int Vertices,
+    int Faces,
+    int Materials,
+    int Textures,
+    int Bones,
+    int Morphs,
+    int RigidBodies,
+    int Joints);
+
+/// <summary>
+/// 読み込んだモデル 1 体。元のファイルは参照するだけで書き換えない（指示書 4.4）。
+/// ファイルの中身（頂点・ボーンなど）はアプリ側で別に持ち、ここには場所と概要だけを持つ。
+/// </summary>
+public sealed class ModelNode(string name, string filePath, ModelSummary summary, string comment)
+    : SceneNode(SceneNodeKind.Model, name)
+{
+    public string FilePath { get; } = filePath;
+
+    public ModelSummary Summary { get; } = summary;
+
+    /// <summary>モデルに書かれたコメント（作者・利用条件など）。</summary>
+    public string Comment { get; } = comment;
+}
+
 /// <summary>モデル読み込みができるまでの確認用の立方体（1 辺 1）。</summary>
 public sealed class TestObjectNode(string name) : SceneNode(SceneNodeKind.TestObject, name)
 {

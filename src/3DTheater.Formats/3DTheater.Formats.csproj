@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- PMX / VMD / VPD などのファイル形式の読み書き。画面にもネイティブエンジンにも依存しない -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Theater3D.Formats</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="3DTheater.Formats.Tests" />
+  </ItemGroup>
+
+</Project>

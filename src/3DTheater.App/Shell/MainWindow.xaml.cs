@@ -7,6 +7,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
 using AvalonDock.Themes;
+using Theater3D.App.Import;
 using Theater3D.App.Logging;
 using Theater3D.App.Panels;
 using Theater3D.App.Preview;
@@ -26,6 +27,7 @@ public partial class MainWindow : Window
     private ViewportControl? _activeView;
     private string? _renderFailure;
     private bool _videoMemoryUnavailable;
+    private bool _busy;
 
     public MainWindow(EditorContext context, string? engineError)
     {
@@ -141,6 +143,10 @@ public partial class MainWindow : Window
                 break;
             case Key.A when modifiers == ModifierKeys.Control:
                 SelectAll();
+                e.Handled = true;
+                break;
+            case Key.I when modifiers == ModifierKeys.Control:
+                OnImportModelClick(this, e);
                 e.Handled = true;
                 break;
             case Key.Escape:
@@ -269,7 +275,10 @@ public partial class MainWindow : Window
             return;
         }
 
-        SetStatus(_renderFailure ?? "準備完了", isError: _renderFailure is not null);
+        if (!_busy)
+        {
+            SetStatus(_renderFailure ?? "準備完了", isError: _renderFailure is not null);
+        }
         EngineInfo info = engine.Info;
         string presenter = _context.SurfaceSharingUnavailable ? "読み出し方式" : "共有方式";
         RendererText.Text = $"描画: Direct3D 11（{presenter}）・{(info.IsSoftware ? "ソフトウェア" : info.AdapterName)}";
@@ -314,6 +323,64 @@ public partial class MainWindow : Window
             ? "GPU が使えなくなったため描画を止めました。アプリを再起動してください"
             : $"描画に失敗したため一部の区画を止めました: {e.Exception.Message}";
         UpdateStatus();
+    }
+
+    /// <summary>起動時の引数で渡されたモデルを、画面が出てから読み込む（「プログラムから開く」など）。</summary>
+    public void ImportOnStartup(IReadOnlyList<string> files)
+    {
+        if (files.Count == 0)
+        {
+            return;
+        }
+        Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, async () => await ImportModelsAsync(files));
+    }
+
+    private async void OnImportModelClick(object sender, RoutedEventArgs e)
+    {
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = "モデルを読み込む",
+            Filter = ModelImporter.FileFilter,
+            Multiselect = true,
+        };
+        if (dialog.ShowDialog(this) == true)
+        {
+            await ImportModelsAsync(dialog.FileNames);
+        }
+    }
+
+    private void OnPreviewDragOver(object sender, DragEventArgs e)
+    {
+        bool accepted = e.Data.GetData(DataFormats.FileDrop) is string[] files && files.Any(ModelImporter.IsModelFile);
+        e.Effects = accepted ? DragDropEffects.Copy : DragDropEffects.None;
+        e.Handled = true;
+    }
+
+    private async void OnPreviewDrop(object sender, DragEventArgs e)
+    {
+        if (e.Data.GetData(DataFormats.FileDrop) is string[] files)
+        {
+            e.Handled = true;
+            await ImportModelsAsync(files.Where(ModelImporter.IsModelFile));
+        }
+    }
+
+    private async Task ImportModelsAsync(IEnumerable<string> paths)
+    {
+        foreach (string path in paths)
+        {
+            SetStatus($"読み込み中: {System.IO.Path.GetFileName(path)}", isError: false);
+            _busy = true;
+            try
+            {
+                await ModelImporter.ImportAsync(_context, path, this);
+            }
+            finally
+            {
+                _busy = false;
+                UpdateStatus();
+            }
+        }
     }
 
     private void OnExitClick(object sender, RoutedEventArgs e) => Close();

@@ -29,6 +29,7 @@ public partial class App : Application
         var window = new Shell.MainWindow(new EditorContext(_engine), engineError);
         MainWindow = window;
         window.Show();
+        window.ImportOnStartup(options.Files);
     }
 
     protected override void OnExit(ExitEventArgs e)
@@ -134,7 +135,8 @@ public partial class App : Application
         e.Handled = true;
     }
 
-    private sealed record StartupOptions(bool UseWarp, bool DebugLayer)
+    /// <param name="Files">「--」で始まらない引数。起動後に読み込むモデルのファイル。</param>
+    private sealed record StartupOptions(bool UseWarp, bool DebugLayer, IReadOnlyList<string> Files)
     {
         public static StartupOptions Parse(string[] args)
         {
@@ -144,7 +146,8 @@ public partial class App : Application
 #else
             bool debugLayer = args.Contains("--debug-layer", StringComparer.OrdinalIgnoreCase);
 #endif
-            return new StartupOptions(useWarp, debugLayer);
+            string[] files = [.. args.Where(a => !a.StartsWith("--", StringComparison.Ordinal))];
+            return new StartupOptions(useWarp, debugLayer, files);
         }
     }
 }

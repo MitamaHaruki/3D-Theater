@@ -87,6 +87,12 @@ public sealed class PropertiesViewModel : ObservableObject
 
     public bool IsTestObject => _node is TestObjectNode;
 
+    public bool IsModel => _node is ModelNode;
+
+    public ModelNode? Model => _node as ModelNode;
+
+    public bool HasModelComment => !string.IsNullOrWhiteSpace(Model?.Comment);
+
     public double PositionX { get => Get(n => n.Position.X); set => Edit(n => n.Position = n.Position with { X = (float)value }); }
 
     public double PositionY { get => Get(n => n.Position.Y); set => Edit(n => n.Position = n.Position with { Y = (float)value }); }

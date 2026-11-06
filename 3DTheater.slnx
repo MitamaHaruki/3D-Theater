@@ -14,6 +14,9 @@
     <Project Path="src/3DTheater.Editor/3DTheater.Editor.csproj">
       <Platform Project="x64" />
     </Project>
+    <Project Path="src/3DTheater.Formats/3DTheater.Formats.csproj">
+      <Platform Project="x64" />
+    </Project>
     <Project Path="src/3DTheater.Engine.Interop/3DTheater.Engine.Interop.csproj">
       <Platform Project="x64" />
     </Project>
@@ -21,6 +24,9 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/3DTheater.Editor.Tests/3DTheater.Editor.Tests.csproj">
+      <Platform Project="x64" />
+    </Project>
+    <Project Path="tests/3DTheater.Formats.Tests/3DTheater.Formats.Tests.csproj">
       <Platform Project="x64" />
     </Project>
     <Project Path="tests/3DTheater.Engine.Interop.Tests/3DTheater.Engine.Interop.Tests.csproj">

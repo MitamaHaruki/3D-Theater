@@ -101,6 +101,57 @@
           </Grid>
         </StackPanel>
 
+        <!-- 読み込んだモデル -->
+        <StackPanel Visibility="{Binding IsModel, Converter={StaticResource BoolToVisibility}}">
+          <TextBlock Text="モデルの中身" Style="{StaticResource SectionHeaderStyle}" Margin="0,14,0,6" />
+          <Grid>
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="96" />
+              <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+              <RowDefinition Height="Auto" />
+              <RowDefinition Height="Auto" />
+              <RowDefinition Height="22" />
+              <RowDefinition Height="22" />
+              <RowDefinition Height="22" />
+              <RowDefinition Height="22" />
+              <RowDefinition Height="22" />
+              <RowDefinition Height="22" />
+              <RowDefinition Height="22" />
+            </Grid.RowDefinitions>
+            <TextBlock Text="形式" Style="{StaticResource RowLabelStyle}" />
+            <TextBlock Grid.Column="1" Margin="0,2" Text="{Binding Model.Summary.Format}" />
+            <TextBlock Grid.Row="1" Text="ファイル" Style="{StaticResource RowLabelStyle}" VerticalAlignment="Top" Margin="0,3,6,0" />
+            <TextBox Grid.Row="1" Grid.Column="1" Margin="0,2" IsReadOnly="True" TextWrapping="Wrap" MinHeight="0" Padding="4,2"
+                     FontSize="11" Text="{Binding Model.FilePath, Mode=OneWay}" />
+            <TextBlock Grid.Row="2" Text="頂点 / 面" Style="{StaticResource RowLabelStyle}" />
+            <TextBlock Grid.Row="2" Grid.Column="1" VerticalAlignment="Center">
+              <Run Text="{Binding Model.Summary.Vertices, StringFormat={}{0:N0}, Mode=OneWay}" /><Run Text=" / " /><Run Text="{Binding Model.Summary.Faces, StringFormat={}{0:N0}, Mode=OneWay}" />
+            </TextBlock>
+            <TextBlock Grid.Row="3" Text="材質" Style="{StaticResource RowLabelStyle}" />
+            <TextBlock Grid.Row="3" Grid.Column="1" VerticalAlignment="Center" Text="{Binding Model.Summary.Materials, StringFormat={}{0:N0}}" />
+            <TextBlock Grid.Row="4" Text="テクスチャ" Style="{StaticResource RowLabelStyle}" />
+            <TextBlock Grid.Row="4" Grid.Column="1" VerticalAlignment="Center" Text="{Binding Model.Summary.Textures, StringFormat={}{0:N0}}" />
+            <TextBlock Grid.Row="5" Text="ボーン" Style="{StaticResource RowLabelStyle}" />
+            <TextBlock Grid.Row="5" Grid.Column="1" VerticalAlignment="Center" Text="{Binding Model.Summary.Bones, StringFormat={}{0:N0}}" />
+            <TextBlock Grid.Row="6" Text="モーフ" Style="{StaticResource RowLabelStyle}" />
+            <TextBlock Grid.Row="6" Grid.Column="1" VerticalAlignment="Center" Text="{Binding Model.Summary.Morphs, StringFormat={}{0:N0}}" />
+            <TextBlock Grid.Row="7" Text="剛体" Style="{StaticResource RowLabelStyle}" />
+            <TextBlock Grid.Row="7" Grid.Column="1" VerticalAlignment="Center" Text="{Binding Model.Summary.RigidBodies, StringFormat={}{0:N0}}" />
+            <TextBlock Grid.Row="8" Text="ジョイント" Style="{StaticResource RowLabelStyle}" />
+            <TextBlock Grid.Row="8" Grid.Column="1" VerticalAlignment="Center" Text="{Binding Model.Summary.Joints, StringFormat={}{0:N0}}" />
+          </Grid>
+          <Button Margin="0,8,0,0" HorizontalAlignment="Left" Content="読み込みレポートを見る" Click="OnShowReportClick" />
+          <StackPanel Visibility="{Binding HasModelComment, Converter={StaticResource BoolToVisibility}}">
+            <TextBlock Text="モデルのコメント（作者・利用条件など）" Style="{StaticResource SectionHeaderStyle}" Margin="0,12,0,4" />
+            <TextBox IsReadOnly="True" TextWrapping="Wrap" MinHeight="0" MaxHeight="160" Padding="6,4" FontSize="11"
+                     VerticalScrollBarVisibility="Auto" Text="{Binding Model.Comment, Mode=OneWay}" />
+          </StackPanel>
+          <TextBlock Margin="0,8,0,0" Style="{StaticResource PlannedNoteStyle}"
+                     Text="モデルの表示（描画）・ボーンでの変形・表情は Phase 2 の次の段階で対応します。今はシーンに加えて中身を確かめるところまでです。" />
+        </StackPanel>
+
         <!-- カメラ -->
         <StackPanel Visibility="{Binding IsCamera, Converter={StaticResource BoolToVisibility}}">
           <TextBlock Text="カメラ" Style="{StaticResource SectionHeaderStyle}" Margin="0,14,0,6" />

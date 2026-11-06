@@ -2,8 +2,13 @@ using Theater3D.App.Rendering;
 using Theater3D.Domain;
 using Theater3D.Editor;
 using Theater3D.Engine.Interop;
+using Theater3D.Formats;
+using Theater3D.Formats.Pmx;
 
 namespace Theater3D.App;
+
+/// <summary>読み込んだモデルのファイルの中身と、そのときの読み込みレポート。</summary>
+public sealed record LoadedModel(PmxDocument Document, LoadReport Report);
 
 /// <summary>
 /// 画面のどこからでも共有する編集中の状態（シーン・選択・再生位置・描画）。
@@ -40,6 +45,9 @@ public sealed class EditorContext
     /// 以後の区画は、描いた絵を読み出して表示する予備の方式で作る。
     /// </summary>
     public bool SurfaceSharingUnavailable { get; set; }
+
+    /// <summary>読み込んだモデルの中身（シーンの <see cref="ModelNode"/> の Id で引く）。</summary>
+    public Dictionary<Guid, LoadedModel> Models { get; } = [];
 
     public CameraNode? MainCamera => Scene.FindFirst<CameraNode>();
 

@@ -24,6 +24,9 @@ public sealed class SceneDocument
 
     public SceneNode Root { get; }
 
+    /// <summary>読み込んだモデルを置くグループ。</summary>
+    public SceneNode ModelsGroup { get; private set; } = null!;
+
     /// <summary>どれかの項目の値が変わった。</summary>
     public event EventHandler<SceneNodeChangedEventArgs>? NodeChanged;
 
@@ -66,6 +69,7 @@ public sealed class SceneDocument
         document.Add(lights, new LightNode("ディレクショナルライト") { Rotation = new Vector3(45f, -30f, 0f) });
         document.Add(models, new TestObjectNode("テスト用立方体") { Position = new Vector3(0f, 0.5f, 0f) });
         document.Add(stage, new SceneNode(SceneNodeKind.Stage, "床グリッド", hasTransform: false));
+        document.ModelsGroup = models;
         return document;
 
         static SceneNode Group(string name) => new(SceneNodeKind.Group, name, canRename: false, hasTransform: false);

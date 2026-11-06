@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using System.ComponentModel;
 using Theater3D.Domain;
 
@@ -19,6 +20,7 @@ public sealed class SceneTreeItem : ObservableObject
         Parent = parent;
         Children = new ObservableCollection<SceneTreeItem>(node.Children.Select(c => new SceneTreeItem(c, this)));
         node.PropertyChanged += OnNodePropertyChanged;
+        ((INotifyCollectionChanged)node.Children).CollectionChanged += OnNodeChildrenChanged;
     }
 
     public SceneNode Node { get; }
@@ -110,6 +112,18 @@ public sealed class SceneTreeItem : ObservableObject
             IsExpanded = true;
         }
         return IsShownByFilter;
+    }
+
+    // モデルの読み込みなどで子が増減したら、行を合わせる（今ある行は開閉などの状態ごと使い回す）
+    private void OnNodeChildrenChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        var existing = Children.ToDictionary(c => c.Node);
+        Children.Clear();
+        foreach (SceneNode child in Node.Children)
+        {
+            Children.Add(existing.TryGetValue(child, out SceneTreeItem? item) ? item : new SceneTreeItem(child, this));
+        }
+        IsExpanded = true;
     }
 
     private void OnNodePropertyChanged(object? sender, PropertyChangedEventArgs e)
