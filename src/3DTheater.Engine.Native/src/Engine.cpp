@@ -1,5 +1,7 @@
 #include "Engine.h"
 
+#include <algorithm>
+#include <cstring>
 #include <vector>
 
 #include "DemoScene.h"
@@ -35,7 +37,11 @@ struct MaterialConstants {
     DirectX::XMFLOAT4 diffuse;
     DirectX::XMFLOAT4 ambientAndTexture; // w が 1 ならテクスチャあり
     DirectX::XMFLOAT4 specularAndPower;
+    DirectX::XMFLOAT4 textureMultiply;
+    DirectX::XMFLOAT4 textureAdd;
 };
+
+static_assert(sizeof(TtLineVertex) == sizeof(tt::DemoVertex), "重ね描きの線は、格子と同じ頂点の形で描く");
 
 const wchar_t* FeatureLevelName(D3D_FEATURE_LEVEL level)
 {
@@ -358,6 +364,11 @@ void Engine::DrawScene(
         }
     }
 
+    if (params.overlay_vertex_count >= 2) {
+        SetBasicPipeline();
+        DrawOverlayLines(params.overlay_lines, params.overlay_vertex_count - (params.overlay_vertex_count % 2), viewProj);
+    }
+
     ctx->OMSetBlendState(nullptr, nullptr, 0xFFFFFFFF);
     ctx->OMSetRenderTargets(0, nullptr, nullptr);
 }
@@ -415,6 +426,8 @@ void Engine::DrawMesh(const Mesh& mesh, DirectX::FXMMATRIX world, DirectX::CXMMA
         constants->diffuse = material.diffuse;
         constants->ambientAndTexture = {material.ambient.x, material.ambient.y, material.ambient.z, material.texture ? 1.0f : 0.0f};
         constants->specularAndPower = {material.specular.x, material.specular.y, material.specular.z, material.specularPower};
+        constants->textureMultiply = material.textureMultiply;
+        constants->textureAdd = material.textureAdd;
         ctx->Unmap(materialConstantBuffer_.Get(), 0);
 
         ID3D11ShaderResourceView* texture = material.texture ? material.texture.Get() : whiteTexture_.Get();
@@ -446,8 +459,43 @@ void Engine::DrawBox(
     context_->Draw(boxEdgeVertexCount_, 0);
 }
 
+void Engine::DrawOverlayLines(const TtLineVertex* vertices, uint32_t count, DirectX::CXMMATRIX viewProj)
+{
+    if (count > overlayVertexCapacity_) {
+        // 足りなければ倍の大きさで作り直す（毎フレーム作り直さないように）
+        UINT capacity = std::max<UINT>(count, overlayVertexCapacity_ * 2);
+        capacity = std::max<UINT>(capacity, 1024);
+        D3D11_BUFFER_DESC desc{};
+        desc.ByteWidth = capacity * sizeof(TtLineVertex);
+        desc.Usage = D3D11_USAGE_DYNAMIC;
+        desc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+        desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+        overlayVertexBuffer_.Reset();
+        CheckHr(device_->CreateBuffer(&desc, nullptr, &overlayVertexBuffer_), L"重ね描きの線のバッファーの作成");
+        overlayVertexCapacity_ = capacity;
+    }
+    D3D11_MAPPED_SUBRESOURCE mapped{};
+    CheckHr(context_->Map(overlayVertexBuffer_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped), L"重ね描きの線の更新");
+    std::memcpy(mapped.pData, vertices, static_cast<size_t>(count) * sizeof(TtLineVertex));
+    context_->Unmap(overlayVertexBuffer_.Get(), 0);
+
+    SetConstants(viewProj);
+    const UINT stride = sizeof(TtLineVertex);
+    const UINT offset = 0;
+    context_->OMSetDepthStencilState(overlayDepthState_.Get(), 0);
+    context_->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_LINELIST);
+    context_->IASetVertexBuffers(0, 1, overlayVertexBuffer_.GetAddressOf(), &stride, &offset);
+    context_->Draw(count, 0);
+}
+
 void Engine::CreateModelResources()
 {
+    D3D11_DEPTH_STENCIL_DESC overlay{};
+    overlay.DepthEnable = FALSE; // 体の中にあるボーンも見えるよう、奥行きを無視して手前に描く
+    overlay.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
+    overlay.DepthFunc = D3D11_COMPARISON_ALWAYS;
+    CheckHr(device_->CreateDepthStencilState(&overlay, &overlayDepthState_), L"重ね描きの深度設定の作成");
+
     CheckHr(device_->CreateVertexShader(g_ModelVS, sizeof(g_ModelVS), nullptr, &modelVertexShader_), L"モデルの頂点シェーダーの作成");
     CheckHr(device_->CreatePixelShader(g_ModelPS, sizeof(g_ModelPS), nullptr, &modelPixelShader_), L"モデルのピクセルシェーダーの作成");
 

@@ -1,0 +1,91 @@
+<UserControl x:Class="Theater3D.App.Panels.MorphPanel"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:c="clr-namespace:Theater3D.App.Controls"
+             Background="{StaticResource PanelBrush}">
+  <UserControl.Resources>
+    <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+    <Style TargetType="c:NumberBox" BasedOn="{StaticResource {x:Type TextBox}}">
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="Height" Value="22" />
+      <Setter Property="Padding" Value="3,0" />
+      <Setter Property="FontSize" Value="11.5" />
+    </Style>
+  </UserControl.Resources>
+
+  <DockPanel>
+    <StackPanel DockPanel.Dock="Top" Margin="8,6,8,4">
+      <TextBlock Text="{Binding Title}" TextWrapping="Wrap" FontWeight="SemiBold" />
+      <DockPanel Margin="0,6,0,0" Visibility="{Binding HasModel, Converter={StaticResource BoolToVisibility}}">
+        <ComboBox DockPanel.Dock="Left" Width="84" MinHeight="0" Height="26" FontSize="12" ToolTip="分類で絞り込む"
+                  ItemsSource="{Binding Categories}" SelectedItem="{Binding Category}" />
+        <Button DockPanel.Dock="Right" Margin="6,0,0,0" Style="{StaticResource TextButtonStyle}" Content="すべて 0"
+                ToolTip="このモデルのモーフをすべて 0 に戻します（ロックしたものは変えません）" Click="OnResetAllClick" />
+        <Grid Margin="6,0,0,0">
+          <TextBox x:Name="FilterBox" MinHeight="0" Height="26" Padding="6,2" FontSize="12"
+                   Text="{Binding Filter, UpdateSourceTrigger=PropertyChanged}" />
+          <TextBlock Margin="9,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False" Foreground="{StaticResource DisabledTextBrush}"
+                     Text="名前で絞り込む">
+            <TextBlock.Style>
+              <Style TargetType="TextBlock">
+                <Style.Triggers>
+                  <DataTrigger Binding="{Binding Text, ElementName=FilterBox}" Value="">
+                    <Setter Property="Visibility" Value="Visible" />
+                  </DataTrigger>
+                </Style.Triggers>
+                <Setter Property="Visibility" Value="Collapsed" />
+              </Style>
+            </TextBlock.Style>
+          </TextBlock>
+        </Grid>
+      </DockPanel>
+    </StackPanel>
+    <TextBlock DockPanel.Dock="Top" Margin="10,6" Text="{Binding EmptyNote}" Foreground="{StaticResource SubTextBrush}"
+               Visibility="{Binding IsEmptyNoteVisible, Converter={StaticResource BoolToVisibility}}" />
+
+    <ListBox x:Name="List" ItemsSource="{Binding Rows}" Background="Transparent" BorderThickness="0" Padding="2,0"
+             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+             VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling">
+      <ListBox.ItemContainerStyle>
+        <Style TargetType="ListBoxItem">
+          <Setter Property="Focusable" Value="False" />
+          <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+          <Setter Property="Template">
+            <Setter.Value>
+              <ControlTemplate TargetType="ListBoxItem">
+                <Border x:Name="Row" Background="Transparent" CornerRadius="3" Padding="6,1">
+                  <ContentPresenter />
+                </Border>
+                <ControlTemplate.Triggers>
+                  <Trigger Property="IsMouseOver" Value="True">
+                    <Setter TargetName="Row" Property="Background" Value="{StaticResource HoverBrush}" />
+                  </Trigger>
+                  <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                    <Setter TargetName="Row" Property="Background" Value="{StaticResource SelectionBrush}" />
+                  </DataTrigger>
+                </ControlTemplate.Triggers>
+              </ControlTemplate>
+            </Setter.Value>
+          </Setter>
+        </Style>
+      </ListBox.ItemContainerStyle>
+      <ListBox.ItemTemplate>
+        <DataTemplate>
+          <Grid Height="28" ToolTip="{Binding ToolTip}">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="3*" MinWidth="70" />
+              <ColumnDefinition Width="4*" />
+              <ColumnDefinition Width="58" />
+            </Grid.ColumnDefinitions>
+            <TextBlock VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Text="{Binding Name}"
+                       Background="Transparent" Cursor="Hand" MouseLeftButtonDown="OnNameMouseDown" />
+            <Slider Grid.Column="1" Margin="6,0" VerticalAlignment="Center" Minimum="0" Maximum="1" SmallChange="0.01" LargeChange="0.1"
+                    IsMoveToPointEnabled="True" Value="{Binding Weight}" IsEnabled="{Binding IsEditable}" />
+            <c:NumberBox Grid.Column="2" Value="{Binding Weight}" Step="0.01" Format="0.000"
+                         IsReadOnly="{Binding IsEditable, Converter={x:Static c:BoolNegation.Instance}}" />
+          </Grid>
+        </DataTemplate>
+      </ListBox.ItemTemplate>
+    </ListBox>
+  </DockPanel>
+</UserControl>

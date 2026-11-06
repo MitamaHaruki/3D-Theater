@@ -19,6 +19,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\3DTheater.Animation\3DTheater.Animation.csproj" />
     <ProjectReference Include="..\3DTheater.Domain\3DTheater.Domain.csproj" />
     <ProjectReference Include="..\3DTheater.Editor\3DTheater.Editor.csproj" />
     <ProjectReference Include="..\3DTheater.Formats\3DTheater.Formats.csproj" />

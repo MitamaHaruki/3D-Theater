@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- ボーン・IK・モーフの計算と、頂点の変形（スキニング）。画面にもネイティブエンジンにも依存しない -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Theater3D.Animation</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="3DTheater.Animation.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\3DTheater.Formats\3DTheater.Formats.csproj" />
+  </ItemGroup>
+
+</Project>

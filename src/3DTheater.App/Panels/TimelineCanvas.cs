@@ -23,6 +23,7 @@ public sealed class TimelineCanvas : FrameworkElement
 
     private readonly EditorContext _context;
     private readonly HashSet<SceneNode> _collapsed = [];
+    private readonly HashSet<SceneNode> _seen = [];
     private readonly List<(SceneNode Node, int Depth)> _rows = [];
     private double _pixelsPerFrame = 4;
     private double _firstFrame;
@@ -65,7 +66,15 @@ public sealed class TimelineCanvas : FrameworkElement
         context.Playback.FrameChanged += (_, _) => OnFrameChanged();
         context.Playback.StateChanged += (_, _) => InvalidateVisual();
         context.Selection.Changed += (_, _) => InvalidateVisual();
-        context.Scene.NodeChanged += (_, _) => { RebuildRows(); InvalidateVisual(); };
+        context.Scene.NodeChanged += (_, e) =>
+        {
+            // 行の組み直しは項目が増減したときだけ（ボーンやモーフの値を動かすたびには組み直さない）
+            if (e.PropertyName == nameof(SceneNode.Children))
+            {
+                RebuildRows();
+            }
+            InvalidateVisual();
+        };
         RebuildRows();
     }
 
@@ -305,6 +314,10 @@ public sealed class TimelineCanvas : FrameworkElement
         void AddRows(SceneNode node, int depth)
         {
             _rows.Add((node, depth));
+            if (_seen.Add(node) && node.StartsCollapsed)
+            {
+                _collapsed.Add(node); // ボーンや表情のまとまりは、シーン一覧と同じく最初は閉じておく
+            }
             if (_collapsed.Contains(node))
             {
                 return;

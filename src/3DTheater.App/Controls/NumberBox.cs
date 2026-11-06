@@ -51,6 +51,27 @@ public sealed class NumberBox : TextBox
         set => SetValue(FormatProperty, value);
     }
 
+    public override void OnApplyTemplate()
+    {
+        base.OnApplyTemplate();
+        // Fluent の見た目は入力中に「×」（消す）ボタンを出すが、数値の欄は狭く、値の先頭（- など）が隠れるので出さない
+        HideButtons(this);
+    }
+
+    private static void HideButtons(DependencyObject parent)
+    {
+        for (int i = 0; i < System.Windows.Media.VisualTreeHelper.GetChildrenCount(parent); i++)
+        {
+            DependencyObject child = System.Windows.Media.VisualTreeHelper.GetChild(parent, i);
+            if (child is System.Windows.Controls.Primitives.ButtonBase button)
+            {
+                button.Visibility = Visibility.Collapsed;
+                continue;
+            }
+            HideButtons(child);
+        }
+    }
+
     protected override void OnKeyDown(KeyEventArgs e)
     {
         if (e.Key == Key.Enter)

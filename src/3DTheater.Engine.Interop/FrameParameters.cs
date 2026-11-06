@@ -17,6 +17,7 @@ public enum FrameFlags : uint
 
 /// <summary>
 /// 1 つのビューを 1 枚描くための条件。行列は System.Numerics と同じ「行ベクトル × 行列」で、左手系・Y が上。
+/// <see cref="OverlayLines"/> はモデルより手前に描く線（ボーンの表示など。2 つの頂点で 1 本）。配列を使い回せるよう範囲で渡す。
 /// </summary>
 public readonly record struct FrameParameters(
     FrameFlags Flags,
@@ -24,4 +25,5 @@ public readonly record struct FrameParameters(
     Matrix4x4 Projection,
     Matrix4x4 GridWorld,
     Matrix4x4 TestObjectWorld,
-    IReadOnlyList<DrawItem>? Items = null);
+    IReadOnlyList<DrawItem>? Items = null,
+    ReadOnlyMemory<LineVertex> OverlayLines = default);

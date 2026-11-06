@@ -11,6 +11,10 @@ public enum SceneNodeKind
     Model,
     Stage,
     TestObject,
+    /// <summary>モデルのボーン（モデルの下にある）。</summary>
+    Bone,
+    /// <summary>モデルのモーフ（表情など）。</summary>
+    Morph,
 }
 
 /// <summary>
@@ -47,6 +51,12 @@ public class SceneNode : ObservableObject
     public bool HasTransform { get; }
 
     public bool CanScale { get; }
+
+    /// <summary>一覧（シーン一覧・タイムライン）で最初は閉じておくか。ボーンや表情のように数が多いまとまりに使う。</summary>
+    public bool StartsCollapsed { get; init; }
+
+    /// <summary>表示 / 非表示を切り替えられるか（モーフのように見た目の無い項目は false）。</summary>
+    public bool CanToggleVisibility { get; init; } = true;
 
     public SceneNode? Parent { get; private set; }
 
@@ -114,6 +124,19 @@ public class SceneNode : ObservableObject
         }
         child.Parent = this;
         _children.Add(child);
+    }
+
+    /// <summary>親をたどって、最初に見つかった <typeparamref name="T"/> の項目。</summary>
+    public T? FindAncestor<T>() where T : SceneNode
+    {
+        for (SceneNode? p = Parent; p is not null; p = p.Parent)
+        {
+            if (p is T match)
+            {
+                return match;
+            }
+        }
+        return null;
     }
 
     public IEnumerable<SceneNode> DescendantsAndSelf()
@@ -215,6 +238,111 @@ public sealed class ModelNode(string name, string filePath, ModelSummary summary
     public Vector3 BoundsMin { get; } = boundsMin;
 
     public Vector3 BoundsMax { get; } = boundsMax;
+
+    /// <summary>ボーン（モデルのファイルの番号順）。一覧では表示枠ごとのまとまりの下に並ぶ。</summary>
+    public IReadOnlyList<BoneNode> Bones { get; private set; } = [];
+
+    /// <summary>モーフ（モデルのファイルの番号順）。一覧では種類（目・口など）ごとのまとまりの下に並ぶ。</summary>
+    public IReadOnlyList<MorphNode> Morphs { get; private set; } = [];
+
+    /// <summary>
+    /// ボーンとモーフを、一覧での並び（まとまりの項目）ごと取り付ける。シーンに加える前に 1 回だけ呼ぶ。
+    /// <paramref name="groups"/> はモデルの直下に置く項目（「ボーン」「表情」など）で、その下に各ボーン・モーフが入っていること。
+    /// </summary>
+    public void AttachParts(IEnumerable<SceneNode> groups, IReadOnlyList<BoneNode> bones, IReadOnlyList<MorphNode> morphs)
+    {
+        if (Parent is not null || Children.Count > 0)
+        {
+            throw new InvalidOperationException("ボーンとモーフは、シーンに加える前に 1 回だけ取り付けられます");
+        }
+        foreach (SceneNode group in groups)
+        {
+            AddChild(group);
+        }
+        var parts = DescendantsAndSelf().ToHashSet();
+        if (!bones.All(parts.Contains) || !morphs.All(parts.Contains))
+        {
+            throw new ArgumentException("ボーンとモーフは、取り付ける項目の下に入れてください");
+        }
+        Bones = bones;
+        Morphs = morphs;
+    }
+
+    /// <summary>ボーンを初期の姿勢に、モーフを 0 に戻す（ロックした項目は変えない）。</summary>
+    public void ResetPose()
+    {
+        foreach (BoneNode bone in Bones.Where(b => b.CanEdit))
+        {
+            bone.Position = Vector3.Zero;
+            bone.Rotation = Vector3.Zero;
+        }
+        foreach (MorphNode morph in Morphs.Where(m => m.CanEdit))
+        {
+            morph.Weight = 0;
+        }
+    }
+}
+
+/// <summary>ボーンの性質（モデルのファイルから読んだもの。シーンでは変えない）。</summary>
+public sealed record BoneTraits(
+    bool CanRotate,
+    bool CanTranslate,
+    bool IsIk,
+    bool IsIkLink,
+    bool HasInherit,
+    bool HasFixedAxis,
+    bool AfterPhysics,
+    bool IsShown,
+    string ParentName);
+
+/// <summary>
+/// モデルのボーン 1 本。<see cref="SceneNode.Position"/> は初期の位置からの移動、<see cref="SceneNode.Rotation"/> は回転（度）で、
+/// どちらも親のボーンから見た向きで表す（MMD のボーンの移動・回転と同じ）。
+/// 名前や親子関係はモデルのファイルのままで、ここでは変えない（指示書 2.7）。
+/// </summary>
+public sealed class BoneNode(string name, int index, BoneTraits traits)
+    : SceneNode(SceneNodeKind.Bone, name, canRename: false, hasTransform: true, canScale: false)
+{
+    public int Index { get; } = index;
+
+    public BoneTraits Traits { get; } = traits;
+
+    public ModelNode? Model => FindAncestor<ModelNode>();
+
+    /// <summary>初期の姿勢から動かしているか。</summary>
+    public bool IsPosed => Position != Vector3.Zero || Rotation != Vector3.Zero;
+}
+
+/// <summary>モーフを並べるときの分け方（PMX の「パネル」）。</summary>
+public enum MorphCategory
+{
+    Eyebrow,
+    Eye,
+    Mouth,
+    Other,
+    System,
+}
+
+/// <summary>モデルのモーフ（表情など）1 つ。値は 0（効かない）〜 1（すべて効く）。</summary>
+public sealed class MorphNode(string name, int index, MorphCategory category, string typeName)
+    : SceneNode(SceneNodeKind.Morph, name, canRename: false, hasTransform: false)
+{
+    private float _weight;
+
+    public int Index { get; } = index;
+
+    public MorphCategory Category { get; } = category;
+
+    /// <summary>モーフの種類の名前（頂点・ボーン・材質など）。</summary>
+    public string TypeName { get; } = typeName;
+
+    public float Weight
+    {
+        get => _weight;
+        set => SetProperty(ref _weight, float.IsFinite(value) ? Math.Clamp(value, 0f, 1f) : 0f);
+    }
+
+    public ModelNode? Model => FindAncestor<ModelNode>();
 }
 
 /// <summary>モデル読み込みができるまでの確認用の立方体（1 辺 1）。</summary>

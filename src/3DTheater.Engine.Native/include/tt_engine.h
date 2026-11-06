@@ -24,7 +24,7 @@ extern "C" {
 
 // 上位 16 ビットが大きな版、下位 16 ビットが小さな版。大きな版が違う DLL とは組み合わせない。
 #define TT_API_VERSION_MAJOR 0
-#define TT_API_VERSION_MINOR 3
+#define TT_API_VERSION_MINOR 4
 #define TT_API_VERSION ((TT_API_VERSION_MAJOR << 16) | TT_API_VERSION_MINOR)
 
 // 0 以上は成功、負の値は失敗。
@@ -133,6 +133,23 @@ typedef struct TtMeshDesc {
     const TtMeshMaterial* materials;
 } TtMeshDesc;
 
+// 材質の今の値（材質モーフで変わった後の値）。テクスチャの色は「テクスチャ × texture_multiply + texture_add」で使う
+typedef struct TtMaterialState {
+    float diffuse[4];
+    float specular[3];
+    float specular_power;
+    float ambient[3];
+    uint32_t reserved;
+    float texture_multiply[4];
+    float texture_add[4];
+} TtMaterialState;
+
+// 重ね描きする線の頂点（2 つで 1 本）。座標はワールド
+typedef struct TtLineVertex {
+    float position[3];
+    float color[4];
+} TtLineVertex;
+
 enum {
     TT_DRAW_SELECTED = 1u << 0, // 選択中。外接する箱の線を強調色で描く
 };
@@ -156,6 +173,9 @@ typedef struct TtFrameParams {
     const TtDrawItem* items;     // 描くモデル（並び順に描く）。item_count が 0 なら NULL でよい
     uint32_t item_count;
     uint32_t reserved;
+    const TtLineVertex* overlay_lines; // 最後に、奥行きに関係なく手前へ重ねて描く線（ボーンの表示など）
+    uint32_t overlay_vertex_count;     // 2 の倍数
+    uint32_t reserved2;
 } TtFrameParams;
 
 TT_API uint32_t TT_CALL tt_get_api_version(void);
@@ -179,6 +199,11 @@ TT_API TtResult TT_CALL tt_texture_destroy(TtTexture* texture); // NULL なら�
 // メッシュ。頂点番号と材質の範囲は作るときに確かめ、範囲外なら TT_E_INVALID_ARG
 TT_API TtResult TT_CALL tt_mesh_create(TtEngine* engine, const TtMeshDesc* desc, TtMesh** out_mesh);
 TT_API TtResult TT_CALL tt_mesh_destroy(TtMesh* mesh); // NULL なら何もせず TT_OK
+// 変形した後の頂点で置き換える（数は作ったときと同じ）。bounds_min / bounds_max は選択の箱に使う囲み（NULL なら変えない）
+TT_API TtResult TT_CALL tt_mesh_update_vertices(
+    TtMesh* mesh, const TtMeshVertex* vertices, uint32_t vertex_count, const float* bounds_min, const float* bounds_max);
+// 材質の今の値を置き換える（数は作ったときと同じ）
+TT_API TtResult TT_CALL tt_mesh_update_materials(TtMesh* mesh, const TtMaterialState* states, uint32_t material_count);
 
 // parent_hwnd の子ウィンドウを作り、そこへ直接描画するビュー（WPF の HwndHost 用）
 TT_API TtResult TT_CALL tt_view_create_for_window(

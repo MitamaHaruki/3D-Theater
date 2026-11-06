@@ -17,6 +17,10 @@ public partial class PropertiesPanel : UserControl
         DataContext = _viewModel;
     }
 
+    private void OnResetBoneClick(object sender, RoutedEventArgs e) => _viewModel.ResetBone();
+
+    private void OnResetPoseClick(object sender, RoutedEventArgs e) => _viewModel.ResetModelPose();
+
     private void OnShowReportClick(object sender, RoutedEventArgs e)
     {
         if (_viewModel.Model is { } model && _context.Models.TryGetValue(model.Id, out LoadedModel? loaded))

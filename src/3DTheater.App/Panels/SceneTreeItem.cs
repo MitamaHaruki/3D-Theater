@@ -8,7 +8,7 @@ namespace Theater3D.App.Panels;
 /// <summary>シーン一覧の 1 行。シーンの項目（<see cref="SceneNode"/>）を画面用に包む。</summary>
 public sealed class SceneTreeItem : ObservableObject
 {
-    private bool _isExpanded = true;
+    private bool _isExpanded;
     private bool _isSelected;
     private bool _isShownByFilter = true;
     private bool _isRenaming;
@@ -18,6 +18,7 @@ public sealed class SceneTreeItem : ObservableObject
     {
         Node = node;
         Parent = parent;
+        _isExpanded = !node.StartsCollapsed;
         Children = new ObservableCollection<SceneTreeItem>(node.Children.Select(c => new SceneTreeItem(c, this)));
         node.PropertyChanged += OnNodePropertyChanged;
         ((INotifyCollectionChanged)node.Children).CollectionChanged += OnNodeChildrenChanged;
@@ -38,6 +39,8 @@ public sealed class SceneTreeItem : ObservableObject
         SceneNodeKind.Model => "",
         SceneNodeKind.TestObject => "",
         SceneNodeKind.Stage => "",
+        SceneNodeKind.Bone => Node is BoneNode { Traits.IsIk: true } ? "" : "",
+        SceneNodeKind.Morph => "",
         _ => Parent is null ? "" : "",
     };
 
@@ -54,6 +57,16 @@ public sealed class SceneTreeItem : ObservableObject
     }
 
     public bool CanRename => Node.CanRename && Node.CanEdit;
+
+    public bool CanToggleVisibility => Node.CanToggleVisibility;
+
+    /// <summary>名前の後ろに小さく出す補足（モーフの値など）。</summary>
+    public string Detail => Node switch
+    {
+        MorphNode { Weight: > 0 } morph => morph.Weight.ToString("0.00", System.Globalization.CultureInfo.CurrentCulture),
+        BoneNode { IsPosed: true } => "●",
+        _ => string.Empty,
+    };
 
     public bool IsExpanded
     {
@@ -135,6 +148,9 @@ public sealed class SceneTreeItem : ObservableObject
                 break;
             case nameof(SceneNode.IsVisible):
                 OnPropertyChanged(nameof(IsVisible));
+                break;
+            case nameof(MorphNode.Weight) or nameof(SceneNode.Position) or nameof(SceneNode.Rotation):
+                OnPropertyChanged(nameof(Detail));
                 break;
             case nameof(SceneNode.IsLocked):
                 OnPropertyChanged(nameof(IsLocked));

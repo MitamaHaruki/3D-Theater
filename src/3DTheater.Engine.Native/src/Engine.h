@@ -52,6 +52,7 @@ private:
     void SetConstants(DirectX::FXMMATRIX worldViewProj);
     void DrawMesh(const Mesh& mesh, DirectX::FXMMATRIX world, DirectX::CXMMATRIX viewProj);
     void DrawBox(const DirectX::XMFLOAT3& minimum, const DirectX::XMFLOAT3& maximum, DirectX::FXMMATRIX world, DirectX::CXMMATRIX viewProj);
+    void DrawOverlayLines(const TtLineVertex* vertices, uint32_t count, DirectX::CXMMATRIX viewProj);
 
     uint32_t magic_ = kMagic;
     DWORD ownerThreadId_;
@@ -85,6 +86,9 @@ private:
     UINT cubeEdgeVertexCount_ = 0;
     ComPtr<ID3D11Buffer> boxEdgeVertexBuffer_; // 1 辺 1 の箱の辺（拡大せず）。選択中のモデルの強調に使う
     UINT boxEdgeVertexCount_ = 0;
+    ComPtr<ID3D11Buffer> overlayVertexBuffer_; // 重ね描きの線（足りなくなったら大きく作り直す）
+    UINT overlayVertexCapacity_ = 0;
+    ComPtr<ID3D11DepthStencilState> overlayDepthState_;
 
     // モデル（テクスチャと簡単な陰影）
     ComPtr<ID3D11VertexShader> modelVertexShader_;

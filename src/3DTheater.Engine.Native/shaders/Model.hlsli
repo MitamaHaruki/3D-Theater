@@ -12,6 +12,8 @@ cbuffer MaterialConstants : register(b1)
     float4 Diffuse;           // a = 不透明度
     float4 AmbientAndTexture; // w = 1 ならテクスチャあり
     float4 SpecularAndPower;
+    float4 TextureMultiply;   // 材質モーフでテクスチャの色を変える分（テクスチャ × 掛ける値 + 足す値）
+    float4 TextureAdd;
 };
 
 Texture2D DiffuseTexture : register(t0);

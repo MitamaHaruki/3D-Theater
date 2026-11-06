@@ -45,6 +45,9 @@ public sealed class RenderLoop(NativeEngine? engine, PlaybackService playback)
 
     public event EventHandler<RenderFailedEventArgs>? RenderFailed;
 
+    /// <summary>描き直す区画があるとき、描画を頼む直前に呼ばれる（モデルの変形を GPU へ送るなど）。</summary>
+    public event EventHandler? BeforeRender;
+
     /// <summary>直近 1 秒ほどで実際に描いた回数。止まっているときは 0。</summary>
     public double FramesPerSecond { get; private set; }
 
@@ -134,6 +137,18 @@ public sealed class RenderLoop(NativeEngine? engine, PlaybackService playback)
     private int RenderChangedTargets()
     {
         _submitted.Clear();
+        if (!_targets.Any(t => t.CanRender && t.NeedsRender))
+        {
+            return 0;
+        }
+        try
+        {
+            BeforeRender?.Invoke(this, EventArgs.Empty);
+        }
+        catch (Exception ex) when (ex is NativeEngineException or InvalidOperationException or ArgumentException)
+        {
+            AppLog.Error("描画の準備（モデルの変形）に失敗しました", ex);
+        }
         foreach (IRenderTarget target in _targets.ToArray())
         {
             if (!target.CanRender || !target.NeedsRender)

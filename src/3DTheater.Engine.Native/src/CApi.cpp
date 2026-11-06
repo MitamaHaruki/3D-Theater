@@ -173,6 +173,17 @@ TT_API TtResult TT_CALL tt_mesh_destroy(TtMesh* mesh)
     return Guard([&] { delete &ToMesh(mesh); });
 }
 
+TT_API TtResult TT_CALL tt_mesh_update_vertices(
+    TtMesh* mesh, const TtMeshVertex* vertices, uint32_t vertex_count, const float* bounds_min, const float* bounds_max)
+{
+    return Guard([&] { ToMesh(mesh).UpdateVertices(vertices, vertex_count, bounds_min, bounds_max); });
+}
+
+TT_API TtResult TT_CALL tt_mesh_update_materials(TtMesh* mesh, const TtMaterialState* states, uint32_t material_count)
+{
+    return Guard([&] { ToMesh(mesh).UpdateMaterials(states, material_count); });
+}
+
 TT_API TtResult TT_CALL tt_engine_get_info(TtEngine* engine, TtEngineInfo* out_info)
 {
     return Guard([&] {
@@ -266,6 +277,7 @@ TT_API TtResult TT_CALL tt_view_render(TtView* view, const TtFrameParams* params
         Require(params != nullptr, L"params が NULL です");
         Require(params->struct_size == sizeof(TtFrameParams), L"TtFrameParams の struct_size が合いません");
         Require(params->item_count == 0 || params->items != nullptr, L"描くモデルの一覧が NULL です");
+        Require(params->overlay_vertex_count == 0 || params->overlay_lines != nullptr, L"重ね描きの線が NULL です");
         for (uint32_t i = 0; i < params->item_count; ++i) {
             tt::Mesh& mesh = ToMesh(params->items[i].mesh);
             Require(&mesh.OwnerEngine() == &v.OwnerEngine(), L"別のエンジンで作ったメッシュは描けません");

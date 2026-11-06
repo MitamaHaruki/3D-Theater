@@ -158,6 +158,59 @@ public static class Picking
         return t > 0f ? t : null;
     }
 
+    /// <summary>
+    /// 3D の点を画面上の点（左上が原点、単位はピクセル）に写す。カメラの後ろにある点は false。
+    /// </summary>
+    public static bool TryProject(Vector3 world, Matrix4x4 viewProjection, Vector2 viewportSize, out Vector2 screen)
+    {
+        Vector4 clip = Vector4.Transform(new Vector4(world, 1f), viewProjection);
+        if (clip.W <= 1e-6f)
+        {
+            screen = default;
+            return false;
+        }
+        float x = clip.X / clip.W;
+        float y = clip.Y / clip.W;
+        screen = new Vector2((x + 1f) * 0.5f * viewportSize.X, (1f - y) * 0.5f * viewportSize.Y);
+        return true;
+    }
+
+    /// <summary>画面上の点 <paramref name="point"/> から、線分 a–b までの距離（ピクセル）。</summary>
+    public static float DistanceToSegment(Vector2 point, Vector2 a, Vector2 b)
+    {
+        Vector2 ab = b - a;
+        float lengthSquared = ab.LengthSquared();
+        float t = lengthSquared < 1e-12f ? 0f : Math.Clamp(Vector2.Dot(point - a, ab) / lengthSquared, 0f, 1f);
+        return Vector2.Distance(point, a + (ab * t));
+    }
+
+    /// <summary>
+    /// 画面上の点にいちばん近い線分を選ぶ（ボーンの選択に使う）。<paramref name="tolerance"/> ピクセルより遠ければ -1。
+    /// 両端がカメラの後ろにある線分は選ばない。
+    /// </summary>
+    public static int PickSegment(
+        Vector2 point, Vector2 viewportSize, Matrix4x4 viewProjection, IReadOnlyList<(Vector3 A, Vector3 B)> segments, float tolerance)
+    {
+        int best = -1;
+        float bestDistance = tolerance;
+        for (int i = 0; i < segments.Count; i++)
+        {
+            bool hasA = TryProject(segments[i].A, viewProjection, viewportSize, out Vector2 a);
+            bool hasB = TryProject(segments[i].B, viewProjection, viewportSize, out Vector2 b);
+            if (!hasA && !hasB)
+            {
+                continue;
+            }
+            float distance = DistanceToSegment(point, hasA ? a : b, hasB ? b : a);
+            if (distance <= bestDistance)
+            {
+                best = i;
+                bestDistance = distance;
+            }
+        }
+        return best;
+    }
+
     private static Vector3 Unproject(Vector4 clip, Matrix4x4 inverseViewProjection)
     {
         Vector4 world = Vector4.Transform(clip, inverseViewProjection);

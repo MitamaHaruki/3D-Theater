@@ -45,6 +45,9 @@ internal unsafe struct TtFrameParams
     public TtDrawItem* Items;
     public uint ItemCount;
     public uint Reserved;
+    public LineVertex* OverlayLines;
+    public uint OverlayVertexCount;
+    public uint Reserved2;
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -128,6 +131,14 @@ internal static unsafe partial class NativeMethods
     [LibraryImport(Library, EntryPoint = "tt_mesh_destroy")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial int MeshDestroy(nint mesh);
+
+    [LibraryImport(Library, EntryPoint = "tt_mesh_update_vertices")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial int MeshUpdateVertices(nint mesh, MeshVertex* vertices, uint count, Vector3* boundsMin, Vector3* boundsMax);
+
+    [LibraryImport(Library, EntryPoint = "tt_mesh_update_materials")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial int MeshUpdateMaterials(nint mesh, MaterialState* states, uint count);
 
     [LibraryImport(Library, EntryPoint = "tt_engine_wait_for_gpu")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]

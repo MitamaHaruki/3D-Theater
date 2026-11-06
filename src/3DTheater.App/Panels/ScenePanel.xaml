@@ -103,7 +103,17 @@
             </TextBlock.Style>
           </TextBlock>
         </ToggleButton>
-        <ToggleButton DockPanel.Dock="Right" Style="{StaticResource RowToggleStyle}" IsChecked="{Binding IsVisible}" ToolTip="表示 / 非表示">
+        <ToggleButton DockPanel.Dock="Right" IsChecked="{Binding IsVisible}" ToolTip="表示 / 非表示">
+          <ToggleButton.Style>
+            <!-- 見た目の無い項目（モーフ）では隠す。行の幅はそろえたままにする -->
+            <Style TargetType="ToggleButton" BasedOn="{StaticResource RowToggleStyle}">
+              <Style.Triggers>
+                <DataTrigger Binding="{Binding CanToggleVisibility}" Value="False">
+                  <Setter Property="Visibility" Value="Hidden" />
+                </DataTrigger>
+              </Style.Triggers>
+            </Style>
+          </ToggleButton.Style>
           <TextBlock>
             <TextBlock.Style>
               <Style TargetType="TextBlock">
@@ -118,6 +128,8 @@
             </TextBlock.Style>
           </TextBlock>
         </ToggleButton>
+        <TextBlock DockPanel.Dock="Right" Margin="4,0" VerticalAlignment="Center" FontSize="10.5"
+                   Foreground="{StaticResource AccentBrush}" Text="{Binding Detail}" ToolTip="動かしている（初期の姿勢・値から変えている）" />
         <TextBlock DockPanel.Dock="Left" Width="20" VerticalAlignment="Center" FontFamily="{StaticResource IconFont}" FontSize="13"
                    Foreground="{StaticResource SubTextBrush}" Text="{Binding Icon}" />
         <Grid>

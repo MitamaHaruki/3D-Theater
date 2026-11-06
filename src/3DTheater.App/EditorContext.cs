@@ -1,4 +1,5 @@
 using System.Numerics;
+using Theater3D.Animation;
 using Theater3D.App.Rendering;
 using Theater3D.Domain;
 using Theater3D.Editor;
@@ -9,22 +10,63 @@ using Theater3D.Formats.Pmx;
 namespace Theater3D.App;
 
 /// <summary>
-/// 読み込んだモデル 1 体の中身。ファイルの中身・読み込みレポート・GPU に載せた形と、選択の当たり判定に使う頂点の位置。
+/// 読み込んだモデル 1 体の中身。ファイルの中身・読み込みレポート・GPU に載せた形と、ボーン・モーフの計算に使うもの。
+/// 姿勢を変えると <see cref="IsPoseDirty"/> が立ち、次の描画の前に変形し直して GPU へ送る（<see cref="PoseUpdater"/>）。
 /// GPU の形はエンジンより先に破棄する（<see cref="EditorContext.DisposeModels"/>）。
 /// </summary>
-public sealed class LoadedModel(PmxDocument document, LoadReport report, NativeMesh? mesh, Vector3[] positions, uint[] indices) : IDisposable
+public sealed class LoadedModel : IDisposable
 {
-    public PmxDocument Document { get; } = document;
+    public LoadedModel(PmxDocument document, LoadReport report, NativeMesh? mesh, ModelRig rig, uint[] indices, Vector3 boundsMin, Vector3 boundsMax)
+    {
+        Document = document;
+        Report = report;
+        Mesh = mesh;
+        Rig = rig;
+        Indices = indices;
+        Input = new PoseInput(rig);
+        State = new PoseState(rig);
+        Vertices = new SkinnedVertex[rig.RestPositions.Length];
+        Positions = (Vector3[])rig.RestPositions.Clone();
+        MaterialStates = new MaterialState[rig.BaseMaterials.Length];
+        HasMaterialMorphs = rig.Morphs.Any(m => m.Type == PmxMorphType.Material && m.MaterialOffsets.Length > 0);
+        BoundsMin = boundsMin;
+        BoundsMax = boundsMax;
+        PoseEvaluator.Evaluate(rig, Input, State); // ボーンの表示のため、初期の姿勢も計算しておく
+    }
 
-    public LoadReport Report { get; } = report;
+    public PmxDocument Document { get; }
+
+    public LoadReport Report { get; }
 
     /// <summary>GPU に載せた形。描画エンジンが無い・載せられなかったときは null。</summary>
-    public NativeMesh? Mesh { get; private set; } = mesh;
+    public NativeMesh? Mesh { get; private set; }
 
-    public Vector3[] Positions { get; } = positions;
+    public ModelRig Rig { get; }
+
+    public PoseInput Input { get; }
+
+    public PoseState State { get; }
+
+    /// <summary>変形した後の頂点（GPU へ送る形）。</summary>
+    public SkinnedVertex[] Vertices { get; }
+
+    /// <summary>変形した後の頂点の位置（モデルの座標で）。選択の当たり判定に使う。</summary>
+    public Vector3[] Positions { get; }
+
+    public MaterialState[] MaterialStates { get; }
+
+    public bool HasMaterialMorphs { get; }
 
     /// <summary>描画に使っている（壊れた番号を無害にした後の）面の頂点番号。</summary>
-    public uint[] Indices { get; } = indices;
+    public uint[] Indices { get; }
+
+    /// <summary>今の姿勢の頂点を囲む箱（モデルの座標で）。</summary>
+    public Vector3 BoundsMin { get; internal set; }
+
+    public Vector3 BoundsMax { get; internal set; }
+
+    /// <summary>姿勢を変えたが、まだ変形し直していない。</summary>
+    public bool IsPoseDirty { get; set; }
 
     public void Dispose()
     {
@@ -46,6 +88,7 @@ public sealed class EditorContext
         Selection = new SelectionService();
         Playback = new PlaybackService();
         RenderLoop = new RenderLoop(engine, Playback);
+        Poses = new PoseUpdater(this);
 
         Scene.NodeChanged += (_, _) => RenderLoop.InvalidateAll();
         Selection.Changed += (_, _) => RenderLoop.InvalidateAll();
@@ -62,6 +105,9 @@ public sealed class EditorContext
     public PlaybackService Playback { get; }
 
     public RenderLoop RenderLoop { get; }
+
+    /// <summary>ボーン・モーフの値が変わったモデルを、描画の前に変形し直す。</summary>
+    public PoseUpdater Poses { get; }
 
     /// <summary>
     /// GPU の面を WPF と共有できない環境（ソフトウェア描画など）だと分かったら true。
@@ -86,6 +132,19 @@ public sealed class EditorContext
             model.Dispose();
         }
     }
+
+    /// <summary>
+    /// 今操作の対象にしているモデル（選んだモデル、または選んだボーン・モーフの持ち主）。
+    /// ボーンの表示とモーフのパネルはこのモデルを対象にする。
+    /// </summary>
+    public ModelNode? ActiveModel => Selection.Primary switch
+    {
+        ModelNode model => model,
+        { } node => node.FindAncestor<ModelNode>(),
+        null => null,
+    };
+
+    public LoadedModel? GetLoaded(ModelNode? node) => node is not null && Models.TryGetValue(node.Id, out LoadedModel? model) ? model : null;
 
     public CameraNode? MainCamera => Scene.FindFirst<CameraNode>();
 

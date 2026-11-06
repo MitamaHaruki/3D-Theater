@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO;
 using System.Windows;
+using Theater3D.Animation;
 using Theater3D.App.Logging;
 using Theater3D.Domain;
 using Theater3D.Editor;
@@ -13,7 +14,7 @@ namespace Theater3D.App.Import;
 /// <summary>
 /// モデルのファイルを読み込み、シーンの「モデル」に加える。読み込みは画面を止めないよう別のスレッドで行う。
 /// 注意やエラーがあれば読み込みレポートを出す（情報だけのときはログに残すだけ）。
-/// 読めたモデルは GPU に載せ、全プレビューに初期の姿勢で表示する（ボーンでの変形は次の段階）。
+/// 読めたモデルは GPU に載せて全プレビューに表示し、ボーンとモーフをシーン一覧に加える。
 /// </summary>
 internal static class ModelImporter
 {
@@ -31,10 +32,14 @@ internal static class ModelImporter
         string baseDirectory = Path.GetDirectoryName(Path.GetFullPath(path))!;
 
         // ファイルの読み込み・形の組み立て・テクスチャの読み込みは別のスレッドで行い、画面を止めない
-        (PmxLoadResult result, PreparedModel? prepared) = await Task.Run(() =>
+        (PmxLoadResult result, PreparedModel? prepared, ModelRig? rig) = await Task.Run<(PmxLoadResult, PreparedModel?, ModelRig?)>(() =>
         {
             PmxLoadResult loaded = PmxReader.Load(path);
-            return (loaded, loaded.Succeeded ? ModelMeshBuilder.Prepare(loaded.Document!, baseDirectory, loaded.Report) : null);
+            if (!loaded.Succeeded)
+            {
+                return (loaded, null, null);
+            }
+            return (loaded, ModelMeshBuilder.Prepare(loaded.Document!, baseDirectory, loaded.Report), ModelRig.FromPmx(loaded.Document!));
         });
 
         if (!result.Succeeded)
@@ -74,8 +79,9 @@ internal static class ModelImporter
             d.RigidBodies.Length,
             d.Joints.Length);
         var node = new ModelNode(name, Path.GetFullPath(path), summary, d.Comment, prepared!.BoundsMin, prepared.BoundsMax);
+        ModelPartsBuilder.Attach(node, d, rig!);
 
-        context.Models[node.Id] = new LoadedModel(d, result.Report, mesh, prepared.Positions, prepared.Indices);
+        context.Models[node.Id] = new LoadedModel(d, result.Report, mesh, rig!, prepared.Indices, prepared.BoundsMin, prepared.BoundsMax);
         context.Scene.Add(context.Scene.ModelsGroup, node);
         context.Selection.Select(node, SelectMode.Replace, null);
         AppLog.Info(

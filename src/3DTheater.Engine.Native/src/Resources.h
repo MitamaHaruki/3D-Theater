@@ -42,6 +42,8 @@ public:
         DirectX::XMFLOAT3 ambient;
         bool doubleSided;
         ComPtr<ID3D11ShaderResourceView> texture; // 無ければ空（白として描く）
+        DirectX::XMFLOAT4 textureMultiply{1.0f, 1.0f, 1.0f, 1.0f};
+        DirectX::XMFLOAT4 textureAdd{0.0f, 0.0f, 0.0f, 0.0f};
     };
 
     Mesh(Engine& engine, const TtMeshDesc& desc);
@@ -62,10 +64,15 @@ public:
     const DirectX::XMFLOAT3& BoundsMin() const noexcept { return boundsMin_; }
     const DirectX::XMFLOAT3& BoundsMax() const noexcept { return boundsMax_; }
 
+    // 変形した後の頂点で置き換える。数が作ったときと違えば TT_E_INVALID_ARG
+    void UpdateVertices(const TtMeshVertex* vertices, uint32_t count, const float* boundsMin, const float* boundsMax);
+    void UpdateMaterials(const TtMaterialState* states, uint32_t count);
+
 private:
     static constexpr uint32_t kMagic = 0x48534D54; // "TMSH"
 
     uint32_t magic_ = kMagic;
+    uint32_t vertexCount_ = 0;
     Engine& engine_;
     ComPtr<ID3D11Buffer> vertexBuffer_;
     ComPtr<ID3D11Buffer> indexBuffer_;

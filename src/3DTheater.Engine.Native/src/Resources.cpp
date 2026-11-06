@@ -114,7 +114,39 @@ Mesh::Mesh(Engine& engine, const TtMeshDesc& desc) : engine_(engine)
         boundsMin_ = minimum;
         boundsMax_ = maximum;
     }
+    vertexCount_ = desc.vertex_count;
     engine_.AddObject();
+}
+
+void Mesh::UpdateVertices(const TtMeshVertex* vertices, uint32_t count, const float* boundsMin, const float* boundsMax)
+{
+    if (count != vertexCount_ || (count > 0 && !vertices)) {
+        throw Error(TT_E_INVALID_ARG, std::format(L"頂点の数（{}）が、メッシュを作ったときの数（{}）と違います", count, vertexCount_));
+    }
+    if (vertexBuffer_) {
+        engine_.Context()->UpdateSubresource(vertexBuffer_.Get(), 0, nullptr, vertices, 0, 0);
+    }
+    if (boundsMin && boundsMax) {
+        boundsMin_ = {boundsMin[0], boundsMin[1], boundsMin[2]};
+        boundsMax_ = {boundsMax[0], boundsMax[1], boundsMax[2]};
+    }
+}
+
+void Mesh::UpdateMaterials(const TtMaterialState* states, uint32_t count)
+{
+    if (count != materials_.size() || (count > 0 && !states)) {
+        throw Error(TT_E_INVALID_ARG, std::format(L"材質の数（{}）が、メッシュを作ったときの数（{}）と違います", count, materials_.size()));
+    }
+    for (uint32_t i = 0; i < count; ++i) {
+        const TtMaterialState& s = states[i];
+        Material& m = materials_[i];
+        m.diffuse = {s.diffuse[0], s.diffuse[1], s.diffuse[2], s.diffuse[3]};
+        m.specular = {s.specular[0], s.specular[1], s.specular[2]};
+        m.specularPower = s.specular_power;
+        m.ambient = {s.ambient[0], s.ambient[1], s.ambient[2]};
+        m.textureMultiply = {s.texture_multiply[0], s.texture_multiply[1], s.texture_multiply[2], s.texture_multiply[3]};
+        m.textureAdd = {s.texture_add[0], s.texture_add[1], s.texture_add[2], s.texture_add[3]};
+    }
 }
 
 Mesh::~Mesh()

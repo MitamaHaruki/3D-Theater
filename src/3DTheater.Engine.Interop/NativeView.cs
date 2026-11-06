@@ -68,7 +68,9 @@ public sealed unsafe class NativeView : IDisposable
             items[i] = new TtDrawItem { Mesh = item.Mesh.Handle, World = item.World, Flags = (uint)item.Flags };
         }
 
+        ReadOnlySpan<LineVertex> lines = frame.OverlayLines.Span;
         fixed (TtDrawItem* itemPointer = items)
+        fixed (LineVertex* linePointer = lines)
         {
             var parameters = new TtFrameParams
             {
@@ -80,6 +82,8 @@ public sealed unsafe class NativeView : IDisposable
                 TestObjectWorld = frame.TestObjectWorld,
                 Items = count > 0 ? itemPointer : null,
                 ItemCount = (uint)count,
+                OverlayLines = lines.Length > 0 ? linePointer : null,
+                OverlayVertexCount = (uint)(lines.Length - (lines.Length % 2)),
             };
             return NativeError.Check(NativeMethods.ViewRender(Handle, &parameters)) == NativeResult.Ok;
         }

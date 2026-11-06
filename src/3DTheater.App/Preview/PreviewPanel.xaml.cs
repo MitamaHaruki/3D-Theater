@@ -6,7 +6,7 @@ using Theater3D.Editor;
 namespace Theater3D.App.Preview;
 
 /// <summary>プレビュー 1 枚の設定。レイアウトと一緒に保存する。</summary>
-public sealed record PreviewSettings(PreviewLayout Layout, string QuadPresetName, ViewKind[] Views, bool ShowGrid)
+public sealed record PreviewSettings(PreviewLayout Layout, string QuadPresetName, ViewKind[] Views, bool ShowGrid, bool ShowBones = true)
 {
     public static PreviewSettings Default(PreviewLayout layout = PreviewLayout.Quad) =>
         new(layout, PreviewLayouts.DefaultQuadPreset.Name, [.. PreviewLayouts.DefaultViews(layout)], true);
@@ -87,8 +87,22 @@ public partial class PreviewPanel : UserControl, IDisposable
         }
     }
 
+    /// <summary>選んだモデルのボーンを線で重ねるか。</summary>
+    public bool ShowBones
+    {
+        get => _views[0].ShowBones;
+        set
+        {
+            foreach (ViewportControl view in _views)
+            {
+                view.ShowBones = value;
+            }
+            UpdateControls();
+        }
+    }
+
     public PreviewSettings GetSettings() =>
-        new(_layout, _quadPreset.Name, [.. _views.Select(v => v.Camera.Kind)], ShowGrid);
+        new(_layout, _quadPreset.Name, [.. _views.Select(v => v.Camera.Kind)], ShowGrid, ShowBones);
 
     public void Dispose()
     {
@@ -107,6 +121,7 @@ public partial class PreviewPanel : UserControl, IDisposable
             ViewKind kind = i < settings.Views.Length ? settings.Views[i] : ViewKind.Free;
             _views[i].Camera.SetKind(kind);
             _views[i].ShowGrid = settings.ShowGrid;
+            _views[i].ShowBones = settings.ShowBones;
         }
         Arrange();
     }
@@ -153,6 +168,7 @@ public partial class PreviewPanel : UserControl, IDisposable
         PresetCombo.SelectedItem = _quadPreset;
         PresetCombo.IsEnabled = _layout == PreviewLayout.Quad;
         GridButton.IsChecked = ShowGrid;
+        BonesButton.IsChecked = ShowBones;
         _updatingControls = false;
     }
 
@@ -173,4 +189,6 @@ public partial class PreviewPanel : UserControl, IDisposable
     }
 
     private void OnGridClick(object sender, RoutedEventArgs e) => ShowGrid = GridButton.IsChecked == true;
+
+    private void OnBonesClick(object sender, RoutedEventArgs e) => ShowBones = BonesButton.IsChecked == true;
 }

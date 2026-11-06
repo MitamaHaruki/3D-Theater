@@ -19,6 +19,7 @@ public sealed class DockingLayout
 {
     public const string SceneId = "Panel.Scene";
     public const string PropertiesId = "Panel.Properties";
+    public const string MorphId = "Panel.Morph";
     public const string TimelineId = "Panel.Timeline";
     public const string LogId = "Panel.Log";
     private const string PreviewPrefix = "Preview.";
@@ -36,6 +37,7 @@ public sealed class DockingLayout
         {
             [SceneId] = ("シーン", new ScenePanel(context), AnchorableShowStrategy.Left),
             [PropertiesId] = ("プロパティ", new PropertiesPanel(context), AnchorableShowStrategy.Right),
+            [MorphId] = ("モーフ", new MorphPanel(context), AnchorableShowStrategy.Right),
             [TimelineId] = ("タイムライン", new TimelinePanel(context), AnchorableShowStrategy.Bottom),
             [LogId] = ("ログ", new LogPanel(), AnchorableShowStrategy.Bottom),
         };
@@ -58,6 +60,7 @@ public sealed class DockingLayout
     [
         (SceneId, "シーン"),
         (PropertiesId, "プロパティ"),
+        (MorphId, "モーフ"),
         (TimelineId, "タイムライン"),
         (LogId, "ログ"),
     ];
@@ -104,6 +107,8 @@ public sealed class DockingLayout
         left.Children.Add(CreateAnchorable(SceneId));
         var right = new LayoutAnchorablePane { DockWidth = new GridLength(330) };
         right.Children.Add(CreateAnchorable(PropertiesId));
+        right.Children.Add(CreateAnchorable(MorphId));
+        right.SelectedContentIndex = 0;
 
         var root = new LayoutPanel { Orientation = Orientation.Horizontal };
         root.Children.Add(left);

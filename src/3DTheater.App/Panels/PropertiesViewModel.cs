@@ -35,6 +35,8 @@ public sealed class PropertiesViewModel : ObservableObject
         SceneNodeKind.Model => "モデル",
         SceneNodeKind.TestObject => "確認用の立方体",
         SceneNodeKind.Stage => "ステージ",
+        SceneNodeKind.Bone => "ボーン",
+        SceneNodeKind.Morph => "モーフ",
         _ => "グループ",
     };
 
@@ -79,6 +81,16 @@ public sealed class PropertiesViewModel : ObservableObject
 
     public bool HasTransform => _node?.HasTransform ?? false;
 
+    /// <summary>位置の欄を出すか（移動できないボーンでは出さない）。</summary>
+    public bool ShowsPosition => _node is BoneNode bone ? bone.Traits.CanTranslate : HasTransform;
+
+    /// <summary>回転の欄を出すか（回転できないボーンでは出さない）。</summary>
+    public bool ShowsRotation => _node is BoneNode bone ? bone.Traits.CanRotate : HasTransform;
+
+    public string PositionLabel => _node is BoneNode ? "移動" : "位置";
+
+    public string TransformHeader => _node is BoneNode ? "ボーンの姿勢（親から見た向き）" : "トランスフォーム";
+
     public bool CanScale => _node?.CanScale ?? false;
 
     public bool IsCamera => _node is CameraNode;
@@ -92,6 +104,90 @@ public sealed class PropertiesViewModel : ObservableObject
     public ModelNode? Model => _node as ModelNode;
 
     public bool HasModelComment => !string.IsNullOrWhiteSpace(Model?.Comment);
+
+    public bool IsBone => _node is BoneNode;
+
+    public BoneNode? Bone => _node as BoneNode;
+
+    /// <summary>ボーンの性質を短く並べたもの（「回転・移動・IK」など）。</summary>
+    public string BoneTraitsText
+    {
+        get
+        {
+            if (_node is not BoneNode bone)
+            {
+                return string.Empty;
+            }
+            BoneTraits t = bone.Traits;
+            var parts = new List<string>();
+            if (t.CanRotate)
+            {
+                parts.Add("回転できる");
+            }
+            if (t.CanTranslate)
+            {
+                parts.Add("移動できる");
+            }
+            if (t.IsIk)
+            {
+                parts.Add("IK");
+            }
+            if (t.IsIkLink)
+            {
+                parts.Add("IK で動く");
+            }
+            if (t.HasInherit)
+            {
+                parts.Add("付与あり（ほかのボーンの動きを受け継ぐ）");
+            }
+            if (t.HasFixedAxis)
+            {
+                parts.Add("軸が固定");
+            }
+            if (t.AfterPhysics)
+            {
+                parts.Add("物理の後に計算");
+            }
+            if (!t.IsShown)
+            {
+                parts.Add("MMD では非表示");
+            }
+            return parts.Count == 0 ? "動かせないボーン" : string.Join("・", parts);
+        }
+    }
+
+    public string BoneParentText => _node is BoneNode { Traits.ParentName: { Length: > 0 } parent } ? parent : "なし（いちばん上）";
+
+    public bool IsBoneIkLinkNote => _node is BoneNode { Traits.IsIkLink: true };
+
+    public bool IsMorph => _node is MorphNode;
+
+    public MorphNode? Morph => _node as MorphNode;
+
+    public string MorphCategoryText => _node is MorphNode morph ? Import.ModelPartsBuilder.CategoryName(morph.Category) : string.Empty;
+
+    public double MorphWeight
+    {
+        get => (_node as MorphNode)?.Weight ?? 0;
+        set => Edit(n => ((MorphNode)n).Weight = (float)value);
+    }
+
+    /// <summary>ボーンを初期の姿勢へ戻す。</summary>
+    public void ResetBone() => Edit(n =>
+    {
+        n.Position = System.Numerics.Vector3.Zero;
+        n.Rotation = System.Numerics.Vector3.Zero;
+    });
+
+    /// <summary>選んだモデルのボーンとモーフをすべて初期の状態へ戻す。</summary>
+    public void ResetModelPose()
+    {
+        if (_node is ModelNode model && model.CanEdit)
+        {
+            _context.Playback.Pause();
+            model.ResetPose();
+        }
+    }
 
     public double PositionX { get => Get(n => n.Position.X); set => Edit(n => n.Position = n.Position with { X = (float)value }); }
 

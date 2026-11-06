@@ -30,6 +30,12 @@
                 Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ToggleButton}}"
                 Data="M0,4 H12 M0,8 H12 M4,0 V12 M8,0 V12" />
         </ToggleButton>
+        <ToggleButton x:Name="BonesButton" Style="{StaticResource IconToggleButtonStyle}" Click="OnBonesClick" IsChecked="True"
+                      ToolTip="選んだモデルのボーンを表示">
+          <Path Width="13" Height="13" Stretch="Fill" StrokeThickness="1.1"
+                Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ToggleButton}}"
+                Data="M2,11 L6,6 L10,2 M6,6 L11,8 M1,10 H3 V12 M5,5 H7 V7 H5 Z" />
+        </ToggleButton>
       </StackPanel>
     </Border>
 

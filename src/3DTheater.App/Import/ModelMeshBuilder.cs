@@ -14,7 +14,6 @@ internal sealed record PreparedModel(
     MeshMaterial[] Materials,
     int[] MaterialTextureIndices,
     IReadOnlyDictionary<int, DecodedImage> Textures,
-    Vector3[] Positions,
     Vector3 BoundsMin,
     Vector3 BoundsMax);
 
@@ -22,21 +21,20 @@ internal sealed record PreparedModel(
 /// PMX の中身から、描画エンジンに渡す頂点・面・材質を組み立てる。
 /// 壊れた番号は描画で問題が起きないよう無害にする（存在しない頂点を指す面はつぶして描かない、材質の範囲は面の数で切る）。
 /// 元の <see cref="PmxDocument"/> は書き換えない。
-/// Phase 2 の今は初期の姿勢のまま描く（ボーンでの変形は次の段階）。テクスチャは材質の基本のものだけを使う。
+/// ここで作るのは初期の姿勢の形で、ボーンとモーフで変形した形は描画の前に置き換える（<see cref="Rendering.PoseUpdater"/>）。
+/// テクスチャは材質の基本のものだけを使う。
 /// </summary>
 internal static class ModelMeshBuilder
 {
     public static PreparedModel Prepare(PmxDocument d, string? baseDirectory, LoadReport report)
     {
         var vertices = new MeshVertex[d.Vertices.Length];
-        var positions = new Vector3[d.Vertices.Length];
         Vector3 min = new(float.MaxValue), max = new(float.MinValue);
         for (int i = 0; i < vertices.Length; i++)
         {
             ref readonly PmxVertex v = ref d.Vertices[i];
             Vector3 normal = v.Normal.LengthSquared() > 1e-12f ? Vector3.Normalize(v.Normal) : Vector3.UnitY;
             vertices[i] = new MeshVertex(v.Position, normal, v.Uv);
-            positions[i] = v.Position;
             min = Vector3.Min(min, v.Position);
             max = Vector3.Max(max, v.Position);
         }
@@ -100,7 +98,7 @@ internal static class ModelMeshBuilder
             }
         }
 
-        return new PreparedModel(vertices, indices, materials, textureIndices, textures, positions, min, max);
+        return new PreparedModel(vertices, indices, materials, textureIndices, textures, min, max);
     }
 
     /// <summary>組み立て済みの形を GPU に載せる（エンジンを作ったスレッドで呼ぶ）。</summary>

@@ -11,7 +11,11 @@ float4 main(ModelPSInput input) : SV_Target
     float shade = lerp(0.62, 1.0, lit);
 
     float3 baseColor = saturate(AmbientAndTexture.rgb + Diffuse.rgb * LightIntensity);
-    float4 texel = AmbientAndTexture.w > 0.5 ? DiffuseTexture.Sample(TextureSampler, input.uv) : float4(1, 1, 1, 1);
+    float4 texel = float4(1, 1, 1, 1);
+    if (AmbientAndTexture.w > 0.5)
+    {
+        texel = saturate(DiffuseTexture.Sample(TextureSampler, input.uv) * TextureMultiply + TextureAdd);
+    }
 
     return float4(baseColor * texel.rgb * shade, Diffuse.a * texel.a);
 }

@@ -483,6 +483,95 @@ public:
         Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
     }
 
+    TEST_METHOD(MeshVerticesAndMaterialsCanBeReplaced)
+    {
+        TtEngine* engine = CreateWarpEngine();
+        constexpr int width = 32;
+        constexpr int height = 32;
+        TtView* view = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_view_create_offscreen(engine, width, height, 0, &view));
+        TtTexture* red = CreateSolidTexture(engine, 0, 0, 255);
+        const TtMeshMaterial material = QuadMaterial(red);
+        const TtMeshDesc desc = QuadDesc(kClockwise, &material);
+        TtMesh* mesh = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_mesh_create(engine, &desc, &mesh));
+        Assert::AreEqual<int>(TT_OK, tt_texture_destroy(red));
+
+        TtFrameParams params = MakeFrontParams();
+        const TtDrawItem item = DrawItem(mesh);
+        params.items = &item;
+        params.item_count = 1;
+        const size_t center = (static_cast<size_t>(height / 2) * width + width / 2) * 4;
+
+        // 材質の値: テクスチャに 0 を掛けて緑を足す → 赤が消えて緑になる
+        TtMaterialState state{};
+        state.diffuse[0] = state.diffuse[1] = state.diffuse[2] = state.diffuse[3] = 1.0f;
+        state.ambient[0] = state.ambient[1] = state.ambient[2] = 1.0f;
+        state.texture_add[1] = 1.0f;
+        state.texture_multiply[3] = 1.0f; // 透明度はそのまま
+        Assert::AreEqual<int>(TT_OK, tt_mesh_update_materials(mesh, &state, 1));
+        std::vector<uint8_t> pixels = RenderAndRead(engine, view, params, width, height);
+        Assert::IsTrue(pixels[center + 2] < 20 && pixels[center + 1] > 150, L"材質の値を変えると色が変わる");
+
+        // 頂点: 四角形を画面の外へ動かす → 中央は背景色になる
+        TtMeshVertex moved[4];
+        for (int i = 0; i < 4; ++i) {
+            moved[i] = kQuad[i];
+            moved[i].position[0] += 50.0f;
+        }
+        const float lo[3] = {49.0f, -1.0f, 0.0f};
+        const float hi[3] = {51.0f, 1.0f, 0.0f};
+        Assert::AreEqual<int>(TT_OK, tt_mesh_update_vertices(mesh, moved, 4, lo, hi));
+        pixels = RenderAndRead(engine, view, params, width, height);
+        Assert::IsTrue(IsBackground(&pixels[center], 1), L"頂点を置き換えると形が動く");
+
+        Assert::AreEqual<int>(TT_E_INVALID_ARG, tt_mesh_update_vertices(mesh, moved, 3, nullptr, nullptr), L"頂点の数の食い違い");
+        Assert::AreEqual<int>(TT_E_INVALID_ARG, tt_mesh_update_materials(mesh, &state, 2), L"材質の数の食い違い");
+
+        Assert::AreEqual<int>(TT_OK, tt_mesh_destroy(mesh));
+        Assert::AreEqual<int>(TT_OK, tt_view_destroy(view));
+        Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
+    }
+
+    TEST_METHOD(OverlayLinesAreDrawnOnTopOfModels)
+    {
+        TtEngine* engine = CreateWarpEngine();
+        constexpr int width = 32;
+        constexpr int height = 32;
+        TtView* view = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_view_create_offscreen(engine, width, height, 0, &view));
+        const TtMeshMaterial material = QuadMaterial(nullptr);
+        const TtMeshDesc desc = QuadDesc(kClockwise, &material);
+        TtMesh* mesh = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_mesh_create(engine, &desc, &mesh));
+
+        // 四角形より奥（z = 2）を横切る青い線。奥行きを無視して手前に描かれるはず
+        const TtLineVertex lines[] = {
+            {{-3.0f, 0.0f, 2.0f}, {0.0f, 0.0f, 1.0f, 1.0f}},
+            {{3.0f, 0.0f, 2.0f}, {0.0f, 0.0f, 1.0f, 1.0f}},
+        };
+        TtFrameParams params = MakeFrontParams();
+        const TtDrawItem item = DrawItem(mesh);
+        params.items = &item;
+        params.item_count = 1;
+        params.overlay_lines = lines;
+        params.overlay_vertex_count = 2;
+        std::vector<uint8_t> pixels = RenderAndRead(engine, view, params, width, height);
+        bool foundBlue = false;
+        for (int y = height / 2 - 1; y <= height / 2; ++y) {
+            const uint8_t* p = &pixels[(static_cast<size_t>(y) * width + width / 2) * 4];
+            foundBlue |= p[0] > 200 && p[1] < 60 && p[2] < 60;
+        }
+        Assert::IsTrue(foundBlue, L"モデルより奥の線も手前に重ねて描く");
+
+        params.overlay_lines = nullptr;
+        Assert::AreEqual<int>(TT_E_INVALID_ARG, tt_view_render(view, &params), L"線の数があるのに NULL");
+
+        Assert::AreEqual<int>(TT_OK, tt_mesh_destroy(mesh));
+        Assert::AreEqual<int>(TT_OK, tt_view_destroy(view));
+        Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
+    }
+
     TEST_METHOD(LogCallbackReceivesEngineMessages)
     {
         std::vector<std::wstring> messages;

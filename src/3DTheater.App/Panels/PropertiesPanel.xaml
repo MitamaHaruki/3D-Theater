@@ -49,10 +49,10 @@
                    Style="{StaticResource PlannedNoteStyle}" Foreground="#FFE0A040"
                    Visibility="{Binding IsLockedNoteVisible, Converter={StaticResource BoolToVisibility}}" />
 
-        <!-- トランスフォーム -->
+        <!-- トランスフォーム（ボーンでは移動・回転） -->
         <StackPanel Visibility="{Binding HasTransform, Converter={StaticResource BoolToVisibility}}">
-          <TextBlock Text="トランスフォーム" Style="{StaticResource SectionHeaderStyle}" Margin="0,14,0,6" />
-          <Grid>
+          <TextBlock Text="{Binding TransformHeader}" Style="{StaticResource SectionHeaderStyle}" Margin="0,14,0,6" />
+          <Grid Height="28" Visibility="{Binding ShowsPosition, Converter={StaticResource BoolToVisibility}}">
             <Grid.ColumnDefinitions>
               <ColumnDefinition Width="44" />
               <ColumnDefinition Width="Auto" />
@@ -62,43 +62,103 @@
               <ColumnDefinition Width="Auto" />
               <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
-            <Grid.RowDefinitions>
-              <RowDefinition Height="28" />
-              <RowDefinition Height="28" />
-              <RowDefinition Height="28" />
-            </Grid.RowDefinitions>
-
-            <TextBlock Grid.Row="0" Text="位置" Style="{StaticResource RowLabelStyle}" />
-            <TextBlock Grid.Row="0" Grid.Column="1" Text="X" Style="{StaticResource AxisLabelStyle}" Foreground="{StaticResource AxisXBrush}" />
-            <c:NumberBox Grid.Row="0" Grid.Column="2" Value="{Binding PositionX}" Step="0.1" />
-            <TextBlock Grid.Row="0" Grid.Column="3" Text="Y" Style="{StaticResource AxisLabelStyle}" Foreground="{StaticResource AxisYBrush}" />
-            <c:NumberBox Grid.Row="0" Grid.Column="4" Value="{Binding PositionY}" Step="0.1" />
-            <TextBlock Grid.Row="0" Grid.Column="5" Text="Z" Style="{StaticResource AxisLabelStyle}" Foreground="{StaticResource AxisZBrush}" />
-            <c:NumberBox Grid.Row="0" Grid.Column="6" Value="{Binding PositionZ}" Step="0.1" />
-
-            <TextBlock Grid.Row="1" Text="回転" Style="{StaticResource RowLabelStyle}" ToolTip="度。X = 上下の向き、Y = 左右の向き、Z = 傾き" />
-            <TextBlock Grid.Row="1" Grid.Column="1" Text="X" Style="{StaticResource AxisLabelStyle}" Foreground="{StaticResource AxisXBrush}" />
-            <c:NumberBox Grid.Row="1" Grid.Column="2" Value="{Binding RotationX}" Step="1" Format="0.00°" />
-            <TextBlock Grid.Row="1" Grid.Column="3" Text="Y" Style="{StaticResource AxisLabelStyle}" Foreground="{StaticResource AxisYBrush}" />
-            <c:NumberBox Grid.Row="1" Grid.Column="4" Value="{Binding RotationY}" Step="1" Format="0.00°" />
-            <TextBlock Grid.Row="1" Grid.Column="5" Text="Z" Style="{StaticResource AxisLabelStyle}" Foreground="{StaticResource AxisZBrush}" />
-            <c:NumberBox Grid.Row="1" Grid.Column="6" Value="{Binding RotationZ}" Step="1" Format="0.00°" />
-
-            <TextBlock Grid.Row="2" Text="拡大" Style="{StaticResource RowLabelStyle}"
-                       Visibility="{Binding CanScale, Converter={StaticResource BoolToVisibility}}" />
-            <TextBlock Grid.Row="2" Grid.Column="1" Text="X" Style="{StaticResource AxisLabelStyle}" Foreground="{StaticResource AxisXBrush}"
-                       Visibility="{Binding CanScale, Converter={StaticResource BoolToVisibility}}" />
-            <c:NumberBox Grid.Row="2" Grid.Column="2" Value="{Binding ScaleX}" Step="0.1"
-                         Visibility="{Binding CanScale, Converter={StaticResource BoolToVisibility}}" />
-            <TextBlock Grid.Row="2" Grid.Column="3" Text="Y" Style="{StaticResource AxisLabelStyle}" Foreground="{StaticResource AxisYBrush}"
-                       Visibility="{Binding CanScale, Converter={StaticResource BoolToVisibility}}" />
-            <c:NumberBox Grid.Row="2" Grid.Column="4" Value="{Binding ScaleY}" Step="0.1"
-                         Visibility="{Binding CanScale, Converter={StaticResource BoolToVisibility}}" />
-            <TextBlock Grid.Row="2" Grid.Column="5" Text="Z" Style="{StaticResource AxisLabelStyle}" Foreground="{StaticResource AxisZBrush}"
-                       Visibility="{Binding CanScale, Converter={StaticResource BoolToVisibility}}" />
-            <c:NumberBox Grid.Row="2" Grid.Column="6" Value="{Binding ScaleZ}" Step="0.1"
-                         Visibility="{Binding CanScale, Converter={StaticResource BoolToVisibility}}" />
+            <TextBlock Text="{Binding PositionLabel}" Style="{StaticResource RowLabelStyle}" />
+            <TextBlock Grid.Column="1" Text="X" Style="{StaticResource AxisLabelStyle}" Foreground="{StaticResource AxisXBrush}" />
+            <c:NumberBox Grid.Column="2" Value="{Binding PositionX}" Step="0.1" />
+            <TextBlock Grid.Column="3" Text="Y" Style="{StaticResource AxisLabelStyle}" Foreground="{StaticResource AxisYBrush}" />
+            <c:NumberBox Grid.Column="4" Value="{Binding PositionY}" Step="0.1" />
+            <TextBlock Grid.Column="5" Text="Z" Style="{StaticResource AxisLabelStyle}" Foreground="{StaticResource AxisZBrush}" />
+            <c:NumberBox Grid.Column="6" Value="{Binding PositionZ}" Step="0.1" />
           </Grid>
+          <Grid Height="28" Visibility="{Binding ShowsRotation, Converter={StaticResource BoolToVisibility}}">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="44" />
+              <ColumnDefinition Width="Auto" />
+              <ColumnDefinition Width="*" />
+              <ColumnDefinition Width="Auto" />
+              <ColumnDefinition Width="*" />
+              <ColumnDefinition Width="Auto" />
+              <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Text="回転" Style="{StaticResource RowLabelStyle}" ToolTip="度。X = 上下の向き、Y = 左右の向き、Z = 傾き" />
+            <TextBlock Grid.Column="1" Text="X" Style="{StaticResource AxisLabelStyle}" Foreground="{StaticResource AxisXBrush}" />
+            <c:NumberBox Grid.Column="2" Value="{Binding RotationX}" Step="1" Format="0.00°" />
+            <TextBlock Grid.Column="3" Text="Y" Style="{StaticResource AxisLabelStyle}" Foreground="{StaticResource AxisYBrush}" />
+            <c:NumberBox Grid.Column="4" Value="{Binding RotationY}" Step="1" Format="0.00°" />
+            <TextBlock Grid.Column="5" Text="Z" Style="{StaticResource AxisLabelStyle}" Foreground="{StaticResource AxisZBrush}" />
+            <c:NumberBox Grid.Column="6" Value="{Binding RotationZ}" Step="1" Format="0.00°" />
+          </Grid>
+          <Grid Height="28" Visibility="{Binding CanScale, Converter={StaticResource BoolToVisibility}}">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="44" />
+              <ColumnDefinition Width="Auto" />
+              <ColumnDefinition Width="*" />
+              <ColumnDefinition Width="Auto" />
+              <ColumnDefinition Width="*" />
+              <ColumnDefinition Width="Auto" />
+              <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Text="拡大" Style="{StaticResource RowLabelStyle}" />
+            <TextBlock Grid.Column="1" Text="X" Style="{StaticResource AxisLabelStyle}" Foreground="{StaticResource AxisXBrush}" />
+            <c:NumberBox Grid.Column="2" Value="{Binding ScaleX}" Step="0.1" />
+            <TextBlock Grid.Column="3" Text="Y" Style="{StaticResource AxisLabelStyle}" Foreground="{StaticResource AxisYBrush}" />
+            <c:NumberBox Grid.Column="4" Value="{Binding ScaleY}" Step="0.1" />
+            <TextBlock Grid.Column="5" Text="Z" Style="{StaticResource AxisLabelStyle}" Foreground="{StaticResource AxisZBrush}" />
+            <c:NumberBox Grid.Column="6" Value="{Binding ScaleZ}" Step="0.1" />
+          </Grid>
+        </StackPanel>
+
+        <!-- ボーン -->
+        <StackPanel Visibility="{Binding IsBone, Converter={StaticResource BoolToVisibility}}">
+          <TextBlock Text="ボーンの情報" Style="{StaticResource SectionHeaderStyle}" Margin="0,14,0,6" />
+          <Grid>
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="72" />
+              <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+              <RowDefinition Height="Auto" />
+              <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+            <TextBlock Text="親ボーン" Style="{StaticResource RowLabelStyle}" Margin="0,2,6,2" />
+            <TextBlock Grid.Column="1" Margin="0,2" Text="{Binding BoneParentText}" TextWrapping="Wrap" />
+            <TextBlock Grid.Row="1" Text="性質" Style="{StaticResource RowLabelStyle}" VerticalAlignment="Top" Margin="0,2,6,2" />
+            <TextBlock Grid.Row="1" Grid.Column="1" Margin="0,2" Text="{Binding BoneTraitsText}" TextWrapping="Wrap" />
+          </Grid>
+          <TextBlock Margin="0,6,0,0" Style="{StaticResource PlannedNoteStyle}"
+                     Visibility="{Binding IsBoneIkLinkNote, Converter={StaticResource BoolToVisibility}}"
+                     Text="IK で動くボーンです。ここでの回転は IK の計算の出発点になり、IK の向きが優先されます。" />
+          <Button Margin="0,8,0,0" HorizontalAlignment="Left" Content="このボーンを初期の姿勢に戻す" Click="OnResetBoneClick"
+                  IsEnabled="{Binding IsEditable}" />
+          <TextBlock Margin="0,8,0,0" Style="{StaticResource PlannedNoteStyle}"
+                     Text="移動・回転は親のボーンから見た向きで、回転は Z → X → Y の順に回します。ギズモでの操作とキーフレームの登録は次の段階で対応します。" />
+        </StackPanel>
+
+        <!-- モーフ -->
+        <StackPanel Visibility="{Binding IsMorph, Converter={StaticResource BoolToVisibility}}">
+          <TextBlock Text="モーフ" Style="{StaticResource SectionHeaderStyle}" Margin="0,14,0,6" />
+          <Grid>
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="72" />
+              <ColumnDefinition Width="*" />
+              <ColumnDefinition Width="84" />
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+              <RowDefinition Height="22" />
+              <RowDefinition Height="22" />
+              <RowDefinition Height="30" />
+            </Grid.RowDefinitions>
+            <TextBlock Text="種類" Style="{StaticResource RowLabelStyle}" />
+            <TextBlock Grid.Column="1" Grid.ColumnSpan="2" VerticalAlignment="Center" Text="{Binding Morph.TypeName}" />
+            <TextBlock Grid.Row="1" Text="分類" Style="{StaticResource RowLabelStyle}" />
+            <TextBlock Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" VerticalAlignment="Center" Text="{Binding MorphCategoryText}" />
+            <TextBlock Grid.Row="2" Text="値" Style="{StaticResource RowLabelStyle}" />
+            <Slider Grid.Row="2" Grid.Column="1" Margin="0,0,8,0" VerticalAlignment="Center" Minimum="0" Maximum="1"
+                    SmallChange="0.01" LargeChange="0.1" Value="{Binding MorphWeight}" IsEnabled="{Binding IsEditable}" />
+            <c:NumberBox Grid.Row="2" Grid.Column="2" Value="{Binding MorphWeight}" Step="0.01" Format="0.000" />
+          </Grid>
+          <TextBlock Margin="0,8,0,0" Style="{StaticResource PlannedNoteStyle}"
+                     Text="モデルの表情をまとめて動かすには「モーフ」パネルが便利です（表示メニューから出せます）。" />
         </StackPanel>
 
         <!-- 読み込んだモデル -->
@@ -142,14 +202,18 @@
             <TextBlock Grid.Row="8" Text="ジョイント" Style="{StaticResource RowLabelStyle}" />
             <TextBlock Grid.Row="8" Grid.Column="1" VerticalAlignment="Center" Text="{Binding Model.Summary.Joints, StringFormat={}{0:N0}}" />
           </Grid>
-          <Button Margin="0,8,0,0" HorizontalAlignment="Left" Content="読み込みレポートを見る" Click="OnShowReportClick" />
+          <StackPanel Margin="0,8,0,0" Orientation="Horizontal">
+            <Button Content="読み込みレポートを見る" Click="OnShowReportClick" />
+            <Button Margin="8,0,0,0" Content="ポーズを初期化" Click="OnResetPoseClick" IsEnabled="{Binding IsEditable}"
+                    ToolTip="すべてのボーンを初期の姿勢に、モーフを 0 に戻します（ロックした項目は変えません）" />
+          </StackPanel>
           <StackPanel Visibility="{Binding HasModelComment, Converter={StaticResource BoolToVisibility}}">
             <TextBlock Text="モデルのコメント（作者・利用条件など）" Style="{StaticResource SectionHeaderStyle}" Margin="0,12,0,4" />
             <TextBox IsReadOnly="True" TextWrapping="Wrap" MinHeight="0" MaxHeight="160" Padding="6,4" FontSize="11"
                      VerticalScrollBarVisibility="Auto" Text="{Binding Model.Comment, Mode=OneWay}" />
           </StackPanel>
           <TextBlock Margin="0,8,0,0" Style="{StaticResource PlannedNoteStyle}"
-                     Text="今は初期の姿勢のまま、簡単な陰影で表示します。ボーンでの変形・表情は Phase 2 の次の段階、トゥーン・輪郭線・影は Phase 4 で対応します。" />
+                     Text="今は簡単な陰影で表示します。選んだモデルにはボーンを線で重ねて表示します（書き出しには映りません）。トゥーン・輪郭線・影は Phase 4、物理演算は Phase 3 で対応します。" />
         </StackPanel>
 
         <!-- カメラ -->

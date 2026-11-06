@@ -12,17 +12,21 @@ namespace Theater3D.App.Preview;
 /// プレビューの 1 区画。独自の視点（<see cref="ViewCamera"/>）を持ち、選択・再生位置・シーンはほかの区画と共有する。
 /// 操作: 中ボタンドラッグ = 回転、Shift + 中ボタンドラッグ = 平行移動、ホイール = ズーム、
 /// 左クリック = 選択（Ctrl で追加・解除）、ダブルクリック = 選択した物に合わせる、右クリック = メニュー。
+/// 選んだモデルのボーンは線で重ねて描き、線の近くをクリックするとボーンを選ぶ。
 /// </summary>
 public partial class ViewportControl : UserControl, IDisposable
 {
     private const double ClickSelectTolerance = 4;
+    private const float BonePickTolerance = 6;
 
     private readonly EditorContext _context;
     private readonly ViewportSurface _surface;
     private readonly List<DrawItem> _drawItems = [];
+    private readonly BoneOverlay _boneOverlay = new();
     private DragMode _drag;
     private Point _lastMouse;
     private bool _showGrid = true;
+    private bool _showBones = true;
     private bool _isActiveView;
     private bool _isMaximized;
 
@@ -63,6 +67,17 @@ public partial class ViewportControl : UserControl, IDisposable
         set
         {
             _showGrid = value;
+            Redraw();
+        }
+    }
+
+    /// <summary>選んだモデルのボーンを線で重ねるか。</summary>
+    public bool ShowBones
+    {
+        get => _showBones;
+        set
+        {
+            _showBones = value;
             Redraw();
         }
     }
@@ -129,7 +144,17 @@ public partial class ViewportControl : UserControl, IDisposable
         {
             return;
         }
-        var (center, radius) = SceneEvaluator.BoundingSphere(node);
+        (Vector3 center, float radius) = node switch
+        {
+            // ボーンは今の姿勢での位置に、モデルは今の姿勢を囲む球に合わせる
+            BoneNode bone when bone.Model is { } model && _context.GetLoaded(model) is { } loaded => (
+                Vector3.Transform(loaded.State.BonePosition(bone.Index), model.GetLocalMatrix()),
+                Math.Max(0.05f, (loaded.BoundsMax - loaded.BoundsMin).Length() * 0.12f)),
+            ModelNode model when _context.GetLoaded(model) is { } loaded => (
+                Vector3.Transform((loaded.BoundsMin + loaded.BoundsMax) * 0.5f, model.GetLocalMatrix()),
+                SceneEvaluator.BoundingSphere(model).Radius),
+            _ => SceneEvaluator.BoundingSphere(node),
+        };
         Camera.Focus(center, radius, _context.MainCamera);
     }
 
@@ -156,6 +181,9 @@ public partial class ViewportControl : UserControl, IDisposable
         var grid = new MenuItem { Header = "グリッドを表示", IsCheckable = true, IsChecked = ShowGrid };
         grid.Click += (_, _) => ShowGrid = grid.IsChecked;
         menu.Items.Add(grid);
+        var bones = new MenuItem { Header = "選んだモデルのボーンを表示", IsCheckable = true, IsChecked = ShowBones };
+        bones.Click += (_, _) => ShowBones = bones.IsChecked;
+        menu.Items.Add(bones);
         return menu;
     }
 
@@ -202,14 +230,15 @@ public partial class ViewportControl : UserControl, IDisposable
             _ => Matrix4x4.Identity,
         };
 
-        // 読み込んだモデル（シーン一覧の並び順。今は初期の姿勢のまま）
+        // 読み込んだモデル（シーン一覧の並び順。ボーンとモーフで変形した形は描画の前に GPU へ送ってある）
         _drawItems.Clear();
         foreach (var (node, model) in _context.VisibleModels)
         {
             DrawFlags drawFlags = _context.Selection.Contains(node) ? DrawFlags.Selected : DrawFlags.None;
             _drawItems.Add(new DrawItem(model.Mesh!, node.GetLocalMatrix(), drawFlags));
         }
-        return new FrameParameters(flags, matrices.View, matrices.Projection, gridWorld, testWorld, _drawItems);
+        ReadOnlyMemory<LineVertex> bones = ShowBones ? _boneOverlay.Build(_context) : ReadOnlyMemory<LineVertex>.Empty;
+        return new FrameParameters(flags, matrices.View, matrices.Projection, gridWorld, testWorld, _drawItems, bones);
     }
 
     private void OnCameraChanged()
@@ -326,13 +355,27 @@ public partial class ViewportControl : UserControl, IDisposable
             }
         }
 
+        // 表示しているボーンの線の近くなら、モデルより先にボーンを選ぶ
+        if (ShowBones)
+        {
+            DisplayedBone[] bones = [.. BoneOverlay.Enumerate(_context)];
+            (Vector3, Vector3)[] segments = [.. bones.Select(b => (b.Head, b.HasLength ? b.Tail : b.Head))];
+            int picked = Picking.PickSegment(new Vector2((float)point.X, (float)point.Y), size, matrices.View * matrices.Projection, segments, BonePickTolerance);
+            if (picked >= 0)
+            {
+                _context.Selection.Select(bones[picked].Node, toggle ? SelectMode.Toggle : SelectMode.Replace, this);
+                return;
+            }
+        }
+
         if (_context.TestObject is { IsEffectivelyVisible: true } testObject)
         {
             Consider(testObject, Picking.IntersectUnitCube(ray, SceneEvaluator.TestObjectWorld(testObject, _context.Playback.CurrentFrame)));
         }
+        _context.Poses.UpdateDirtyModels(); // 当たり判定は今の姿勢の形で行う
         foreach (var (node, model) in _context.VisibleModels)
         {
-            Consider(node, Picking.IntersectTriangles(ray, node.GetLocalMatrix(), model.Positions, model.Indices, node.BoundsMin, node.BoundsMax));
+            Consider(node, Picking.IntersectTriangles(ray, node.GetLocalMatrix(), model.Positions, model.Indices, model.BoundsMin, model.BoundsMax));
         }
 
         if (nearest is not null)
