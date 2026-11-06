@@ -88,6 +88,7 @@ public sealed class EditorContext
         Selection = new SelectionService();
         Playback = new PlaybackService();
         RenderLoop = new RenderLoop(engine, Playback);
+        Animation = new AnimationService(Scene, Playback);
         Poses = new PoseUpdater(this);
 
         Scene.NodeChanged += (_, _) => RenderLoop.InvalidateAll();
@@ -105,6 +106,9 @@ public sealed class EditorContext
     public PlaybackService Playback { get; }
 
     public RenderLoop RenderLoop { get; }
+
+    /// <summary>キーフレームを再生位置に合わせて当てはめ、未登録の変更を管理する。</summary>
+    public AnimationService Animation { get; }
 
     /// <summary>ボーン・モーフの値が変わったモデルを、描画の前に変形し直す。</summary>
     public PoseUpdater Poses { get; }

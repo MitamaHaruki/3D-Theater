@@ -3,6 +3,9 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:c="clr-namespace:Theater3D.App.Controls"
              Background="{StaticResource PanelBrush}">
+  <UserControl.Resources>
+    <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+  </UserControl.Resources>
   <DockPanel>
     <Border DockPanel.Dock="Top" Padding="6,3" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1">
       <DockPanel LastChildFill="False">
@@ -21,8 +24,24 @@
           <ComboBox Margin="6,0,0,0" Width="96" MinHeight="0" Padding="8,2" FontSize="12" VerticalAlignment="Center"
                     ItemsSource="{Binding FrameRates}" SelectedItem="{Binding FrameRate}" ItemStringFormat="{}{0} fps" ToolTip="フレームレート" />
         </StackPanel>
-        <TextBlock DockPanel.Dock="Right" Margin="12,0,4,0" VerticalAlignment="Center" Style="{StaticResource PlannedNoteStyle}"
-                   Text="キーフレームの登録・編集とグラフエディターは Phase 2 以降で対応します" />
+        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+          <!-- 未登録の変更（自動キーが OFF のときに手で動かしたもの）。フレームを動かしても保ち、登録か破棄を選ぶ -->
+          <Border Margin="0,0,8,0" Padding="8,0,4,0" CornerRadius="3" Background="#33E0A040" VerticalAlignment="Center" Height="26"
+                  Visibility="{Binding HasUnregistered, Converter={StaticResource BoolToVisibility}}"
+                  ToolTip="手で動かしたが、まだキーにしていない値です。フレームを動かしても値は保ちます">
+            <StackPanel Orientation="Horizontal">
+              <TextBlock VerticalAlignment="Center" Foreground="#FFE0A040" Text="{Binding UnregisteredText}" />
+              <Button Margin="8,0,0,0" Style="{StaticResource TextButtonStyle}" Content="すべて登録" Click="OnRegisterAllClick"
+                      ToolTip="未登録の変更を、今のフレームのキーにします" />
+              <Button Style="{StaticResource TextButtonStyle}" Content="破棄" Click="OnDiscardClick"
+                      ToolTip="未登録の変更を捨てて、キーの値（キーが無ければ初期の値）に戻します" />
+            </StackPanel>
+          </Border>
+          <Button Style="{StaticResource TextButtonStyle}" Content="キーを登録" Click="OnRegisterSelectionClick"
+                  ToolTip="選んだボーン・モーフを今のフレームのキーにします（I）" />
+          <ToggleButton Margin="4,0,0,0" Style="{StaticResource IconToggleButtonStyle}" Content="&#xE7C8;" IsChecked="{Binding AutoKey}"
+                        ToolTip="自動キーフレーム（ON にすると、値を変えたときに今のフレームへキーを登録します。初期値は OFF）" />
+        </StackPanel>
       </DockPanel>
     </Border>
     <ScrollBar x:Name="HorizontalBar" DockPanel.Dock="Bottom" Orientation="Horizontal" Height="12" MinHeight="0"

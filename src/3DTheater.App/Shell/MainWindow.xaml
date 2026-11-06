@@ -44,7 +44,8 @@
             <Separator />
             <MenuItem Header="モデルを読み込む（PMX）..." InputGestureText="Ctrl+I" Click="OnImportModelClick"
                       ToolTip="PMX モデルをシーンに加えて表示します（ドラッグでも読み込めます）" />
-            <MenuItem Header="モーションを読み込む（VMD / VPD）..." Style="{StaticResource PlannedItemStyle}" ToolTip="Phase 2 で対応します" />
+            <MenuItem Header="モーション・ポーズを読み込む（VMD / VPD）..." Click="OnImportMotionClick"
+                      ToolTip="今操作しているモデルに当てはめます（ウィンドウへのドラッグでも読み込めます）" />
             <MenuItem Header="書き出し（PNG / 連番）..." Style="{StaticResource PlannedItemStyle}" ToolTip="Phase 4 で対応します" />
             <Separator />
             <MenuItem Header="終了(_X)" InputGestureText="Alt+F4" Click="OnExitClick" />
@@ -85,11 +86,14 @@
             <MenuItem Header="モーフ操作" Style="{StaticResource PlannedItemStyle}" ToolTip="Phase 2 で対応します" />
             <MenuItem Header="物理演算" Style="{StaticResource PlannedItemStyle}" ToolTip="Phase 3 で対応します" />
           </MenuItem>
-          <MenuItem Header="モーション(_A)">
-            <MenuItem Header="VMD を読み込む..." Style="{StaticResource PlannedItemStyle}" ToolTip="Phase 2 で対応します" />
-            <MenuItem Header="VMD に書き出す..." Style="{StaticResource PlannedItemStyle}" ToolTip="Phase 2 で対応します" />
-            <MenuItem Header="キーフレームを登録" Style="{StaticResource PlannedItemStyle}" ToolTip="Phase 2 で対応します" />
-            <MenuItem Header="自動キーフレーム（初期値は OFF）" Style="{StaticResource PlannedItemStyle}" ToolTip="Phase 2 で対応します" />
+          <MenuItem Header="モーション(_A)" SubmenuOpened="OnMotionMenuOpened">
+            <MenuItem Header="モーション・ポーズを読み込む（VMD / VPD）..." Click="OnImportMotionClick" />
+            <MenuItem Header="VMD / VPD に書き出す..." Style="{StaticResource PlannedItemStyle}" ToolTip="次の段階で対応します" />
+            <Separator />
+            <MenuItem Header="キーフレームを登録" InputGestureText="I" Click="OnRegisterKeysClick"
+                      ToolTip="選んだボーン・モーフを、今のフレームのキーにします" />
+            <MenuItem x:Name="AutoKeyMenuItem" Header="自動キーフレーム" IsCheckable="True" Click="OnAutoKeyClick"
+                      ToolTip="ON にすると、値を変えたときに今のフレームへキーを登録します（初期値は OFF）" />
           </MenuItem>
           <MenuItem Header="カメラ(_C)">
             <MenuItem Header="選択した物に合わせる" InputGestureText="Num ." Click="OnFocusSelectionClick" />

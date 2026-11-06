@@ -7,13 +7,32 @@ namespace Theater3D.App.Panels;
 public sealed class TimelineViewModel : ObservableObject
 {
     private readonly PlaybackService _playback;
+    private readonly AnimationService _animation;
 
-    public TimelineViewModel(PlaybackService playback)
+    public TimelineViewModel(PlaybackService playback, AnimationService animation)
     {
         _playback = playback;
+        _animation = animation;
         playback.FrameChanged += (_, _) => OnPropertyChanged(nameof(CurrentFrame));
         playback.StateChanged += (_, _) => OnPropertyChanged(string.Empty);
+        animation.StateChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(AutoKey));
+            OnPropertyChanged(nameof(HasUnregistered));
+            OnPropertyChanged(nameof(UnregisteredText));
+        };
     }
+
+    /// <summary>自動キーフレーム（初期値は OFF）。</summary>
+    public bool AutoKey
+    {
+        get => _animation.AutoKey;
+        set => _animation.AutoKey = value;
+    }
+
+    public bool HasUnregistered => _animation.UnregisteredCount > 0;
+
+    public string UnregisteredText => $"未登録の変更 {_animation.UnregisteredCount} 件";
 
     public IReadOnlyList<int> FrameRates => PlaybackService.SupportedFrameRates;
 

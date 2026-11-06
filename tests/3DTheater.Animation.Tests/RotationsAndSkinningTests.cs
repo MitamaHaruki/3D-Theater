@@ -51,13 +51,6 @@ public sealed class RotationsTests
     }
 
     private static float Wrap(float angle) => MathF.IEEERemainder(angle, MathF.Tau);
-
-    [TestMethod]
-    public void FromSceneDegreesMatchesTheSceneConvention()
-    {
-        Quaternion q = Rotations.FromSceneDegrees(new Vector3(0, 90, 0));
-        AssertEx.AreClose(new Vector3(0, 0, -1), Vector3.Transform(Vector3.UnitX, q));
-    }
 }
 
 [TestClass]

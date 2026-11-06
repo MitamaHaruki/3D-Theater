@@ -95,7 +95,7 @@ public class SceneNode : ObservableObject
     }
 
     /// <summary>回転（度）。</summary>
-    public Vector3 Rotation
+    public virtual Vector3 Rotation
     {
         get => _rotation;
         set => SetProperty(ref _rotation, value);
@@ -274,7 +274,7 @@ public sealed class ModelNode(string name, string filePath, ModelSummary summary
         foreach (BoneNode bone in Bones.Where(b => b.CanEdit))
         {
             bone.Position = Vector3.Zero;
-            bone.Rotation = Vector3.Zero;
+            bone.Orientation = Quaternion.Identity;
         }
         foreach (MorphNode morph in Morphs.Where(m => m.CanEdit))
         {
@@ -300,17 +300,74 @@ public sealed record BoneTraits(
 /// どちらも親のボーンから見た向きで表す（MMD のボーンの移動・回転と同じ）。
 /// 名前や親子関係はモデルのファイルのままで、ここでは変えない（指示書 2.7）。
 /// </summary>
-public sealed class BoneNode(string name, int index, BoneTraits traits)
-    : SceneNode(SceneNodeKind.Bone, name, canRename: false, hasTransform: true, canScale: false)
+public sealed class BoneNode : SceneNode
 {
-    public int Index { get; } = index;
+    private Quaternion _orientation = Quaternion.Identity;
+    private Vector3 _degrees;
+    private bool _hasUnregisteredChange;
 
-    public BoneTraits Traits { get; } = traits;
+    public BoneNode(string name, int index, BoneTraits traits)
+        : base(SceneNodeKind.Bone, name, canRename: false, hasTransform: true, canScale: false)
+    {
+        Index = index;
+        Traits = traits;
+        Keys.Changed += (_, _) => OnPropertyChanged(nameof(Keys));
+    }
+
+    public int Index { get; }
+
+    public BoneTraits Traits { get; }
 
     public ModelNode? Model => FindAncestor<ModelNode>();
 
+    /// <summary>
+    /// 回転（四元数）。計算とキーはこちらを使う（角度にすると同じ回転でも表し方が複数あり、キーの補間がずれるため）。
+    /// 変わると <see cref="SceneNode.Rotation"/> の変更として知らせる。
+    /// </summary>
+    public Quaternion Orientation
+    {
+        get => _orientation;
+        set
+        {
+            Quaternion q = value.LengthSquared() > 1e-12f ? Quaternion.Normalize(value) : Quaternion.Identity;
+            if (q == _orientation)
+            {
+                return;
+            }
+            _orientation = q;
+            _degrees = SceneRotation.ToDegrees(q);
+            OnPropertyChanged(nameof(Rotation));
+        }
+    }
+
+    /// <summary>回転を度で（プロパティ欄で使う）。<see cref="Orientation"/> と同じ回転を表す。</summary>
+    public override Vector3 Rotation
+    {
+        get => _degrees;
+        set
+        {
+            if (value == _degrees)
+            {
+                return;
+            }
+            _degrees = value;
+            _orientation = SceneRotation.ToQuaternion(value);
+            OnPropertyChanged(nameof(Rotation));
+        }
+    }
+
+    /// <summary>キーフレーム。</summary>
+    public KeyTrack<BoneKey> Keys { get; } = new();
+
+    /// <summary>キーに登録していない変更がある（自動キーが OFF のとき、手で動かした）。</summary>
+    public bool HasUnregisteredChange
+    {
+        get => _hasUnregisteredChange;
+        set => SetProperty(ref _hasUnregisteredChange, value);
+    }
+
     /// <summary>初期の姿勢から動かしているか。</summary>
-    public bool IsPosed => Position != Vector3.Zero || Rotation != Vector3.Zero;
+    public bool IsPosed => Position != Vector3.Zero || _orientation != Quaternion.Identity;
 }
 
 /// <summary>モーフを並べるときの分け方（PMX の「パネル」）。</summary>
@@ -324,17 +381,36 @@ public enum MorphCategory
 }
 
 /// <summary>モデルのモーフ（表情など）1 つ。値は 0（効かない）〜 1（すべて効く）。</summary>
-public sealed class MorphNode(string name, int index, MorphCategory category, string typeName)
-    : SceneNode(SceneNodeKind.Morph, name, canRename: false, hasTransform: false)
+public sealed class MorphNode : SceneNode
 {
     private float _weight;
+    private bool _hasUnregisteredChange;
 
-    public int Index { get; } = index;
+    public MorphNode(string name, int index, MorphCategory category, string typeName)
+        : base(SceneNodeKind.Morph, name, canRename: false, hasTransform: false)
+    {
+        Index = index;
+        Category = category;
+        TypeName = typeName;
+        Keys.Changed += (_, _) => OnPropertyChanged(nameof(Keys));
+    }
 
-    public MorphCategory Category { get; } = category;
+    public int Index { get; }
+
+    public MorphCategory Category { get; }
 
     /// <summary>モーフの種類の名前（頂点・ボーン・材質など）。</summary>
-    public string TypeName { get; } = typeName;
+    public string TypeName { get; }
+
+    /// <summary>キーフレーム。</summary>
+    public KeyTrack<MorphKey> Keys { get; } = new();
+
+    /// <summary>キーに登録していない変更がある（自動キーが OFF のとき、手で動かした）。</summary>
+    public bool HasUnregisteredChange
+    {
+        get => _hasUnregisteredChange;
+        set => SetProperty(ref _hasUnregisteredChange, value);
+    }
 
     public float Weight
     {

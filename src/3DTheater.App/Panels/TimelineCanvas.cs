@@ -11,7 +11,8 @@ namespace Theater3D.App.Panels;
 /// タイムラインの本体。左にトラック名、上に目盛り、右にトラックの帯と再生位置の線を描く。
 /// 目盛りか帯をクリック・ドラッグで再生位置を動かす（再生中なら一時停止する）。
 /// ホイール = 上下、Shift + ホイール = 左右、Ctrl + ホイール = 拡大縮小。
-/// Phase 1 ではキーフレームはまだ無い（Phase 2 で登録・編集を作る）。
+/// ボーン・モーフの行にはキーフレームを◆で描き、まとまりの行には中のキーをまとめて薄く描く（今のフレームのキーは強調色）。
+/// 未登録の変更がある項目は名前を橙色にする。キーの選択・移動は次の段階で作る。
 /// </summary>
 public sealed class TimelineCanvas : FrameworkElement
 {
@@ -24,6 +25,7 @@ public sealed class TimelineCanvas : FrameworkElement
     private readonly EditorContext _context;
     private readonly HashSet<SceneNode> _collapsed = [];
     private readonly HashSet<SceneNode> _seen = [];
+    private readonly Dictionary<SceneNode, int[]> _summaryCache = [];
     private readonly List<(SceneNode Node, int Depth)> _rows = [];
     private double _pixelsPerFrame = 4;
     private double _firstFrame;
@@ -41,6 +43,10 @@ public sealed class TimelineCanvas : FrameworkElement
     private readonly Pen _borderPen;
     private readonly Brush _outOfRange;
     private readonly Brush _accent;
+    private readonly Brush _key = Frozen(new SolidColorBrush(Color.FromRgb(0xE6, 0xE6, 0xE6)));
+    private readonly Brush _summaryKey = Frozen(new SolidColorBrush(Color.FromArgb(0xA0, 0xB0, 0xB8, 0xC8)));
+    private readonly Brush _unregistered = Frozen(new SolidColorBrush(Color.FromRgb(0xE0, 0xA0, 0x40)));
+    private readonly Pen _keyOutline = FrozenPen(Color.FromArgb(0xC0, 0x10, 0x10, 0x10));
     private readonly Typeface _face = new("Yu Gothic UI");
     private readonly Typeface _iconFace;
 
@@ -72,6 +78,10 @@ public sealed class TimelineCanvas : FrameworkElement
             if (e.PropertyName == nameof(SceneNode.Children))
             {
                 RebuildRows();
+            }
+            if (e.PropertyName is nameof(SceneNode.Children) or nameof(BoneNode.Keys))
+            {
+                _summaryCache.Clear();
             }
             InvalidateVisual();
         };
@@ -131,7 +141,9 @@ public sealed class TimelineCanvas : FrameworkElement
                 string chevron = _collapsed.Contains(node) ? "" : "";
                 dc.DrawText(Text(chevron, 9, _subText, dip, _iconFace), new Point(x, y + 6));
             }
-            Brush nameBrush = node.IsEffectivelyVisible ? _text : _disabledText;
+            Brush nameBrush = node is BoneNode { HasUnregisteredChange: true } or MorphNode { HasUnregisteredChange: true }
+                ? _unregistered
+                : node.IsEffectivelyVisible ? _text : _disabledText;
             var name = Text(node.Name, 12, nameBrush, dip);
             name.MaxTextWidth = Math.Max(1, NameColumnWidth - x - 22);
             name.Trimming = TextTrimming.CharacterEllipsis;
@@ -157,6 +169,17 @@ public sealed class TimelineCanvas : FrameworkElement
             {
                 dc.DrawText(Text(f.ToString(CultureInfo.InvariantCulture), 11, _subText, dip), new Point(x + 3, 3));
             }
+        }
+
+        // キーフレーム（ボーン・モーフの行はその項目のキー、まとまりの行は中のキーをまとめて薄く）
+        for (int i = 0; i < _rows.Count; i++)
+        {
+            double y = RulerHeight + (i * RowHeight) - _scrollY;
+            if (y + RowHeight < RulerHeight || y > height)
+            {
+                continue;
+            }
+            DrawKeys(dc, _rows[i].Node, y + (RowHeight / 2), Math.Max(0, first), last);
         }
 
         // 終わりのフレームより後ろは暗くする
@@ -272,6 +295,89 @@ public sealed class TimelineCanvas : FrameworkElement
     {
         base.OnRenderSizeChanged(sizeInfo);
         HorizontalViewChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void DrawKeys(DrawingContext dc, SceneNode node, double centerY, int firstFrame, int lastFrame)
+    {
+        int current = _context.Playback.CurrentFrame;
+        double lastX = double.NegativeInfinity;
+        void Diamond(int frame, Brush brush, double size)
+        {
+            double x = FrameToX(frame);
+            if (x - lastX < 1.5 && frame != current)
+            {
+                return; // 縮めて表示していて重なるときは描かない
+            }
+            lastX = x;
+            var geometry = new StreamGeometry();
+            using (StreamGeometryContext g = geometry.Open())
+            {
+                g.BeginFigure(new Point(x, centerY - size), true, true);
+                g.LineTo(new Point(x + size, centerY), false, false);
+                g.LineTo(new Point(x, centerY + size), false, false);
+                g.LineTo(new Point(x - size, centerY), false, false);
+            }
+            geometry.Freeze();
+            dc.DrawGeometry(frame == current ? _accent : brush, _keyOutline, geometry);
+        }
+
+        switch (node)
+        {
+            case BoneNode bone:
+                DrawTrack(bone.Keys.Keys, bone.Keys.Range(firstFrame, lastFrame));
+                break;
+            case MorphNode morph:
+                DrawTrack(morph.Keys.Keys, morph.Keys.Range(firstFrame, lastFrame));
+                break;
+            default:
+                int[] frames = SummaryFrames(node);
+                int start = Array.BinarySearch(frames, firstFrame);
+                start = start < 0 ? ~start : start;
+                for (int k = start; k < frames.Length && frames[k] <= lastFrame; k++)
+                {
+                    Diamond(frames[k], _summaryKey, 3.5);
+                }
+                break;
+        }
+
+        void DrawTrack<TKey>(IReadOnlyList<TKey> keys, (int Start, int End) range) where TKey : struct, IKeyframe
+        {
+            for (int k = range.Start; k < range.End; k++)
+            {
+                Diamond(keys[k].Frame, _key, 4.5);
+            }
+        }
+    }
+
+    // まとまり（モデル・表示枠など）の中にあるキーのフレームの一覧。キーが変わるまで使い回す
+    private int[] SummaryFrames(SceneNode node)
+    {
+        if (_summaryCache.TryGetValue(node, out int[]? cached))
+        {
+            return cached;
+        }
+        var frames = new SortedSet<int>();
+        foreach (SceneNode child in node.DescendantsAndSelf())
+        {
+            switch (child)
+            {
+                case BoneNode bone:
+                    foreach (BoneKey key in bone.Keys.Keys)
+                    {
+                        frames.Add(key.Frame);
+                    }
+                    break;
+                case MorphNode morph:
+                    foreach (MorphKey key in morph.Keys.Keys)
+                    {
+                        frames.Add(key.Frame);
+                    }
+                    break;
+            }
+        }
+        int[] result = [.. frames];
+        _summaryCache[node] = result;
+        return result;
     }
 
     private void OnFrameChanged()

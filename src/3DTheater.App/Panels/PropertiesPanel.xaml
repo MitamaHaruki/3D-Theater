@@ -45,6 +45,9 @@
           <TextBox MinHeight="0" Height="26" Padding="6,2" FontSize="13" IsEnabled="{Binding CanRename}"
                    Text="{Binding NodeName, UpdateSourceTrigger=LostFocus}" />
         </DockPanel>
+        <TextBlock Margin="0,6,0,0" TextWrapping="Wrap" Foreground="#FFE0A040"
+                   Text="＊ キーに登録していない変更があります。フレームを動かしても値は保ちます（タイムラインの「すべて登録」か「破棄」で決めます。I で選んだ項目を登録）。"
+                   Visibility="{Binding HasUnregisteredChange, Converter={StaticResource BoolToVisibility}}" />
         <TextBlock Margin="0,6,0,0" Text="編集ロック中のため変更できません（シーン一覧の鍵で外せます）。"
                    Style="{StaticResource PlannedNoteStyle}" Foreground="#FFE0A040"
                    Visibility="{Binding IsLockedNoteVisible, Converter={StaticResource BoolToVisibility}}" />
@@ -119,11 +122,14 @@
             <Grid.RowDefinitions>
               <RowDefinition Height="Auto" />
               <RowDefinition Height="Auto" />
+              <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
             <TextBlock Text="親ボーン" Style="{StaticResource RowLabelStyle}" Margin="0,2,6,2" />
             <TextBlock Grid.Column="1" Margin="0,2" Text="{Binding BoneParentText}" TextWrapping="Wrap" />
             <TextBlock Grid.Row="1" Text="性質" Style="{StaticResource RowLabelStyle}" VerticalAlignment="Top" Margin="0,2,6,2" />
             <TextBlock Grid.Row="1" Grid.Column="1" Margin="0,2" Text="{Binding BoneTraitsText}" TextWrapping="Wrap" />
+            <TextBlock Grid.Row="2" Text="キー" Style="{StaticResource RowLabelStyle}" Margin="0,2,6,2" />
+            <TextBlock Grid.Row="2" Grid.Column="1" Margin="0,2" Text="{Binding KeyCountText}" />
           </Grid>
           <TextBlock Margin="0,6,0,0" Style="{StaticResource PlannedNoteStyle}"
                      Visibility="{Binding IsBoneIkLinkNote, Converter={StaticResource BoolToVisibility}}"
@@ -131,7 +137,7 @@
           <Button Margin="0,8,0,0" HorizontalAlignment="Left" Content="このボーンを初期の姿勢に戻す" Click="OnResetBoneClick"
                   IsEnabled="{Binding IsEditable}" />
           <TextBlock Margin="0,8,0,0" Style="{StaticResource PlannedNoteStyle}"
-                     Text="移動・回転は親のボーンから見た向きで、回転は Z → X → Y の順に回します。ギズモでの操作とキーフレームの登録は次の段階で対応します。" />
+                     Text="移動・回転は親のボーンから見た向きで、回転は Z → X → Y の順に回します。ギズモでの操作は次の段階で対応します。" />
         </StackPanel>
 
         <!-- モーフ -->
@@ -147,11 +153,14 @@
               <RowDefinition Height="22" />
               <RowDefinition Height="22" />
               <RowDefinition Height="30" />
+              <RowDefinition Height="22" />
             </Grid.RowDefinitions>
             <TextBlock Text="種類" Style="{StaticResource RowLabelStyle}" />
             <TextBlock Grid.Column="1" Grid.ColumnSpan="2" VerticalAlignment="Center" Text="{Binding Morph.TypeName}" />
             <TextBlock Grid.Row="1" Text="分類" Style="{StaticResource RowLabelStyle}" />
             <TextBlock Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" VerticalAlignment="Center" Text="{Binding MorphCategoryText}" />
+            <TextBlock Grid.Row="3" Text="キー" Style="{StaticResource RowLabelStyle}" />
+            <TextBlock Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" VerticalAlignment="Center" Text="{Binding KeyCountText}" />
             <TextBlock Grid.Row="2" Text="値" Style="{StaticResource RowLabelStyle}" />
             <Slider Grid.Row="2" Grid.Column="1" Margin="0,0,8,0" VerticalAlignment="Center" Minimum="0" Maximum="1"
                     SmallChange="0.01" LargeChange="0.1" Value="{Binding MorphWeight}" IsEnabled="{Binding IsEditable}" />

@@ -13,7 +13,7 @@ public partial class LoadReportWindow : Window
     private readonly LoadReport _report;
     private readonly ModelSummary? _summary;
 
-    private LoadReportWindow(string path, LoadReport report, ModelSummary? summary)
+    private LoadReportWindow(string path, LoadReport report, ModelSummary? summary, string what)
     {
         InitializeComponent();
         _path = path;
@@ -22,7 +22,7 @@ public partial class LoadReportWindow : Window
 
         int warnings = report.WarningCount;
         HeadlineText.Text = report.HasErrors
-            ? "モデルを読み込めませんでした"
+            ? $"{what}を読み込めませんでした"
             : warnings > 0 ? $"読み込みました（注意 {warnings} 件）" : "読み込みました（問題はありません）";
         PathText.Text = path;
         SummaryText.Text = summary is null ? string.Empty : FormatSummary(summary);
@@ -30,9 +30,10 @@ public partial class LoadReportWindow : Window
         IssueList.ItemsSource = report.Issues.OrderByDescending(i => i.Severity).ToList();
     }
 
-    public static void Show(Window? owner, string path, LoadReport report, ModelSummary? summary)
+    /// <param name="what">読み込んだものの呼び名（「モデル」「モーション」「ポーズ」）。</param>
+    public static void Show(Window? owner, string path, LoadReport report, ModelSummary? summary, string what = "モデル")
     {
-        var window = new LoadReportWindow(path, report, summary) { Owner = owner };
+        var window = new LoadReportWindow(path, report, summary, what) { Owner = owner };
         window.ShowDialog();
     }
 

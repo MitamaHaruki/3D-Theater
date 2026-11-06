@@ -65,13 +65,6 @@ public static class Rotations
         * Quaternion.CreateFromAxisAngle(Vector3.UnitY, angles.Y)
         * Quaternion.CreateFromAxisAngle(Vector3.UnitZ, angles.Z);
 
-    /// <summary>シーンの項目と同じ決め（度。Z → X → Y の順）の角度から回転を作る。</summary>
-    public static Quaternion FromSceneDegrees(Vector3 degrees)
-    {
-        Vector3 r = degrees * (MathF.PI / 180f);
-        return Quaternion.CreateFromYawPitchRoll(r.Y, r.X, r.Z);
-    }
-
     private static float Wrap(float angle) => MathF.IEEERemainder(angle, MathF.Tau);
 
     private static float Distance(Vector3 a, Vector3 b) =>

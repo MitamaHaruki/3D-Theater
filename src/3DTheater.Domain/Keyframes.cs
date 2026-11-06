@@ -1,0 +1,349 @@
+using System.Numerics;
+
+namespace Theater3D.Domain;
+
+/// <summary>
+/// キーとキーの間の動き方を表す曲線（3 次ベジェ）。始点 (0,0) と終点 (1,1) は決まっていて、2 つの制御点だけを持つ。
+/// 横軸が時間の進み、縦軸が値の進み（どちらも 0〜1）。MMD の補間曲線と同じ考え方。
+/// </summary>
+public readonly record struct BezierCurve(Vector2 Control1, Vector2 Control2)
+{
+    /// <summary>直線（MMD が新しいキーに入れる 20・107 の制御点）。</summary>
+    public static BezierCurve Linear { get; } = FromMmd(20, 20, 107, 107);
+
+    /// <summary>直線か（制御点がどちらも対角線の上にある）。</summary>
+    public bool IsLinear => MathF.Abs(Control1.X - Control1.Y) < 1e-6f && MathF.Abs(Control2.X - Control2.Y) < 1e-6f;
+
+    /// <summary>MMD の書き方（0〜127 の整数）から作る。</summary>
+    public static BezierCurve FromMmd(byte x1, byte y1, byte x2, byte y2) =>
+        new(new Vector2(Math.Min(x1, (byte)127) / 127f, Math.Min(y1, (byte)127) / 127f), new Vector2(Math.Min(x2, (byte)127) / 127f, Math.Min(y2, (byte)127) / 127f));
+
+    /// <summary>時間の進み <paramref name="x"/>（0〜1）での値の進み（0〜1）。</summary>
+    public float Evaluate(float x)
+    {
+        x = Math.Clamp(x, 0f, 1f);
+        if (IsLinear)
+        {
+            return x;
+        }
+        // 曲線の横の位置が x になる t を二分法で探す（横の位置は t について単調に増える）
+        float lo = 0f, hi = 1f, t = x;
+        for (int i = 0; i < 32; i++)
+        {
+            float bx = Bezier(t, Control1.X, Control2.X);
+            if (MathF.Abs(bx - x) < 1e-6f)
+            {
+                break;
+            }
+            if (bx < x)
+            {
+                lo = t;
+            }
+            else
+            {
+                hi = t;
+            }
+            t = (lo + hi) * 0.5f;
+        }
+        return Bezier(t, Control1.Y, Control2.Y);
+    }
+
+    private static float Bezier(float t, float p1, float p2)
+    {
+        float u = 1f - t;
+        return (3f * u * u * t * p1) + (3f * u * t * t * p2) + (t * t * t);
+    }
+}
+
+/// <summary>ボーンのキーの動き方（移動の X・Y・Z と回転で別々の曲線）。</summary>
+public readonly record struct BoneInterpolation(BezierCurve X, BezierCurve Y, BezierCurve Z, BezierCurve Rotation)
+{
+    public static BoneInterpolation Linear { get; } = new(BezierCurve.Linear, BezierCurve.Linear, BezierCurve.Linear, BezierCurve.Linear);
+}
+
+/// <summary>キーの種類による動き方の違い。</summary>
+public enum KeyInterpolationKind
+{
+    /// <summary>曲線で次のキーへ近づける（直線なら線形補間）。</summary>
+    Curve,
+
+    /// <summary>次のキーまで値を変えない（段階）。</summary>
+    Step,
+}
+
+public interface IKeyframe
+{
+    int Frame { get; }
+}
+
+/// <summary>
+/// ボーンのキー 1 つ。移動・回転は <see cref="BoneNode"/> と同じく親から見た向き。
+/// <see cref="Interpolation"/> と <see cref="Kind"/> は「前のキーからこのキーまで」の動き方（MMD と同じ決め）。
+/// </summary>
+public readonly record struct BoneKey(int Frame, Vector3 Translation, Quaternion Rotation, BoneInterpolation Interpolation, KeyInterpolationKind Kind = KeyInterpolationKind.Curve)
+    : IKeyframe;
+
+/// <summary>モーフのキー 1 つ。<see cref="Curve"/> と <see cref="Kind"/> は前のキーからこのキーまでの動き方。</summary>
+public readonly record struct MorphKey(int Frame, float Weight, BezierCurve Curve, KeyInterpolationKind Kind = KeyInterpolationKind.Curve) : IKeyframe;
+
+/// <summary>
+/// 1 つの項目のキーの並び（フレーム順、同じフレームには 1 つだけ）。変わると <see cref="Changed"/> を出す。
+/// </summary>
+public sealed class KeyTrack<TKey> where TKey : struct, IKeyframe
+{
+    private readonly List<TKey> _keys = [];
+
+    public event EventHandler? Changed;
+
+    public IReadOnlyList<TKey> Keys => _keys;
+
+    public int Count => _keys.Count;
+
+    public int FirstFrame => _keys.Count > 0 ? _keys[0].Frame : 0;
+
+    public int LastFrame => _keys.Count > 0 ? _keys[^1].Frame : 0;
+
+    /// <summary>キーを置く。同じフレームにキーがあれば置き換える。</summary>
+    public void Set(TKey key)
+    {
+        if (key.Frame < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(key), "フレームは 0 以上にしてください");
+        }
+        int index = IndexOf(key.Frame);
+        if (index >= 0)
+        {
+            _keys[index] = key;
+        }
+        else
+        {
+            _keys.Insert(~index, key);
+        }
+        Changed?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>まとめて置く（通知は 1 回）。同じフレームのキーは後ろのものを使う。</summary>
+    public void SetRange(IEnumerable<TKey> keys)
+    {
+        bool any = false;
+        foreach (TKey key in keys)
+        {
+            if (key.Frame < 0)
+            {
+                continue;
+            }
+            any = true;
+            int index = IndexOf(key.Frame);
+            if (index >= 0)
+            {
+                _keys[index] = key;
+            }
+            else
+            {
+                _keys.Insert(~index, key);
+            }
+        }
+        if (any)
+        {
+            Changed?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    public bool Remove(int frame)
+    {
+        int index = IndexOf(frame);
+        if (index < 0)
+        {
+            return false;
+        }
+        _keys.RemoveAt(index);
+        Changed?.Invoke(this, EventArgs.Empty);
+        return true;
+    }
+
+    public void Clear()
+    {
+        if (_keys.Count == 0)
+        {
+            return;
+        }
+        _keys.Clear();
+        Changed?.Invoke(this, EventArgs.Empty);
+    }
+
+    public bool HasKeyAt(int frame) => IndexOf(frame) >= 0;
+
+    /// <summary>
+    /// <paramref name="frame"/> の前後のキーの番号。キーちょうどなら <c>before == after</c>。
+    /// 最初のキーより前・最後のキーより後ろなら、端のキーを両方に返す。キーが無ければ false。
+    /// </summary>
+    public bool FindSegment(float frame, out int before, out int after)
+    {
+        before = after = -1;
+        if (_keys.Count == 0)
+        {
+            return false;
+        }
+        if (frame <= _keys[0].Frame)
+        {
+            before = after = 0;
+            return true;
+        }
+        if (frame >= _keys[^1].Frame)
+        {
+            before = after = _keys.Count - 1;
+            return true;
+        }
+        int lo = 0, hi = _keys.Count - 1;
+        while (hi - lo > 1)
+        {
+            int mid = (lo + hi) / 2;
+            if (_keys[mid].Frame <= frame)
+            {
+                lo = mid;
+            }
+            else
+            {
+                hi = mid;
+            }
+        }
+        if (_keys[lo].Frame == frame)
+        {
+            before = after = lo;
+        }
+        else
+        {
+            before = lo;
+            after = hi;
+        }
+        return true;
+    }
+
+    /// <summary>フレームが <paramref name="first"/>〜<paramref name="last"/> にあるキーの番号の範囲（描くときに使う）。</summary>
+    public (int Start, int End) Range(int first, int last)
+    {
+        int start = IndexOf(first);
+        start = start < 0 ? ~start : start;
+        int end = IndexOf(last);
+        end = end < 0 ? ~end : end + 1;
+        return (start, Math.Max(start, end));
+    }
+
+    private int IndexOf(int frame)
+    {
+        int lo = 0, hi = _keys.Count - 1;
+        while (lo <= hi)
+        {
+            int mid = (lo + hi) / 2;
+            int f = _keys[mid].Frame;
+            if (f == frame)
+            {
+                return mid;
+            }
+            if (f < frame)
+            {
+                lo = mid + 1;
+            }
+            else
+            {
+                hi = mid - 1;
+            }
+        }
+        return ~lo;
+    }
+}
+
+/// <summary>キーの並びから、あるフレームでの値を求める（再生・停止・書き出しで同じ計算を使う。指示書 3.4）。</summary>
+public static class KeyframeEvaluator
+{
+    public static bool TryEvaluate(KeyTrack<BoneKey> track, float frame, out Vector3 translation, out Quaternion rotation)
+    {
+        translation = Vector3.Zero;
+        rotation = Quaternion.Identity;
+        if (!track.FindSegment(frame, out int before, out int after))
+        {
+            return false;
+        }
+        BoneKey a = track.Keys[before];
+        if (before == after)
+        {
+            translation = a.Translation;
+            rotation = a.Rotation;
+            return true;
+        }
+        BoneKey b = track.Keys[after];
+        if (b.Kind == KeyInterpolationKind.Step)
+        {
+            translation = a.Translation;
+            rotation = a.Rotation;
+            return true;
+        }
+        float t = (frame - a.Frame) / (b.Frame - a.Frame);
+        BoneInterpolation ip = b.Interpolation;
+        translation = new Vector3(
+            float.Lerp(a.Translation.X, b.Translation.X, ip.X.Evaluate(t)),
+            float.Lerp(a.Translation.Y, b.Translation.Y, ip.Y.Evaluate(t)),
+            float.Lerp(a.Translation.Z, b.Translation.Z, ip.Z.Evaluate(t)));
+        rotation = Quaternion.Normalize(Quaternion.Slerp(a.Rotation, b.Rotation, ip.Rotation.Evaluate(t)));
+        return true;
+    }
+
+    public static bool TryEvaluate(KeyTrack<MorphKey> track, float frame, out float weight)
+    {
+        weight = 0;
+        if (!track.FindSegment(frame, out int before, out int after))
+        {
+            return false;
+        }
+        MorphKey a = track.Keys[before];
+        if (before == after)
+        {
+            weight = a.Weight;
+            return true;
+        }
+        MorphKey b = track.Keys[after];
+        if (b.Kind == KeyInterpolationKind.Step)
+        {
+            weight = a.Weight;
+            return true;
+        }
+        float t = (frame - a.Frame) / (b.Frame - a.Frame);
+        weight = float.Lerp(a.Weight, b.Weight, b.Curve.Evaluate(t));
+        return true;
+    }
+}
+
+/// <summary>シーンの回転の表し方（度、Z → X → Y の順）と四元数の行き来。</summary>
+public static class SceneRotation
+{
+    private const float ToRadians = MathF.PI / 180f;
+    private const float ToDegreesFactor = 180f / MathF.PI;
+
+    public static Quaternion ToQuaternion(Vector3 degrees)
+    {
+        Vector3 r = degrees * ToRadians;
+        return Quaternion.CreateFromYawPitchRoll(r.Y, r.X, r.Z);
+    }
+
+    /// <summary>四元数を度に分ける（X = −90〜90、Y・Z = −180〜180）。X が ±90 のときは Z を 0 にする。</summary>
+    public static Vector3 ToDegrees(Quaternion q)
+    {
+        Matrix4x4 m = Matrix4x4.CreateFromQuaternion(Quaternion.Normalize(q));
+        // 行ベクトルの行列で M = Rz × Rx × Ry（Z から順に回す）のとき:
+        //   M32 = -sin(X)、M31 = cos(X)sin(Y)、M33 = cos(X)cos(Y)、M12 = sin(Z)cos(X)、M22 = cos(Z)cos(X)
+        float sinX = Math.Clamp(-m.M32, -1f, 1f);
+        float x = MathF.Asin(sinX);
+        float y, z;
+        if (MathF.Abs(sinX) > 0.99999f)
+        {
+            z = 0;
+            y = MathF.Atan2(-m.M13, m.M11);
+        }
+        else
+        {
+            y = MathF.Atan2(m.M31, m.M33);
+            z = MathF.Atan2(m.M12, m.M22);
+        }
+        return new Vector3(x, y, z) * ToDegreesFactor;
+    }
+}

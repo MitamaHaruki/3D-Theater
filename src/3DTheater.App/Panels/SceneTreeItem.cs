@@ -60,13 +60,23 @@ public sealed class SceneTreeItem : ObservableObject
 
     public bool CanToggleVisibility => Node.CanToggleVisibility;
 
-    /// <summary>名前の後ろに小さく出す補足（モーフの値など）。</summary>
-    public string Detail => Node switch
+    /// <summary>名前の後ろに小さく出す補足（モーフの値、動かしている印、未登録の変更の印「＊」）。</summary>
+    public string Detail
     {
-        MorphNode { Weight: > 0 } morph => morph.Weight.ToString("0.00", System.Globalization.CultureInfo.CurrentCulture),
-        BoneNode { IsPosed: true } => "●",
-        _ => string.Empty,
-    };
+        get
+        {
+            string value = Node switch
+            {
+                MorphNode { Weight: > 0 } morph => morph.Weight.ToString("0.00", System.Globalization.CultureInfo.CurrentCulture),
+                BoneNode { IsPosed: true } => "●",
+                _ => string.Empty,
+            };
+            return IsUnregistered ? "＊" + value : value;
+        }
+    }
+
+    /// <summary>キーに登録していない変更がある。</summary>
+    public bool IsUnregistered => Node is BoneNode { HasUnregisteredChange: true } or MorphNode { HasUnregisteredChange: true };
 
     public bool IsExpanded
     {
@@ -151,6 +161,10 @@ public sealed class SceneTreeItem : ObservableObject
                 break;
             case nameof(MorphNode.Weight) or nameof(SceneNode.Position) or nameof(SceneNode.Rotation):
                 OnPropertyChanged(nameof(Detail));
+                break;
+            case nameof(BoneNode.HasUnregisteredChange):
+                OnPropertyChanged(nameof(Detail));
+                OnPropertyChanged(nameof(IsUnregistered));
                 break;
             case nameof(SceneNode.IsLocked):
                 OnPropertyChanged(nameof(IsLocked));

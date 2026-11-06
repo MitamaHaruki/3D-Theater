@@ -43,6 +43,8 @@ internal sealed class BinaryCursor(byte[] data)
 
     public int ReadInt32() => BinaryPrimitives.ReadInt32LittleEndian(Take(4));
 
+    public uint ReadUInt32() => BinaryPrimitives.ReadUInt32LittleEndian(Take(4));
+
     public float ReadSingle() => BinaryPrimitives.ReadSingleLittleEndian(Take(4));
 
     public Vector2 ReadVector2() => new(ReadSingle(), ReadSingle());

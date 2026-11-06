@@ -67,7 +67,7 @@ public sealed class PoseUpdater
         PoseInput input = model.Input;
         foreach (BoneNode bone in node.Bones)
         {
-            input.Rotations[bone.Index] = Rotations.FromSceneDegrees(bone.Rotation);
+            input.Rotations[bone.Index] = bone.Orientation;
             input.Translations[bone.Index] = bone.Position;
         }
         foreach (MorphNode morph in node.Morphs)

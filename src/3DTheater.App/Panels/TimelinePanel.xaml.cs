@@ -8,6 +8,7 @@ namespace Theater3D.App.Panels;
 public partial class TimelinePanel : UserControl
 {
     private readonly PlaybackService _playback;
+    private readonly EditorContext _context;
     private readonly TimelineCanvas _canvas;
     private bool _updatingBar;
 
@@ -15,7 +16,8 @@ public partial class TimelinePanel : UserControl
     {
         InitializeComponent();
         _playback = context.Playback;
-        DataContext = new TimelineViewModel(context.Playback);
+        _context = context;
+        DataContext = new TimelineViewModel(context.Playback, context.Animation);
         _canvas = new TimelineCanvas(context);
         CanvasHost.Child = _canvas;
         HorizontalBar.Margin = new Thickness(TimelineCanvas.NameColumnWidth, 0, 0, 0);
@@ -61,4 +63,32 @@ public partial class TimelinePanel : UserControl
     }
 
     private void OnGoToEnd(object sender, RoutedEventArgs e) => _playback.GoToEnd();
+
+    private void OnRegisterAllClick(object sender, RoutedEventArgs e)
+    {
+        _playback.Pause();
+        int count = _context.Animation.RegisterUnregistered();
+        Logging.AppLog.Info($"フレーム {_playback.CurrentFrame} に、未登録の変更 {count} 個をキーとして登録しました");
+    }
+
+    private void OnDiscardClick(object sender, RoutedEventArgs e)
+    {
+        int count = _context.Animation.UnregisteredCount;
+        _context.Animation.DiscardUnregistered();
+        Logging.AppLog.Info($"未登録の変更 {count} 個を破棄しました");
+    }
+
+    private void OnRegisterSelectionClick(object sender, RoutedEventArgs e)
+    {
+        _playback.Pause();
+        int count = _context.Animation.Register(_context.Animation.RegistrationTargets(_context.Selection.Items));
+        if (count > 0)
+        {
+            Logging.AppLog.Info($"フレーム {_playback.CurrentFrame} にキーを {count} 個登録しました");
+        }
+        else
+        {
+            Logging.AppLog.Info("登録するボーン・モーフがありません（ボーンかモーフを選ぶか、モデルを選んで動かしてから登録してください）");
+        }
+    }
 }

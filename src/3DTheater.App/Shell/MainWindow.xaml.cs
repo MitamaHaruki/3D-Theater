@@ -150,6 +150,10 @@ public partial class MainWindow : Window
                 OnImportModelClick(this, e);
                 e.Handled = true;
                 break;
+            case Key.I when modifiers == ModifierKeys.None:
+                RegisterKeys();
+                e.Handled = true;
+                break;
             case Key.Escape:
                 _context.Selection.Clear(this);
                 e.Handled = true;
@@ -333,8 +337,45 @@ public partial class MainWindow : Window
         {
             return;
         }
-        Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, async () => await ImportModelsAsync(files));
+        Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, async () => await ImportFilesAsync(files));
     }
+
+    private async void OnImportMotionClick(object sender, RoutedEventArgs e)
+    {
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = "モーション・ポーズを読み込む",
+            Filter = MotionImporter.FileFilter,
+            Multiselect = false,
+        };
+        if (dialog.ShowDialog(this) == true)
+        {
+            await ImportFilesAsync(dialog.FileNames);
+        }
+    }
+
+    private void OnRegisterKeysClick(object sender, RoutedEventArgs e) => RegisterKeys();
+
+    /// <summary>選んだボーン・モーフ（モデルを選んでいれば、その中の未登録の変更）を、今のフレームのキーにする。</summary>
+    private void RegisterKeys()
+    {
+        _context.Playback.Pause();
+        IReadOnlyList<Domain.SceneNode> targets = _context.Animation.RegistrationTargets(_context.Selection.Items);
+        int count = _context.Animation.Register(targets);
+        if (count > 0)
+        {
+            AppLog.Info($"フレーム {_context.Playback.CurrentFrame} にキーを {count} 個登録しました");
+        }
+        else
+        {
+            SetStatus("登録するボーン・モーフがありません（ボーンかモーフを選ぶか、モデルを選んで動かしてから登録してください）", isError: false);
+        }
+    }
+
+    private void OnMotionMenuOpened(object sender, RoutedEventArgs e) => AutoKeyMenuItem.IsChecked = _context.Animation.AutoKey;
+
+    private void OnAutoKeyClick(object sender, RoutedEventArgs e) =>
+        _context.Animation.AutoKey = sender is MenuItem { IsChecked: true };
 
     private async void OnImportModelClick(object sender, RoutedEventArgs e)
     {
@@ -346,13 +387,14 @@ public partial class MainWindow : Window
         };
         if (dialog.ShowDialog(this) == true)
         {
-            await ImportModelsAsync(dialog.FileNames);
+            await ImportFilesAsync(dialog.FileNames);
         }
     }
 
     private void OnPreviewDragOver(object sender, DragEventArgs e)
     {
-        bool accepted = e.Data.GetData(DataFormats.FileDrop) is string[] files && files.Any(ModelImporter.IsModelFile);
+        bool accepted = e.Data.GetData(DataFormats.FileDrop) is string[] files
+            && files.Any(f => ModelImporter.IsModelFile(f) || MotionImporter.IsMotionFile(f));
         e.Effects = accepted ? DragDropEffects.Copy : DragDropEffects.None;
         e.Handled = true;
     }
@@ -362,7 +404,28 @@ public partial class MainWindow : Window
         if (e.Data.GetData(DataFormats.FileDrop) is string[] files)
         {
             e.Handled = true;
-            await ImportModelsAsync(files.Where(ModelImporter.IsModelFile));
+            await ImportFilesAsync(files);
+        }
+    }
+
+    /// <summary>モデルを先に、続いてモーション・ポーズを読み込む（モーションは読み込んだモデルに当てはめる）。</summary>
+    private async Task ImportFilesAsync(IEnumerable<string> paths)
+    {
+        List<string> files = [.. paths];
+        await ImportModelsAsync(files.Where(ModelImporter.IsModelFile));
+        foreach (string path in files.Where(MotionImporter.IsMotionFile))
+        {
+            SetStatus($"読み込み中: {System.IO.Path.GetFileName(path)}", isError: false);
+            _busy = true;
+            try
+            {
+                await MotionImporter.ImportAsync(_context, path, this);
+            }
+            finally
+            {
+                _busy = false;
+                UpdateStatus();
+            }
         }
     }
 

@@ -160,6 +160,17 @@ public sealed class PropertiesViewModel : ObservableObject
 
     public bool IsBoneIkLinkNote => _node is BoneNode { Traits.IsIkLink: true };
 
+    /// <summary>選んだボーン・モーフに、キーに登録していない変更がある。</summary>
+    public bool HasUnregisteredChange => _node is BoneNode { HasUnregisteredChange: true } or MorphNode { HasUnregisteredChange: true };
+
+    /// <summary>キーの数（ボーン・モーフ）。</summary>
+    public string KeyCountText => _node switch
+    {
+        BoneNode bone => bone.Keys.Count == 0 ? "キーなし" : $"キー {bone.Keys.Count:N0} 個（{bone.Keys.FirstFrame}〜{bone.Keys.LastFrame} フレーム）",
+        MorphNode morph => morph.Keys.Count == 0 ? "キーなし" : $"キー {morph.Keys.Count:N0} 個（{morph.Keys.FirstFrame}〜{morph.Keys.LastFrame} フレーム）",
+        _ => string.Empty,
+    };
+
     public bool IsMorph => _node is MorphNode;
 
     public MorphNode? Morph => _node as MorphNode;
