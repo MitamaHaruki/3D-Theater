@@ -67,6 +67,78 @@ bool IsBackground(const uint8_t* pixel, int tolerance)
         && IsNear(pixel[2], kBackgroundR, tolerance);
 }
 
+// 正面（-Z 側）から原点を見る描画条件。格子などは出さない
+TtFrameParams MakeFrontParams()
+{
+    using namespace DirectX;
+    TtFrameParams params = MakeParams(0);
+    XMStoreFloat4x4(reinterpret_cast<XMFLOAT4X4*>(params.view),
+        XMMatrixLookAtLH(XMVectorSet(0.0f, 0.0f, -5.0f, 1.0f), XMVectorZero(), XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f)));
+    return params;
+}
+
+// XY 平面の 1 辺 2 の四角形（-Z 側を向く）。clockwise = true なら正面から見て時計回り（表）
+TtMeshVertex QuadVertex(float x, float y)
+{
+    return TtMeshVertex{{x, y, 0.0f}, {0.0f, 0.0f, -1.0f}, {(x + 1.0f) / 2.0f, (1.0f - y) / 2.0f}};
+}
+
+const TtMeshVertex kQuad[] = {QuadVertex(-1, 1), QuadVertex(1, 1), QuadVertex(1, -1), QuadVertex(-1, -1)};
+const uint32_t kClockwise[] = {0, 1, 2, 0, 2, 3};
+const uint32_t kCounterClockwise[] = {0, 2, 1, 0, 3, 2};
+
+TtMeshMaterial QuadMaterial(TtTexture* texture, uint32_t flags = 0)
+{
+    TtMeshMaterial m{};
+    m.index_start = 0;
+    m.index_count = 6;
+    m.diffuse[0] = m.diffuse[1] = m.diffuse[2] = m.diffuse[3] = 1.0f;
+    m.ambient[0] = m.ambient[1] = m.ambient[2] = 1.0f; // 材質の色を白にして、テクスチャの色がそのまま出るようにする
+    m.flags = flags;
+    m.texture = texture;
+    return m;
+}
+
+TtMeshDesc QuadDesc(const uint32_t* indices, const TtMeshMaterial* material)
+{
+    TtMeshDesc desc{};
+    desc.struct_size = sizeof(desc);
+    desc.vertex_count = 4;
+    desc.vertices = kQuad;
+    desc.index_count = 6;
+    desc.indices = indices;
+    desc.material_count = 1;
+    desc.materials = material;
+    return desc;
+}
+
+TtDrawItem DrawItem(TtMesh* mesh, uint32_t flags = 0)
+{
+    TtDrawItem item{};
+    item.mesh = mesh;
+    item.flags = flags;
+    DirectX::XMStoreFloat4x4(reinterpret_cast<DirectX::XMFLOAT4X4*>(item.world), DirectX::XMMatrixIdentity());
+    return item;
+}
+
+TtTexture* CreateSolidTexture(TtEngine* engine, uint8_t b, uint8_t g, uint8_t r)
+{
+    const uint8_t pixels[] = {b, g, r, 255, b, g, r, 255, b, g, r, 255, b, g, r, 255};
+    TtTexture* texture = nullptr;
+    Assert::AreEqual<int>(TT_OK, tt_texture_create(engine, 2, 2, pixels, 8, &texture));
+    return texture;
+}
+
+// 描いて中央の画素を返す
+std::vector<uint8_t> RenderAndRead(TtEngine* engine, TtView* view, const TtFrameParams& params, int width, int height)
+{
+    Assert::AreEqual<int>(TT_OK, tt_view_render(view, &params));
+    Assert::AreEqual<int>(TT_OK, tt_engine_wait_for_gpu(engine));
+    std::vector<uint8_t> pixels(static_cast<size_t>(width) * height * 4);
+    Assert::AreEqual<int>(TT_OK, tt_view_read_pixels(view, pixels.data(), width * 4, static_cast<int>(pixels.size())));
+    return pixels;
+}
+
 } // namespace
 
 TEST_CLASS(EngineApiTests)
@@ -264,6 +336,151 @@ public:
         Assert::IsFalse(IsWindow(static_cast<HWND>(child)) != FALSE, L"ビューを消すと子ウィンドウも消えること");
         Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
         DestroyWindow(parent);
+    }
+
+    TEST_METHOD(TexturedMeshIsDrawnWithTextureColor)
+    {
+        TtEngine* engine = CreateWarpEngine();
+        constexpr int width = 64;
+        constexpr int height = 48;
+        TtView* view = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_view_create_offscreen(engine, width, height, 0, &view));
+
+        TtTexture* red = CreateSolidTexture(engine, 0, 0, 255);
+        const TtMeshMaterial material = QuadMaterial(red);
+        const TtMeshDesc desc = QuadDesc(kClockwise, &material);
+        TtMesh* mesh = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_mesh_create(engine, &desc, &mesh));
+        Assert::AreEqual<int>(TT_OK, tt_texture_destroy(red), L"メッシュを作った後ならテクスチャを破棄してよい");
+
+        TtFrameParams params = MakeFrontParams();
+        const TtDrawItem item = DrawItem(mesh);
+        params.items = &item;
+        params.item_count = 1;
+        std::vector<uint8_t> pixels = RenderAndRead(engine, view, params, width, height);
+        const uint8_t* center = &pixels[(static_cast<size_t>(height / 2) * width + width / 2) * 4];
+        Assert::IsTrue(center[2] > 150 && center[1] < 20 && center[0] < 20, L"中央はテクスチャの赤（陰影で少し暗い）");
+        Assert::IsTrue(IsBackground(&pixels[0], 1), L"四角形の外は背景色");
+
+        Assert::AreEqual<int>(TT_OK, tt_mesh_destroy(mesh));
+        Assert::AreEqual<int>(TT_OK, tt_view_destroy(view));
+        Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
+    }
+
+    TEST_METHOD(BackFacesAreCulledUnlessDoubleSided)
+    {
+        // 時計回りの面が表（MMD と同じ）。反時計回りの面は、両面描画の材質でなければ描かない
+        TtEngine* engine = CreateWarpEngine();
+        constexpr int width = 32;
+        constexpr int height = 32;
+        TtView* view = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_view_create_offscreen(engine, width, height, 0, &view));
+
+        auto centerOf = [&](uint32_t flags) {
+            const TtMeshMaterial material = QuadMaterial(nullptr, flags);
+            const TtMeshDesc desc = QuadDesc(kCounterClockwise, &material);
+            TtMesh* mesh = nullptr;
+            Assert::AreEqual<int>(TT_OK, tt_mesh_create(engine, &desc, &mesh));
+            TtFrameParams params = MakeFrontParams();
+            const TtDrawItem item = DrawItem(mesh);
+            params.items = &item;
+            params.item_count = 1;
+            std::vector<uint8_t> pixels = RenderAndRead(engine, view, params, width, height);
+            Assert::AreEqual<int>(TT_OK, tt_mesh_destroy(mesh));
+            const size_t index = (static_cast<size_t>(height / 2) * width + width / 2) * 4;
+            return std::vector<uint8_t>(pixels.begin() + index, pixels.begin() + index + 4);
+        };
+
+        Assert::IsTrue(IsBackground(centerOf(0).data(), 1), L"裏向きの面は描かない");
+        Assert::IsFalse(IsBackground(centerOf(TT_MATERIAL_DOUBLE_SIDED).data(), 40), L"両面描画なら裏向きでも描く");
+
+        Assert::AreEqual<int>(TT_OK, tt_view_destroy(view));
+        Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
+    }
+
+    TEST_METHOD(MeshCreationRejectsInvalidData)
+    {
+        TtEngine* engine = CreateWarpEngine();
+        TtMesh* mesh = reinterpret_cast<TtMesh*>(1);
+
+        const uint32_t outOfRange[] = {0, 1, 4, 0, 2, 3};
+        TtMeshMaterial material = QuadMaterial(nullptr);
+        TtMeshDesc desc = QuadDesc(outOfRange, &material);
+        Assert::AreEqual<int>(TT_E_INVALID_ARG, tt_mesh_create(engine, &desc, &mesh), L"頂点の数を超える番号");
+        Assert::IsNull(mesh);
+
+        material.index_count = 9;
+        desc = QuadDesc(kClockwise, &material);
+        Assert::AreEqual<int>(TT_E_INVALID_ARG, tt_mesh_create(engine, &desc, &mesh), L"材質の範囲が面の数を超える");
+
+        material.index_count = 6;
+        desc = QuadDesc(kClockwise, &material);
+        desc.struct_size = 4;
+        Assert::AreEqual<int>(TT_E_INVALID_ARG, tt_mesh_create(engine, &desc, &mesh), L"struct_size の食い違い");
+
+        TtTexture* texture = nullptr;
+        const uint8_t pixel[4] = {};
+        Assert::AreEqual<int>(TT_E_INVALID_ARG, tt_texture_create(engine, 0, 1, pixel, 4, &texture), L"大きさ 0 のテクスチャ");
+        Assert::AreEqual<int>(TT_E_INVALID_ARG, tt_texture_create(engine, 2, 1, pixel, 4, &texture), L"幅に足りない行の長さ");
+
+        Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
+    }
+
+    TEST_METHOD(EngineCannotBeDestroyedWhileTexturesOrMeshesAlive)
+    {
+        TtEngine* engine = CreateWarpEngine();
+        TtTexture* texture = CreateSolidTexture(engine, 1, 2, 3);
+        const TtMeshMaterial material = QuadMaterial(texture);
+        const TtMeshDesc desc = QuadDesc(kClockwise, &material);
+        TtMesh* mesh = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_mesh_create(engine, &desc, &mesh));
+
+        Assert::AreEqual<int>(TT_E_INVALID_STATE, tt_engine_destroy(engine));
+        Assert::AreEqual<int>(TT_OK, tt_texture_destroy(texture));
+        Assert::AreEqual<int>(TT_E_INVALID_STATE, tt_engine_destroy(engine), L"メッシュがまだ残っている");
+        Assert::AreEqual<int>(TT_OK, tt_mesh_destroy(mesh));
+        Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
+    }
+
+    TEST_METHOD(SelectedMeshGetsHighlightBoxAndBadItemsAreRejected)
+    {
+        TtEngine* engine = CreateWarpEngine();
+        constexpr int width = 64;
+        constexpr int height = 48;
+        TtView* view = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_view_create_offscreen(engine, width, height, 0, &view));
+        const TtMeshMaterial material = QuadMaterial(nullptr);
+        const TtMeshDesc desc = QuadDesc(kClockwise, &material);
+        TtMesh* mesh = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_mesh_create(engine, &desc, &mesh));
+
+        auto countHighlight = [&](uint32_t flags) {
+            TtFrameParams params = MakeParams(0); // 斜めから見ると箱の辺が四角形の外にも出る
+            const TtDrawItem item = DrawItem(mesh, flags);
+            params.items = &item;
+            params.item_count = 1;
+            std::vector<uint8_t> pixels = RenderAndRead(engine, view, params, width, height);
+            int count = 0;
+            for (size_t i = 0; i < pixels.size(); i += 4) {
+                if (pixels[i + 2] > 230 && pixels[i + 1] > 130 && pixels[i + 1] < 190 && pixels[i] < 80) {
+                    ++count;
+                }
+            }
+            return count;
+        };
+        Assert::IsTrue(countHighlight(TT_DRAW_SELECTED) > countHighlight(0) + 10, L"選択中は強調色の箱が描かれる");
+
+        TtFrameParams bad = MakeParams(0);
+        bad.item_count = 1;
+        bad.items = nullptr;
+        Assert::AreEqual<int>(TT_E_INVALID_ARG, tt_view_render(view, &bad), L"一覧が NULL");
+        const TtDrawItem nullMesh = DrawItem(nullptr);
+        bad.items = &nullMesh;
+        Assert::AreEqual<int>(TT_E_INVALID_ARG, tt_view_render(view, &bad), L"メッシュが NULL");
+
+        Assert::AreEqual<int>(TT_OK, tt_mesh_destroy(mesh));
+        Assert::AreEqual<int>(TT_OK, tt_view_destroy(view));
+        Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
     }
 
     TEST_METHOD(LogCallbackReceivesEngineMessages)

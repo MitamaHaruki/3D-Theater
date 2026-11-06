@@ -26,7 +26,7 @@ public readonly record struct VideoMemoryInfo(ulong Usage, ulong Budget);
 public sealed unsafe class NativeEngine : IDisposable
 {
     public const int ExpectedApiVersionMajor = 0;
-    public const int ExpectedApiVersionMinor = 2;
+    public const int ExpectedApiVersionMinor = 3;
 
     private nint _handle;
 
@@ -81,6 +81,61 @@ public sealed unsafe class NativeEngine : IDisposable
         var info = new TtVideoMemoryInfo { StructSize = (uint)sizeof(TtVideoMemoryInfo) };
         NativeError.Check(NativeMethods.EngineQueryVideoMemory(Handle, &info));
         return new VideoMemoryInfo(info.Usage, info.Budget);
+    }
+
+    /// <summary>テクスチャを作る。画素は BGRA 8 ビット（透明度をかけ合わせていない値）、上の行から。</summary>
+    public NativeTexture CreateTexture(int width, int height, ReadOnlySpan<byte> bgraPixels, int stride)
+    {
+        if (stride < width * 4 || (long)stride * height > bgraPixels.Length)
+        {
+            throw new ArgumentException("テクスチャの画素の量が大きさに足りません", nameof(bgraPixels));
+        }
+        nint texture;
+        fixed (byte* pixels = bgraPixels)
+        {
+            NativeError.Check(NativeMethods.TextureCreate(Handle, width, height, pixels, stride, &texture));
+        }
+        return new NativeTexture(texture);
+    }
+
+    /// <summary>モデルの形を GPU に載せる。面の頂点番号と材質の範囲が正しくなければ <see cref="NativeEngineException"/>。</summary>
+    public NativeMesh CreateMesh(ReadOnlySpan<MeshVertex> vertices, ReadOnlySpan<uint> indices, IReadOnlyList<MeshMaterial> materials)
+    {
+        var nativeMaterials = new TtMeshMaterial[materials.Count];
+        for (int i = 0; i < materials.Count; i++)
+        {
+            MeshMaterial m = materials[i];
+            nativeMaterials[i] = new TtMeshMaterial
+            {
+                IndexStart = m.IndexStart,
+                IndexCount = m.IndexCount,
+                Diffuse = m.Diffuse,
+                Specular = m.Specular,
+                SpecularPower = m.SpecularPower,
+                Ambient = m.Ambient,
+                Flags = (uint)m.Flags,
+                Texture = m.Texture?.Handle ?? 0,
+            };
+        }
+
+        nint mesh;
+        fixed (MeshVertex* vertexPointer = vertices)
+        fixed (uint* indexPointer = indices)
+        fixed (TtMeshMaterial* materialPointer = nativeMaterials)
+        {
+            var desc = new TtMeshDesc
+            {
+                StructSize = (uint)sizeof(TtMeshDesc),
+                VertexCount = (uint)vertices.Length,
+                Vertices = vertexPointer,
+                Indices = indexPointer,
+                IndexCount = (uint)indices.Length,
+                MaterialCount = (uint)nativeMaterials.Length,
+                Materials = materialPointer,
+            };
+            NativeError.Check(NativeMethods.MeshCreate(Handle, &desc, &mesh));
+        }
+        return new NativeMesh(mesh);
     }
 
     /// <summary>それまでに頼んだ描画を GPU が終えるまで待つ。共有ビューを全部描いてから 1 回だけ呼ぶ。</summary>

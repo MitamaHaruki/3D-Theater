@@ -30,8 +30,13 @@ public static class SceneEvaluator
     public static (Vector3 Center, float Radius) BoundingSphere(SceneNode node)
     {
         float maxScale = Math.Max(Math.Abs(node.Scale.X), Math.Max(Math.Abs(node.Scale.Y), Math.Abs(node.Scale.Z)));
-        return node.Kind == SceneNodeKind.TestObject
-            ? (node.Position, 0.87f * Math.Max(maxScale, 0.01f)) // 1 辺 1 の立方体の対角線の半分
-            : (node.Position, 1f);
+        return node switch
+        {
+            ModelNode model => (
+                Vector3.Transform((model.BoundsMin + model.BoundsMax) * 0.5f, model.GetLocalMatrix()),
+                Math.Max(0.01f, (model.BoundsMax - model.BoundsMin).Length() * 0.5f * maxScale)),
+            { Kind: SceneNodeKind.TestObject } => (node.Position, 0.87f * Math.Max(maxScale, 0.01f)), // 1 辺 1 の立方体の対角線の半分
+            _ => (node.Position, 1f),
+        };
     }
 }

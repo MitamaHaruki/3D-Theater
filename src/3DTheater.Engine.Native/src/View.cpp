@@ -64,7 +64,7 @@ void RegisterViewportClass()
 
 View::View(Engine& engine, Kind kind, uint32_t flags) : engine_(engine), kind_(kind), flags_(flags)
 {
-    engine_.AddView();
+    engine_.AddObject();
 }
 
 View::~View()
@@ -79,7 +79,7 @@ View::~View()
         DestroyWindow(hwnd_);
         hwnd_ = nullptr;
     }
-    engine_.RemoveView();
+    engine_.RemoveObject();
     magic_ = 0;
 }
 

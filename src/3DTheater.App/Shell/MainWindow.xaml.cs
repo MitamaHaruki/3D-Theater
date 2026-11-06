@@ -89,11 +89,12 @@ public partial class MainWindow : Window
         UserSettingsStore.Save(_settings);
         AppLog.Info("レイアウトと画面の設定を保存しました");
 
-        // 親ウィンドウが消える前に、描画先（GPU の資源）を片付ける
+        // 親ウィンドウが消える前に、描画先とモデル（GPU の資源）を片付ける。エンジンは App の終了時に破棄する
         foreach (PreviewPanel preview in _layout.Previews.ToList())
         {
             preview.Dispose();
         }
+        _context.DisposeModels();
     }
 
     protected override void OnPreviewKeyDown(KeyEventArgs e)
@@ -373,7 +374,19 @@ public partial class MainWindow : Window
             _busy = true;
             try
             {
-                await ModelImporter.ImportAsync(_context, path, this);
+                bool first = _context.Models.Count == 0;
+                Domain.ModelNode? node = await ModelImporter.ImportAsync(_context, path, this);
+                if (first && node is not null)
+                {
+                    // MMD のモデルは確認用の立方体よりずっと大きいので、最初の 1 体は全プレビューを合わせる（カメラ視点は動かさない）
+                    foreach (ViewportControl view in _layout.Previews.SelectMany(p => p.VisibleViews))
+                    {
+                        if (view.Camera.Kind != ViewKind.Camera)
+                        {
+                            view.FocusSelection();
+                        }
+                    }
+                }
             }
             finally
             {

@@ -90,6 +90,7 @@
     <ClInclude Include="src\DemoScene.h" />
     <ClInclude Include="src\Engine.h" />
     <ClInclude Include="src\Log.h" />
+    <ClInclude Include="src\Resources.h" />
     <ClInclude Include="src\View.h" />
   </ItemGroup>
   <ItemGroup>
@@ -98,6 +99,7 @@
     <ClCompile Include="src\DemoScene.cpp" />
     <ClCompile Include="src\Engine.cpp" />
     <ClCompile Include="src\Log.cpp" />
+    <ClCompile Include="src\Resources.cpp" />
     <ClCompile Include="src\View.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -106,6 +108,13 @@
       <ShaderType>Vertex</ShaderType>
     </FxCompile>
     <FxCompile Include="shaders\BasicPS.hlsl">
+      <ShaderType>Pixel</ShaderType>
+    </FxCompile>
+    <None Include="shaders\Model.hlsli" />
+    <FxCompile Include="shaders\ModelVS.hlsl">
+      <ShaderType>Vertex</ShaderType>
+    </FxCompile>
+    <FxCompile Include="shaders\ModelPS.hlsl">
       <ShaderType>Pixel</ShaderType>
     </FxCompile>
   </ItemGroup>

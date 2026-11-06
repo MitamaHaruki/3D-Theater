@@ -19,6 +19,7 @@ public partial class ViewportControl : UserControl, IDisposable
 
     private readonly EditorContext _context;
     private readonly ViewportSurface _surface;
+    private readonly List<DrawItem> _drawItems = [];
     private DragMode _drag;
     private Point _lastMouse;
     private bool _showGrid = true;
@@ -200,7 +201,15 @@ public partial class ViewportControl : UserControl, IDisposable
             GridPlane.YZ => Matrix4x4.CreateRotationZ(MathF.PI / 2f),
             _ => Matrix4x4.Identity,
         };
-        return new FrameParameters(flags, matrices.View, matrices.Projection, gridWorld, testWorld);
+
+        // 読み込んだモデル（シーン一覧の並び順。今は初期の姿勢のまま）
+        _drawItems.Clear();
+        foreach (var (node, model) in _context.VisibleModels)
+        {
+            DrawFlags drawFlags = _context.Selection.Contains(node) ? DrawFlags.Selected : DrawFlags.None;
+            _drawItems.Add(new DrawItem(model.Mesh!, node.GetLocalMatrix(), drawFlags));
+        }
+        return new FrameParameters(flags, matrices.View, matrices.Projection, gridWorld, testWorld, _drawItems);
     }
 
     private void OnCameraChanged()
@@ -305,13 +314,30 @@ public partial class ViewportControl : UserControl, IDisposable
         ViewMatrices matrices = Camera.GetMatrices(size.X / size.Y, _context.MainCamera);
         Ray ray = Picking.CreateRay(new Vector2((float)point.X, (float)point.Y), size, matrices.View, matrices.Projection);
 
-        TestObjectNode? testObject = _context.TestObject;
-        bool hit = testObject is { IsEffectivelyVisible: true }
-            && Picking.IntersectUnitCube(ray, SceneEvaluator.TestObjectWorld(testObject, _context.Playback.CurrentFrame)) is not null;
-
-        if (hit)
+        // 視線に当たったもののうち、いちばん手前を選ぶ
+        SceneNode? nearest = null;
+        float nearestDistance = float.PositiveInfinity;
+        void Consider(SceneNode node, float? distance)
         {
-            _context.Selection.Select(testObject!, toggle ? SelectMode.Toggle : SelectMode.Replace, this);
+            if (distance is { } d && d < nearestDistance)
+            {
+                nearest = node;
+                nearestDistance = d;
+            }
+        }
+
+        if (_context.TestObject is { IsEffectivelyVisible: true } testObject)
+        {
+            Consider(testObject, Picking.IntersectUnitCube(ray, SceneEvaluator.TestObjectWorld(testObject, _context.Playback.CurrentFrame)));
+        }
+        foreach (var (node, model) in _context.VisibleModels)
+        {
+            Consider(node, Picking.IntersectTriangles(ray, node.GetLocalMatrix(), model.Positions, model.Indices, node.BoundsMin, node.BoundsMax));
+        }
+
+        if (nearest is not null)
+        {
+            _context.Selection.Select(nearest, toggle ? SelectMode.Toggle : SelectMode.Replace, this);
         }
         else if (!toggle)
         {

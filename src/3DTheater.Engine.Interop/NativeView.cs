@@ -59,16 +59,30 @@ public sealed unsafe class NativeView : IDisposable
     /// </summary>
     public bool Render(in FrameParameters frame)
     {
-        var parameters = new TtFrameParams
+        int count = frame.Items?.Count ?? 0;
+        // モデルの数は多くないので、ふつうはスタック上に並べる（毎フレームのごみを出さない）
+        Span<TtDrawItem> items = count <= 64 ? stackalloc TtDrawItem[count] : new TtDrawItem[count];
+        for (int i = 0; i < count; i++)
         {
-            StructSize = (uint)sizeof(TtFrameParams),
-            Flags = (uint)frame.Flags,
-            View = frame.View,
-            Projection = frame.Projection,
-            GridWorld = frame.GridWorld,
-            TestObjectWorld = frame.TestObjectWorld,
-        };
-        return NativeError.Check(NativeMethods.ViewRender(Handle, &parameters)) == NativeResult.Ok;
+            DrawItem item = frame.Items![i];
+            items[i] = new TtDrawItem { Mesh = item.Mesh.Handle, World = item.World, Flags = (uint)item.Flags };
+        }
+
+        fixed (TtDrawItem* itemPointer = items)
+        {
+            var parameters = new TtFrameParams
+            {
+                StructSize = (uint)sizeof(TtFrameParams),
+                Flags = (uint)frame.Flags,
+                View = frame.View,
+                Projection = frame.Projection,
+                GridWorld = frame.GridWorld,
+                TestObjectWorld = frame.TestObjectWorld,
+                Items = count > 0 ? itemPointer : null,
+                ItemCount = (uint)count,
+            };
+            return NativeError.Check(NativeMethods.ViewRender(Handle, &parameters)) == NativeResult.Ok;
+        }
     }
 
     /// <summary>画面外ビューの内容を BGRA 8 ビットで読み出す。テスト・保存用と、共有できない環境での表示用。</summary>

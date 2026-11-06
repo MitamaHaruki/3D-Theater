@@ -23,4 +23,5 @@ public readonly record struct FrameParameters(
     Matrix4x4 View,
     Matrix4x4 Projection,
     Matrix4x4 GridWorld,
-    Matrix4x4 TestObjectWorld);
+    Matrix4x4 TestObjectWorld,
+    IReadOnlyList<DrawItem>? Items = null);

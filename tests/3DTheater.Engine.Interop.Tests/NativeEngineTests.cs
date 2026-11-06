@@ -55,6 +55,55 @@ public sealed class NativeEngineTests
     }
 
     [TestMethod]
+    public void TexturedMeshIsDrawnFromCSharp()
+    {
+        using var engine = NativeEngine.Create(NativeEngineOptions.UseWarp);
+        const int width = 64;
+        const int height = 48;
+        using var view = engine.CreateOffscreenView(width, height);
+
+        byte[] green = [0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255];
+        NativeMesh mesh;
+        using (NativeTexture texture = engine.CreateTexture(2, 2, green, 8))
+        {
+            var n = new System.Numerics.Vector3(0, 0, -1);
+            MeshVertex[] quad =
+            [
+                new(new(-1, 1, 0), n, new(0, 0)),
+                new(new(1, 1, 0), n, new(1, 0)),
+                new(new(1, -1, 0), n, new(1, 1)),
+                new(new(-1, -1, 0), n, new(0, 1)),
+            ];
+            uint[] indices = [0, 1, 2, 0, 2, 3]; // 正面から見て時計回り = 表
+            MeshMaterial[] materials =
+            [
+                new(0, 6, System.Numerics.Vector4.One, System.Numerics.Vector3.Zero, 0, System.Numerics.Vector3.One, MaterialFlags.None, texture),
+            ];
+            mesh = engine.CreateMesh(quad, indices, materials);
+        }
+
+        using (mesh)
+        {
+            FrameParameters frame = DefaultFrame with
+            {
+                Flags = FrameFlags.None,
+                View = System.Numerics.Matrix4x4.CreateLookAtLeftHanded(new(0, 0, -5), System.Numerics.Vector3.Zero, System.Numerics.Vector3.UnitY),
+                Items = [new DrawItem(mesh, System.Numerics.Matrix4x4.Identity, DrawFlags.None)],
+            };
+            Assert.IsTrue(view.Render(frame));
+            var pixels = new byte[width * height * 4];
+            view.ReadPixels(pixels, width * 4);
+            int center = ((height / 2 * width) + (width / 2)) * 4;
+            Assert.IsLessThan(20, (int)pixels[center + 2], "赤は無い");
+            Assert.IsGreaterThan(150, (int)pixels[center + 1], "テクスチャの緑が出る");
+        }
+
+        var ex = Assert.ThrowsExactly<NativeEngineException>(() => engine.CreateMesh(
+            [new MeshVertex(default, default, default)], [0, 0, 5], []));
+        Assert.AreEqual(NativeResult.InvalidArgument, ex.Result);
+    }
+
+    [TestMethod]
     public void DisposingEngineBeforeViewsIsRejected()
     {
         var engine = NativeEngine.Create(NativeEngineOptions.UseWarp);

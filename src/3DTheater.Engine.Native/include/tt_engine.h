@@ -4,7 +4,7 @@
 // 決まり（詳しくは docs/設計判断記録.md）
 // - 文字列は UTF-16（wchar_t）。
 // - エンジンとビューは「作ったスレッド」からだけ呼ぶ。別スレッドからは TT_E_WRONG_THREAD を返す。
-// - ビューはエンジンより先に破棄する。ビューが残っているとエンジンの破棄は TT_E_INVALID_STATE になる。
+// - ビュー・テクスチャ・メッシュはエンジンより先に破棄する。残っているとエンジンの破棄は TT_E_INVALID_STATE になる。
 // - 構造体の先頭 struct_size には sizeof(構造体) を入れる。将来の項目追加に備えた確認用。
 #pragma once
 
@@ -24,7 +24,7 @@ extern "C" {
 
 // 上位 16 ビットが大きな版、下位 16 ビットが小さな版。大きな版が違う DLL とは組み合わせない。
 #define TT_API_VERSION_MAJOR 0
-#define TT_API_VERSION_MINOR 2
+#define TT_API_VERSION_MINOR 3
 #define TT_API_VERSION ((TT_API_VERSION_MAJOR << 16) | TT_API_VERSION_MINOR)
 
 // 0 以上は成功、負の値は失敗。
@@ -55,6 +55,8 @@ typedef void(TT_CALL* TtLogCallback)(int32_t level, const wchar_t* message, void
 
 typedef struct TtEngine TtEngine;
 typedef struct TtView TtView;
+typedef struct TtTexture TtTexture;
+typedef struct TtMesh TtMesh;
 
 enum {
     TT_ENGINE_FLAG_DEBUG_LAYER = 1u << 0, // Direct3D の検査機能。入っていなければ警告を出して無しで続ける
@@ -96,6 +98,52 @@ enum {
     TT_FRAME_TEST_OBJECT_SELECTED = 1u << 5, // 確認用の立方体の輪郭を強調する
 };
 
+// ---- モデルの形（メッシュ）と材質 ----
+
+// 頂点。法線は正規化しておく。UV は左上が (0,0)
+typedef struct TtMeshVertex {
+    float position[3];
+    float normal[3];
+    float uv[2];
+} TtMeshVertex;
+
+enum {
+    TT_MATERIAL_DOUBLE_SIDED = 1u << 0, // 裏面も描く（無ければ時計回りの面を表として裏面を描かない）
+};
+
+// 材質。面の頂点番号の index_start から index_count 個を、この材質で描く。材質は並び順に描く（MMD と同じ）
+typedef struct TtMeshMaterial {
+    uint32_t index_start;
+    uint32_t index_count;
+    float diffuse[4]; // a は不透明度
+    float specular[3];
+    float specular_power;
+    float ambient[3];
+    uint32_t flags;
+    TtTexture* texture; // NULL ならテクスチャなし（白）。メッシュが中身を参照するので、作った後にテクスチャを破棄してよい
+} TtMeshMaterial;
+
+typedef struct TtMeshDesc {
+    uint32_t struct_size;
+    uint32_t vertex_count;
+    const TtMeshVertex* vertices;
+    const uint32_t* indices; // 3 つで 1 枚の三角形。すべて vertex_count 未満であること
+    uint32_t index_count;
+    uint32_t material_count;
+    const TtMeshMaterial* materials;
+} TtMeshDesc;
+
+enum {
+    TT_DRAW_SELECTED = 1u << 0, // 選択中。外接する箱の線を強調色で描く
+};
+
+typedef struct TtDrawItem {
+    TtMesh* mesh;
+    float world[16];
+    uint32_t flags;
+    uint32_t reserved;
+} TtDrawItem;
+
 // 行列はすべて「行ベクトル × 行列」の並び（DirectXMath・System.Numerics と同じ）で、16 個の float を行ごとに並べる。
 // 座標は左手系・Y が上。
 typedef struct TtFrameParams {
@@ -105,6 +153,9 @@ typedef struct TtFrameParams {
     float projection[16];
     float grid_world[16];        // XZ 平面の格子をどこへ置くか（固定視点では画面に平行な面へ回す）
     float test_object_world[16]; // 原点中心・1 辺 1 の確認用の立方体の置き方
+    const TtDrawItem* items;     // 描くモデル（並び順に描く）。item_count が 0 なら NULL でよい
+    uint32_t item_count;
+    uint32_t reserved;
 } TtFrameParams;
 
 TT_API uint32_t TT_CALL tt_get_api_version(void);
@@ -119,6 +170,15 @@ TT_API TtResult TT_CALL tt_engine_get_info(TtEngine* engine, TtEngineInfo* out_i
 TT_API TtResult TT_CALL tt_engine_query_video_memory(TtEngine* engine, TtVideoMemoryInfo* out_info);
 // それまでに頼んだ描画を GPU が終えるまで待つ。共有ビューを全部描いてから 1 回だけ呼び、WPF へ渡す
 TT_API TtResult TT_CALL tt_engine_wait_for_gpu(TtEngine* engine);
+
+// テクスチャ。画素は BGRA 8 ビット（透明度はかけ合わせていない値）、上の行から。縮小表示用の段階（ミップマップ）も作る
+TT_API TtResult TT_CALL tt_texture_create(
+    TtEngine* engine, int32_t width, int32_t height, const void* bgra_pixels, int32_t stride, TtTexture** out_texture);
+TT_API TtResult TT_CALL tt_texture_destroy(TtTexture* texture); // NULL なら何もせず TT_OK
+
+// メッシュ。頂点番号と材質の範囲は作るときに確かめ、範囲外なら TT_E_INVALID_ARG
+TT_API TtResult TT_CALL tt_mesh_create(TtEngine* engine, const TtMeshDesc* desc, TtMesh** out_mesh);
+TT_API TtResult TT_CALL tt_mesh_destroy(TtMesh* mesh); // NULL なら何もせず TT_OK
 
 // parent_hwnd の子ウィンドウを作り、そこへ直接描画するビュー（WPF の HwndHost 用）
 TT_API TtResult TT_CALL tt_view_create_for_window(

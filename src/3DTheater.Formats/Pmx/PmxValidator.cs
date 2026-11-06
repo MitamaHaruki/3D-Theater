@@ -161,23 +161,7 @@ internal static partial class PmxValidator
         }
     }
 
-    /// <summary>PMX のテクスチャの場所（モデルのファイルからの相対パス。区切りは \ が多い）を、実際のパスにする。</summary>
-    internal static string? ResolvePath(string baseDirectory, string relative)
-    {
-        if (string.IsNullOrWhiteSpace(relative))
-        {
-            return null;
-        }
-        try
-        {
-            string normalized = relative.Trim().Replace('\\', Path.DirectorySeparatorChar).Replace('/', Path.DirectorySeparatorChar);
-            return Path.GetFullPath(Path.IsPathRooted(normalized) ? normalized : Path.Combine(baseDirectory, normalized));
-        }
-        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
-        {
-            return null;
-        }
-    }
+    internal static string? ResolvePath(string baseDirectory, string relative) => PmxPaths.Resolve(baseDirectory, relative);
 
     private static void CheckBones(PmxDocument d, LoadReport report)
     {

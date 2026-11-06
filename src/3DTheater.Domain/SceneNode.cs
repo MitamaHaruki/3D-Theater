@@ -201,7 +201,7 @@ public sealed record ModelSummary(
 /// 読み込んだモデル 1 体。元のファイルは参照するだけで書き換えない（指示書 4.4）。
 /// ファイルの中身（頂点・ボーンなど）はアプリ側で別に持ち、ここには場所と概要だけを持つ。
 /// </summary>
-public sealed class ModelNode(string name, string filePath, ModelSummary summary, string comment)
+public sealed class ModelNode(string name, string filePath, ModelSummary summary, string comment, Vector3 boundsMin, Vector3 boundsMax)
     : SceneNode(SceneNodeKind.Model, name)
 {
     public string FilePath { get; } = filePath;
@@ -210,6 +210,11 @@ public sealed class ModelNode(string name, string filePath, ModelSummary summary
 
     /// <summary>モデルに書かれたコメント（作者・利用条件など）。</summary>
     public string Comment { get; } = comment;
+
+    /// <summary>初期の姿勢の頂点を囲む箱（モデルの座標で）。画面に収めるときに使う。</summary>
+    public Vector3 BoundsMin { get; } = boundsMin;
+
+    public Vector3 BoundsMax { get; } = boundsMax;
 }
 
 /// <summary>モデル読み込みができるまでの確認用の立方体（1 辺 1）。</summary>

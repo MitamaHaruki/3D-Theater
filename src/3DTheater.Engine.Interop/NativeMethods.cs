@@ -34,7 +34,7 @@ internal struct TtVideoMemoryInfo
 }
 
 [StructLayout(LayoutKind.Sequential)]
-internal struct TtFrameParams
+internal unsafe struct TtFrameParams
 {
     public uint StructSize;
     public uint Flags;
@@ -42,6 +42,43 @@ internal struct TtFrameParams
     public Matrix4x4 Projection;
     public Matrix4x4 GridWorld;
     public Matrix4x4 TestObjectWorld;
+    public TtDrawItem* Items;
+    public uint ItemCount;
+    public uint Reserved;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal struct TtDrawItem
+{
+    public nint Mesh;
+    public Matrix4x4 World;
+    public uint Flags;
+    public uint Reserved;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal struct TtMeshMaterial
+{
+    public uint IndexStart;
+    public uint IndexCount;
+    public Vector4 Diffuse;
+    public Vector3 Specular;
+    public float SpecularPower;
+    public Vector3 Ambient;
+    public uint Flags;
+    public nint Texture;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal unsafe struct TtMeshDesc
+{
+    public uint StructSize;
+    public uint VertexCount;
+    public MeshVertex* Vertices;
+    public uint* Indices;
+    public uint IndexCount;
+    public uint MaterialCount;
+    public TtMeshMaterial* Materials;
 }
 
 internal static unsafe partial class NativeMethods
@@ -75,6 +112,22 @@ internal static unsafe partial class NativeMethods
     [LibraryImport(Library, EntryPoint = "tt_engine_query_video_memory")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial int EngineQueryVideoMemory(nint engine, TtVideoMemoryInfo* outInfo);
+
+    [LibraryImport(Library, EntryPoint = "tt_texture_create")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial int TextureCreate(nint engine, int width, int height, void* pixels, int stride, nint* outTexture);
+
+    [LibraryImport(Library, EntryPoint = "tt_texture_destroy")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial int TextureDestroy(nint texture);
+
+    [LibraryImport(Library, EntryPoint = "tt_mesh_create")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial int MeshCreate(nint engine, TtMeshDesc* desc, nint* outMesh);
+
+    [LibraryImport(Library, EntryPoint = "tt_mesh_destroy")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial int MeshDestroy(nint mesh);
 
     [LibraryImport(Library, EntryPoint = "tt_engine_wait_for_gpu")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]

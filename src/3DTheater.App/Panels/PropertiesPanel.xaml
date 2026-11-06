@@ -149,7 +149,7 @@
                      VerticalScrollBarVisibility="Auto" Text="{Binding Model.Comment, Mode=OneWay}" />
           </StackPanel>
           <TextBlock Margin="0,8,0,0" Style="{StaticResource PlannedNoteStyle}"
-                     Text="モデルの表示（描画）・ボーンでの変形・表情は Phase 2 の次の段階で対応します。今はシーンに加えて中身を確かめるところまでです。" />
+                     Text="今は初期の姿勢のまま、簡単な陰影で表示します。ボーンでの変形・表情は Phase 2 の次の段階、トゥーン・輪郭線・影は Phase 4 で対応します。" />
         </StackPanel>
 
         <!-- カメラ -->

@@ -3,6 +3,7 @@
 
 #include "Engine.h"
 #include "Log.h"
+#include "Resources.h"
 #include "View.h"
 
 namespace {
@@ -56,6 +57,24 @@ tt::View& ToView(TtView* handle)
     return *view;
 }
 
+tt::Texture& ToTexture(TtTexture* handle)
+{
+    Require(handle != nullptr, L"texture が NULL です");
+    auto* texture = reinterpret_cast<tt::Texture*>(handle);
+    Require(texture->IsValid(), L"texture が正しくありません（破棄済みの可能性があります）");
+    texture->OwnerEngine().CheckThread();
+    return *texture;
+}
+
+tt::Mesh& ToMesh(TtMesh* handle)
+{
+    Require(handle != nullptr, L"mesh が NULL です");
+    auto* mesh = reinterpret_cast<tt::Mesh*>(handle);
+    Require(mesh->IsValid(), L"mesh が正しくありません（破棄済みの可能性があります）");
+    mesh->OwnerEngine().CheckThread();
+    return *mesh;
+}
+
 void RequireSize(int32_t width, int32_t height, int32_t minimum)
 {
     Require(width >= minimum && height >= minimum && width <= kMaxViewSize && height <= kMaxViewSize,
@@ -104,12 +123,54 @@ TT_API TtResult TT_CALL tt_engine_destroy(TtEngine* engine)
     }
     return Guard([&] {
         tt::Engine& e = ToEngine(engine);
-        if (e.LiveViewCount() > 0) {
+        if (e.LiveObjectCount() > 0) {
             throw tt::Error(TT_E_INVALID_STATE,
-                std::format(L"ビューが {} 個残っているためエンジンを破棄できません。先にビューを破棄してください", e.LiveViewCount()));
+                std::format(L"ビュー・テクスチャ・メッシュが合わせて {} 個残っているためエンジンを破棄できません。先にそれらを破棄してください",
+                    e.LiveObjectCount()));
         }
         delete &e;
     });
+}
+
+TT_API TtResult TT_CALL tt_texture_create(
+    TtEngine* engine, int32_t width, int32_t height, const void* bgra_pixels, int32_t stride, TtTexture** out_texture)
+{
+    return Guard([&] {
+        Require(out_texture != nullptr, L"out_texture が NULL です");
+        *out_texture = nullptr;
+        tt::Engine& e = ToEngine(engine);
+        auto* texture = new tt::Texture(e, width, height, bgra_pixels, stride);
+        *out_texture = reinterpret_cast<TtTexture*>(texture);
+    });
+}
+
+TT_API TtResult TT_CALL tt_texture_destroy(TtTexture* texture)
+{
+    if (!texture) {
+        return TT_OK;
+    }
+    return Guard([&] { delete &ToTexture(texture); });
+}
+
+TT_API TtResult TT_CALL tt_mesh_create(TtEngine* engine, const TtMeshDesc* desc, TtMesh** out_mesh)
+{
+    return Guard([&] {
+        Require(out_mesh != nullptr, L"out_mesh が NULL です");
+        *out_mesh = nullptr;
+        tt::Engine& e = ToEngine(engine);
+        Require(desc != nullptr, L"desc が NULL です");
+        Require(desc->struct_size == sizeof(TtMeshDesc), L"TtMeshDesc の struct_size が合いません");
+        auto* mesh = new tt::Mesh(e, *desc);
+        *out_mesh = reinterpret_cast<TtMesh*>(mesh);
+    });
+}
+
+TT_API TtResult TT_CALL tt_mesh_destroy(TtMesh* mesh)
+{
+    if (!mesh) {
+        return TT_OK;
+    }
+    return Guard([&] { delete &ToMesh(mesh); });
 }
 
 TT_API TtResult TT_CALL tt_engine_get_info(TtEngine* engine, TtEngineInfo* out_info)
@@ -204,6 +265,11 @@ TT_API TtResult TT_CALL tt_view_render(TtView* view, const TtFrameParams* params
         tt::View& v = ToView(view);
         Require(params != nullptr, L"params が NULL です");
         Require(params->struct_size == sizeof(TtFrameParams), L"TtFrameParams の struct_size が合いません");
+        Require(params->item_count == 0 || params->items != nullptr, L"描くモデルの一覧が NULL です");
+        for (uint32_t i = 0; i < params->item_count; ++i) {
+            tt::Mesh& mesh = ToMesh(params->items[i].mesh);
+            Require(&mesh.OwnerEngine() == &v.OwnerEngine(), L"別のエンジンで作ったメッシュは描けません");
+        }
         rendered = v.Render(*params);
     });
     return (result == TT_OK && !rendered) ? TT_S_NOT_READY : result;

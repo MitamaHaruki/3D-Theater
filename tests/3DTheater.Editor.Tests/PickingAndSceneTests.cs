@@ -42,6 +42,50 @@ public sealed class PickingTests
 }
 
 [TestClass]
+public sealed class MeshPickingTests
+{
+    // XY 平面の 1 辺 2 の四角形
+    private static readonly Vector3[] Quad = [new(-1, 1, 0), new(1, 1, 0), new(1, -1, 0), new(-1, -1, 0)];
+    private static readonly uint[] QuadIndices = [0, 1, 2, 0, 2, 3];
+    private static readonly Vector3 Min = new(-1, -1, 0);
+    private static readonly Vector3 Max = new(1, 1, 0);
+
+    [TestMethod]
+    public void HitsFromFrontAndBackAndReportsWorldDistance()
+    {
+        var front = new Ray(new Vector3(0.5f, 0.5f, -5), Vector3.UnitZ);
+        Assert.AreEqual(5f, Picking.IntersectTriangles(front, Matrix4x4.Identity, Quad, QuadIndices, Min, Max)!.Value, 1e-4f);
+
+        var back = new Ray(new Vector3(0, 0, 3), -Vector3.UnitZ);
+        Assert.AreEqual(3f, Picking.IntersectTriangles(back, Matrix4x4.Identity, Quad, QuadIndices, Min, Max)!.Value, 1e-4f, "裏からでも当たる");
+
+        Matrix4x4 moved = Matrix4x4.CreateScale(2f) * Matrix4x4.CreateTranslation(0, 0, 2);
+        Assert.AreEqual(7f, Picking.IntersectTriangles(front, moved, Quad, QuadIndices, Min, Max)!.Value, 1e-4f, "置き方を反映した距離");
+    }
+
+    [TestMethod]
+    public void MissesOutsideAndIgnoresBrokenTriangles()
+    {
+        var outside = new Ray(new Vector3(3, 0, -5), Vector3.UnitZ);
+        Assert.IsNull(Picking.IntersectTriangles(outside, Matrix4x4.Identity, Quad, QuadIndices, Min, Max));
+
+        var center = new Ray(new Vector3(0.5f, 0.5f, -5), Vector3.UnitZ);
+        Assert.IsNull(Picking.IntersectTriangles(center, Matrix4x4.Identity, Quad, [0, 1, 99], Min, Max), "存在しない頂点を指す面は無視");
+        Assert.IsNull(Picking.IntersectTriangles(center, Matrix4x4.Identity, [], [], Min, Max));
+    }
+
+    [TestMethod]
+    public void ModelBoundingSphereFollowsTransform()
+    {
+        var model = new ModelNode("人", "a.pmx", new ModelSummary("PMX 2.0", 0, 0, 0, 0, 0, 0, 0, 0), "",
+            new Vector3(-2, 0, -1), new Vector3(2, 20, 1)) { Position = new Vector3(5, 0, 0), Scale = new Vector3(2) };
+        var (center, radius) = SceneEvaluator.BoundingSphere(model);
+        Assert.AreEqual(new Vector3(5, 20, 0), center, "箱の中心 (0, 10, 0) を 2 倍して動かした位置");
+        Assert.AreEqual(new Vector3(4, 20, 2).Length(), radius, 1e-4f);
+    }
+}
+
+[TestClass]
 public sealed class SceneTests
 {
     [TestMethod]

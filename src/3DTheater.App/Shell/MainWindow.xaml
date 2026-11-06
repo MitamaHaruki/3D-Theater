@@ -43,7 +43,7 @@
             <MenuItem Header="名前を付けて保存(_A)..." Style="{StaticResource PlannedItemStyle}" ToolTip="プロジェクトの保存・読み込みは Phase 2 で対応します" />
             <Separator />
             <MenuItem Header="モデルを読み込む（PMX）..." InputGestureText="Ctrl+I" Click="OnImportModelClick"
-                      ToolTip="シーンに加えて中身を確かめます（表示は Phase 2 の次の段階で対応）" />
+                      ToolTip="PMX モデルをシーンに加えて表示します（ドラッグでも読み込めます）" />
             <MenuItem Header="モーションを読み込む（VMD / VPD）..." Style="{StaticResource PlannedItemStyle}" ToolTip="Phase 2 で対応します" />
             <MenuItem Header="書き出し（PNG / 連番）..." Style="{StaticResource PlannedItemStyle}" ToolTip="Phase 4 で対応します" />
             <Separator />
@@ -80,7 +80,7 @@
           </MenuItem>
           <MenuItem Header="モデル(_M)">
             <MenuItem Header="PMX を読み込む..." InputGestureText="Ctrl+I" Click="OnImportModelClick"
-                      ToolTip="シーンに加えて中身を確かめます（表示は Phase 2 の次の段階で対応）" />
+                      ToolTip="PMX モデルをシーンに加えて表示します（ドラッグでも読み込めます）" />
             <MenuItem Header="ボーン一覧" Style="{StaticResource PlannedItemStyle}" ToolTip="Phase 2 で対応します" />
             <MenuItem Header="モーフ操作" Style="{StaticResource PlannedItemStyle}" ToolTip="Phase 2 で対応します" />
             <MenuItem Header="物理演算" Style="{StaticResource PlannedItemStyle}" ToolTip="Phase 3 で対応します" />
