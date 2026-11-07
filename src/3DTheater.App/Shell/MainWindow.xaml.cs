@@ -112,6 +112,7 @@ public partial class MainWindow : Window
         {
             preview.Dispose();
         }
+        _context.Undo.Clear(); // 外したままのモデル（履歴の中にある）の GPU の資源も、エンジンより先に手放す
         _context.DisposeModels();
     }
 
@@ -175,6 +176,10 @@ public partial class MainWindow : Window
                 break;
             case Key.Delete when KeyCommands.HasSelection(_context):
                 KeyCommands.Delete(_context);
+                e.Handled = true;
+                break;
+            case Key.Delete when _context.Selection.Items.OfType<Domain.ModelNode>().Any():
+                RemoveSelectedModels();
                 e.Handled = true;
                 break;
             case Key.C when modifiers == ModifierKeys.Control && KeyCommands.HasSelection(_context):
@@ -423,6 +428,28 @@ public partial class MainWindow : Window
     private void OnExportMotionClick(object sender, RoutedEventArgs e) => MotionExporter.ExportVmd(_context, this);
 
     private void OnExportPoseClick(object sender, RoutedEventArgs e) => MotionExporter.ExportVpd(_context, this);
+
+    private void OnExportCameraClick(object sender, RoutedEventArgs e) => MotionExporter.ExportCameraVmd(_context, this);
+
+    private void OnRemoveModelClick(object sender, RoutedEventArgs e) => RemoveSelectedModels();
+
+    /// <summary>選んだモデル（ボーン・モーフを選んでいればその持ち主）をシーンから外す（Ctrl+Z で戻せる）。</summary>
+    private void RemoveSelectedModels()
+    {
+        Domain.ModelNode[] models = [.. _context.Selection.Items
+            .Select(n => n as Domain.ModelNode ?? n.FindAncestor<Domain.ModelNode>())
+            .OfType<Domain.ModelNode>().Distinct()];
+        if (models.Length == 0)
+        {
+            SetStatus("外すモデルを、シーン一覧かプレビューで選んでください", isError: false);
+            return;
+        }
+        int removed = models.Count(m => ModelPresenceAction.Remove(_context, m));
+        if (removed > 0)
+        {
+            SetStatus($"モデルを {removed} 体外しました（Ctrl+Z で戻せます）", isError: false);
+        }
+    }
 
     private void UpdateTitle()
     {

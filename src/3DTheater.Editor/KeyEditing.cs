@@ -102,12 +102,16 @@ public static class KeyEditing
     {
         BoneNode bone => bone.Keys.HasKeyAt(key.Frame),
         MorphNode morph => morph.Keys.HasKeyAt(key.Frame),
+        CameraNode camera => camera.Keys.HasKeyAt(key.Frame),
         _ => false,
     };
 
+    /// <summary>キーを持てる項目か（ボーン・モーフ・カメラ）。</summary>
+    public static bool HasKeys(SceneNode node) => node is BoneNode or MorphNode or CameraNode;
+
     /// <summary>まとまり（モデル・表示枠など）の中で、<paramref name="frame"/> にあるキーすべて。</summary>
     public static IReadOnlyList<KeyRef> AtFrame(SceneNode node, int frame) =>
-        [.. node.DescendantsAndSelf().Where(n => n is BoneNode or MorphNode).Select(n => new KeyRef(n, frame)).Where(Exists)];
+        [.. node.DescendantsAndSelf().Where(HasKeys).Select(n => new KeyRef(n, frame)).Where(Exists)];
 
     /// <summary>項目（まとまりなら中の項目すべて）の、<paramref name="first"/>〜<paramref name="last"/> フレームのキー。</summary>
     public static IReadOnlyList<KeyRef> InRange(IEnumerable<SceneNode> rows, int first, int last)
@@ -122,6 +126,9 @@ public static class KeyEditing
                     break;
                 case MorphNode morph:
                     Collect(morph, morph.Keys);
+                    break;
+                case CameraNode camera:
+                    Collect(camera, camera.Keys);
                     break;
             }
         }
@@ -160,6 +167,9 @@ public static class KeyEditing
                 case MorphNode morph:
                     MoveIn(morph.Keys, frames, delta, duplicate, (k, f) => k with { Frame = f });
                     break;
+                case CameraNode camera:
+                    MoveIn(camera.Keys, frames, delta, duplicate, (k, f) => k with { Frame = f });
+                    break;
             }
             result.AddRange(frames.Select(f => new KeyRef(group.Key, f + delta)));
         }
@@ -181,6 +191,9 @@ public static class KeyEditing
                 case MorphNode morph:
                     morph.Keys.ReplaceAll(morph.Keys.Keys.Where(k => !frames.Contains(k.Frame)));
                     break;
+                case CameraNode camera:
+                    camera.Keys.ReplaceAll(camera.Keys.Keys.Where(k => !frames.Contains(k.Frame)));
+                    break;
             }
         }
         return count;
@@ -201,6 +214,9 @@ public static class KeyEditing
                 case MorphNode morph when morph.Keys.TryGet(k.Frame, out MorphKey key):
                     items.Add((morph, k.Frame - origin, key));
                     break;
+                case CameraNode camera when camera.Keys.TryGet(k.Frame, out CameraKey key):
+                    items.Add((camera, k.Frame - origin, key));
+                    break;
             }
         }
         return new KeyClipboard(items);
@@ -219,6 +235,9 @@ public static class KeyEditing
                     break;
                 case MorphNode morph:
                     morph.Keys.SetRange(group.Select(i => ((MorphKey)i.Key) with { Frame = frame + i.Offset }));
+                    break;
+                case CameraNode camera:
+                    camera.Keys.SetRange(group.Select(i => ((CameraKey)i.Key) with { Frame = frame + i.Offset }));
                     break;
             }
             result.AddRange(group.Select(i => new KeyRef(group.Key, frame + i.Offset)));
@@ -243,6 +262,11 @@ public static class KeyEditing
                     break;
                 case MorphNode morph:
                     morph.Keys.ReplaceAll(morph.Keys.Keys.Select(k => frames.Contains(k.Frame) ? k with { Curve = curve, Kind = kind } : k));
+                    break;
+                case CameraNode camera:
+                    camera.Keys.ReplaceAll(camera.Keys.Keys.Select(k => frames.Contains(k.Frame)
+                        ? k with { Interpolation = new CameraInterpolation(curve, curve, curve, curve, curve, curve), Kind = kind }
+                        : k));
                     break;
             }
         }

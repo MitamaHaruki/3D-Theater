@@ -85,8 +85,8 @@
           <MenuItem Header="モデル(_M)">
             <MenuItem Header="PMX を読み込む..." InputGestureText="Ctrl+I" Click="OnImportModelClick"
                       ToolTip="PMX モデルをシーンに加えて表示します（ドラッグでも読み込めます）" />
-            <MenuItem Header="ボーン一覧" Style="{StaticResource PlannedItemStyle}" ToolTip="Phase 2 で対応します" />
-            <MenuItem Header="モーフ操作" Style="{StaticResource PlannedItemStyle}" ToolTip="Phase 2 で対応します" />
+            <MenuItem Header="選んだモデルを外す" InputGestureText="Delete" Click="OnRemoveModelClick"
+                      ToolTip="選んだモデルをシーンから外します（モデルのファイルは消しません。Ctrl+Z で戻せます）" />
             <MenuItem Header="物理演算" Style="{StaticResource PlannedItemStyle}" ToolTip="Phase 3 で対応します" />
           </MenuItem>
           <MenuItem Header="モーション(_A)" SubmenuOpened="OnMotionMenuOpened">
@@ -95,6 +95,8 @@
                       ToolTip="今操作しているモデルのボーン・モーフのキーを、MMD のモーションとして書き出します" />
             <MenuItem Header="ポーズを書き出す（VPD）..." Click="OnExportPoseClick"
                       ToolTip="今操作しているモデルの、今のフレームの姿勢を書き出します" />
+            <MenuItem Header="カメラのモーションを書き出す（VMD）..." Click="OnExportCameraClick"
+                      ToolTip="シーンのカメラのキーを、MMD のカメラのモーションとして書き出します" />
             <Separator />
             <MenuItem Header="キーフレームを登録" InputGestureText="I" Click="OnRegisterKeysClick"
                       ToolTip="選んだボーン・モーフを、今のフレームのキーにします" />

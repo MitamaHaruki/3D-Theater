@@ -160,7 +160,7 @@ public sealed class TimelineCanvas : FrameworkElement
                 string chevron = _collapsed.Contains(node) ? "" : "";
                 dc.DrawText(Text(chevron, 9, _subText, dip, _iconFace), new Point(x, y + 6));
             }
-            Brush nameBrush = node is BoneNode { HasUnregisteredChange: true } or MorphNode { HasUnregisteredChange: true }
+            Brush nameBrush = node is BoneNode { HasUnregisteredChange: true } or MorphNode { HasUnregisteredChange: true } or CameraNode { HasUnregisteredChange: true }
                 ? _unregistered
                 : node.IsEffectivelyVisible ? _text : _disabledText;
             var name = Text(node.Name, 12, nameBrush, dip);
@@ -480,7 +480,7 @@ public sealed class TimelineCanvas : FrameworkElement
         {
             return null;
         }
-        return node is BoneNode or MorphNode ? [new KeyRef(node, bestFrame)] : KeyEditing.AtFrame(node, bestFrame);
+        return KeyEditing.HasKeys(node) ? [new KeyRef(node, bestFrame)] : KeyEditing.AtFrame(node, bestFrame);
     }
 
     private IEnumerable<int> FramesOf(SceneNode node, int first, int last)
@@ -499,6 +499,13 @@ public sealed class TimelineCanvas : FrameworkElement
                 for (int i = ms; i < me; i++)
                 {
                     yield return morph.Keys.Keys[i].Frame;
+                }
+                break;
+            case CameraNode camera:
+                var (cs, ce) = camera.Keys.Range(first, last);
+                for (int i = cs; i < ce; i++)
+                {
+                    yield return camera.Keys.Keys[i].Frame;
                 }
                 break;
             default:
@@ -591,7 +598,7 @@ public sealed class TimelineCanvas : FrameworkElement
     private void DrawKeys(DrawingContext dc, SceneNode node, double centerY, int firstFrame, int lastFrame)
     {
         int current = _context.Playback.CurrentFrame;
-        bool leaf = node is BoneNode or MorphNode;
+        bool leaf = KeyEditing.HasKeys(node);
         double size = leaf ? 4.5 : 3.5;
         Brush normal = leaf ? _key : _summaryKey;
         _selectedFrames.TryGetValue(node, out HashSet<int>? selected);
@@ -655,6 +662,12 @@ public sealed class TimelineCanvas : FrameworkElement
                     break;
                 case MorphNode morph:
                     foreach (MorphKey key in morph.Keys.Keys)
+                    {
+                        frames.Add(key.Frame);
+                    }
+                    break;
+                case CameraNode camera:
+                    foreach (CameraKey key in camera.Keys.Keys)
                     {
                         frames.Add(key.Frame);
                     }

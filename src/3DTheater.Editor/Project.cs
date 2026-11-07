@@ -70,6 +70,15 @@ public sealed class NodeEntry
     public float? Intensity { get; set; }
 
     public bool? SpinWithFrame { get; set; }
+
+    /// <summary>カメラの注視点までの距離。</summary>
+    public float? TargetDistance { get; set; }
+
+    /// <summary>カメラの未登録の変更。</summary>
+    public bool Unregistered { get; set; }
+
+    /// <summary>カメラのキー（フレーム・注視点 3・回転 3・距離・視野角・種類・平行投影、曲線が直線でなければ 24 個足す）。</summary>
+    public float[][]? Keys { get; set; }
 }
 
 public sealed class ModelEntry
@@ -239,6 +248,9 @@ public static class ProjectCapture
                 entry.FieldOfView = camera.FieldOfView;
                 entry.NearClip = camera.NearClip;
                 entry.FarClip = camera.FarClip;
+                entry.TargetDistance = camera.TargetDistance;
+                entry.Unregistered = camera.HasUnregisteredChange;
+                entry.Keys = camera.Keys.Count > 0 ? [.. camera.Keys.Keys.Select(KeyCodec.Encode)] : null;
                 break;
             case LightNode light:
                 entry.Intensity = light.Intensity;
@@ -375,6 +387,8 @@ public static class ProjectApply
         playback.Loop = project.Playback.Loop;
         animation.AutoKey = project.AutoKey;
 
+        // 値を戻す間は「手で変えた」とみなさない（カメラのキーの当てはめも止める）
+        using IDisposable suspended = animation.SuspendTracking();
         foreach (var (role, entry) in project.Nodes)
         {
             if (!scene.FixedNodes.TryGetValue(role, out SceneNode? node))
@@ -403,6 +417,9 @@ public static class ProjectApply
                     camera.FarClip = entry.FarClip ?? camera.FarClip;
                     camera.NearClip = entry.NearClip ?? camera.NearClip;
                     camera.FarClip = entry.FarClip ?? camera.FarClip;
+                    camera.TargetDistance = entry.TargetDistance ?? camera.TargetDistance;
+                    camera.Keys.ReplaceAll((entry.Keys ?? []).Select(KeyCodec.DecodeCamera).OfType<CameraKey>());
+                    camera.HasUnregisteredChange = entry.Unregistered;
                     break;
                 case LightNode light:
                     light.Intensity = entry.Intensity ?? light.Intensity;
@@ -535,6 +552,37 @@ internal static class KeyCodec
         var rotation = new Quaternion(v[4], v[5], v[6], v[7]);
         rotation = rotation.LengthSquared() > 1e-12f ? Quaternion.Normalize(rotation) : Quaternion.Identity;
         return new BoneKey((int)v[0], new Vector3(v[1], v[2], v[3]), rotation, ip, v[8] == 1 ? KeyInterpolationKind.Step : KeyInterpolationKind.Curve);
+    }
+
+    public static float[] Encode(CameraKey k)
+    {
+        var values = new List<float>
+        {
+            k.Frame, k.Target.X, k.Target.Y, k.Target.Z, k.Rotation.X, k.Rotation.Y, k.Rotation.Z, k.Distance, k.FieldOfView,
+            k.Kind == KeyInterpolationKind.Step ? 1 : 0, k.Orthographic ? 1 : 0,
+        };
+        CameraInterpolation ip = k.Interpolation;
+        if (!ip.IsLinear)
+        {
+            foreach (BezierCurve c in new[] { ip.X, ip.Y, ip.Z, ip.Rotation, ip.Distance, ip.FieldOfView })
+            {
+                values.AddRange([c.Control1.X, c.Control1.Y, c.Control2.X, c.Control2.Y]);
+            }
+        }
+        return [.. values];
+    }
+
+    public static CameraKey? DecodeCamera(float[] v)
+    {
+        if (v is not { Length: 11 or 35 } || !v.All(float.IsFinite) || v[0] < 0)
+        {
+            return null;
+        }
+        CameraInterpolation ip = v.Length == 35
+            ? new CameraInterpolation(Curve(v, 11), Curve(v, 15), Curve(v, 19), Curve(v, 23), Curve(v, 27), Curve(v, 31))
+            : CameraInterpolation.Linear;
+        return new CameraKey((int)v[0], new Vector3(v[1], v[2], v[3]), new Vector3(v[4], v[5], v[6]), v[7], v[8], ip,
+            v[9] == 1 ? KeyInterpolationKind.Step : KeyInterpolationKind.Curve, v[10] == 1);
     }
 
     public static float[] Encode(MorphKey k)

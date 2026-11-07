@@ -15,6 +15,7 @@ public interface IUndoableAction
 
 /// <summary>
 /// 元に戻す・やり直しの履歴。新しい操作を積むと、やり直しの履歴は消える。古いものから <see cref="Limit"/> 個を超えた分は捨てる。
+/// 捨てた操作が <see cref="IDisposable"/> なら破棄する（外したモデルの GPU の資源を手放すため）。
 /// </summary>
 public sealed class UndoService(int limit = 300)
 {
@@ -54,16 +55,17 @@ public sealed class UndoService(int limit = 300)
         _undo.Add(action);
         if (_undo.Count > Limit)
         {
+            Discard(_undo[0]);
             _undo.RemoveAt(0);
         }
-        _redo.Clear();
+        ClearRedo();
         Changed?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>いちばん新しい操作を書き換えた（まとめた）ことを知らせる。</summary>
     public void NotifyTopChanged()
     {
-        _redo.Clear();
+        ClearRedo();
         Changed?.Invoke(this, EventArgs.Empty);
     }
 
@@ -97,10 +99,25 @@ public sealed class UndoService(int limit = 300)
 
     public void Clear()
     {
+        foreach (IUndoableAction action in _undo.Concat(_redo))
+        {
+            Discard(action);
+        }
         _undo.Clear();
         _redo.Clear();
         Changed?.Invoke(this, EventArgs.Empty);
     }
+
+    private void ClearRedo()
+    {
+        foreach (IUndoableAction action in _redo)
+        {
+            Discard(action);
+        }
+        _redo.Clear();
+    }
+
+    private static void Discard(IUndoableAction action) => (action as IDisposable)?.Dispose();
 
     private void Replay(Action action)
     {

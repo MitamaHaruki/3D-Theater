@@ -71,6 +71,26 @@ public enum KeyInterpolationKind
     Step,
 }
 
+/// <summary>カメラのキーの動き方（注視点の X・Y・Z、回転、距離、視野角で別々の曲線。MMD と同じ 6 本）。</summary>
+public readonly record struct CameraInterpolation(BezierCurve X, BezierCurve Y, BezierCurve Z, BezierCurve Rotation, BezierCurve Distance, BezierCurve FieldOfView)
+{
+    public static CameraInterpolation Linear { get; } = new(BezierCurve.Linear, BezierCurve.Linear, BezierCurve.Linear,
+        BezierCurve.Linear, BezierCurve.Linear, BezierCurve.Linear);
+
+    public bool IsLinear => X.IsLinear && Y.IsLinear && Z.IsLinear && Rotation.IsLinear && Distance.IsLinear && FieldOfView.IsLinear;
+}
+
+/// <summary>カメラの置き方（MMD と同じく、注視点・回転・注視点からの距離・視野角で表す）。</summary>
+/// <param name="Rotation">回転（度、シーンの項目と同じく Z → X → Y の順。X が正なら見下ろす）。補間では成分ごとに直線で動くので、1 周を超える回転も表せる。</param>
+/// <param name="Distance">注視点から手前へ下がる距離（正の数）。</param>
+public readonly record struct CameraPose(Vector3 Target, Vector3 Rotation, float Distance, float FieldOfView)
+{
+    /// <summary>カメラの位置（注視点から、見ている向きの逆へ距離だけ下がった所）。</summary>
+    public Vector3 Position => Target - (Forward * Distance);
+
+    public Vector3 Forward => Vector3.Transform(Vector3.UnitZ, SceneRotation.ToQuaternion(Rotation));
+}
+
 public interface IKeyframe
 {
     int Frame { get; }
@@ -82,6 +102,16 @@ public interface IKeyframe
 /// </summary>
 public readonly record struct BoneKey(int Frame, Vector3 Translation, Quaternion Rotation, BoneInterpolation Interpolation, KeyInterpolationKind Kind = KeyInterpolationKind.Curve)
     : IKeyframe;
+
+/// <summary>
+/// カメラのキー 1 つ。注視点・回転・距離・視野角を、それぞれの曲線で補間する（位置を直線で補間しないので、注視点のまわりを回る動きが崩れない）。
+/// <see cref="Interpolation"/> と <see cref="Kind"/> は前のキーからこのキーまでの動き方。<see cref="Orthographic"/> は MMD の「パース OFF」（今は使わず、書き戻すために持つ）。
+/// </summary>
+public readonly record struct CameraKey(int Frame, Vector3 Target, Vector3 Rotation, float Distance, float FieldOfView,
+    CameraInterpolation Interpolation, KeyInterpolationKind Kind = KeyInterpolationKind.Curve, bool Orthographic = false) : IKeyframe
+{
+    public CameraPose Pose => new(Target, Rotation, Distance, FieldOfView);
+}
 
 /// <summary>モーフのキー 1 つ。<see cref="Curve"/> と <see cref="Kind"/> は前のキーからこのキーまでの動き方。</summary>
 public readonly record struct MorphKey(int Frame, float Weight, BezierCurve Curve, KeyInterpolationKind Kind = KeyInterpolationKind.Curve) : IKeyframe;
@@ -315,6 +345,39 @@ public static class KeyframeEvaluator
             float.Lerp(a.Translation.Y, b.Translation.Y, ip.Y.Evaluate(t)),
             float.Lerp(a.Translation.Z, b.Translation.Z, ip.Z.Evaluate(t)));
         rotation = Quaternion.Normalize(Quaternion.Slerp(a.Rotation, b.Rotation, ip.Rotation.Evaluate(t)));
+        return true;
+    }
+
+    public static bool TryEvaluate(KeyTrack<CameraKey> track, float frame, out CameraPose pose)
+    {
+        pose = default;
+        if (!track.FindSegment(frame, out int before, out int after))
+        {
+            return false;
+        }
+        CameraKey a = track.Keys[before];
+        if (before == after)
+        {
+            pose = a.Pose;
+            return true;
+        }
+        CameraKey b = track.Keys[after];
+        if (b.Kind == KeyInterpolationKind.Step)
+        {
+            pose = a.Pose;
+            return true;
+        }
+        float t = (frame - a.Frame) / (b.Frame - a.Frame);
+        CameraInterpolation ip = b.Interpolation;
+        var target = new Vector3(
+            float.Lerp(a.Target.X, b.Target.X, ip.X.Evaluate(t)),
+            float.Lerp(a.Target.Y, b.Target.Y, ip.Y.Evaluate(t)),
+            float.Lerp(a.Target.Z, b.Target.Z, ip.Z.Evaluate(t)));
+        // 回転は四元数の球面補間ではなく、角度を成分ごとに直線で動かす（MMD と同じ。1 周を超える回転も表せる）
+        Vector3 rotation = Vector3.Lerp(a.Rotation, b.Rotation, ip.Rotation.Evaluate(t));
+        pose = new CameraPose(target, rotation,
+            float.Lerp(a.Distance, b.Distance, ip.Distance.Evaluate(t)),
+            float.Lerp(a.FieldOfView, b.FieldOfView, ip.FieldOfView.Evaluate(t)));
         return true;
     }
 

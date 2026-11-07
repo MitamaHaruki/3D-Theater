@@ -83,7 +83,7 @@ public sealed class SceneTreeItem : ObservableObject
     }
 
     /// <summary>キーに登録していない変更がある。</summary>
-    public bool IsUnregistered => Node is BoneNode { HasUnregisteredChange: true } or MorphNode { HasUnregisteredChange: true };
+    public bool IsUnregistered => Node is BoneNode { HasUnregisteredChange: true } or MorphNode { HasUnregisteredChange: true } or CameraNode { HasUnregisteredChange: true };
 
     public bool IsExpanded
     {

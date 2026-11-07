@@ -93,6 +93,7 @@ internal static class ModelImporter
         if (interactive)
         {
             context.Selection.Select(node, SelectMode.Replace, null);
+            ModelPresenceAction.RecordImport(context, node); // 読み込みも元に戻せる
         }
         AppLog.Info(
             $"モデル「{name}」を読み込みました（{stopwatch.Elapsed.TotalMilliseconds:F0} ms、頂点 {summary.Vertices:N0}・材質 {summary.Materials:N0}・" +

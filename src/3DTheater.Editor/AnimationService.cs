@@ -7,6 +7,7 @@ namespace Theater3D.Editor;
 /// 手で値を変えたときは、自動キーが OFF なら「未登録の変更」として残し、フレームを動かしても値を保つ（指示書 3.3「黙って失わない」）。
 /// 未登録の変更は <see cref="RegisterUnregistered"/> でキーにするか、<see cref="DiscardUnregistered"/> で捨てる。
 /// 自動キーが ON なら、変えたときに今のフレームへキーを登録する。
+/// カメラは、キーがあるときだけ手で動かした値を未登録の変更にする（キーの無いカメラを置くたびに未登録が残らないように）。
 /// </summary>
 public sealed class AnimationService
 {
@@ -44,9 +45,12 @@ public sealed class AnimationService
     /// <summary>未登録の変更があるボーン・モーフ（項目の印が元。元に戻すで印が戻っても数が合う）。</summary>
     public IReadOnlyList<SceneNode> Unregistered =>
         [.. Models.SelectMany(m => m.Bones.Where(b => b.HasUnregisteredChange).Cast<SceneNode>()
-            .Concat(m.Morphs.Where(x => x.HasUnregisteredChange)))];
+            .Concat(m.Morphs.Where(x => x.HasUnregisteredChange)))
+            .Concat(Cameras.Where(c => c.HasUnregisteredChange))];
 
-    public int UnregisteredCount => Models.Sum(m => m.Bones.Count(b => b.HasUnregisteredChange) + m.Morphs.Count(x => x.HasUnregisteredChange));
+    public int UnregisteredCount =>
+        Models.Sum(m => m.Bones.Count(b => b.HasUnregisteredChange) + m.Morphs.Count(x => x.HasUnregisteredChange))
+        + Cameras.Count(c => c.HasUnregisteredChange);
 
     /// <summary>
     /// この間は、値やキーが変わっても「手で変えた」とみなさず、キーの当てはめもしない（元に戻すで値を書き戻すときに使う）。
@@ -63,6 +67,8 @@ public sealed class AnimationService
     public int CurrentFrame => _playback.CurrentFrame;
 
     private IEnumerable<ModelNode> Models => _scene.ModelsGroup.Children.OfType<ModelNode>();
+
+    private IEnumerable<CameraNode> Cameras => _scene.AllNodes.OfType<CameraNode>();
 
     /// <summary>今のフレームの値を、キーのある項目に当てはめる（未登録の変更がある項目はそのまま）。</summary>
     public void ApplyFrame()
@@ -82,6 +88,10 @@ public sealed class AnimationService
                     ApplyMorph(morph, frame, resetWithoutKeys: false);
                 }
             }
+            foreach (CameraNode camera in Cameras)
+            {
+                ApplyCamera(camera, frame);
+            }
         }
         finally
         {
@@ -99,7 +109,7 @@ public sealed class AnimationService
         var seen = new HashSet<SceneNode>();
         foreach (SceneNode node in selection)
         {
-            if (node is BoneNode or MorphNode)
+            if (node is BoneNode or MorphNode or CameraNode)
             {
                 if (seen.Add(node))
                 {
@@ -144,6 +154,11 @@ public sealed class AnimationService
                         morph.Keys.Set(NewMorphKey(morph, frame));
                         count++;
                         break;
+                    case CameraNode camera:
+                        ClearUnregistered(camera);
+                        camera.Keys.Set(NewCameraKey(camera, frame));
+                        count++;
+                        break;
                 }
             }
         }
@@ -183,6 +198,9 @@ public sealed class AnimationService
                     case MorphNode morph:
                         ApplyMorph(morph, frame, resetWithoutKeys: true);
                         break;
+                    case CameraNode camera:
+                        ApplyCamera(camera, frame);
+                        break;
                 }
             }
         }
@@ -221,6 +239,29 @@ public sealed class AnimationService
             kind = morph.Keys.Keys[before].Kind;
         }
         return new MorphKey(frame, morph.Weight, curve, kind);
+    }
+
+    private static CameraKey NewCameraKey(CameraNode camera, int frame)
+    {
+        CameraInterpolation interpolation = CameraInterpolation.Linear;
+        KeyInterpolationKind kind = KeyInterpolationKind.Curve;
+        bool orthographic = false;
+        if (camera.Keys.TryGet(frame, out CameraKey existing))
+        {
+            interpolation = existing.Interpolation;
+            kind = existing.Kind;
+            orthographic = existing.Orthographic;
+        }
+        CameraPose pose = camera.Pose;
+        return new CameraKey(frame, pose.Target, pose.Rotation, pose.Distance, pose.FieldOfView, interpolation, kind, orthographic);
+    }
+
+    private static void ApplyCamera(CameraNode camera, float frame)
+    {
+        if (!camera.HasUnregisteredChange && KeyframeEvaluator.TryEvaluate(camera.Keys, frame, out CameraPose pose))
+        {
+            camera.ApplyPose(pose);
+        }
     }
 
     private static void ApplyBone(BoneNode bone, float frame, bool resetWithoutKeys)
@@ -277,6 +318,16 @@ public sealed class AnimationService
             case MorphNode morph when e.PropertyName == nameof(MorphNode.Keys):
                 Apply(() => ApplyMorph(morph, _playback.CurrentFrame, resetWithoutKeys: false));
                 break;
+            case CameraNode camera when e.PropertyName is nameof(SceneNode.Position) or nameof(SceneNode.Rotation)
+                or nameof(CameraNode.FieldOfView) or nameof(CameraNode.TargetDistance):
+                if (_autoKey || camera.Keys.Count > 0)
+                {
+                    OnUserEdit(camera);
+                }
+                break;
+            case CameraNode camera when e.PropertyName == nameof(CameraNode.Keys):
+                Apply(() => ApplyCamera(camera, _playback.CurrentFrame));
+                break;
         }
     }
 
@@ -295,7 +346,7 @@ public sealed class AnimationService
     }
 
     private static bool IsUnregistered(SceneNode node) =>
-        node is BoneNode { HasUnregisteredChange: true } or MorphNode { HasUnregisteredChange: true };
+        node is BoneNode { HasUnregisteredChange: true } or MorphNode { HasUnregisteredChange: true } or CameraNode { HasUnregisteredChange: true };
 
     private static void ClearUnregistered(SceneNode node)
     {
@@ -314,6 +365,9 @@ public sealed class AnimationService
                 break;
             case MorphNode morph:
                 morph.HasUnregisteredChange = value;
+                break;
+            case CameraNode camera:
+                camera.HasUnregisteredChange = value;
                 break;
         }
     }

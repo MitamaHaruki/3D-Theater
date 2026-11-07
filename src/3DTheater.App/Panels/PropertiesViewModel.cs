@@ -163,13 +163,14 @@ public sealed class PropertiesViewModel : ObservableObject
     public bool IsBoneIkLinkNote => _node is BoneNode { Traits.IsIkLink: true };
 
     /// <summary>選んだボーン・モーフに、キーに登録していない変更がある。</summary>
-    public bool HasUnregisteredChange => _node is BoneNode { HasUnregisteredChange: true } or MorphNode { HasUnregisteredChange: true };
+    public bool HasUnregisteredChange => _node is BoneNode { HasUnregisteredChange: true } or MorphNode { HasUnregisteredChange: true } or CameraNode { HasUnregisteredChange: true };
 
     /// <summary>キーの数（ボーン・モーフ）。</summary>
     public string KeyCountText => _node switch
     {
         BoneNode bone => bone.Keys.Count == 0 ? "キーなし" : $"キー {bone.Keys.Count:N0} 個（{bone.Keys.FirstFrame}〜{bone.Keys.LastFrame} フレーム）",
         MorphNode morph => morph.Keys.Count == 0 ? "キーなし" : $"キー {morph.Keys.Count:N0} 個（{morph.Keys.FirstFrame}〜{morph.Keys.LastFrame} フレーム）",
+        CameraNode camera => camera.Keys.Count == 0 ? "キーなし" : $"キー {camera.Keys.Count:N0} 個（{camera.Keys.FirstFrame}〜{camera.Keys.LastFrame} フレーム）",
         _ => string.Empty,
     };
 
@@ -230,6 +231,12 @@ public sealed class PropertiesViewModel : ObservableObject
     {
         get => (_node as CameraNode)?.NearClip ?? 0;
         set => Edit("クリップ（近）", n => ((CameraNode)n).NearClip = (float)value);
+    }
+
+    public double TargetDistance
+    {
+        get => (_node as CameraNode)?.TargetDistance ?? 0;
+        set => Edit("注視点までの距離", n => ((CameraNode)n).TargetDistance = (float)value);
     }
 
     public double FarClip

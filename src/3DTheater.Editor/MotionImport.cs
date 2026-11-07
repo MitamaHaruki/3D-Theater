@@ -107,8 +107,8 @@ public static class MotionImport
         report.AddAggregated(LoadSeverity.Info, LoadIssueCategory.InvalidReference, "モデルに無いため使わないモーフ", missingMorphs, missingMorphs.Count);
         if (vmd.CameraKeys.Count > 0 || vmd.LightKeys.Count > 0 || vmd.ShadowKeys.Count > 0)
         {
-            report.Info(LoadIssueCategory.Unsupported,
-                $"カメラ {vmd.CameraKeys.Count:N0}・照明 {vmd.LightKeys.Count:N0}・セルフ影 {vmd.ShadowKeys.Count:N0} 個のキーは、今は使いません（カメラのモーションは次の段階で対応します）");
+            report.Info(LoadIssueCategory.Note,
+                $"カメラ {vmd.CameraKeys.Count:N0}・照明 {vmd.LightKeys.Count:N0}・セルフ影 {vmd.ShadowKeys.Count:N0} 個のキーは、モデルには当てはめません（カメラのキーは、カメラを選んで読み込むか、カメラ用のモーションを読み込むと当てはまります）");
         }
         int ikOff = vmd.VisibilityKeys.Sum(k => k.IkStates.Count(s => !s.Enabled));
         int hidden = vmd.VisibilityKeys.Count(k => !k.Visible);

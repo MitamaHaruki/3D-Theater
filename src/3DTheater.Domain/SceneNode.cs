@@ -126,6 +126,16 @@ public class SceneNode : ObservableObject
         _children.Add(child);
     }
 
+    internal void InsertChild(int index, SceneNode child)
+    {
+        if (child.Parent is not null)
+        {
+            throw new InvalidOperationException($"「{child.Name}」はすでに別の項目の下にあります");
+        }
+        child.Parent = this;
+        _children.Insert(Math.Clamp(index, 0, _children.Count), child);
+    }
+
     internal void RemoveChild(SceneNode child)
     {
         if (_children.Remove(child))
@@ -209,11 +219,60 @@ public class SceneNode : ObservableObject
     }
 }
 
-public sealed class CameraNode(string name) : SceneNode(SceneNodeKind.Camera, name, canScale: false)
+/// <summary>
+/// シーンのカメラ。位置・回転（度）・視野角で置く。キー（<see cref="Keys"/>）は MMD と同じく注視点・回転・距離・視野角で持ち、
+/// 当てはめるときに位置へ直す。注視点は「位置から見ている向きへ <see cref="TargetDistance"/> 進んだ所」。
+/// </summary>
+public sealed class CameraNode : SceneNode
 {
     private float _fieldOfView = 45f;
     private float _nearClip = 0.1f;
     private float _farClip = 1000f;
+    private float _targetDistance = 6f;
+    private bool _hasUnregisteredChange;
+
+    public CameraNode(string name)
+        : base(SceneNodeKind.Camera, name, canScale: false)
+    {
+        Keys.Changed += (_, _) => OnPropertyChanged(nameof(Keys));
+    }
+
+    /// <summary>注視点までの距離（キーを登録するときの注視点を決める）。</summary>
+    public float TargetDistance
+    {
+        get => _targetDistance;
+        // MMD では注視点より奥にカメラを置く（負の距離）こともあるので、正の数に限らない
+        set => SetProperty(ref _targetDistance, float.IsFinite(value) ? Math.Clamp(value, -100_000f, 100_000f) : _targetDistance);
+    }
+
+    /// <summary>今の置き方（注視点・回転・距離・視野角）。</summary>
+    public CameraPose Pose
+    {
+        get
+        {
+            var forward = Vector3.Transform(Vector3.UnitZ, SceneRotation.ToQuaternion(Rotation));
+            return new CameraPose(Position + (forward * TargetDistance), Rotation, TargetDistance, FieldOfView);
+        }
+    }
+
+    /// <summary>置き方を当てはめる（キーの再生など）。</summary>
+    public void ApplyPose(CameraPose pose)
+    {
+        Rotation = pose.Rotation;
+        TargetDistance = pose.Distance;
+        FieldOfView = pose.FieldOfView;
+        Position = pose.Position;
+    }
+
+    /// <summary>キーフレーム。</summary>
+    public KeyTrack<CameraKey> Keys { get; } = new();
+
+    /// <summary>キーに登録していない変更がある（キーのあるカメラを、自動キーが OFF のときに手で動かした）。</summary>
+    public bool HasUnregisteredChange
+    {
+        get => _hasUnregisteredChange;
+        set => SetProperty(ref _hasUnregisteredChange, value);
+    }
 
     /// <summary>縦方向の視野角（度）。</summary>
     public float FieldOfView
@@ -234,17 +293,25 @@ public sealed class CameraNode(string name) : SceneNode(SceneNodeKind.Camera, na
         set => SetProperty(ref _farClip, Math.Max(value, _nearClip * 1.001f));
     }
 
-    protected override object? CaptureExtra(bool includeKeys) => new CameraState(FieldOfView, NearClip, FarClip);
+    protected override object? CaptureExtra(bool includeKeys) =>
+        new CameraState(FieldOfView, NearClip, FarClip, TargetDistance, HasUnregisteredChange,
+            includeKeys ? new KeySnapshot<CameraKey>(Keys.ToArray()) : null);
 
     protected override void RestoreExtra(object? extra)
     {
         if (extra is CameraState s)
         {
+            if (s.Keys is not null)
+            {
+                Keys.ReplaceAll(s.Keys.Keys);
+            }
             // 近と遠は互いに制限し合うので、遠 → 近 → 遠 の順に戻す
             FieldOfView = s.FieldOfView;
             FarClip = s.FarClip;
             NearClip = s.NearClip;
             FarClip = s.FarClip;
+            TargetDistance = s.TargetDistance;
+            HasUnregisteredChange = s.HasUnregisteredChange;
         }
     }
 }

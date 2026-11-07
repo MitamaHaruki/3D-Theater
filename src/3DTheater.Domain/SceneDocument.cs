@@ -79,6 +79,17 @@ public sealed class SceneDocument
         return models;
     }
 
+    /// <summary>項目を、親の子の <paramref name="index"/> 番目に入れる（外したモデルを元の場所に戻すとき）。</summary>
+    public void Insert(SceneNode parent, int index, SceneNode child)
+    {
+        parent.InsertChild(index, child);
+        foreach (SceneNode node in child.DescendantsAndSelf())
+        {
+            node.PropertyChanged += OnNodePropertyChanged;
+        }
+        NodeChanged?.Invoke(this, new SceneNodeChangedEventArgs(parent, nameof(SceneNode.Children)));
+    }
+
     public void Add(SceneNode parent, SceneNode child)
     {
         parent.AddChild(child);

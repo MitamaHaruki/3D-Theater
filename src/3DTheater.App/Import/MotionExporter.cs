@@ -36,6 +36,30 @@ internal static class MotionExporter
             $"モーションを書き出しました: {dialog.FileName}（ボーンのキー {vmd.BoneKeys.Count:N0}・モーフのキー {vmd.MorphKeys.Count:N0}）");
     }
 
+    public static void ExportCameraVmd(EditorContext context, Window owner)
+    {
+        if (context.MainCamera is not { } camera)
+        {
+            return;
+        }
+        var dialog = new Microsoft.Win32.SaveFileDialog
+        {
+            Title = "カメラのモーションを書き出す（VMD）",
+            Filter = "モーション (*.vmd)|*.vmd",
+            DefaultExt = ".vmd",
+            AddExtension = true,
+            FileName = "カメラ.vmd",
+        };
+        if (dialog.ShowDialog(owner) != true)
+        {
+            return;
+        }
+        var report = new LoadReport();
+        VmdDocument vmd = CameraMotion.CreateVmd(camera, context.Playback.FrameRate, report);
+        Write(owner, dialog.FileName, VmdWriter.Write(vmd), report, "カメラのモーション",
+            $"カメラのモーションを書き出しました: {dialog.FileName}（キー {vmd.CameraKeys.Count:N0}）");
+    }
+
     public static void ExportVpd(EditorContext context, Window owner)
     {
         if (Target(context, owner, "ポーズの書き出し") is not { } model)

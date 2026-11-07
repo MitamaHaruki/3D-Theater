@@ -35,6 +35,20 @@ internal static class MotionImporter
 
     public static async Task ImportAsync(EditorContext context, string path, Window owner)
     {
+        bool isPoseFile = Path.GetExtension(path).Equals(".vpd", StringComparison.OrdinalIgnoreCase);
+        VmdLoadResult? preloaded = null;
+        if (!isPoseFile)
+        {
+            // カメラ用のモーション（またはカメラを選んでいるとき）は、モデルではなくシーンのカメラに当てはめる
+            preloaded = await Task.Run(() => VmdReader.Load(path));
+            if (preloaded.Succeeded && context.MainCamera is { } camera
+                && (preloaded.Document!.IsCameraMotion || (context.Selection.Primary is CameraNode && preloaded.Document.CameraKeys.Count > 0)))
+            {
+                ImportCamera(context, camera, path, preloaded, owner);
+                return;
+            }
+        }
+
         ModelNode? model = TargetModel(context);
         if (model is null)
         {
@@ -73,7 +87,7 @@ internal static class MotionImporter
             return;
         }
 
-        VmdLoadResult motion = await Task.Run(() => VmdReader.Load(path));
+        VmdLoadResult motion = preloaded ?? await Task.Run(() => VmdReader.Load(path));
         if (!motion.Succeeded)
         {
             Finish(owner, path, motion.Report, "モーション", $"モーションを読み込めませんでした: {path}");
@@ -91,6 +105,29 @@ internal static class MotionImporter
         Finish(owner, path, motion.Report, "モーション",
             $"モーションを「{model.Name}」に当てはめました（ボーン {imported.Bones:N0} 本のキー {imported.BoneKeys:N0}・モーフ {imported.Morphs:N0} 個のキー {imported.MorphKeys:N0}、" +
             $"最後のキー {imported.LastFrame:N0} フレーム、{stopwatch.Elapsed.TotalMilliseconds:F0} ms）");
+    }
+
+    private static void ImportCamera(EditorContext context, CameraNode camera, string path, VmdLoadResult motion, Window owner)
+    {
+        if (!camera.CanEdit)
+        {
+            MessageBox.Show(owner, $"「{camera.Name}」は編集ロック中のため、カメラのモーションを当てはめられません（シーン一覧の鍵で外せます）。",
+                "モーションの読み込み", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        context.Playback.Pause();
+        AppLog.Info($"カメラのモーションを読み込みます: {path}（当てはめる先: {camera.Name}）");
+        CameraImportResult imported = null!;
+        context.Edits.Change($"カメラのモーションの読み込み（{Path.GetFileName(path)}）", [camera],
+            () => imported = CameraMotion.Apply(motion.Document!, camera, context.Playback.FrameRate, motion.Report), includeKeys: true);
+        if (imported.LastFrame > context.Playback.EndFrame)
+        {
+            context.Playback.EndFrame = imported.LastFrame;
+            motion.Report.Info(LoadIssueCategory.Note, $"モーションの長さに合わせて、終わりのフレームを {imported.LastFrame:N0} にしました");
+        }
+        context.Animation.ApplyFrame();
+        Finish(owner, path, motion.Report, "モーション",
+            $"カメラのモーションを「{camera.Name}」に当てはめました（キー {imported.Keys:N0}、最後のキー {imported.LastFrame:N0} フレーム）。カメラ視点の区画で見られます");
     }
 
     private static void Finish(Window owner, string path, LoadReport report, string what, string summary)
