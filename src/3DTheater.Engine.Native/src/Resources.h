@@ -1,37 +1,60 @@
 // 描画に使う資源（テクスチャとメッシュ）。エンジンが作り、エンジンより先に破棄する。
+// GPU が使えなくなったときに作り直せるよう、GPU へ送った中身を CPU 側にも持っておく。
 #pragma once
 
 #include <DirectXMath.h>
 
+#include <memory>
 #include <vector>
 
-#include "Common.h"
+#include "Engine.h"
 
 namespace tt {
 
-class Engine;
+// テクスチャの画素と、GPU に載せた形。テクスチャの持ち手（Texture）とメッシュの材質が一緒に持つ
+// （持ち手を先に破棄しても、メッシュが使っている間は残る）。
+class TextureImage {
+public:
+    TextureImage(int width, int height, const void* pixels, int stride);
 
-class Texture {
+    ID3D11ShaderResourceView* View() const noexcept { return srv_.Get(); }
+
+    // engine の今のデバイスで GPU に載せる（載っていれば何もしない）
+    void EnsureCreated(Engine& engine);
+    void Release() noexcept { srv_.Reset(); }
+
+private:
+    int width_;
+    int height_;
+    std::vector<uint8_t> pixels_; // BGRA 8 ビット、行の間に隙間なし
+    ComPtr<ID3D11ShaderResourceView> srv_;
+    uint32_t generation_ = 0;
+};
+
+class Texture final : public DeviceObject {
 public:
     Texture(Engine& engine, int width, int height, const void* pixels, int stride);
-    ~Texture();
+    ~Texture() override;
 
     Texture(const Texture&) = delete;
     Texture& operator=(const Texture&) = delete;
 
     bool IsValid() const noexcept { return magic_ == kMagic; }
     Engine& OwnerEngine() const noexcept { return engine_; }
-    ID3D11ShaderResourceView* View() const noexcept { return srv_.Get(); }
+    const std::shared_ptr<TextureImage>& Image() const noexcept { return image_; }
+
+    void ReleaseDeviceResources() noexcept override { image_->Release(); }
+    void RestoreDeviceResources() override { image_->EnsureCreated(engine_); }
 
 private:
     static constexpr uint32_t kMagic = 0x58455454; // "TTEX"
 
     uint32_t magic_ = kMagic;
     Engine& engine_;
-    ComPtr<ID3D11ShaderResourceView> srv_;
+    std::shared_ptr<TextureImage> image_;
 };
 
-class Mesh {
+class Mesh final : public DeviceObject {
 public:
     struct Material {
         uint32_t indexStart;
@@ -41,13 +64,13 @@ public:
         float specularPower;
         DirectX::XMFLOAT3 ambient;
         bool doubleSided;
-        ComPtr<ID3D11ShaderResourceView> texture; // 無ければ空（白として描く）
+        std::shared_ptr<TextureImage> texture; // 無ければ空（白として描く）
         DirectX::XMFLOAT4 textureMultiply{1.0f, 1.0f, 1.0f, 1.0f};
         DirectX::XMFLOAT4 textureAdd{0.0f, 0.0f, 0.0f, 0.0f};
     };
 
     Mesh(Engine& engine, const TtMeshDesc& desc);
-    ~Mesh();
+    ~Mesh() override;
 
     Mesh(const Mesh&) = delete;
     Mesh& operator=(const Mesh&) = delete;
@@ -64,16 +87,23 @@ public:
     const DirectX::XMFLOAT3& BoundsMin() const noexcept { return boundsMin_; }
     const DirectX::XMFLOAT3& BoundsMax() const noexcept { return boundsMax_; }
 
-    // 変形した後の頂点で置き換える。数が作ったときと違えば TT_E_INVALID_ARG
+    // 変形した後の頂点で置き換える。数が作ったときと違えば TT_E_INVALID_ARG。
+    // GPU が使えない間も CPU 側の中身は置き換える（作り直したときに今の形で戻る）
     void UpdateVertices(const TtMeshVertex* vertices, uint32_t count, const float* boundsMin, const float* boundsMax);
     void UpdateMaterials(const TtMaterialState* states, uint32_t count);
+
+    void ReleaseDeviceResources() noexcept override;
+    void RestoreDeviceResources() override;
 
 private:
     static constexpr uint32_t kMagic = 0x48534D54; // "TMSH"
 
+    void CreateBuffers();
+
     uint32_t magic_ = kMagic;
-    uint32_t vertexCount_ = 0;
     Engine& engine_;
+    std::vector<TtMeshVertex> vertices_;
+    std::vector<uint32_t> indices_;
     ComPtr<ID3D11Buffer> vertexBuffer_;
     ComPtr<ID3D11Buffer> indexBuffer_;
     std::vector<Material> materials_;

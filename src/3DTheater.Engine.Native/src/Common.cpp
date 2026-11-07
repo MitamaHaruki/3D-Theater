@@ -5,7 +5,8 @@ namespace tt {
 bool IsDeviceLost(HRESULT hr) noexcept
 {
     return hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET || hr == DXGI_ERROR_DEVICE_HUNG
-        || hr == DXGI_ERROR_DRIVER_INTERNAL_ERROR || hr == D3DERR_DEVICELOST;
+        || hr == DXGI_ERROR_DRIVER_INTERNAL_ERROR || hr == D3DERR_DEVICELOST || hr == D3DERR_DEVICEREMOVED
+        || hr == D3DERR_DEVICEHUNG;
 }
 
 void ThrowHr(HRESULT hr, const wchar_t* what)

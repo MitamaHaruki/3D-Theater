@@ -1,3 +1,4 @@
+using System.Windows.Threading;
 using Theater3D.Domain;
 using Theater3D.Editor;
 
@@ -8,11 +9,14 @@ public sealed class TimelineViewModel : ObservableObject
 {
     private readonly PlaybackService _playback;
     private readonly AnimationService _animation;
+    private readonly Action<int> _changeFrameRate;
 
-    public TimelineViewModel(PlaybackService playback, AnimationService animation)
+    /// <param name="changeFrameRate">フレームの速さを選んだときに呼ぶ（キーがあれば位置を合わせるか尋ね、元に戻せるように変える）。</param>
+    public TimelineViewModel(PlaybackService playback, AnimationService animation, Action<int> changeFrameRate)
     {
         _playback = playback;
         _animation = animation;
+        _changeFrameRate = changeFrameRate;
         playback.FrameChanged += (_, _) => OnPropertyChanged(nameof(CurrentFrame));
         playback.StateChanged += (_, _) => OnPropertyChanged(string.Empty);
         animation.StateChanged += (_, _) =>
@@ -66,7 +70,19 @@ public sealed class TimelineViewModel : ObservableObject
     public int FrameRate
     {
         get => _playback.FrameRate;
-        set => _playback.FrameRate = value;
+        set
+        {
+            if (value == _playback.FrameRate)
+            {
+                return;
+            }
+            // 選んだ後、一覧が閉じてから尋ねる。やめたときは一覧の表示を今の値へ戻す
+            Dispatcher.CurrentDispatcher.BeginInvoke(() =>
+            {
+                _changeFrameRate(value);
+                OnPropertyChanged(nameof(FrameRate));
+            });
+        }
     }
 
     public string PlayGlyph => _playback.IsPlaying ? "" : "";

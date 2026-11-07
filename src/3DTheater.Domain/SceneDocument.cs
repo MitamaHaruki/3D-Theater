@@ -115,10 +115,13 @@ public sealed class SceneDocument
         document.Add(root, models);
         document.Add(root, stage);
 
+        // MMD の初期のカメラと同じ（注視点 (0, 10, 0)、距離 45、視野角 30）。モデルの全身が収まる
         document.Add(cameras, new CameraNode("メインカメラ")
         {
-            Position = new Vector3(0f, 2.2f, -6f),
-            Rotation = new Vector3(15f, 0f, 0f),
+            FieldOfView = 30f,
+            TargetDistance = 45f,
+            Position = new Vector3(0f, 10f, -45f),
+            Rotation = Vector3.Zero,
         });
         document.Add(lights, new LightNode("ディレクショナルライト") { Rotation = new Vector3(45f, -30f, 0f) });
         document.Add(models, new TestObjectNode("テスト用立方体") { Position = new Vector3(0f, 0.5f, 0f) });

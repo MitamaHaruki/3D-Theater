@@ -572,6 +572,86 @@ public:
         Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
     }
 
+    TEST_METHOD(DeviceLostIsReportedUntilRecoveredAndResourcesComeBack)
+    {
+        TtEngine* engine = CreateWarpEngine();
+        constexpr int width = 32;
+        constexpr int height = 32;
+        TtView* view = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_view_create_offscreen(engine, width, height, 0, &view));
+        TtTexture* red = CreateSolidTexture(engine, 0, 0, 255);
+        const TtMeshMaterial material = QuadMaterial(red);
+        const TtMeshDesc desc = QuadDesc(kClockwise, &material);
+        TtMesh* mesh = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_mesh_create(engine, &desc, &mesh));
+        Assert::AreEqual<int>(TT_OK, tt_texture_destroy(red), L"持ち手を破棄したテクスチャも、作り直しで戻ること");
+
+        TtFrameParams params = MakeFrontParams();
+        const TtDrawItem item = DrawItem(mesh);
+        params.items = &item;
+        params.item_count = 1;
+        std::vector<uint8_t> pixels = RenderAndRead(engine, view, params, width, height);
+        const size_t center = (static_cast<size_t>(height / 2) * width + width / 2) * 4;
+        Assert::IsTrue(pixels[center + 2] > 150 && pixels[center + 1] < 20, L"最初は赤い四角形が写る");
+        Assert::AreEqual<int>(TT_OK, tt_engine_check_device(engine));
+
+        Assert::AreEqual<int>(TT_OK, tt_engine_simulate_device_lost(engine));
+        Assert::AreEqual<int>(TT_E_DEVICE_LOST, tt_engine_check_device(engine));
+        Assert::AreEqual<int>(TT_E_DEVICE_LOST, tt_view_render(view, &params), L"使えない間は描けない");
+        Assert::AreEqual<int>(TT_E_DEVICE_LOST, tt_engine_wait_for_gpu(engine));
+        TtTexture* texture = reinterpret_cast<TtTexture*>(1);
+        const uint8_t pixel[4] = {1, 2, 3, 255};
+        Assert::AreEqual<int>(TT_E_DEVICE_LOST, tt_texture_create(engine, 1, 1, pixel, 4, &texture));
+        Assert::IsNull(texture);
+
+        // 使えない間の変形と大きさの変更は覚えておき、作り直したときに使う
+        TtMeshVertex moved[4];
+        for (int i = 0; i < 4; ++i) {
+            moved[i] = kQuad[i];
+            moved[i].position[0] += 50.0f;
+        }
+        Assert::AreEqual<int>(TT_OK, tt_mesh_update_vertices(mesh, moved, 4, nullptr, nullptr));
+        constexpr int newWidth = 40;
+        constexpr int newHeight = 30;
+        Assert::AreEqual<int>(TT_OK, tt_view_resize(view, newWidth, newHeight));
+
+        Assert::AreEqual<int>(TT_OK, tt_engine_recover(engine));
+        Assert::AreEqual<int>(TT_OK, tt_engine_check_device(engine));
+        const size_t newCenter = (static_cast<size_t>(newHeight / 2) * newWidth + newWidth / 2) * 4;
+        pixels = RenderAndRead(engine, view, params, newWidth, newHeight);
+        Assert::IsTrue(IsBackground(&pixels[newCenter], 1), L"使えない間に送った頂点で作り直す");
+
+        Assert::AreEqual<int>(TT_OK, tt_mesh_update_vertices(mesh, kQuad, 4, nullptr, nullptr));
+        pixels = RenderAndRead(engine, view, params, newWidth, newHeight);
+        Assert::IsTrue(pixels[newCenter + 2] > 150 && pixels[newCenter + 1] < 20, L"テクスチャの赤も戻る");
+
+        Assert::AreEqual<int>(TT_OK, tt_mesh_destroy(mesh));
+        Assert::AreEqual<int>(TT_OK, tt_view_destroy(view));
+        Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
+    }
+
+    TEST_METHOD(RecoverWorksForWindowViewsAndCanBeRepeated)
+    {
+        HWND parent = CreateWindowExW(0, L"STATIC", L"test", WS_OVERLAPPEDWINDOW, 0, 0, 200, 200, nullptr, nullptr,
+            GetModuleHandleW(nullptr), nullptr);
+        Assert::IsNotNull(parent);
+        TtEngine* engine = CreateWarpEngine();
+        TtView* view = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_view_create_for_window(engine, parent, 64, 48, &view));
+        const TtFrameParams params = MakeParams();
+        Assert::IsTrue(tt_view_render(view, &params) >= 0);
+
+        Assert::AreEqual<int>(TT_OK, tt_engine_simulate_device_lost(engine));
+        Assert::AreEqual<int>(TT_OK, tt_engine_recover(engine));
+        Assert::IsTrue(tt_view_render(view, &params) >= 0, L"作り直したスワップチェーンに描ける");
+        Assert::AreEqual<int>(TT_OK, tt_engine_recover(engine), L"使える状態で呼んでも作り直せる");
+        Assert::IsTrue(tt_view_render(view, &params) >= 0);
+
+        Assert::AreEqual<int>(TT_OK, tt_view_destroy(view));
+        Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
+        DestroyWindow(parent);
+    }
+
     TEST_METHOD(LogCallbackReceivesEngineMessages)
     {
         std::vector<std::wstring> messages;

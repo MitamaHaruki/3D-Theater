@@ -3,18 +3,16 @@
 
 #include <memory>
 
-#include "Common.h"
+#include "Engine.h"
 
 namespace tt {
 
-class Engine;
-
-class View {
+class View final : public DeviceObject {
 public:
     static std::unique_ptr<View> CreateForWindow(Engine& engine, HWND parent, int width, int height);
     static std::unique_ptr<View> CreateOffscreen(Engine& engine, int width, int height, uint32_t flags);
 
-    ~View();
+    ~View() override;
 
     View(const View&) = delete;
     View& operator=(const View&) = delete;
@@ -29,6 +27,10 @@ public:
     bool Render(const TtFrameParams& params);
     void ReadPixels(void* buffer, int stride, int bufferSize);
 
+    // GPU の作り直し。D3DImage 用の面は別の物になるので、呼び出し側は面を取り直すこと
+    void ReleaseDeviceResources() noexcept override;
+    void RestoreDeviceResources() override;
+
 private:
     enum class Kind { Window, Offscreen };
 
@@ -36,8 +38,10 @@ private:
 
     View(Engine& engine, Kind kind, uint32_t flags);
 
+    void CreateSwapChain();
     void CreateSizeDependentResources();
     void ReleaseSizeDependentResources() noexcept;
+    void ReleaseSwapChain() noexcept;
 
     uint32_t magic_ = kMagic;
     Engine& engine_;

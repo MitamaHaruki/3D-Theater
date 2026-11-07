@@ -164,6 +164,30 @@ public sealed class NativeEngineTests
     }
 
     [TestMethod]
+    public void LostDeviceIsReportedAndRecoveredWithTheSameHandles()
+    {
+        using var engine = NativeEngine.Create(NativeEngineOptions.UseWarp);
+        using var view = engine.CreateOffscreenView(16, 16);
+        var events = new List<string>();
+        engine.DeviceResetting += (_, _) => events.Add("前");
+        engine.DeviceRestored += (_, _) => events.Add("後");
+        Assert.IsFalse(engine.IsDeviceLost);
+
+        engine.SimulateDeviceLost();
+
+        Assert.IsTrue(engine.IsDeviceLost);
+        var ex = Assert.ThrowsExactly<NativeEngineException>(() => view.Render(DefaultFrame));
+        Assert.AreEqual(NativeResult.DeviceLost, ex.Result);
+
+        engine.Recover();
+
+        Assert.IsFalse(engine.IsDeviceLost);
+        CollectionAssert.AreEqual(new[] { "前", "後" }, events);
+        Assert.IsTrue(view.Render(DefaultFrame), "同じビューのまま描ける");
+        engine.WaitForGpu();
+    }
+
+    [TestMethod]
     public void NativeLogMessagesReachManagedCode()
     {
         var messages = new List<string>();

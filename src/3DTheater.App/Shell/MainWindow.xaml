@@ -122,6 +122,8 @@
           <MenuItem Header="ヘルプ(_H)">
             <MenuItem Header="操作方法" Click="OnShortcutsClick" />
             <MenuItem Header="ログフォルダーを開く(_L)" Click="OnOpenLogFolderClick" />
+            <MenuItem Header="GPU を作り直す（表示がおかしいとき）" Click="OnRecoverGpuClick"
+                      ToolTip="GPU の資源を全部作り直して描き直す。GPU が使えなくなったときに自動で行うのと同じ手順" />
             <Separator />
             <MenuItem Header="バージョン情報(_A)" Click="OnAboutClick" />
           </MenuItem>

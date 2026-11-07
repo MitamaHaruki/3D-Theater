@@ -3,11 +3,25 @@
 
 #include <DirectXMath.h>
 
+#include <vector>
+
 #include "Common.h"
 
 namespace tt {
 
 class Mesh;
+
+// GPU の上に資源を持つもの（ビュー・テクスチャ・メッシュ）。
+// GPU が使えなくなったとき、エンジンが全部の資源を手放させ、デバイスを作り直してから作り直させる。
+class DeviceObject {
+public:
+    virtual ~DeviceObject() = default;
+
+    // 古いデバイスの資源を手放す（作り直しの前に呼ばれる）
+    virtual void ReleaseDeviceResources() noexcept = 0;
+    // 新しいデバイスで資源を作り直す（CPU 側に持っている中身から）
+    virtual void RestoreDeviceResources() = 0;
+};
 
 class Engine {
 public:
@@ -37,17 +51,31 @@ public:
     // それまでに頼んだ描画を GPU が終えるまで待つ。
     void WaitForGpu();
 
-    // このエンジンで作ったビュー・テクスチャ・メッシュの数。残っているうちはエンジンを破棄しない
-    void AddObject() noexcept { ++liveObjectCount_; }
-    void RemoveObject() noexcept { --liveObjectCount_; }
-    int LiveObjectCount() const noexcept { return liveObjectCount_; }
+    // ---- GPU が使えなくなったとき（取り外し・ドライバーの更新・応答なし） ----
+
+    // GPU が使えない状態か（作り直しに失敗したままのときも true）
+    bool IsDeviceLost() const noexcept;
+    // 使えない状態なら TT_E_DEVICE_LOST を投げる。GPU を使う操作の入口で呼ぶ
+    void ThrowIfDeviceLost() const;
+    // デバイスと全部の資源を作り直す。失敗したら例外を投げ、使えない状態のまま残る（あとでもう一度呼べる）
+    void Recover();
+    // 試験・診断用: GPU が使えなくなったことにする（本物の取り外しは起こせないため）
+    void SimulateDeviceLost() noexcept { lost_ = true; }
+    // デバイスを作り直した回数（資源が古いデバイスのものかを見分ける）
+    uint32_t DeviceGeneration() const noexcept { return generation_; }
+
+    // このエンジンで作ったビュー・テクスチャ・メッシュ。残っているうちはエンジンを破棄しない
+    void Register(DeviceObject& object);
+    void Unregister(DeviceObject& object) noexcept;
+    int LiveObjectCount() const noexcept { return static_cast<int>(objects_.size()); }
 
 private:
     static constexpr uint32_t kMagic = 0x4E454754; // "TGEN"
 
-    void CreateDevice(bool useWarp, bool debugLayer);
+    void CreateDevice();
     void CreateSceneResources();
     void CreateModelResources();
+    void ReleaseDevice() noexcept;
     void SetBasicPipeline();
     void SetConstants(DirectX::FXMMATRIX worldViewProj);
     void DrawMesh(const Mesh& mesh, DirectX::FXMMATRIX world, DirectX::CXMMATRIX viewProj);
@@ -56,9 +84,14 @@ private:
 
     uint32_t magic_ = kMagic;
     DWORD ownerThreadId_;
-    int liveObjectCount_ = 0;
+    bool useWarp_ = false;
+    bool debugLayerRequested_ = false;
     bool debugLayerEnabled_ = false;
+    bool lost_ = false; // 試験で使えないことにした・D3D9 側で失った・作り直しに失敗した
+    uint32_t generation_ = 0;
+    std::vector<DeviceObject*> objects_;
     D3D_FEATURE_LEVEL featureLevel_ = D3D_FEATURE_LEVEL_11_0;
+    DXGI_ADAPTER_DESC1 adapterDesc_{};
 
     ComPtr<IDXGIFactory2> factory_;
     ComPtr<IDXGIAdapter1> adapter_;

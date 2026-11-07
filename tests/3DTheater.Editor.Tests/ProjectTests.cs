@@ -27,7 +27,7 @@ public sealed class ProjectTests
         model.Position = new Vector3(5, 0, 0);
         model.Name = "名前を変えた人形";
         CameraNode camera = scene.FindFirst<CameraNode>()!;
-        camera.FieldOfView = 30;
+        camera.FieldOfView = 40;
         camera.Name = "正面カメラ";
         animation.AutoKey = true;
         return (scene, playback, animation, model);
@@ -59,7 +59,7 @@ public sealed class ProjectTests
         Assert.AreEqual(600, playback2.EndFrame);
         Assert.IsTrue(animation2.AutoKey);
         Assert.AreEqual("正面カメラ", scene2.FindFirst<CameraNode>()!.Name);
-        Assert.AreEqual(30f, scene2.FindFirst<CameraNode>()!.FieldOfView);
+        Assert.AreEqual(40f, scene2.FindFirst<CameraNode>()!.FieldOfView);
         Assert.AreEqual("名前を変えた人形", model2.Name);
         Assert.AreEqual(new Vector3(5, 0, 0), model2.Position);
         CollectionAssert.AreEqual(model.Bones[1].Keys.Keys.ToArray(), model2.Bones[1].Keys.Keys.ToArray(), "曲線と段階も含めて同じキー");
@@ -177,7 +177,10 @@ public sealed class ProjectTests
         Assert.IsNull(model.Parent);
         Assert.IsFalse(scene.ModelsGroup.Children.OfType<ModelNode>().Any());
         Assert.AreEqual("メインカメラ", scene.FindFirst<CameraNode>()!.Name);
-        Assert.AreEqual(45f, scene.FindFirst<CameraNode>()!.FieldOfView);
+        CameraNode camera = scene.FindFirst<CameraNode>()!;
+        Assert.AreEqual(30f, camera.FieldOfView, "MMD の初期のカメラと同じ");
+        Assert.AreEqual(0f, Vector3.Distance(new Vector3(0, 10, 0), camera.Pose.Target), 1e-4f, "注視点は (0, 10, 0)");
+        Assert.AreEqual(45f, camera.TargetDistance);
         Assert.IsNotNull(scene.FindFirst<TestObjectNode>(), "確認用の立方体は残す");
         Assert.ThrowsExactly<InvalidOperationException>(() => scene.Remove(scene.FindFirst<CameraNode>()!));
     }

@@ -109,6 +109,58 @@ public static class KeyEditing
     /// <summary>キーを持てる項目か（ボーン・モーフ・カメラ）。</summary>
     public static bool HasKeys(SceneNode node) => node is BoneNode or MorphNode or CameraNode;
 
+    /// <summary>項目のキーの数（キーを持てない項目は 0）。</summary>
+    public static int CountKeys(SceneNode node) => node switch
+    {
+        BoneNode bone => bone.Keys.Count,
+        MorphNode morph => morph.Keys.Count,
+        CameraNode camera => camera.Keys.Count,
+        _ => 0,
+    };
+
+    /// <summary>
+    /// キーの位置を <paramref name="scale"/> 倍にする（作品のフレームの速さを変えても、動きの秒数を保つとき）。
+    /// 同じフレームに重なったキーは後ろのものを使う。広げるときは、元で 1 フレームしか離れていなかったカメラのキー
+    /// （カメラの切り替え）を段階の補間にする（間に途中の絵を出さない。VMD の読み込みと同じ）。重なって消えたキーの数を返す。
+    /// </summary>
+    public static int ScaleTime(IEnumerable<SceneNode> nodes, double scale)
+    {
+        int Scale(int frame) => (int)Math.Round(frame * scale, MidpointRounding.AwayFromZero);
+        int lost = 0;
+        foreach (SceneNode node in nodes.Distinct())
+        {
+            switch (node)
+            {
+                case BoneNode bone:
+                    lost += Replace(bone.Keys, [.. bone.Keys.Keys.Select(k => k with { Frame = Scale(k.Frame) })]);
+                    break;
+                case MorphNode morph:
+                    lost += Replace(morph.Keys, [.. morph.Keys.Keys.Select(k => k with { Frame = Scale(k.Frame) })]);
+                    break;
+                case CameraNode camera:
+                {
+                    IReadOnlyList<CameraKey> keys = camera.Keys.Keys;
+                    var scaled = new CameraKey[keys.Count];
+                    for (int i = 0; i < keys.Count; i++)
+                    {
+                        bool cut = scale > 1 && i > 0 && keys[i].Frame - keys[i - 1].Frame == 1;
+                        scaled[i] = keys[i] with { Frame = Scale(keys[i].Frame), Kind = cut ? KeyInterpolationKind.Step : keys[i].Kind };
+                    }
+                    lost += Replace(camera.Keys, scaled);
+                    break;
+                }
+            }
+        }
+        return lost;
+
+        static int Replace<TKey>(KeyTrack<TKey> track, TKey[] keys) where TKey : struct, IKeyframe
+        {
+            int lostHere = keys.Length - keys.Select(k => k.Frame).Distinct().Count();
+            track.ReplaceAll(keys);
+            return lostHere;
+        }
+    }
+
     /// <summary>まとまり（モデル・表示枠など）の中で、<paramref name="frame"/> にあるキーすべて。</summary>
     public static IReadOnlyList<KeyRef> AtFrame(SceneNode node, int frame) =>
         [.. node.DescendantsAndSelf().Where(HasKeys).Select(n => new KeyRef(n, frame)).Where(Exists)];

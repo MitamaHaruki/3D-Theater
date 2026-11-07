@@ -141,8 +141,9 @@ internal static class ModelMeshBuilder
                 {
                     uploaded[index] = engine.CreateTexture(image.Width, image.Height, image.Bgra, image.Stride);
                 }
-                catch (NativeEngineException ex)
+                catch (NativeEngineException ex) when (ex.Result != NativeResult.DeviceLost)
                 {
+                    // GPU そのものが使えないときは、呼び出し側が作り直してからやり直す
                     report.Warning(LoadIssueCategory.Format, $"テクスチャ {index} 番を GPU に載せられませんでした（{ex.Message}）");
                 }
             }

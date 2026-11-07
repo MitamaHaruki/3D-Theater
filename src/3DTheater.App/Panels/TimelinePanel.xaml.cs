@@ -17,7 +17,7 @@ public partial class TimelinePanel : UserControl
         InitializeComponent();
         _playback = context.Playback;
         _context = context;
-        DataContext = new TimelineViewModel(context.Playback, context.Animation);
+        DataContext = new TimelineViewModel(context.Playback, context.Animation, ChangeFrameRate);
         _canvas = new TimelineCanvas(context);
         CanvasHost.Child = _canvas;
         HorizontalBar.Margin = new Thickness(TimelineCanvas.NameColumnWidth, 0, 0, 0);
@@ -43,6 +43,49 @@ public partial class TimelinePanel : UserControl
         if (!_updatingBar)
         {
             _canvas.FirstVisibleFrame = HorizontalBar.Value;
+        }
+    }
+
+    /// <summary>
+    /// 作品のフレームの速さを変える。キーがあれば、位置も合わせて動きの秒数を保つか尋ねる（元に戻せる）。
+    /// </summary>
+    private void ChangeFrameRate(int frameRate)
+    {
+        int old = _playback.FrameRate;
+        if (frameRate == old)
+        {
+            return;
+        }
+        Domain.SceneNode[] keyed = [.. _context.Scene.AllNodes.Where(n => KeyEditing.CountKeys(n) > 0)];
+        bool rescale = false;
+        if (keyed.Length > 0)
+        {
+            double scale = frameRate / (double)old;
+            string speed = scale > 1 ? $"{scale:0.##} 倍速く" : $"{1 / scale:0.##} 倍ゆっくりに";
+            MessageBoxResult answer = MessageBox.Show(
+                Window.GetWindow(this),
+                $"フレームの速さを {old} fps から {frameRate} fps に変えます。\n\n" +
+                "キーの位置も合わせて、動きの秒数を保ちますか？\n\n" +
+                $"はい: キーと終わりのフレームを {scale:0.##} 倍の位置へ動かす（動きの秒数は今のまま）\n" +
+                $"いいえ: キーはフレームの番号のまま（動きが {speed}なる）",
+                "フレームの速さの変更",
+                MessageBoxButton.YesNoCancel,
+                MessageBoxImage.Question,
+                MessageBoxResult.Yes);
+            if (answer is not (MessageBoxResult.Yes or MessageBoxResult.No))
+            {
+                return; // やめた（窓を閉じた・アプリを閉じた）ときは変えない
+            }
+            rescale = answer == MessageBoxResult.Yes;
+        }
+
+        int lost = _context.Edits.ChangeFrameRate(frameRate, keyed, rescale);
+        Logging.AppLog.Info($"フレームの速さを {old} fps から {frameRate} fps に変えました（キーの位置: {(rescale ? "合わせた" : "そのまま")}）");
+        if (lost > 0)
+        {
+            MessageBox.Show(Window.GetWindow(this),
+                $"同じフレームに重なったキーが {lost} 個あったため、後ろのキーを使いました。\n元に戻す（Ctrl+Z）で、変える前に戻せます。",
+                "フレームの速さの変更", MessageBoxButton.OK, MessageBoxImage.Information);
         }
     }
 

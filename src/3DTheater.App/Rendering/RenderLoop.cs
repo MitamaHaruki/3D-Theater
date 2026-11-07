@@ -1,5 +1,7 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Windows.Media;
+using System.Windows.Threading;
 using Theater3D.App.Logging;
 using Theater3D.Editor;
 using Theater3D.Engine.Interop;
@@ -28,11 +30,17 @@ public interface IRenderTarget
 /// WPF の画面更新（CompositionTarget.Rendering）に合わせて、変化のあった描画先だけを描く。
 /// 再生中は再生位置を進める。何も変わらず再生もしていないときは購読をやめて GPU と CPU を休ませる。
 /// 描き方は「全区画の描画を頼む → GPU の完了を 1 回だけ待つ → 全区画を表示に反映」の 3 段階。
-/// Phase 1 では UI スレッドで描く。描画専用スレッドへの分離は Phase 2 までの課題。
+/// UI スレッドで描く（実物のモデルを 8 区画に出しても 1 回 3〜4 ms で収まるため。docs/設計判断記録.md 15 章）。
+/// GPU が使えなくなったら（取り外し・ドライバーの更新・応答なし）描画を止め、デバイスを作り直して再開する。
 /// </summary>
 public sealed class RenderLoop(NativeEngine? engine, PlaybackService playback)
 {
     private static readonly TimeSpan MaxStep = TimeSpan.FromMilliseconds(100);
+
+    /// <summary>GPU の作り直しを試す回数の上限（間を少しずつ空けて、合わせて 2 分ほど）。</summary>
+    public const int MaxRecoveryAttempts = 10;
+
+    private DispatcherTimer? _retryTimer;
 
     private readonly List<IRenderTarget> _targets = [];
     private readonly List<IRenderTarget> _submitted = [];
@@ -42,8 +50,20 @@ public sealed class RenderLoop(NativeEngine? engine, PlaybackService playback)
     private int _framesInSample;
     private long _sampleStart;
     private readonly FrameTimer _frameTimer = new();
+    private readonly FrameTimer _prepareTimer = new();
+    private readonly FrameTimer _submitTimer = new();
+    private readonly FrameTimer _waitTimer = new();
+    private readonly FrameTimer _presentTimer = new();
 
     public event EventHandler<RenderFailedEventArgs>? RenderFailed;
+
+    /// <summary>GPU の状態（使える・作り直し中・作り直せなかった）が変わった。</summary>
+    public event EventHandler? DeviceStateChanged;
+
+    public DeviceState DeviceState { get; private set; } = DeviceState.Ready;
+
+    /// <summary>今の作り直しで試した回数（使える状態では 0）。</summary>
+    public int RecoveryAttempts { get; private set; }
 
     /// <summary>描き直す区画があるとき、描画を頼む直前に呼ばれる（モデルの変形を GPU へ送るなど）。</summary>
     public event EventHandler? BeforeRender;
@@ -53,6 +73,10 @@ public sealed class RenderLoop(NativeEngine? engine, PlaybackService playback)
 
     /// <summary>1 回の描画（全区画）にかかった UI スレッドの時間の平均。</summary>
     public double AverageFrameMilliseconds => _frameTimer.AverageMilliseconds;
+
+    /// <summary>1 回の描画の内訳（モデルの変形・描画の依頼・GPU の完了待ち・表示への反映）の平均。</summary>
+    public RenderBreakdown Breakdown => new(
+        _prepareTimer.AverageMilliseconds, _submitTimer.AverageMilliseconds, _waitTimer.AverageMilliseconds, _presentTimer.AverageMilliseconds);
 
     public bool IsRunning => _subscribed;
 
@@ -119,7 +143,8 @@ public sealed class RenderLoop(NativeEngine? engine, PlaybackService playback)
         _lastTimestamp = now;
         playback.Advance(step > MaxStep ? MaxStep : step); // 再生位置が進むと、各区画は Invalidate される
 
-        int rendered = RenderChangedTargets();
+        // GPU を作り直している間は描かない（作り直したら全区画を描き直す）
+        int rendered = DeviceState == DeviceState.Ready ? RenderChangedTargets() : 0;
         LastRenderedTargetCount = rendered;
         if (rendered > 0)
         {
@@ -128,7 +153,7 @@ public sealed class RenderLoop(NativeEngine? engine, PlaybackService playback)
         }
         UpdateFrameRate(now);
 
-        if (!playback.IsPlaying && !_targets.Any(t => t.CanRender && t.NeedsRender))
+        if (!playback.IsPlaying && (DeviceState != DeviceState.Ready || !_targets.Any(t => t.CanRender && t.NeedsRender)))
         {
             Stop();
         }
@@ -141,6 +166,7 @@ public sealed class RenderLoop(NativeEngine? engine, PlaybackService playback)
         {
             return 0;
         }
+        long phase = Stopwatch.GetTimestamp();
         try
         {
             BeforeRender?.Invoke(this, EventArgs.Empty);
@@ -149,6 +175,8 @@ public sealed class RenderLoop(NativeEngine? engine, PlaybackService playback)
         {
             AppLog.Error("描画の準備（モデルの変形）に失敗しました", ex);
         }
+        phase = Lap(_prepareTimer, phase);
+        NativeEngineException? lost = null;
         foreach (IRenderTarget target in _targets.ToArray())
         {
             if (!target.CanRender || !target.NeedsRender)
@@ -162,27 +190,42 @@ public sealed class RenderLoop(NativeEngine? engine, PlaybackService playback)
                     _submitted.Add(target);
                 }
             }
+            catch (NativeEngineException ex) when (ex.Result == NativeResult.DeviceLost)
+            {
+                lost = ex; // 区画の失敗ではないので外さない。作り直してから描き直す
+                break;
+            }
             catch (Exception ex)
             {
                 Fail(target, ex);
             }
         }
-        if (_submitted.Count == 0)
+        if (_submitted.Count == 0 && lost is null)
         {
             return 0;
         }
+        phase = Lap(_submitTimer, phase);
 
-        bool succeeded = true;
-        try
+        bool succeeded = lost is null;
+        if (succeeded)
         {
-            engine?.WaitForGpu();
+            try
+            {
+                engine?.WaitForGpu();
+            }
+            catch (NativeEngineException ex) when (ex.Result == NativeResult.DeviceLost)
+            {
+                succeeded = false;
+                lost = ex;
+            }
+            catch (NativeEngineException ex)
+            {
+                succeeded = false;
+                AppLog.Error("GPU の描画完了を待てませんでした", ex);
+                RenderFailed?.Invoke(this, new RenderFailedEventArgs(null, ex));
+            }
         }
-        catch (NativeEngineException ex)
-        {
-            succeeded = false;
-            AppLog.Error("GPU の描画完了を待てませんでした", ex);
-            RenderFailed?.Invoke(this, new RenderFailedEventArgs(null, ex));
-        }
+        phase = Lap(_waitTimer, phase);
 
         foreach (IRenderTarget target in _submitted)
         {
@@ -195,7 +238,109 @@ public sealed class RenderLoop(NativeEngine? engine, PlaybackService playback)
                 Fail(target, ex);
             }
         }
+        Lap(_presentTimer, phase);
+        if (lost is not null)
+        {
+            OnDeviceLost(lost);
+            return 0;
+        }
         return _submitted.Count;
+    }
+
+    /// <summary>
+    /// GPU を今すぐ作り直す（モデルを GPU に載せる前など）。使える状態なら何もせず true。
+    /// <paramref name="force"/> が true なら、使える状態でも作り直す（診断・手での再試行用）。
+    /// </summary>
+    public bool RecoverNow(bool force = false)
+    {
+        if (engine is null || engine.IsDisposed)
+        {
+            return false;
+        }
+        if (!force && DeviceState == DeviceState.Ready && !engine.IsDeviceLost)
+        {
+            return true;
+        }
+        _retryTimer?.Stop();
+        if (DeviceState == DeviceState.Ready)
+        {
+            SetDeviceState(DeviceState.Recovering);
+        }
+        return TryRecover();
+    }
+
+    private void OnDeviceLost(NativeEngineException ex)
+    {
+        if (DeviceState != DeviceState.Ready)
+        {
+            return;
+        }
+        AppLog.Warning("GPU が使えなくなりました（取り外し・ドライバーの更新・応答なしなど）。描画を止めて作り直します", ex);
+        SetDeviceState(DeviceState.Recovering);
+        // 今の画面更新を終えてから作り直す（D3DImage を開けたままにしない）
+        Dispatcher.CurrentDispatcher.BeginInvoke(DispatcherPriority.Background, () => TryRecover());
+    }
+
+    private bool TryRecover()
+    {
+        if (engine is null || engine.IsDisposed || DeviceState == DeviceState.Ready)
+        {
+            return DeviceState == DeviceState.Ready;
+        }
+        RecoveryAttempts++;
+        try
+        {
+            engine.Recover();
+        }
+        catch (Exception ex) when (ex is NativeEngineException or COMException or InvalidOperationException)
+        {
+            AppLog.Warning($"GPU を作り直せませんでした（{RecoveryAttempts} 回目）", ex);
+            if (RecoveryAttempts >= MaxRecoveryAttempts)
+            {
+                AppLog.Error("GPU を作り直せないため、描画を止めたままにします");
+                SetDeviceState(DeviceState.Failed);
+                return false;
+            }
+            SetDeviceState(DeviceState.Recovering); // 回数の表示を進める
+            ScheduleRetry(RetryDelay(RecoveryAttempts));
+            return false;
+        }
+        AppLog.Info($"GPU を作り直して描画を再開しました（{RecoveryAttempts} 回目で成功）");
+        RecoveryAttempts = 0;
+        SetDeviceState(DeviceState.Ready);
+        InvalidateAll();
+        return true;
+    }
+
+    /// <summary>次に試すまでの間（1・2・4・8 秒、その後は 15 秒ごと）。</summary>
+    public static TimeSpan RetryDelay(int attempt) => TimeSpan.FromSeconds(Math.Min(15, 1 << Math.Clamp(attempt - 1, 0, 4)));
+
+    private void ScheduleRetry(TimeSpan delay)
+    {
+        if (_retryTimer is null)
+        {
+            _retryTimer = new DispatcherTimer(DispatcherPriority.Background);
+            _retryTimer.Tick += (_, _) =>
+            {
+                _retryTimer.Stop();
+                TryRecover();
+            };
+        }
+        _retryTimer.Interval = delay;
+        _retryTimer.Start();
+    }
+
+    private void SetDeviceState(DeviceState state)
+    {
+        DeviceState = state;
+        DeviceStateChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    private static long Lap(FrameTimer timer, long since)
+    {
+        long now = Stopwatch.GetTimestamp();
+        timer.Add(Stopwatch.GetElapsedTime(since, now));
+        return now;
     }
 
     private void Fail(IRenderTarget target, Exception ex)
@@ -225,6 +370,22 @@ public sealed class RenderFailedEventArgs(IRenderTarget? target, Exception excep
 
     public Exception Exception { get; } = exception;
 }
+
+/// <summary>GPU の状態。</summary>
+public enum DeviceState
+{
+    /// <summary>使える。</summary>
+    Ready,
+
+    /// <summary>使えなくなったので、作り直している（間を空けて何度か試す）。</summary>
+    Recovering,
+
+    /// <summary>何度試しても作り直せなかった（描画は止めたまま）。</summary>
+    Failed,
+}
+
+/// <summary>1 回の描画の内訳（ミリ秒）。</summary>
+public readonly record struct RenderBreakdown(double Prepare, double Submit, double Wait, double Present);
 
 /// <summary>かかった時間の移動平均。</summary>
 public sealed class FrameTimer

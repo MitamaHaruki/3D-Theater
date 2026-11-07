@@ -26,6 +26,7 @@ public partial class MainWindow : Window
     private PreviewPanel? _activePreview;
     private ViewportControl? _activeView;
     private string? _renderFailure;
+    private DateTime _recoveredAt = DateTime.MinValue;
     private bool _videoMemoryUnavailable;
     private bool _busy;
     private readonly Project.ProjectService _project;
@@ -61,6 +62,7 @@ public partial class MainWindow : Window
         BuildPanelsMenu();
         BuildViewKindsMenu();
         context.RenderLoop.RenderFailed += OnRenderFailed;
+        context.RenderLoop.DeviceStateChanged += OnDeviceStateChanged;
         context.Playback.StateChanged += (_, _) => UpdatePlayButton();
         context.Playback.FrameChanged += (_, _) => UpdateFrameText();
         context.Undo.Changed += (_, _) => UpdateUndoButtons();
@@ -353,9 +355,20 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (!_busy)
+        string? device = _context.RenderLoop.DeviceState switch
         {
-            SetStatus(_renderFailure ?? "準備完了", isError: _renderFailure is not null);
+            DeviceState.Recovering => $"GPU が使えなくなったため、作り直しています（{Math.Max(1, _context.RenderLoop.RecoveryAttempts)} 回目）…",
+            DeviceState.Failed => "GPU を作り直せませんでした。作業を保存して、アプリを再起動してください（ヘルプの「GPU を作り直す」で、もう一度試せます）",
+            _ => null,
+        };
+        if (device is not null)
+        {
+            SetStatus(device, isError: true);
+        }
+        else if (!_busy)
+        {
+            bool recovered = _renderFailure is null && DateTime.Now - _recoveredAt < TimeSpan.FromSeconds(8);
+            SetStatus(_renderFailure ?? (recovered ? "GPU を作り直して、描画を再開しました" : "準備完了"), isError: _renderFailure is not null);
         }
         EngineInfo info = engine.Info;
         string presenter = _context.SurfaceSharingUnavailable ? "読み出し方式" : "共有方式";
@@ -364,6 +377,9 @@ public partial class MainWindow : Window
         FrameRateText.Text = loop.IsRunning
             ? $"描画 {loop.FramesPerSecond:F0} 回/秒・{loop.AverageFrameMilliseconds:F1} ms"
             : "描画 待機中";
+        RenderBreakdown b = loop.Breakdown;
+        FrameRateText.ToolTip =
+            $"1 回の描画の内訳（UI スレッドの時間）: 変形 {b.Prepare:F1} ms・描画の依頼 {b.Submit:F1} ms・GPU 待ち {b.Wait:F1} ms・表示 {b.Present:F1} ms";
         VideoMemoryText.Text = FormatVideoMemory(engine);
     }
 
@@ -385,6 +401,10 @@ public partial class MainWindow : Window
             const double gib = 1024.0 * 1024 * 1024;
             return $"VRAM（このアプリ）{memory.Usage / gib:F2} / {memory.Budget / gib:F1} GB";
         }
+        catch (NativeEngineException ex) when (ex.Result == NativeResult.DeviceLost)
+        {
+            return string.Empty; // 作り直した後にまた出す
+        }
         catch (NativeEngineException ex)
         {
             AppLog.Warning("GPU メモリの使用量を取得できないため、表示をやめます", ex);
@@ -395,12 +415,41 @@ public partial class MainWindow : Window
 
     private void OnRenderFailed(object? sender, RenderFailedEventArgs e)
     {
-        bool deviceLost = e.Exception is NativeEngineException { Result: NativeResult.DeviceLost };
-        // GPU の取り外しなどからの自動復旧はまだ無い。止めて知らせるだけ
-        _renderFailure = deviceLost
-            ? "GPU が使えなくなったため描画を止めました。アプリを再起動してください"
-            : $"描画に失敗したため一部の区画を止めました: {e.Exception.Message}";
+        // GPU が使えなくなったときは描画ループが作り直すので、ここへは来ない（区画ごとの失敗だけ）
+        _renderFailure = $"描画に失敗したため一部の区画を止めました: {e.Exception.Message}";
         UpdateStatus();
+    }
+
+    private void OnDeviceStateChanged(object? sender, EventArgs e)
+    {
+        if (_context.RenderLoop.DeviceState == DeviceState.Ready)
+        {
+            _recoveredAt = DateTime.Now;
+        }
+        UpdateStatus();
+    }
+
+    /// <summary>
+    /// ヘルプ → GPU を作り直す。GPU が使えなくなったときと同じ手順（気づく → 面を外す → 作り直す → 描き直す）を通す。
+    /// 作り直せなかったまま止まっているときは、もう一度だけ作り直しを試す。
+    /// </summary>
+    private void OnRecoverGpuClick(object sender, RoutedEventArgs e)
+    {
+        NativeEngine? engine = _context.Engine;
+        if (engine is null || engine.IsDisposed)
+        {
+            SetStatus("描画エンジンなしで起動しているため、GPU を作り直せません", isError: true);
+            return;
+        }
+        if (_context.RenderLoop.DeviceState == DeviceState.Failed)
+        {
+            _context.RenderLoop.RecoverNow();
+            UpdateStatus();
+            return;
+        }
+        AppLog.Info("ヘルプのメニューから GPU を作り直します（使えなくなったときと同じ手順を通す）");
+        engine.SimulateDeviceLost();
+        _context.RenderLoop.InvalidateAll();
     }
 
     /// <summary>起動時の引数で渡されたモデルを、画面が出てから読み込む（「プログラムから開く」など）。</summary>

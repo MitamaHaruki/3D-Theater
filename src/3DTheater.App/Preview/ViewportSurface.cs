@@ -13,6 +13,7 @@ namespace Theater3D.App.Preview;
 /// 3D を表示する面。Direct3D 11 で画面外のテクスチャに描き、Direct3D 9Ex と共有して WPF の D3DImage として出す
 /// （方式 B。docs/設計判断記録.md 3 章）。WPF の部品を上に重ねられ、入力も普通の WPF 部品として受け取れる。
 /// 共有できない環境（ソフトウェア描画など）では、描いた絵を読み出して WriteableBitmap で出す予備の方式に切り替える。
+/// GPU を作り直すときは、古い面を D3DImage から外し、作り直した後に新しい面を渡し直す。
 /// </summary>
 public sealed class ViewportSurface : FrameworkElement, IRenderTarget, IDisposable
 {
@@ -49,6 +50,8 @@ public sealed class ViewportSurface : FrameworkElement, IRenderTarget, IDisposab
         }
         else
         {
+            context.Engine.DeviceResetting += OnDeviceResetting;
+            context.Engine.DeviceRestored += OnDeviceRestored;
             context.RenderLoop.Register(this);
         }
     }
@@ -134,6 +137,11 @@ public sealed class ViewportSurface : FrameworkElement, IRenderTarget, IDisposab
         _disposed = true;
         _context.RenderLoop.Unregister(this);
         _sharedImage.IsFrontBufferAvailableChanged -= OnFrontBufferAvailableChanged;
+        if (_context.Engine is { } engine)
+        {
+            engine.DeviceResetting -= OnDeviceResetting;
+            engine.DeviceRestored -= OnDeviceRestored;
+        }
         ReleaseBackBuffer();
         _view?.Dispose();
         _view = null;
@@ -239,10 +247,25 @@ public sealed class ViewportSurface : FrameworkElement, IRenderTarget, IDisposab
         {
             _view = _context.Engine.CreateOffscreenView(_pixelWidth, _pixelHeight, shareWithD3D9: false);
         }
-        catch (NativeEngineException ex)
+        catch (NativeEngineException ex) when (ex.Result != NativeResult.DeviceLost)
         {
+            // GPU が使えないときは区画の失敗にせず、描画ループに作り直させる（例外をそのまま返す）
             SetError("描画先を用意できませんでした", ex);
         }
+    }
+
+    private void OnDeviceResetting(object? sender, EventArgs e)
+    {
+        if (_view is not null && !_useReadback)
+        {
+            ReleaseBackBuffer(); // 作り直すと面が別の物になる
+        }
+    }
+
+    private void OnDeviceRestored(object? sender, EventArgs e)
+    {
+        _backBufferDirty = true;
+        Invalidate();
     }
 
     private void CopyToReadbackImage()

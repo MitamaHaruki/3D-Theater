@@ -71,20 +71,108 @@ ComPtr<ID3D11Buffer> CreateImmutableBuffer(ID3D11Device* device, const std::vect
 
 } // namespace
 
-Engine::Engine(const TtEngineDesc& desc) : ownerThreadId_(GetCurrentThreadId())
+Engine::Engine(const TtEngineDesc& desc)
+    : ownerThreadId_(GetCurrentThreadId()), useWarp_((desc.flags & TT_ENGINE_FLAG_USE_WARP) != 0),
+      debugLayerRequested_((desc.flags & TT_ENGINE_FLAG_DEBUG_LAYER) != 0)
 {
-    CreateDevice((desc.flags & TT_ENGINE_FLAG_USE_WARP) != 0, (desc.flags & TT_ENGINE_FLAG_DEBUG_LAYER) != 0);
+    CreateDevice();
     CreateSceneResources();
     CreateModelResources();
 }
 
 Engine::~Engine()
 {
+    ReleaseDevice();
+    magic_ = 0;
+}
+
+void Engine::Register(DeviceObject& object)
+{
+    objects_.push_back(&object);
+}
+
+void Engine::Unregister(DeviceObject& object) noexcept
+{
+    std::erase(objects_, &object);
+}
+
+bool Engine::IsDeviceLost() const noexcept
+{
+    return lost_ || !device_ || FAILED(device_->GetDeviceRemovedReason());
+}
+
+void Engine::ThrowIfDeviceLost() const
+{
+    if (IsDeviceLost()) {
+        throw Error(TT_E_DEVICE_LOST,
+            L"GPU が使えなくなっています（取り外し・ドライバーの更新・応答なしなど）。tt_engine_recover で作り直してください");
+    }
+}
+
+void Engine::Recover()
+{
+    const HRESULT reason = device_ ? device_->GetDeviceRemovedReason() : E_FAIL;
+    Log(TT_LOG_WARNING,
+        reason == S_OK && lost_ ? std::wstring(L"GPU を作り直します（試験・診断のための模擬）")
+                                : std::format(L"GPU を作り直します（理由 0x{:08X}）", static_cast<uint32_t>(reason)));
+
+    // 古いデバイスの資源を全部手放してから、デバイスを作り直す
+    for (DeviceObject* object : objects_) {
+        object->ReleaseDeviceResources();
+    }
+    ReleaseDevice();
+    lost_ = true; // 途中で失敗したら、使えない状態のまま残す
+
+    CreateDevice();
+    CreateSceneResources();
+    CreateModelResources();
+    ++generation_;
+    for (DeviceObject* object : objects_) {
+        object->RestoreDeviceResources();
+    }
+    lost_ = false;
+    Log(TT_LOG_INFO, std::format(L"GPU を作り直しました（ビュー・テクスチャ・メッシュ {} 個を作り直し）", objects_.size()));
+}
+
+void Engine::ReleaseDevice() noexcept
+{
     if (context_) {
         context_->ClearState();
         context_->Flush();
     }
-    magic_ = 0;
+    gpuDoneQuery_.Reset();
+    whiteTexture_.Reset();
+    textureSampler_.Reset();
+    alphaBlendState_.Reset();
+    modelDepthState_.Reset();
+    cullNoneState_.Reset();
+    cullBackState_.Reset();
+    materialConstantBuffer_.Reset();
+    objectConstantBuffer_.Reset();
+    modelInputLayout_.Reset();
+    modelPixelShader_.Reset();
+    modelVertexShader_.Reset();
+    overlayDepthState_.Reset();
+    overlayVertexBuffer_.Reset();
+    overlayVertexCapacity_ = 0;
+    boxEdgeVertexBuffer_.Reset();
+    cubeEdgeVertexBuffer_.Reset();
+    cubeIndexBuffer_.Reset();
+    cubeVertexBuffer_.Reset();
+    axisVertexBuffer_.Reset();
+    gridVertexBuffer_.Reset();
+    depthState_.Reset();
+    rasterizerState_.Reset();
+    constantBuffer_.Reset();
+    inputLayout_.Reset();
+    pixelShader_.Reset();
+    vertexShader_.Reset();
+    d3d9Device_.Reset();
+    d3d9_.Reset();
+    context_.Reset();
+    device_.Reset();
+    adapter_.Reset();
+    factory_.Reset();
 }
 
 void Engine::CheckThread() const
@@ -94,8 +182,11 @@ void Engine::CheckThread() const
     }
 }
 
-void Engine::CreateDevice(bool useWarp, bool debugLayer)
+void Engine::CreateDevice()
 {
+    const bool useWarp = useWarp_;
+    const bool debugLayer = debugLayerRequested_;
+    debugLayerEnabled_ = false;
     UINT factoryFlags = debugLayer ? DXGI_CREATE_FACTORY_DEBUG : 0;
     HRESULT hr = CreateDXGIFactory2(factoryFlags, IID_PPV_ARGS(&factory_));
     if (FAILED(hr) && debugLayer) {
@@ -142,11 +233,10 @@ void Engine::CreateDevice(bool useWarp, bool debugLayer)
         dxgiDevice->SetMaximumFrameLatency(1);
     }
 
-    DXGI_ADAPTER_DESC1 adapterDesc{};
-    adapter_->GetDesc1(&adapterDesc);
+    adapter_->GetDesc1(&adapterDesc_);
     Log(TT_LOG_INFO,
         std::format(L"Direct3D 11 を初期化しました: {} / 機能レベル {} / 専用メモリ {} MB / 検査機能 {}",
-            adapterDesc.Description, FeatureLevelName(featureLevel_), adapterDesc.DedicatedVideoMemory / (1024 * 1024),
+            adapterDesc_.Description, FeatureLevelName(featureLevel_), adapterDesc_.DedicatedVideoMemory / (1024 * 1024),
             debugLayerEnabled_ ? L"あり" : L"なし"));
 }
 
@@ -209,6 +299,15 @@ void Engine::CreateSceneResources()
 
 void Engine::WaitForGpu()
 {
+    ThrowIfDeviceLost();
+    if (d3d9Device_) {
+        // WPF へ渡す側（Direct3D 9Ex）だけが失われることもある
+        const HRESULT state = d3d9Device_->CheckDeviceState(nullptr);
+        if (state == D3DERR_DEVICEREMOVED || state == D3DERR_DEVICEHUNG) {
+            lost_ = true;
+            ThrowIfDeviceLost();
+        }
+    }
     ID3D11DeviceContext* ctx = context_.Get();
     ctx->End(gpuDoneQuery_.Get());
     ctx->Flush();
@@ -237,13 +336,11 @@ IDirect3DDevice9Ex* Engine::D3D9Device()
     CheckHr(Direct3DCreate9Ex(D3D_SDK_VERSION, &d3d9), L"Direct3D 9Ex の初期化");
 
     // Direct3D 11 と同じ GPU でないと面を共有できない
-    DXGI_ADAPTER_DESC1 adapterDesc{};
-    adapter_->GetDesc1(&adapterDesc);
+    const LUID& target = adapterDesc_.AdapterLuid;
     UINT adapterIndex = UINT_MAX;
     for (UINT i = 0; i < d3d9->GetAdapterCount(); ++i) {
         LUID luid{};
-        if (SUCCEEDED(d3d9->GetAdapterLUID(i, &luid)) && luid.LowPart == adapterDesc.AdapterLuid.LowPart
-            && luid.HighPart == adapterDesc.AdapterLuid.HighPart) {
+        if (SUCCEEDED(d3d9->GetAdapterLUID(i, &luid)) && luid.LowPart == target.LowPart && luid.HighPart == target.HighPart) {
             adapterIndex = i;
             break;
         }
@@ -272,8 +369,7 @@ IDirect3DDevice9Ex* Engine::D3D9Device()
 
 void Engine::FillInfo(TtEngineInfo& info) const
 {
-    DXGI_ADAPTER_DESC1 desc{};
-    adapter_->GetDesc1(&desc);
+    const DXGI_ADAPTER_DESC1& desc = adapterDesc_; // 使えない間も、最後に使っていた GPU を答える
     info.feature_level = static_cast<uint32_t>(featureLevel_);
     info.is_software = (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) ? 1u : 0u;
     info.debug_layer_enabled = debugLayerEnabled_ ? 1u : 0u;
@@ -283,8 +379,9 @@ void Engine::FillInfo(TtEngineInfo& info) const
 
 void Engine::QueryVideoMemory(TtVideoMemoryInfo& info) const
 {
+    ThrowIfDeviceLost();
     ComPtr<IDXGIAdapter3> adapter3;
-    if (FAILED(adapter_.As(&adapter3))) {
+    if (!adapter_ || FAILED(adapter_.As(&adapter3))) {
         throw Error(TT_E_NOT_SUPPORTED, L"この環境では GPU メモリの使用量を取得できません");
     }
     DXGI_QUERY_VIDEO_MEMORY_INFO memory{};
@@ -430,7 +527,7 @@ void Engine::DrawMesh(const Mesh& mesh, DirectX::FXMMATRIX world, DirectX::CXMMA
         constants->textureAdd = material.textureAdd;
         ctx->Unmap(materialConstantBuffer_.Get(), 0);
 
-        ID3D11ShaderResourceView* texture = material.texture ? material.texture.Get() : whiteTexture_.Get();
+        ID3D11ShaderResourceView* texture = material.texture && material.texture->View() ? material.texture->View() : whiteTexture_.Get();
         ctx->PSSetShaderResources(0, 1, &texture);
         ctx->RSSetState(material.doubleSided ? cullNoneState_.Get() : cullBackState_.Get());
         ctx->DrawIndexed(material.indexCount, material.indexStart, 0);

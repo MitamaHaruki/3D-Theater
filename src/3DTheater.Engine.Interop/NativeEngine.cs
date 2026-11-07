@@ -26,7 +26,7 @@ public readonly record struct VideoMemoryInfo(ulong Usage, ulong Budget);
 public sealed unsafe class NativeEngine : IDisposable
 {
     public const int ExpectedApiVersionMajor = 0;
-    public const int ExpectedApiVersionMinor = 4;
+    public const int ExpectedApiVersionMinor = 5;
 
     private nint _handle;
 
@@ -140,6 +140,33 @@ public sealed unsafe class NativeEngine : IDisposable
 
     /// <summary>それまでに頼んだ描画を GPU が終えるまで待つ。共有ビューを全部描いてから 1 回だけ呼ぶ。</summary>
     public void WaitForGpu() => NativeError.Check(NativeMethods.EngineWaitForGpu(Handle));
+
+    /// <summary>
+    /// GPU が使えなくなっているか（取り外し・ドライバーの更新・応答なしなど）。
+    /// 使えない間は、描画などが <see cref="NativeResult.DeviceLost"/> の例外になる。<see cref="Recover"/> で作り直す。
+    /// </summary>
+    public bool IsDeviceLost => NativeMethods.EngineCheckDevice(Handle) == (int)NativeResult.DeviceLost;
+
+    /// <summary>作り直す直前（D3DImage から面を外すなど、古い面を手放す準備をする）。</summary>
+    public event EventHandler? DeviceResetting;
+
+    /// <summary>作り直した後（ビューの D3DImage 用の面は別の物になっているので取り直す）。</summary>
+    public event EventHandler? DeviceRestored;
+
+    /// <summary>
+    /// デバイスを作り直し、ビュー・テクスチャ・メッシュの GPU の資源も作り直す（持ち手はそのまま使える）。
+    /// 失敗したら <see cref="NativeEngineException"/>。使えない状態のまま残るので、少し待ってから呼び直せる。
+    /// </summary>
+    public void Recover()
+    {
+        nint handle = Handle;
+        DeviceResetting?.Invoke(this, EventArgs.Empty);
+        NativeError.Check(NativeMethods.EngineRecover(handle));
+        DeviceRestored?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>試験・診断用。GPU が使えなくなったことにする（<see cref="Recover"/> まで描けなくなる）。</summary>
+    public void SimulateDeviceLost() => NativeError.Check(NativeMethods.EngineSimulateDeviceLost(Handle));
 
     /// <summary>親ウィンドウの子ウィンドウに直接描くビュー（WPF の HwndHost 用）。</summary>
     public NativeView CreateWindowView(nint parentHwnd, int width, int height)

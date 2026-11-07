@@ -18,8 +18,9 @@ TtResult Guard(F&& body) noexcept
         return TT_OK;
     } catch (const tt::Error& e) {
         tt::SetLastErrorMessage(e.Message());
-        // 「この環境では使えない」は呼び出し側が別の方法へ切り替える想定なので、警告にとどめる
-        tt::Log(e.Result() == TT_E_NOT_SUPPORTED ? TT_LOG_WARNING : TT_LOG_ERROR, e.Message());
+        // 「この環境では使えない」は呼び出し側が別の方法へ切り替え、「GPU が使えない」は作り直す想定なので、警告にとどめる
+        const bool handledByCaller = e.Result() == TT_E_NOT_SUPPORTED || e.Result() == TT_E_DEVICE_LOST;
+        tt::Log(handledByCaller ? TT_LOG_WARNING : TT_LOG_ERROR, e.Message());
         return e.Result();
     } catch (const std::bad_alloc&) {
         tt::SetLastErrorMessage(L"メモリが足りません");
@@ -207,6 +208,31 @@ TT_API TtResult TT_CALL tt_engine_query_video_memory(TtEngine* engine, TtVideoMe
 TT_API TtResult TT_CALL tt_engine_wait_for_gpu(TtEngine* engine)
 {
     return Guard([&] { ToEngine(engine).WaitForGpu(); });
+}
+
+TT_API TtResult TT_CALL tt_engine_check_device(TtEngine* engine)
+{
+    // 使えないのは失敗ではなく状態なので、ログには残さない
+    try {
+        return ToEngine(engine).IsDeviceLost() ? TT_E_DEVICE_LOST : TT_OK;
+    } catch (const tt::Error& e) {
+        tt::SetLastErrorMessage(e.Message());
+        return e.Result();
+    }
+}
+
+TT_API TtResult TT_CALL tt_engine_recover(TtEngine* engine)
+{
+    return Guard([&] { ToEngine(engine).Recover(); });
+}
+
+TT_API TtResult TT_CALL tt_engine_simulate_device_lost(TtEngine* engine)
+{
+    return Guard([&] {
+        tt::Engine& e = ToEngine(engine);
+        e.SimulateDeviceLost();
+        tt::Log(TT_LOG_WARNING, L"GPU が使えなくなったことにしました（試験・診断用）");
+    });
 }
 
 TT_API TtResult TT_CALL tt_view_create_for_window(

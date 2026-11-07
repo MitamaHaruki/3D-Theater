@@ -6,6 +6,9 @@
 // - エンジンとビューは「作ったスレッド」からだけ呼ぶ。別スレッドからは TT_E_WRONG_THREAD を返す。
 // - ビュー・テクスチャ・メッシュはエンジンより先に破棄する。残っているとエンジンの破棄は TT_E_INVALID_STATE になる。
 // - 構造体の先頭 struct_size には sizeof(構造体) を入れる。将来の項目追加に備えた確認用。
+// - GPU が使えなくなると（取り外し・ドライバーの更新・応答なしなど）、GPU を使う操作が TT_E_DEVICE_LOST を返す。
+//   tt_engine_recover で作り直すと、ビュー・テクスチャ・メッシュの持ち手はそのまま使い続けられる
+//   （中身はエンジンが CPU 側に持っている分から作り直す）。D3DImage 用の面は別の物になるので取り直すこと。
 #pragma once
 
 #include <stdint.h>
@@ -24,7 +27,7 @@ extern "C" {
 
 // 上位 16 ビットが大きな版、下位 16 ビットが小さな版。大きな版が違う DLL とは組み合わせない。
 #define TT_API_VERSION_MAJOR 0
-#define TT_API_VERSION_MINOR 4
+#define TT_API_VERSION_MINOR 5
 #define TT_API_VERSION ((TT_API_VERSION_MAJOR << 16) | TT_API_VERSION_MINOR)
 
 // 0 以上は成功、負の値は失敗。
@@ -191,6 +194,14 @@ TT_API TtResult TT_CALL tt_engine_query_video_memory(TtEngine* engine, TtVideoMe
 // それまでに頼んだ描画を GPU が終えるまで待つ。共有ビューを全部描いてから 1 回だけ呼び、WPF へ渡す
 TT_API TtResult TT_CALL tt_engine_wait_for_gpu(TtEngine* engine);
 
+// GPU が使える状態なら TT_OK、使えなくなっていれば TT_E_DEVICE_LOST
+TT_API TtResult TT_CALL tt_engine_check_device(TtEngine* engine);
+// デバイスを作り直し、このエンジンで作ったビュー・テクスチャ・メッシュの GPU の資源も全部作り直す。
+// 失敗したら使えない状態のまま残る（少し待ってからもう一度呼べる）。使える状態で呼んでも作り直す
+TT_API TtResult TT_CALL tt_engine_recover(TtEngine* engine);
+// 試験・診断用。GPU が使えなくなったことにする（tt_engine_recover まで TT_E_DEVICE_LOST を返す）
+TT_API TtResult TT_CALL tt_engine_simulate_device_lost(TtEngine* engine);
+
 // テクスチャ。画素は BGRA 8 ビット（透明度はかけ合わせていない値）、上の行から。縮小表示用の段階（ミップマップ）も作る
 TT_API TtResult TT_CALL tt_texture_create(
     TtEngine* engine, int32_t width, int32_t height, const void* bgra_pixels, int32_t stride, TtTexture** out_texture);
@@ -199,7 +210,8 @@ TT_API TtResult TT_CALL tt_texture_destroy(TtTexture* texture); // NULL なら�
 // メッシュ。頂点番号と材質の範囲は作るときに確かめ、範囲外なら TT_E_INVALID_ARG
 TT_API TtResult TT_CALL tt_mesh_create(TtEngine* engine, const TtMeshDesc* desc, TtMesh** out_mesh);
 TT_API TtResult TT_CALL tt_mesh_destroy(TtMesh* mesh); // NULL なら何もせず TT_OK
-// 変形した後の頂点で置き換える（数は作ったときと同じ）。bounds_min / bounds_max は選択の箱に使う囲み（NULL なら変えない）
+// 変形した後の頂点で置き換える（数は作ったときと同じ）。bounds_min / bounds_max は選択の箱に使う囲み（NULL なら変えない）。
+// GPU が使えない間も TT_OK（中身を覚えておき、作り直したときに使う）
 TT_API TtResult TT_CALL tt_mesh_update_vertices(
     TtMesh* mesh, const TtMeshVertex* vertices, uint32_t vertex_count, const float* bounds_min, const float* bounds_max);
 // 材質の今の値を置き換える（数は作ったときと同じ）

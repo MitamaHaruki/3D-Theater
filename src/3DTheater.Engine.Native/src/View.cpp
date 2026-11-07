@@ -64,22 +64,18 @@ void RegisterViewportClass()
 
 View::View(Engine& engine, Kind kind, uint32_t flags) : engine_(engine), kind_(kind), flags_(flags)
 {
-    engine_.AddObject();
+    engine_.Register(*this);
 }
 
 View::~View()
 {
     ReleaseSizeDependentResources();
-    if (frameLatencyWaitable_) {
-        CloseHandle(frameLatencyWaitable_);
-        frameLatencyWaitable_ = nullptr;
-    }
-    swapChain_.Reset(); // ウィンドウより先にスワップチェーンを手放す
+    ReleaseSwapChain(); // ウィンドウより先にスワップチェーンを手放す
     if (hwnd_) {
         DestroyWindow(hwnd_);
         hwnd_ = nullptr;
     }
-    engine_.RemoveObject();
+    engine_.Unregister(*this);
     magic_ = 0;
 }
 
@@ -88,6 +84,7 @@ std::unique_ptr<View> View::CreateForWindow(Engine& engine, HWND parent, int wid
     if (!IsWindow(parent)) {
         throw Error(TT_E_INVALID_ARG, L"親ウィンドウが正しくありません");
     }
+    engine.ThrowIfDeviceLost();
     RegisterViewportClass();
 
     std::unique_ptr<View> view(new View(engine, Kind::Window, 0));
@@ -99,9 +96,20 @@ std::unique_ptr<View> View::CreateForWindow(Engine& engine, HWND parent, int wid
         ThrowHr(HRESULT_FROM_WIN32(GetLastError()), L"描画用の子ウィンドウの作成");
     }
 
+    view->width_ = width;
+    view->height_ = height;
+    view->CreateSwapChain();
+    if (width > 0 && height > 0) {
+        view->CreateSizeDependentResources();
+    }
+    return view;
+}
+
+void View::CreateSwapChain()
+{
     DXGI_SWAP_CHAIN_DESC1 desc{};
-    desc.Width = static_cast<UINT>(initialWidth);
-    desc.Height = static_cast<UINT>(initialHeight);
+    desc.Width = static_cast<UINT>(std::max(width_, 1));
+    desc.Height = static_cast<UINT>(std::max(height_, 1));
     desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
     desc.SampleDesc.Count = 1;
     desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
@@ -111,28 +119,26 @@ std::unique_ptr<View> View::CreateForWindow(Engine& engine, HWND parent, int wid
     desc.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
     desc.Flags = kSwapChainFlags;
     ComPtr<IDXGISwapChain1> swapChain1;
-    CheckHr(engine.Factory()->CreateSwapChainForHwnd(engine.Device(), view->hwnd_, &desc, nullptr, nullptr, &swapChain1),
+    CheckHr(engine_.Factory()->CreateSwapChainForHwnd(engine_.Device(), hwnd_, &desc, nullptr, nullptr, &swapChain1),
         L"スワップチェーンの作成");
-    CheckHr(swapChain1.As(&view->swapChain_), L"IDXGISwapChain2 の取得");
-    CheckHr(view->swapChain_->SetMaximumFrameLatency(1), L"表示待ちの上限の設定");
-    view->frameLatencyWaitable_ = view->swapChain_->GetFrameLatencyWaitableObject();
-    engine.Factory()->MakeWindowAssociation(view->hwnd_, DXGI_MWA_NO_ALT_ENTER);
+    CheckHr(swapChain1.As(&swapChain_), L"IDXGISwapChain2 の取得");
+    CheckHr(swapChain_->SetMaximumFrameLatency(1), L"表示待ちの上限の設定");
+    frameLatencyWaitable_ = swapChain_->GetFrameLatencyWaitableObject();
+    engine_.Factory()->MakeWindowAssociation(hwnd_, DXGI_MWA_NO_ALT_ENTER);
+}
 
-    view->width_ = width;
-    view->height_ = height;
-    if (width > 0 && height > 0) {
-        if (width != initialWidth || height != initialHeight) {
-            CheckHr(view->swapChain_->ResizeBuffers(
-                        0, static_cast<UINT>(width), static_cast<UINT>(height), DXGI_FORMAT_UNKNOWN, kSwapChainFlags),
-                L"スワップチェーンの大きさ変更");
-        }
-        view->CreateSizeDependentResources();
+void View::ReleaseSwapChain() noexcept
+{
+    if (frameLatencyWaitable_) {
+        CloseHandle(frameLatencyWaitable_);
+        frameLatencyWaitable_ = nullptr;
     }
-    return view;
+    swapChain_.Reset();
 }
 
 std::unique_ptr<View> View::CreateOffscreen(Engine& engine, int width, int height, uint32_t flags)
 {
+    engine.ThrowIfDeviceLost();
     std::unique_ptr<View> view(new View(engine, Kind::Offscreen, flags));
     if (flags & TT_VIEW_FLAG_SHARE_D3D9) {
         engine.D3D9Device(); // 共有できない環境ならここで分かる
@@ -190,7 +196,9 @@ void View::CreateSizeDependentResources()
 
 void View::ReleaseSizeDependentResources() noexcept
 {
-    engine_.Context()->OMSetRenderTargets(0, nullptr, nullptr);
+    if (ID3D11DeviceContext* ctx = engine_.Context()) {
+        ctx->OMSetRenderTargets(0, nullptr, nullptr);
+    }
     rtv_.Reset();
     dsv_.Reset();
     depthTexture_.Reset();
@@ -210,6 +218,9 @@ void View::Resize(int width, int height)
     if (width_ == 0 || height_ == 0) {
         return; // 最小化など。描画は止める
     }
+    if (engine_.IsDeviceLost()) {
+        return; // GPU を作り直すときに、今の大きさで作る
+    }
     if (kind_ == Kind::Window) {
         engine_.Context()->Flush();
         CheckHr(swapChain_->ResizeBuffers(
@@ -221,6 +232,7 @@ void View::Resize(int width, int height)
 
 bool View::Render(const TtFrameParams& params)
 {
+    engine_.ThrowIfDeviceLost();
     if (width_ == 0 || height_ == 0) {
         return true;
     }
@@ -242,6 +254,7 @@ void View::ReadPixels(void* buffer, int stride, int bufferSize)
     if (kind_ != Kind::Offscreen) {
         throw Error(TT_E_NOT_SUPPORTED, L"ウィンドウに直接出すビューからは内容を読み出せません");
     }
+    engine_.ThrowIfDeviceLost();
     if (!colorTexture_) {
         throw Error(TT_E_INVALID_STATE, L"大きさが 0 のため読み出せる内容がありません");
     }
@@ -269,6 +282,22 @@ void View::ReadPixels(void* buffer, int stride, int bufferSize)
             static_cast<size_t>(width_) * 4);
     }
     ctx->Unmap(staging.Get(), 0);
+}
+
+void View::ReleaseDeviceResources() noexcept
+{
+    ReleaseSizeDependentResources();
+    ReleaseSwapChain();
+}
+
+void View::RestoreDeviceResources()
+{
+    if (kind_ == Kind::Window) {
+        CreateSwapChain();
+    }
+    if (width_ > 0 && height_ > 0) {
+        CreateSizeDependentResources();
+    }
 }
 
 } // namespace tt

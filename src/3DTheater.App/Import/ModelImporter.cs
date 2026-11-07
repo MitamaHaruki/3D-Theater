@@ -63,7 +63,7 @@ internal static class ModelImporter
         {
             try
             {
-                mesh = ModelMeshBuilder.Upload(context.Engine, prepared!, result.Report);
+                mesh = UploadMesh(context, prepared!, result.Report);
             }
             catch (NativeEngineException ex)
             {
@@ -104,6 +104,32 @@ internal static class ModelImporter
             LoadReportWindow.Show(owner, path, result.Report, summary);
         }
         return node;
+    }
+
+    /// <summary>
+    /// 形を GPU に載せる。GPU が使えなくなっていたら、作り直してから 1 度だけやり直す
+    /// （作り直せなければ例外。モデルは形なしで加わる）。
+    /// </summary>
+    private static NativeMesh UploadMesh(EditorContext context, PreparedModel prepared, LoadReport report)
+    {
+        NativeEngine engine = context.Engine!;
+        if (engine.IsDeviceLost)
+        {
+            context.RenderLoop.RecoverNow();
+        }
+        try
+        {
+            return ModelMeshBuilder.Upload(engine, prepared, report);
+        }
+        catch (NativeEngineException ex) when (ex.Result == NativeResult.DeviceLost)
+        {
+            AppLog.Warning("モデルを GPU に載せる途中で GPU が使えなくなったため、作り直してからやり直します", ex);
+            if (!context.RenderLoop.RecoverNow())
+            {
+                throw;
+            }
+            return ModelMeshBuilder.Upload(engine, prepared, report);
+        }
     }
 
     private static void LogIssues(LoadReport report)

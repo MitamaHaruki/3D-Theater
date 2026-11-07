@@ -144,6 +144,18 @@ internal static unsafe partial class NativeMethods
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial int EngineWaitForGpu(nint engine);
 
+    [LibraryImport(Library, EntryPoint = "tt_engine_check_device")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial int EngineCheckDevice(nint engine);
+
+    [LibraryImport(Library, EntryPoint = "tt_engine_recover")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial int EngineRecover(nint engine);
+
+    [LibraryImport(Library, EntryPoint = "tt_engine_simulate_device_lost")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial int EngineSimulateDeviceLost(nint engine);
+
     [LibraryImport(Library, EntryPoint = "tt_view_create_for_window")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial int ViewCreateForWindow(nint engine, nint parentHwnd, int width, int height, nint* outView);

@@ -192,6 +192,70 @@ public sealed class EditService(UndoService undo, AnimationService animation, Pl
         return new EditTransaction(this, description, targets, [.. targets.Select(n => n.CaptureState(includeKeys))], includeKeys);
     }
 
+    /// <summary>
+    /// 作品のフレームの速さを変える（元に戻せる）。<paramref name="rescaleKeys"/> なら、<paramref name="keyedNodes"/> のキー・
+    /// 終わりのフレーム・今のフレームを同じ割合で動かし、動きの秒数を保つ。false ならフレームの番号のまま（動きの速さが変わる）。
+    /// 重なって消えたキーの数を返す。
+    /// </summary>
+    public int ChangeFrameRate(int frameRate, IEnumerable<SceneNode> keyedNodes, bool rescaleKeys)
+    {
+        var before = new PlaybackTiming(playback.FrameRate, playback.EndFrame, playback.CurrentFrame);
+        if (frameRate == before.FrameRate || !PlaybackService.SupportedFrameRates.Contains(frameRate))
+        {
+            return 0;
+        }
+        SceneNode[] nodes = rescaleKeys ? [.. keyedNodes.Distinct()] : [];
+        NodeState[] statesBefore = [.. nodes.Select(n => n.CaptureState(includeKeys: true))];
+        double scale = frameRate / (double)before.FrameRate;
+        int Scale(int frame) => (int)Math.Round(frame * scale, MidpointRounding.AwayFromZero);
+
+        playback.Pause();
+        int lost = 0;
+        using (animation.SuspendTracking())
+        {
+            playback.FrameRate = frameRate;
+            if (rescaleKeys)
+            {
+                lost = KeyEditing.ScaleTime(nodes, scale);
+                playback.EndFrame = Math.Max(1, Scale(before.EndFrame));
+                playback.Seek(Scale(before.CurrentFrame));
+            }
+        }
+        animation.ApplyFrame();
+        animation.NotifyStateChanged();
+
+        var after = new PlaybackTiming(playback.FrameRate, playback.EndFrame, playback.CurrentFrame);
+        NodeState[] statesAfter = [.. nodes.Select(n => n.CaptureState(includeKeys: true))];
+        string description = rescaleKeys
+            ? $"フレームの速さの変更（{before.FrameRate} → {frameRate} fps、キーの位置も合わせる）"
+            : $"フレームの速さの変更（{before.FrameRate} → {frameRate} fps）";
+        Undo.Push(new FrameRateChange(this, description, nodes, statesBefore, statesAfter, before, after));
+        return lost;
+    }
+
+    private void RestoreTiming(SceneNode[] nodes, NodeState[] states, PlaybackTiming timing)
+    {
+        playback.Pause();
+        playback.FrameRate = timing.FrameRate;
+        playback.EndFrame = timing.EndFrame;
+        playback.Seek(timing.CurrentFrame);
+        Restore(nodes, states);
+    }
+
+    private readonly record struct PlaybackTiming(int FrameRate, int EndFrame, int CurrentFrame);
+
+    /// <summary>フレームの速さを変える操作 1 つ（キーの位置を合わせたときは、そのキーも戻す）。</summary>
+    private sealed class FrameRateChange(
+        EditService owner, string description, SceneNode[] nodes, NodeState[] before, NodeState[] after,
+        PlaybackTiming timingBefore, PlaybackTiming timingAfter) : IUndoableAction
+    {
+        public string Description { get; } = description;
+
+        public void Undo() => owner.RestoreTiming(nodes, before, timingBefore);
+
+        public void Redo() => owner.RestoreTiming(nodes, after, timingAfter);
+    }
+
     internal void Push(string description, SceneNode[] nodes, NodeState[] before, NodeState[] after) =>
         Undo.Push(new SceneChange(this, description, nodes, before, after, null, DateTime.UtcNow) { ReplayCount = Undo.ReplayCount });
 
