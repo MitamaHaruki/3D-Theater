@@ -36,6 +36,49 @@ public sealed class SceneDocument
 
     public T? FindFirst<T>() where T : SceneNode => AllNodes.OfType<T>().FirstOrDefault();
 
+    /// <summary>
+    /// 決まった役目の項目（プロジェクトの保存で名前の代わりに使う）。名前は変えられることがあるため。
+    /// "camera"・"light"・"testObject"・"stage" と、まとまりの "group.cameras"・"group.lights"・"group.models"・"group.stage"。
+    /// </summary>
+    public IReadOnlyDictionary<string, SceneNode> FixedNodes => _fixedNodes;
+
+    private readonly Dictionary<string, SceneNode> _fixedNodes = [];
+    private readonly Dictionary<SceneNode, NodeState> _defaults = [];
+
+    /// <summary>項目をシーンから外す（モデルを外す・新しいプロジェクトにするとき）。決まった役目の項目は外せない。</summary>
+    public void Remove(SceneNode child)
+    {
+        if (child.Parent is not { } parent)
+        {
+            return;
+        }
+        if (_fixedNodes.ContainsValue(child) || child == Root)
+        {
+            throw new InvalidOperationException($"「{child.Name}」はシーンから外せません");
+        }
+        foreach (SceneNode node in child.DescendantsAndSelf())
+        {
+            node.PropertyChanged -= OnNodePropertyChanged;
+        }
+        parent.RemoveChild(child);
+        NodeChanged?.Invoke(this, new SceneNodeChangedEventArgs(parent, nameof(SceneNode.Children)));
+    }
+
+    /// <summary>新しいプロジェクトの状態に戻す（読み込んだモデルを外し、カメラ・照明などを初期の値にする）。外したモデルを返す。</summary>
+    public IReadOnlyList<ModelNode> ResetToDefault()
+    {
+        ModelNode[] models = [.. ModelsGroup.Children.OfType<ModelNode>()];
+        foreach (ModelNode model in models)
+        {
+            Remove(model);
+        }
+        foreach (var (node, state) in _defaults)
+        {
+            node.RestoreState(state);
+        }
+        return models;
+    }
+
     public void Add(SceneNode parent, SceneNode child)
     {
         parent.AddChild(child);
@@ -68,8 +111,22 @@ public sealed class SceneDocument
         });
         document.Add(lights, new LightNode("ディレクショナルライト") { Rotation = new Vector3(45f, -30f, 0f) });
         document.Add(models, new TestObjectNode("テスト用立方体") { Position = new Vector3(0f, 0.5f, 0f) });
-        document.Add(stage, new SceneNode(SceneNodeKind.Stage, "床グリッド", hasTransform: false));
+        var grid = new SceneNode(SceneNodeKind.Stage, "床グリッド", hasTransform: false);
+        document.Add(stage, grid);
         document.ModelsGroup = models;
+
+        document._fixedNodes["group.cameras"] = cameras;
+        document._fixedNodes["group.lights"] = lights;
+        document._fixedNodes["group.models"] = models;
+        document._fixedNodes["group.stage"] = stage;
+        document._fixedNodes["camera"] = cameras.Children[0];
+        document._fixedNodes["light"] = lights.Children[0];
+        document._fixedNodes["testObject"] = models.Children[0];
+        document._fixedNodes["stage"] = grid;
+        foreach (SceneNode node in document._fixedNodes.Values.Append(root))
+        {
+            document._defaults[node] = node.CaptureState();
+        }
         return document;
 
         static SceneNode Group(string name) => new(SceneNodeKind.Group, name, canRename: false, hasTransform: false);

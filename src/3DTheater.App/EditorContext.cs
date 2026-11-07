@@ -159,6 +159,36 @@ public sealed class EditorContext
             .Where(n => n.IsEffectivelyVisible && Models.TryGetValue(n.Id, out LoadedModel? m) && m.Mesh is not null)
             .Select(n => (n, Models[n.Id]));
 
+    /// <summary>プロジェクトを開いたときに見つからなかったモデル（保存し直しても消さずに、そのまま書き戻す）。</summary>
+    public List<ModelEntry> MissingModels { get; } = [];
+
+    /// <summary>新しいプロジェクトの状態に戻す（モデルを外して GPU の資源を手放し、履歴・選択・再生の設定を初期にする）。</summary>
+    public void ResetProject()
+    {
+        Playback.Stop();
+        Selection.Clear();
+        KeySelection.Clear();
+        KeyClipboard = null;
+        using (Animation.SuspendTracking())
+        {
+            foreach (ModelNode model in Scene.ResetToDefault())
+            {
+                if (Models.Remove(model.Id, out LoadedModel? loaded))
+                {
+                    loaded.Dispose();
+                }
+            }
+        }
+        MissingModels.Clear();
+        Playback.FrameRate = 30;
+        Playback.EndFrame = 300;
+        Playback.Loop = true;
+        Animation.AutoKey = false;
+        Animation.NotifyStateChanged();
+        Undo.Clear();
+        RenderLoop.InvalidateAll();
+    }
+
     /// <summary>GPU に載せたモデルを破棄する（エンジンを破棄する前に呼ぶ）。</summary>
     public void DisposeModels()
     {

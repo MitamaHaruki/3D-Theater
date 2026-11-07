@@ -126,6 +126,14 @@ public class SceneNode : ObservableObject
         _children.Add(child);
     }
 
+    internal void RemoveChild(SceneNode child)
+    {
+        if (_children.Remove(child))
+        {
+            child.Parent = null;
+        }
+    }
+
     /// <summary>親をたどって、最初に見つかった <typeparamref name="T"/> の項目。</summary>
     public T? FindAncestor<T>() where T : SceneNode
     {

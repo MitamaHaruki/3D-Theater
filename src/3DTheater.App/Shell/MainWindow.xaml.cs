@@ -28,11 +28,15 @@ public partial class MainWindow : Window
     private string? _renderFailure;
     private bool _videoMemoryUnavailable;
     private bool _busy;
+    private readonly Project.ProjectService _project;
 
     public MainWindow(EditorContext context, string? engineError)
     {
         InitializeComponent();
         _context = context;
+        _project = new Project.ProjectService(context, this);
+        _project.StateChanged += (_, _) => UpdateTitle();
+        _project.Opened += (_, _) => FocusViewsOnFirstModel();
         _settings = UserSettingsStore.Load();
         _renderFailure = engineError;
 
@@ -78,6 +82,12 @@ public partial class MainWindow : Window
         base.OnClosing(e);
         if (e.Cancel)
         {
+            return;
+        }
+        // 保存していない変更があれば、保存するか尋ねる（黙って捨てない）
+        if (!_project.ConfirmClose())
+        {
+            e.Cancel = true;
             return;
         }
 
@@ -171,6 +181,22 @@ public partial class MainWindow : Window
                 break;
             case Key.A when modifiers == ModifierKeys.Control:
                 SelectAll();
+                e.Handled = true;
+                break;
+            case Key.N when modifiers == ModifierKeys.Control:
+                _project.New();
+                e.Handled = true;
+                break;
+            case Key.O when modifiers == ModifierKeys.Control:
+                _ = _project.OpenWithDialogAsync();
+                e.Handled = true;
+                break;
+            case Key.S when modifiers == ModifierKeys.Control:
+                _project.Save();
+                e.Handled = true;
+                break;
+            case Key.S when modifiers == (ModifierKeys.Control | ModifierKeys.Shift):
+                _project.SaveAs();
                 e.Handled = true;
                 break;
             case Key.I when modifiers == ModifierKeys.Control:
@@ -361,11 +387,51 @@ public partial class MainWindow : Window
     /// <summary>起動時の引数で渡されたモデルを、画面が出てから読み込む（「プログラムから開く」など）。</summary>
     public void ImportOnStartup(IReadOnlyList<string> files)
     {
-        if (files.Count == 0)
+        Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, async () =>
+        {
+            // 前に保存しないまま終わった作業が残っていれば、先に尋ねる
+            await _project.CheckRecoveryAsync();
+            if (files.Count > 0)
+            {
+                await ImportFilesAsync(files);
+            }
+        });
+    }
+
+    private void OnNewProjectClick(object sender, RoutedEventArgs e) => _project.New();
+
+    private async void OnOpenProjectClick(object sender, RoutedEventArgs e) => await _project.OpenWithDialogAsync();
+
+    private void OnSaveProjectClick(object sender, RoutedEventArgs e) => _project.Save();
+
+    private void OnSaveProjectAsClick(object sender, RoutedEventArgs e) => _project.SaveAs();
+
+    private void OnExportMotionClick(object sender, RoutedEventArgs e) => MotionExporter.ExportVmd(_context, this);
+
+    private void OnExportPoseClick(object sender, RoutedEventArgs e) => MotionExporter.ExportVpd(_context, this);
+
+    private void UpdateTitle()
+    {
+        string title = $"{_project.DisplayName}{(_project.IsDirty ? " ＊" : string.Empty)} - 3D Theater";
+        TitleText.Text = title;
+        Title = title;
+    }
+
+    // MMD のモデルは確認用の立方体よりずっと大きいので、全プレビューの区画をモデルに合わせる（カメラ視点は動かさない）
+    private void FocusViewsOnFirstModel()
+    {
+        if (_context.Scene.ModelsGroup.Children.OfType<Domain.ModelNode>().FirstOrDefault() is not { } model)
         {
             return;
         }
-        Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, async () => await ImportFilesAsync(files));
+        _context.Selection.Select(model, SelectMode.Replace, null);
+        foreach (ViewportControl view in _layout.Previews.SelectMany(p => p.VisibleViews))
+        {
+            if (view.Camera.Kind != ViewKind.Camera)
+            {
+                view.FocusSelection();
+            }
+        }
     }
 
     private async void OnImportMotionClick(object sender, RoutedEventArgs e)
@@ -470,7 +536,7 @@ public partial class MainWindow : Window
     private void OnPreviewDragOver(object sender, DragEventArgs e)
     {
         bool accepted = e.Data.GetData(DataFormats.FileDrop) is string[] files
-            && files.Any(f => ModelImporter.IsModelFile(f) || MotionImporter.IsMotionFile(f));
+            && files.Any(f => ModelImporter.IsModelFile(f) || MotionImporter.IsMotionFile(f) || Project.ProjectService.IsProjectFile(f));
         e.Effects = accepted ? DragDropEffects.Copy : DragDropEffects.None;
         e.Handled = true;
     }
@@ -488,6 +554,11 @@ public partial class MainWindow : Window
     private async Task ImportFilesAsync(IEnumerable<string> paths)
     {
         List<string> files = [.. paths];
+        if (files.FirstOrDefault(Project.ProjectService.IsProjectFile) is { } projectFile)
+        {
+            await _project.OpenAsync(projectFile); // プロジェクトは 1 つだけ開く
+            return;
+        }
         await ImportModelsAsync(files.Where(ModelImporter.IsModelFile));
         foreach (string path in files.Where(MotionImporter.IsMotionFile))
         {
@@ -517,14 +588,7 @@ public partial class MainWindow : Window
                 Domain.ModelNode? node = await ModelImporter.ImportAsync(_context, path, this);
                 if (first && node is not null)
                 {
-                    // MMD のモデルは確認用の立方体よりずっと大きいので、最初の 1 体は全プレビューを合わせる（カメラ視点は動かさない）
-                    foreach (ViewportControl view in _layout.Previews.SelectMany(p => p.VisibleViews))
-                    {
-                        if (view.Camera.Kind != ViewKind.Camera)
-                        {
-                            view.FocusSelection();
-                        }
-                    }
+                    FocusViewsOnFirstModel();
                 }
             }
             finally

@@ -13,7 +13,7 @@ public partial class LoadReportWindow : Window
     private readonly LoadReport _report;
     private readonly ModelSummary? _summary;
 
-    private LoadReportWindow(string path, LoadReport report, ModelSummary? summary, string what)
+    private LoadReportWindow(string path, LoadReport report, ModelSummary? summary, string what, bool isExport)
     {
         InitializeComponent();
         _path = path;
@@ -21,19 +21,22 @@ public partial class LoadReportWindow : Window
         _summary = summary;
 
         int warnings = report.WarningCount;
+        string done = isExport ? "書き出しました" : "読み込みました";
         HeadlineText.Text = report.HasErrors
-            ? $"{what}を読み込めませんでした"
-            : warnings > 0 ? $"読み込みました（注意 {warnings} 件）" : "読み込みました（問題はありません）";
+            ? isExport ? $"{what}を書き出せませんでした" : $"{what}を読み込めませんでした"
+            : warnings > 0 ? $"{done}（注意 {warnings} 件）" : $"{done}（問題はありません）";
+        Title = isExport ? "書き出しのレポート" : "読み込みレポート";
         PathText.Text = path;
         SummaryText.Text = summary is null ? string.Empty : FormatSummary(summary);
         // エラー → 注意 → 情報 の順に並べる
         IssueList.ItemsSource = report.Issues.OrderByDescending(i => i.Severity).ToList();
     }
 
-    /// <param name="what">読み込んだものの呼び名（「モデル」「モーション」「ポーズ」）。</param>
-    public static void Show(Window? owner, string path, LoadReport report, ModelSummary? summary, string what = "モデル")
+    /// <param name="what">読み込んだものの呼び名（「モデル」「モーション」「ポーズ」「プロジェクト」）。</param>
+    /// <param name="isExport">書き出しのレポートか。</param>
+    public static void Show(Window? owner, string path, LoadReport report, ModelSummary? summary, string what = "モデル", bool isExport = false)
     {
-        var window = new LoadReportWindow(path, report, summary, what) { Owner = owner };
+        var window = new LoadReportWindow(path, report, summary, what, isExport) { Owner = owner };
         window.ShowDialog();
     }
 

@@ -22,6 +22,9 @@ public readonly struct VmdName : IEquatable<VmdName>
     /// <summary>名前のバイト列（最初の 0 より前だけ）。</summary>
     public ReadOnlySpan<byte> Bytes => _bytes ?? [];
 
+    /// <summary>名前を Shift-JIS にして、<paramref name="maxBytes"/> バイトで切ったもの（書き出すとき）。</summary>
+    public static VmdName FromText(string text, int maxBytes) => VmdText.Decode(VmdText.Encode(text, maxBytes));
+
     public string Text => _text ?? string.Empty;
 
     /// <summary>モデルの名前と同じ名前か。MMD と同じく、Shift-JIS にして決まった長さで切ったバイト列で比べる。</summary>

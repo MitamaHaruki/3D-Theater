@@ -25,7 +25,11 @@ internal static class ModelImporter
         Path.GetExtension(path).Equals(".pmx", StringComparison.OrdinalIgnoreCase)
         || Path.GetExtension(path).Equals(".pmd", StringComparison.OrdinalIgnoreCase);
 
-    public static async Task<ModelNode?> ImportAsync(EditorContext context, string path, Window owner)
+    /// <param name="interactive">
+    /// true なら読み込んだモデルを選び、注意があれば読み込みレポートの窓を出す。
+    /// false（プロジェクトを開くとき）は選ばず、窓も出さない（レポートはプロパティの「読み込みレポートを見る」で見られる）。
+    /// </param>
+    public static async Task<ModelNode?> ImportAsync(EditorContext context, string path, Window owner, bool interactive = true)
     {
         AppLog.Info($"モデルを読み込みます: {path}");
         var stopwatch = Stopwatch.StartNew();
@@ -46,7 +50,10 @@ internal static class ModelImporter
         {
             LogIssues(result.Report);
             AppLog.Warning($"モデルを読み込めませんでした: {path}");
-            LoadReportWindow.Show(owner, path, result.Report, null);
+            if (interactive)
+            {
+                LoadReportWindow.Show(owner, path, result.Report, null);
+            }
             return null;
         }
 
@@ -83,12 +90,15 @@ internal static class ModelImporter
 
         context.Models[node.Id] = new LoadedModel(d, result.Report, mesh, rig!, prepared);
         context.Scene.Add(context.Scene.ModelsGroup, node);
-        context.Selection.Select(node, SelectMode.Replace, null);
+        if (interactive)
+        {
+            context.Selection.Select(node, SelectMode.Replace, null);
+        }
         AppLog.Info(
             $"モデル「{name}」を読み込みました（{stopwatch.Elapsed.TotalMilliseconds:F0} ms、頂点 {summary.Vertices:N0}・材質 {summary.Materials:N0}・" +
             $"ボーン {summary.Bones:N0}・モーフ {summary.Morphs:N0}、注意 {result.Report.WarningCount} 件）");
 
-        if (result.Report.Issues.Any(i => i.Severity >= LoadSeverity.Warning))
+        if (interactive && result.Report.Issues.Any(i => i.Severity >= LoadSeverity.Warning))
         {
             LoadReportWindow.Show(owner, path, result.Report, summary);
         }
