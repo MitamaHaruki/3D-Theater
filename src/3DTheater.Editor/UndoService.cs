@@ -163,6 +163,21 @@ public sealed class EditService(UndoService undo, AnimationService animation, Pl
         return true;
     }
 
+    /// <summary>
+    /// ドラッグのように、何度も値を変えてから 1 つの操作として残す編集を始める。
+    /// 途中は項目の値を直接変えてよく、<see cref="EditTransaction.Commit"/> で 1 つの操作として積む。
+    /// <see cref="EditTransaction.Cancel"/> なら始める前の値に戻す（ドラッグ中の右クリック・Esc）。
+    /// </summary>
+    public EditTransaction Begin(string description, IEnumerable<SceneNode> nodes, bool includeKeys = false)
+    {
+        SceneNode[] targets = [.. nodes.Distinct()];
+        includeKeys |= animation.AutoKey;
+        return new EditTransaction(this, description, targets, [.. targets.Select(n => n.CaptureState(includeKeys))], includeKeys);
+    }
+
+    internal void Push(string description, SceneNode[] nodes, NodeState[] before, NodeState[] after) =>
+        Undo.Push(new SceneChange(this, description, nodes, before, after, null, DateTime.UtcNow) { ReplayCount = Undo.ReplayCount });
+
     /// <summary>写しの値に戻す（元に戻す・やり直しから呼ぶ）。</summary>
     internal void Restore(IReadOnlyList<SceneNode> nodes, IReadOnlyList<NodeState> states)
     {
@@ -205,5 +220,55 @@ public sealed class EditService(UndoService undo, AnimationService animation, Pl
         public void Undo() => owner.Restore(nodes, before);
 
         public void Redo() => owner.Restore(nodes, _after);
+    }
+}
+
+/// <summary>何度も値を変えてから 1 つの操作として残す編集（<see cref="EditService.Begin"/>）。</summary>
+public sealed class EditTransaction
+{
+    private readonly EditService _owner;
+    private readonly string _description;
+    private readonly SceneNode[] _nodes;
+    private readonly NodeState[] _before;
+    private readonly bool _includeKeys;
+
+    internal EditTransaction(EditService owner, string description, SceneNode[] nodes, NodeState[] before, bool includeKeys)
+    {
+        _owner = owner;
+        _description = description;
+        _nodes = nodes;
+        _before = before;
+        _includeKeys = includeKeys;
+    }
+
+    /// <summary>まだ終わっていない（確定も取り消しもしていない）。</summary>
+    public bool IsActive { get; private set; } = true;
+
+    /// <summary>変えた結果を 1 つの操作として積む。何も変わっていなければ積まない。積んだら true。</summary>
+    public bool Commit()
+    {
+        if (!IsActive)
+        {
+            return false;
+        }
+        IsActive = false;
+        NodeState[] after = [.. _nodes.Select(n => n.CaptureState(_includeKeys))];
+        if (after.SequenceEqual(_before))
+        {
+            return false;
+        }
+        _owner.Push(_description, _nodes, _before, after);
+        return true;
+    }
+
+    /// <summary>始める前の値に戻し、何も積まない。</summary>
+    public void Cancel()
+    {
+        if (!IsActive)
+        {
+            return;
+        }
+        IsActive = false;
+        _owner.Restore(_nodes, _before);
     }
 }

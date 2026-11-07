@@ -107,6 +107,8 @@ public sealed class EditorContext
         Undo = new UndoService();
         Edits = new EditService(Undo, Animation, Playback);
         KeySelection = new KeySelectionService();
+        Gizmo = new GizmoSettings();
+        Gizmo.Changed += (_, _) => RenderLoop.InvalidateAll();
         Undo.Changed += (_, _) => KeySelection.Prune(); // 元に戻したキーは選択から外す
         Poses = new PoseUpdater(this);
 
@@ -131,6 +133,9 @@ public sealed class EditorContext
 
     /// <summary>シーンの項目の編集の入口（元に戻せるように変える前後の値を残す）。画面からの編集はすべてここを通す。</summary>
     public EditService Edits { get; }
+
+    /// <summary>ギズモの方式・道具・座標（全プレビューで共通）。</summary>
+    public GizmoSettings Gizmo { get; }
 
     /// <summary>タイムラインで選んでいるキー。</summary>
     public KeySelectionService KeySelection { get; }

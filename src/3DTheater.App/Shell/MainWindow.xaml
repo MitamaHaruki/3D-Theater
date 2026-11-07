@@ -146,11 +146,21 @@
             <Button x:Name="RedoButton" Style="{StaticResource IconButtonStyle}" Content="&#xE7A6;" IsEnabled="False" ToolTip="やり直し（Ctrl+Y）"
                     Click="OnRedoClick" ToolTipService.ShowOnDisabled="True" />
             <Rectangle Style="{StaticResource ToolbarSeparatorStyle}" />
-            <ToggleButton Style="{StaticResource IconToggleButtonStyle}" Content="&#xE7C9;" IsChecked="True" ToolTip="選択（左クリックで選ぶ）" />
-            <ToggleButton Style="{StaticResource IconToggleButtonStyle}" Content="&#xE7C2;" IsEnabled="False" ToolTip="移動（ギズモは Phase 2 で対応）" />
-            <ToggleButton Style="{StaticResource IconToggleButtonStyle}" Content="&#xE7AD;" IsEnabled="False" ToolTip="回転（ギズモは Phase 2 で対応）" />
-            <ComboBox Width="96" Margin="6,0,0,0" MinHeight="0" Padding="8,2" FontSize="12" VerticalAlignment="Center"
-                      SelectedIndex="0" IsEnabled="False" ToolTipService.ShowOnDisabled="True" ToolTip="座標系（ギズモと一緒に Phase 2 で対応）">
+            <ComboBox x:Name="GizmoStyleCombo" Width="120" MinHeight="0" Padding="8,2" FontSize="12" VerticalAlignment="Center"
+                      SelectionChanged="OnGizmoStyleChanged"
+                      ToolTip="ギズモの方式。MMD 方式は移動と回転の取っ手を一緒に出し、Blender 方式は選んだ道具の取っ手だけを出します（切り替えても姿勢やキーは変わりません）">
+              <ComboBoxItem Content="MMD 方式" />
+              <ComboBoxItem Content="Blender 方式" />
+            </ComboBox>
+            <ToggleButton x:Name="SelectToolButton" Margin="4,0,0,0" Style="{StaticResource IconToggleButtonStyle}" Content="&#xE7C9;"
+                          Tag="Select" Click="OnGizmoToolClick" ToolTipService.ShowOnDisabled="True" ToolTip="選択（Q）: 取っ手を出さずに選ぶ" />
+            <ToggleButton x:Name="MoveToolButton" Style="{StaticResource IconToggleButtonStyle}" Content="&#xE7C2;"
+                          Tag="Move" Click="OnGizmoToolClick" ToolTipService.ShowOnDisabled="True" ToolTip="移動（W）: XYZ の矢印をドラッグして動かす" />
+            <ToggleButton x:Name="RotateToolButton" Style="{StaticResource IconToggleButtonStyle}" Content="&#xE7AD;"
+                          Tag="Rotate" Click="OnGizmoToolClick" ToolTipService.ShowOnDisabled="True" ToolTip="回転（E）: XYZ の輪をドラッグして回す" />
+            <ComboBox x:Name="GizmoSpaceCombo" Width="96" Margin="6,0,0,0" MinHeight="0" Padding="8,2" FontSize="12" VerticalAlignment="Center"
+                      SelectionChanged="OnGizmoSpaceChanged"
+                      ToolTip="ギズモの軸。ワールドはシーンの XYZ、ローカルは選んだ物（ボーン）の向きの XYZ。Ctrl を押しながらドラッグでスナップ（移動 0.5・回転 5°）">
               <ComboBoxItem Content="ワールド" />
               <ComboBoxItem Content="ローカル" />
             </ComboBox>

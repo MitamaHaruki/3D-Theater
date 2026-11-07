@@ -24,6 +24,18 @@ public sealed class UserSettings
     public WindowPlacement? Window { get; set; }
 
     public Dictionary<string, PreviewSettings> Previews { get; set; } = [];
+
+    /// <summary>ギズモの方式・道具・座標（全プレビューで共通の初期設定。指示書 2.6）。</summary>
+    public GizmoPreferences Gizmo { get; set; } = new();
+}
+
+public sealed class GizmoPreferences
+{
+    public Theater3D.Editor.GizmoStyle Style { get; set; } = Theater3D.Editor.GizmoStyle.Mmd;
+
+    public Theater3D.Editor.GizmoTool Tool { get; set; } = Theater3D.Editor.GizmoTool.Move;
+
+    public bool LocalSpace { get; set; }
 }
 
 public static class UserSettingsStore

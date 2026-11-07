@@ -65,6 +65,11 @@ public partial class MainWindow : Window
         context.Playback.FrameChanged += (_, _) => UpdateFrameText();
         context.Undo.Changed += (_, _) => UpdateUndoButtons();
         UpdateUndoButtons();
+        context.Gizmo.Style = _settings.Gizmo.Style;
+        context.Gizmo.Tool = _settings.Gizmo.Tool;
+        context.Gizmo.LocalSpace = _settings.Gizmo.LocalSpace;
+        context.Gizmo.Changed += (_, _) => UpdateGizmoControls();
+        UpdateGizmoControls();
 
         _statusTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(500), DispatcherPriority.Background, (_, _) => UpdateStatus(), Dispatcher);
         _statusTimer.Start();
@@ -98,6 +103,7 @@ public partial class MainWindow : Window
         _settings.Window = new WindowPlacement(RestoreBounds.Left, RestoreBounds.Top, RestoreBounds.Width, RestoreBounds.Height,
             WindowState == WindowState.Maximized);
         _layout.Save(_settings);
+        _settings.Gizmo = new GizmoPreferences { Style = _context.Gizmo.Style, Tool = _context.Gizmo.Tool, LocalSpace = _context.Gizmo.LocalSpace };
         UserSettingsStore.Save(_settings);
         AppLog.Info("レイアウトと画面の設定を保存しました");
 
@@ -201,6 +207,14 @@ public partial class MainWindow : Window
                 break;
             case Key.I when modifiers == ModifierKeys.Control:
                 OnImportModelClick(this, e);
+                e.Handled = true;
+                break;
+            case Key.Q when modifiers == ModifierKeys.None:
+            case Key.W when modifiers == ModifierKeys.None:
+            case Key.E when modifiers == ModifierKeys.None:
+                // 道具の切り替え（Blender 方式で使う。MMD 方式なら Blender 方式に切り替える）
+                _context.Gizmo.Style = GizmoStyle.Blender;
+                _context.Gizmo.Tool = key switch { Key.Q => GizmoTool.Select, Key.W => GizmoTool.Move, _ => GizmoTool.Rotate };
                 e.Handled = true;
                 break;
             case Key.I when modifiers == ModifierKeys.None:
@@ -465,6 +479,48 @@ public partial class MainWindow : Window
         {
             SetStatus("登録するボーン・モーフがありません（ボーンかモーフを選ぶか、モデルを選んで動かしてから登録してください）", isError: false);
         }
+    }
+
+    private bool _updatingGizmoControls;
+
+    private void UpdateGizmoControls()
+    {
+        _updatingGizmoControls = true;
+        GizmoSettings g = _context.Gizmo;
+        GizmoStyleCombo.SelectedIndex = g.Style == GizmoStyle.Mmd ? 0 : 1;
+        GizmoSpaceCombo.SelectedIndex = g.LocalSpace ? 1 : 0;
+        bool blender = g.Style == GizmoStyle.Blender;
+        foreach (var (button, tool) in new[] { (SelectToolButton, GizmoTool.Select), (MoveToolButton, GizmoTool.Move), (RotateToolButton, GizmoTool.Rotate) })
+        {
+            button.IsChecked = blender && g.Tool == tool;
+            button.IsEnabled = blender;
+        }
+        _updatingGizmoControls = false;
+    }
+
+    private void OnGizmoStyleChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!_updatingGizmoControls && GizmoStyleCombo.SelectedIndex >= 0)
+        {
+            _context.Gizmo.Style = GizmoStyleCombo.SelectedIndex == 0 ? GizmoStyle.Mmd : GizmoStyle.Blender;
+        }
+    }
+
+    private void OnGizmoSpaceChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!_updatingGizmoControls && GizmoSpaceCombo.SelectedIndex >= 0)
+        {
+            _context.Gizmo.LocalSpace = GizmoSpaceCombo.SelectedIndex == 1;
+        }
+    }
+
+    private void OnGizmoToolClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: string tag } && Enum.TryParse(tag, out GizmoTool tool))
+        {
+            _context.Gizmo.Tool = tool;
+        }
+        UpdateGizmoControls();
     }
 
     private void OnUndoClick(object sender, RoutedEventArgs e) => UndoOnce();

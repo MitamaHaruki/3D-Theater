@@ -22,7 +22,8 @@ public partial class ViewportControl : UserControl, IDisposable
     private readonly EditorContext _context;
     private readonly ViewportSurface _surface;
     private readonly List<DrawItem> _drawItems = [];
-    private readonly BoneOverlay _boneOverlay = new();
+    private readonly LineBuffer _lines = new();
+    private readonly GizmoController _gizmo;
     private DragMode _drag;
     private Point _lastMouse;
     private bool _showGrid = true;
@@ -36,6 +37,7 @@ public partial class ViewportControl : UserControl, IDisposable
         _context = context;
         Camera = new ViewCamera(kind);
         _surface = new ViewportSurface(context, BuildFrame);
+        _gizmo = new GizmoController(context);
         SurfaceHost.Child = _surface;
 
         Camera.Changed += (_, _) => OnCameraChanged();
@@ -43,13 +45,30 @@ public partial class ViewportControl : UserControl, IDisposable
         _surface.MouseMove += OnSurfaceMouseMove;
         _surface.MouseUp += OnSurfaceMouseUp;
         _surface.MouseWheel += OnSurfaceMouseWheel;
-        _surface.LostMouseCapture += (_, _) => _drag = DragMode.None;
+        _surface.LostMouseCapture += (_, _) =>
+        {
+            // ほかの窓に移るなどでマウスを離したときは、そこまでの動きを 1 つの操作として残す
+            if (_drag == DragMode.Gizmo)
+            {
+                _gizmo.EndDrag();
+            }
+            _drag = DragMode.None;
+        };
+        _surface.MouseLeave += (_, _) =>
+        {
+            if (_drag == DragMode.None)
+            {
+                _gizmo.ClearHover();
+                Redraw();
+            }
+        };
         UpdateHeader();
     }
 
     private enum DragMode
     {
         None,
+        Gizmo,
         Orbit,
         Pan,
     }
@@ -109,6 +128,14 @@ public partial class ViewportControl : UserControl, IDisposable
     public bool HandleKey(Key key, ModifierKeys modifiers)
     {
         bool ctrl = modifiers.HasFlag(ModifierKeys.Control);
+        if (key == Key.Escape && _drag == DragMode.Gizmo)
+        {
+            _gizmo.CancelDrag();
+            _drag = DragMode.None;
+            _surface.ReleaseMouseCapture();
+            Redraw();
+            return true;
+        }
         switch (key)
         {
             case Key.NumPad1:
@@ -237,11 +264,29 @@ public partial class ViewportControl : UserControl, IDisposable
             DrawFlags drawFlags = _context.Selection.Contains(node) ? DrawFlags.Selected : DrawFlags.None;
             _drawItems.Add(new DrawItem(model.Mesh!, node.GetLocalMatrix(), drawFlags));
         }
-        ReadOnlyMemory<LineVertex> bones = ShowBones ? _boneOverlay.Build(_context) : ReadOnlyMemory<LineVertex>.Empty;
-        return new FrameParameters(flags, matrices.View, matrices.Projection, gridWorld, testWorld, _drawItems, bones);
+        // 重ね描き: ボーンの線、その上にギズモ（どちらも書き出しには映らない）
+        _lines.Clear();
+        if (ShowBones)
+        {
+            BoneOverlay.AppendTo(_lines, _context);
+        }
+        _gizmo.Append(_lines, new GizmoController.ViewInfo(matrices.View, matrices.Projection, new Vector2(pixelWidth, pixelHeight) / DpiScale()));
+        return new FrameParameters(flags, matrices.View, matrices.Projection, gridWorld, testWorld, _drawItems, _lines.Memory);
     }
 
     private static float MaxScale(SceneNode node) => Math.Max(Math.Abs(node.Scale.X), Math.Max(Math.Abs(node.Scale.Y), Math.Abs(node.Scale.Z)));
+
+    private bool _cancelledByRightClick;
+
+    /// <summary>ギズモの計算に使う、今の区画の見え方（大きさは WPF の単位）。</summary>
+    private GizmoController.ViewInfo CurrentView()
+    {
+        var size = new Vector2((float)Math.Max(1, _surface.ActualWidth), (float)Math.Max(1, _surface.ActualHeight));
+        ViewMatrices matrices = Camera.GetMatrices(size.X / size.Y, _context.MainCamera);
+        return new GizmoController.ViewInfo(matrices.View, matrices.Projection, size);
+    }
+
+    private float DpiScale() => (float)System.Windows.Media.VisualTreeHelper.GetDpi(this).DpiScaleX;
 
     private void OnCameraChanged()
     {
@@ -277,6 +322,12 @@ public partial class ViewportControl : UserControl, IDisposable
                 _surface.CaptureMouse();
                 e.Handled = true;
                 break;
+            case MouseButton.Left when _gizmo.TryBeginDrag(_lastMouse, CurrentView()):
+                // ギズモの取っ手をつかんだときは、選択より先にギズモを動かす
+                _drag = DragMode.Gizmo;
+                _surface.CaptureMouse();
+                e.Handled = true;
+                break;
             case MouseButton.Left when e.ClickCount == 2:
                 FocusSelection();
                 e.Handled = true;
@@ -285,13 +336,31 @@ public partial class ViewportControl : UserControl, IDisposable
                 SelectAt(_lastMouse, Keyboard.Modifiers.HasFlag(ModifierKeys.Control));
                 e.Handled = true;
                 break;
+            case MouseButton.Right when _drag == DragMode.Gizmo:
+                // ドラッグ中の右クリックは取り消し
+                _gizmo.CancelDrag();
+                _drag = DragMode.None;
+                _surface.ReleaseMouseCapture();
+                _cancelledByRightClick = true;
+                Redraw();
+                e.Handled = true;
+                break;
         }
     }
 
     private void OnSurfaceMouseMove(object sender, MouseEventArgs e)
     {
+        if (_drag == DragMode.Gizmo)
+        {
+            _gizmo.Move(e.GetPosition(_surface), CurrentView());
+            return;
+        }
         if (_drag == DragMode.None)
         {
+            if (_gizmo.UpdateHover(e.GetPosition(_surface), CurrentView()))
+            {
+                Redraw();
+            }
             return;
         }
         Point position = e.GetPosition(_surface);
@@ -309,6 +378,21 @@ public partial class ViewportControl : UserControl, IDisposable
 
     private void OnSurfaceMouseUp(object sender, MouseButtonEventArgs e)
     {
+        if (e.ChangedButton == MouseButton.Left && _drag == DragMode.Gizmo)
+        {
+            _gizmo.EndDrag();
+            _drag = DragMode.None;
+            _surface.ReleaseMouseCapture();
+            Redraw();
+            e.Handled = true;
+            return;
+        }
+        if (e.ChangedButton == MouseButton.Right && _cancelledByRightClick)
+        {
+            _cancelledByRightClick = false; // 取り消しに使った右クリックでは、メニューを出さない
+            e.Handled = true;
+            return;
+        }
         if (e.ChangedButton == MouseButton.Middle && _drag != DragMode.None)
         {
             _drag = DragMode.None;
