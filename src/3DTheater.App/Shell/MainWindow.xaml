@@ -184,7 +184,8 @@
             <Button Style="{StaticResource TextButtonStyle}" Content="4 画面" Tag="Quad" Click="OnPreviewLayoutClick" ToolTip="選んでいるプレビューを 4 画面にする" />
             <Rectangle Style="{StaticResource ToolbarSeparatorStyle}" />
             <Button x:Name="PlayButton" Style="{StaticResource IconButtonStyle}" Content="&#xE768;" Click="OnPlayClick" ToolTip="再生 / 一時停止（Space）" />
-            <ToggleButton x:Name="PhysicsButton" Style="{StaticResource TextButtonStyle}" Content="物理" Click="OnPhysicsClick"
+            <ToggleButton x:Name="PhysicsButton" Style="{StaticResource TextButtonStyle}" Content="物理"
+                          Checked="OnPhysicsButtonToggled" Unchecked="OnPhysicsButtonToggled"
                           ToolTip="物理演算（髪・スカートなどの揺れ）の ON / OFF" />
           </StackPanel>
           <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
@@ -205,6 +206,8 @@
           <TextBlock x:Name="FrameRateText" DockPanel.Dock="Right" Margin="18,0,0,0" VerticalAlignment="Center" Foreground="{StaticResource SubTextBrush}" />
           <TextBlock x:Name="RendererText" DockPanel.Dock="Right" Margin="18,0,0,0" VerticalAlignment="Center" Foreground="{StaticResource SubTextBrush}" />
           <TextBlock x:Name="FrameText" DockPanel.Dock="Right" Margin="18,0,0,0" VerticalAlignment="Center" Foreground="{StaticResource SubTextBrush}" />
+          <TextBlock x:Name="PhysicsText" DockPanel.Dock="Right" Margin="18,0,0,0" VerticalAlignment="Center" Foreground="{StaticResource SubTextBrush}"
+                     ToolTip="物理の焼き込み（0 フレーム目から順に計算した結果を覚えておく）の進み具合。できたフレームは、どこから来ても同じ姿勢になります" />
           <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
             <Ellipse x:Name="StatusDot" Width="8" Height="8" Margin="0,0,8,0" Fill="#FF3FB950" />
             <TextBlock x:Name="StatusText" TextTrimming="CharacterEllipsis" Text="準備完了" />

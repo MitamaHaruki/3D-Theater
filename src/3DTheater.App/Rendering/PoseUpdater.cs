@@ -84,9 +84,22 @@ public sealed class PoseUpdater
         if (_context.Physics.Enabled && model.Physics is { } physics)
         {
             PoseEvaluator.EvaluateBeforePhysics(model.Rig, input, model.State);
-            if (!TryPhysics(node, model, physics, step))
+            if (_context.Physics.TryApplyBaked(node, model, _context.Playback.CurrentFrame))
             {
-                PoseEvaluator.EvaluateBeforePhysics(model.Rig, input, model.State); // 物理の途中の結果を捨てる
+                model.ShowingBakedPhysics = true;
+            }
+            else
+            {
+                if (model.ShowingBakedPhysics)
+                {
+                    // 画面の物理は焼き込みの間は止まっていたので、続きではなく今の姿勢から始める
+                    model.ShowingBakedPhysics = false;
+                    step = PhysicsStep.Reset;
+                }
+                if (!TryPhysics(node, model, physics, step))
+                {
+                    PoseEvaluator.EvaluateBeforePhysics(model.Rig, input, model.State); // 物理の途中の結果を捨てる
+                }
             }
             PoseEvaluator.EvaluateAfterPhysics(model.Rig, model.State);
         }
@@ -133,8 +146,7 @@ public sealed class PoseUpdater
         try
         {
             // 物理はモデルの座標で計算するので、モデルを傾けて置いたときは重力も傾ける
-            Quaternion placement = SceneRotation.ToQuaternion(node.Rotation);
-            physics.SetGravity(Vector3.Transform(new Vector3(0, -ModelPhysics.GravityStrength, 0), Quaternion.Inverse(placement)));
+            physics.SetGravity(PhysicsController.GravityFor(node));
             switch (step.Kind)
             {
                 case PhysicsStepKind.Reset:

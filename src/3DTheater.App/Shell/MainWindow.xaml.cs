@@ -349,6 +349,9 @@ public partial class MainWindow : Window
     private void UpdateStatus()
     {
         UpdateFrameText();
+        PhysicsText.Text = _context.Physics.Enabled && _context.Physics.BakeProgress is { } bake && bake.Done < bake.Total
+            ? $"物理を計算中 {bake.Done} / {bake.Total}"
+            : string.Empty;
         NativeEngine? engine = _context.Engine;
         if (engine is null || engine.IsDisposed)
         {
@@ -484,9 +487,17 @@ public partial class MainWindow : Window
 
     private void OnRemoveModelClick(object sender, RoutedEventArgs e) => RemoveSelectedModels();
 
+    // メニューは押すと印が切り替わってから Click が来る
     private void OnPhysicsClick(object sender, RoutedEventArgs e)
     {
-        _context.Physics.Enabled = !_context.Physics.Enabled;
+        _context.Physics.Enabled = PhysicsMenuItem.IsChecked;
+        UpdatePhysicsControls();
+    }
+
+    // ツールバーのボタンは、押した状態そのものを見る（キーボードや支援技術から切り替えたときも効くように）
+    private void OnPhysicsButtonToggled(object sender, RoutedEventArgs e)
+    {
+        _context.Physics.Enabled = PhysicsButton.IsChecked == true;
         UpdatePhysicsControls();
     }
 

@@ -187,6 +187,22 @@ public sealed class ModelPhysics : IDisposable
             return;
         }
         _world.GetTransforms(_buffer);
+        ApplyTransforms(state, _buffer);
+    }
+
+    /// <summary>今の全剛体の置き方を写す（焼き込みで覚えておくため）。<paramref name="destination"/> は剛体の数だけ要る。</summary>
+    public void CopyTransforms(Span<PhysicsTransform> destination) => _world.GetTransforms(destination);
+
+    /// <summary>
+    /// 与えた全剛体の置き方（焼き込みで覚えたものなど）で、物理演算のボーンを置く。
+    /// <see cref="PoseEvaluator.EvaluateBeforePhysics"/> の後に呼ぶ（物理＋ボーン位置合わせは、そのときのボーンの位置を使う）。
+    /// </summary>
+    public void ApplyTransforms(PoseState state, ReadOnlySpan<PhysicsTransform> transforms)
+    {
+        if (transforms.Length != _bodies.Length)
+        {
+            throw new ArgumentException($"置き方の数（{transforms.Length}）が剛体の数（{_bodies.Length}）と違います", nameof(transforms));
+        }
         for (int i = 0; i < _bodies.Length; i++)
         {
             Body body = _bodies[i];
@@ -194,7 +210,7 @@ public sealed class ModelPhysics : IDisposable
             {
                 continue;
             }
-            Matrix4x4 global = body.InverseOffset * _buffer[i].ToMatrix();
+            Matrix4x4 global = body.InverseOffset * transforms[i].ToMatrix();
             if (body.Mode == PmxPhysicsMode.PhysicsWithBone)
             {
                 global.Translation = state.Global[body.Bone].Translation; // 向きだけ物理に従い、位置はボーンのまま

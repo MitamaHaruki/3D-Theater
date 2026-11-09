@@ -135,6 +135,99 @@ public sealed class ModelPhysicsTests
         Assert.AreEqual(3, rig.AfterPhysicsStart, "物理後のボーンは変形の順番の最後");
     }
 
+    // 頭を上下に揺らす入力（フレームごと）
+    private static void HeadBob(PoseInput input, int frame) => input.Translations[0] = new Vector3(0, 2 * MathF.Sin(frame * 0.2f), 0);
+
+    [TestMethod]
+    public void BakedFramesMatchPlayingFromTheStart()
+    {
+        PmxDocument document = Hair();
+        ModelRig rig = ModelRig.FromPmx(document);
+        var input = new PoseInput(rig);
+        using var bake = new PhysicsBake(ModelPhysics.Create(document, rig)!, rig);
+        bake.Invalidate(30, new Vector3(0, -ModelPhysics.GravityStrength, 0));
+        for (int frame = 0; frame < 60; frame++)
+        {
+            HeadBob(input, frame);
+            bake.BakeNext(input);
+        }
+
+        // 画面と同じやり方（最初に置き直し、あとは 1 フレームずつ）で、別の世界で計算する
+        using ModelPhysics live = ModelPhysics.Create(document, rig)!;
+        var liveState = new PoseState(rig);
+        for (int frame = 0; frame < 60; frame++)
+        {
+            HeadBob(input, frame);
+            PoseEvaluator.EvaluateBeforePhysics(rig, input, liveState);
+            if (frame == 0)
+            {
+                live.Reset(liveState);
+            }
+            else
+            {
+                live.Step(liveState, 1f / 30f);
+            }
+        }
+
+        var bakedState = new PoseState(rig);
+        PoseEvaluator.EvaluateBeforePhysics(rig, input, bakedState);
+        Assert.IsTrue(bake.TryApply(59, bakedState));
+        Assert.AreEqual(60, bake.Count);
+        Assert.AreEqual(0f, Vector3.Distance(liveState.Global[1].Translation, bakedState.Global[1].Translation), 1e-4f);
+        Assert.AreEqual(1f, MathF.Abs(Quaternion.Dot(liveState.GlobalRotation[1], bakedState.GlobalRotation[1])), 1e-5f, "続けて計算した結果と同じ");
+    }
+
+    [TestMethod]
+    public void ScrubbingBackAndForthGivesTheSamePose()
+    {
+        PmxDocument document = Hair();
+        ModelRig rig = ModelRig.FromPmx(document);
+        var input = new PoseInput(rig);
+        using var bake = new PhysicsBake(ModelPhysics.Create(document, rig)!, rig);
+        bake.Invalidate(30, new Vector3(0, -ModelPhysics.GravityStrength, 0));
+        for (int frame = 0; frame < 50; frame++)
+        {
+            HeadBob(input, frame);
+            bake.BakeNext(input);
+        }
+        var state = new PoseState(rig);
+        Quaternion HairAt(int frame)
+        {
+            HeadBob(input, frame);
+            PoseEvaluator.EvaluateBeforePhysics(rig, input, state);
+            Assert.IsTrue(bake.TryApply(frame, state));
+            return state.GlobalRotation[1];
+        }
+
+        Quaternion first = HairAt(40);
+        HairAt(10);
+        HairAt(49);
+        Assert.AreEqual(first, HairAt(40), "どこから来ても、同じフレームなら同じ姿勢");
+        Assert.AreNotEqual(HairAt(10), HairAt(40), "揺れているので、フレームが違えば姿勢も違う");
+    }
+
+    [TestMethod]
+    public void InvalidatingForgetsTheFrames()
+    {
+        PmxDocument document = Hair();
+        ModelRig rig = ModelRig.FromPmx(document);
+        var input = new PoseInput(rig);
+        using var bake = new PhysicsBake(ModelPhysics.Create(document, rig)!, rig);
+        bake.Invalidate(30, new Vector3(0, -ModelPhysics.GravityStrength, 0));
+        bake.BakeNext(input);
+        bake.BakeNext(input);
+        int version = bake.Version;
+
+        bake.Invalidate(60, new Vector3(0, -ModelPhysics.GravityStrength, 0));
+
+        Assert.AreEqual(0, bake.Count);
+        Assert.AreEqual(60, bake.FrameRate);
+        Assert.AreEqual(version + 1, bake.Version);
+        Assert.IsFalse(bake.TryApply(0, new PoseState(rig)));
+        bake.BakeNext(input);
+        Assert.AreEqual(1, bake.Count, "0 フレーム目から計算し直せる");
+    }
+
     [TestMethod]
     public void ModelsWithoutRigidBodiesHaveNoPhysicsAndUnsupportedJointsAreReported()
     {

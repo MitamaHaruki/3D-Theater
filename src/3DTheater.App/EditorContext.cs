@@ -52,11 +52,25 @@ public sealed class LoadedModel : IDisposable
     /// <summary>剛体とジョイントの物理演算。剛体の無いモデル・物理を使えなかったときは null。</summary>
     public ModelPhysics? Physics { get; private set; }
 
+    /// <summary>物理の焼き込み（0 フレーム目から順に計算した結果）。最初に要るときに作る（<see cref="PhysicsController"/>）。</summary>
+    public PhysicsBake? Bake { get; internal set; }
+
+    /// <summary>焼き込みのときに、各フレームのボーン・モーフの値を入れる入れ物（画面の <see cref="Input"/> とは別）。</summary>
+    internal PoseInput? BakeInput { get; set; }
+
+    /// <summary>焼き込みに失敗した（作り直さない）。</summary>
+    internal bool BakeFailed { get; set; }
+
+    /// <summary>今の表示が焼き込みの結果か（焼き込みから画面の物理に移るとき、画面の物理を今の姿勢から始め直すため）。</summary>
+    internal bool ShowingBakedPhysics { get; set; }
+
     /// <summary>物理演算で失敗したとき、このモデルの物理をやめる（姿勢は物理なしで計算する）。</summary>
     public void DisablePhysics()
     {
         Physics?.Dispose();
         Physics = null;
+        Bake?.Dispose();
+        Bake = null;
     }
 
     public PoseInput Input { get; }
