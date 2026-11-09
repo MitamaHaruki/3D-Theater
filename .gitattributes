@@ -16,3 +16,6 @@
 *.png binary
 *.jpg binary
 *.ico binary
+
+# 取り込んだ外部のソースは、元のファイルのまま（改行も変えない）にしておく
+external/bullet3/** -text

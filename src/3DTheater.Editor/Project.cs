@@ -30,6 +30,9 @@ public sealed class ProjectFile
 
     public bool AutoKey { get; set; }
 
+    /// <summary>物理演算を使うか（無い古いファイルは使う）。</summary>
+    public bool Physics { get; set; } = true;
+
     /// <summary>カメラ・照明などの決まった項目（キーは <see cref="SceneDocument.FixedNodes"/> の役目の名前）。</summary>
     public Dictionary<string, NodeEntry> Nodes { get; set; } = [];
 

@@ -222,7 +222,7 @@
                      VerticalScrollBarVisibility="Auto" Text="{Binding Model.Comment, Mode=OneWay}" />
           </StackPanel>
           <TextBlock Margin="0,8,0,0" Style="{StaticResource PlannedNoteStyle}"
-                     Text="今は簡単な陰影で表示します。選んだモデルにはボーンを線で重ねて表示します（書き出しには映りません）。トゥーン・輪郭線・影は Phase 4、物理演算は Phase 3 で対応します。" />
+                     Text="今は簡単な陰影で表示します。選んだモデルにはボーンを線で重ねて表示します（書き出しには映りません）。髪などの揺れは物理演算（モデルメニュー・ツールバーの「物理」）で計算します。トゥーン・輪郭線・影は Phase 4 で対応します。" />
         </StackPanel>
 
         <!-- カメラ -->

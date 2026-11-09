@@ -1,0 +1,138 @@
+using System.Numerics;
+
+// 物理の世界はテストごとに別々に作るので、並べて動かしてよい
+[assembly: Parallelize(Scope = ExecutionScope.MethodLevel)]
+
+namespace Theater3D.Physics.Tests;
+
+/// <summary>Bullet を包んだ物理の世界（C API と C# の受け渡し）を確かめる。</summary>
+[TestClass]
+public sealed class PhysicsWorldTests
+{
+    private const float Gravity = 98f;
+    private static readonly PhysicsTransform Identity = new(Vector3.Zero, Quaternion.Identity);
+
+    private static PhysicsBodyDesc Body(PhysicsShape shape, PhysicsBodyKind kind, Vector3 size, Vector3 position,
+        uint group = 1, uint mask = 0xFFFF, float linearDamping = 0, float angularDamping = 0) => new()
+    {
+        Shape = shape,
+        Kind = kind,
+        Size = size,
+        Mass = 1,
+        Transform = new PhysicsTransform(position, Quaternion.Identity),
+        LinearDamping = linearDamping,
+        AngularDamping = angularDamping,
+        Friction = 0.5f,
+        Group = group,
+        Mask = mask,
+    };
+
+    private static PhysicsTransform[] Read(PhysicsWorld world)
+    {
+        var result = new PhysicsTransform[world.BodyCount];
+        world.GetTransforms(result);
+        return result;
+    }
+
+    [TestMethod]
+    public void ApiVersionMatches()
+    {
+        var (major, minor) = PhysicsWorld.ApiVersion;
+        Assert.AreEqual(PhysicsWorld.ExpectedApiVersionMajor, major);
+        Assert.IsGreaterThanOrEqualTo(PhysicsWorld.ExpectedApiVersionMinor, minor);
+    }
+
+    [TestMethod]
+    public void DynamicBodyFallsUnderGravity()
+    {
+        using var world = PhysicsWorld.Create(new Vector3(0, -Gravity, 0));
+        world.AddBodies([Body(PhysicsShape.Sphere, PhysicsBodyKind.Dynamic, new Vector3(0.5f), new Vector3(0, 10, 0))]);
+
+        world.Step([Identity], 0.5f, 60);
+
+        float y = Read(world)[0].Position.Y;
+        Assert.AreEqual(10 - (0.5f * Gravity * 0.25f), y, 0.5f, "自由落下（y = 10 - g t² / 2）");
+    }
+
+    [TestMethod]
+    public void JointMakesAPendulumHangBelowTheAnchor()
+    {
+        using var world = PhysicsWorld.Create(new Vector3(0, -Gravity, 0));
+        world.AddBodies(
+        [
+            Body(PhysicsShape.Box, PhysicsBodyKind.Kinematic, new Vector3(0.2f), new Vector3(0, 10, 0), group: 1, mask: 0),
+            Body(PhysicsShape.Sphere, PhysicsBodyKind.Dynamic, new Vector3(0.3f), new Vector3(5, 10, 0), group: 2, mask: 0,
+                linearDamping: 0.9f, angularDamping: 0.9f),
+        ]);
+        world.AddJoints(
+        [
+            new PhysicsJointDesc
+            {
+                BodyA = 0,
+                BodyB = 1,
+                Transform = new PhysicsTransform(new Vector3(0, 10, 0), Quaternion.Identity),
+                // 位置は固定、回転は自由（下限 > 上限）
+                AngularLower = new Vector3(1),
+                AngularUpper = new Vector3(-1),
+            },
+        ]);
+        PhysicsTransform anchor = new(new Vector3(0, 10, 0), Quaternion.Identity);
+
+        world.Step([anchor, Identity], 3f, 360);
+
+        Vector3 bob = Read(world)[1].Position;
+        Assert.AreEqual(5f, Vector3.Distance(bob, anchor.Position), 0.2f, "ジョイントからの距離は変わらない");
+        Assert.IsLessThan(10f - 4.5f, bob.Y, "揺れが収まって、つないだ所の真下に近い");
+    }
+
+    [TestMethod]
+    public void CollisionMaskDecidesWhoCollides()
+    {
+        float Drop(uint mask)
+        {
+            using var world = PhysicsWorld.Create(new Vector3(0, -Gravity, 0));
+            world.AddBodies(
+            [
+                Body(PhysicsShape.Box, PhysicsBodyKind.Kinematic, new Vector3(10, 1, 10), Vector3.Zero, group: 1 << 0),
+                Body(PhysicsShape.Box, PhysicsBodyKind.Dynamic, new Vector3(0.5f), new Vector3(0, 5, 0), group: 1 << 1, mask: mask),
+            ]);
+            PhysicsTransform floor = new(Vector3.Zero, Quaternion.Identity);
+            world.Step([floor, Identity], 2f, 240);
+            return Read(world)[1].Position.Y;
+        }
+
+        Assert.AreEqual(1.5f, Drop(0xFFFF), 0.1f, "床（グループ 0）とぶつかる相手なら、床の上に止まる");
+        Assert.IsLessThan(-5f, Drop(0xFFFE), "床のグループのビットが 0 なら、すり抜ける");
+    }
+
+    [TestMethod]
+    public void ResetPlacesBodiesAndStopsThem()
+    {
+        using var world = PhysicsWorld.Create(new Vector3(0, -Gravity, 0));
+        world.AddBodies([Body(PhysicsShape.Capsule, PhysicsBodyKind.Dynamic, new Vector3(0.5f, 1, 0), new Vector3(0, 10, 0))]);
+        world.Step([Identity], 0.5f, 60); // 落ちて速さが付く
+
+        var start = new PhysicsTransform(new Vector3(3, 20, 0), Quaternion.CreateFromAxisAngle(Vector3.UnitZ, 0.5f));
+        world.Reset([start]);
+        world.Step([Identity], 1f / 120f, 1);
+
+        PhysicsTransform after = Read(world)[0];
+        Assert.AreEqual(20f, after.Position.Y, 0.05f, "置き直すと速さが 0 に戻る（1/120 秒ではほとんど落ちない）");
+        Assert.AreEqual(3f, after.Position.X, 1e-3f);
+    }
+
+    [TestMethod]
+    public void WrongCountsAndValuesAreRejected()
+    {
+        using var world = PhysicsWorld.Create(new Vector3(0, -Gravity, 0));
+        world.AddBodies([Body(PhysicsShape.Sphere, PhysicsBodyKind.Dynamic, Vector3.One, Vector3.Zero)]);
+
+        var ex = Assert.ThrowsExactly<PhysicsException>(() => world.Step([Identity, Identity], 0.1f, 1));
+        StringAssert.Contains(ex.Message, "剛体の数");
+        Assert.ThrowsExactly<PhysicsException>(() => world.AddJoints([new PhysicsJointDesc { BodyA = 0, BodyB = 0 }]));
+        Assert.ThrowsExactly<PhysicsException>(() => world.Reset([new PhysicsTransform(new Vector3(float.NaN), Quaternion.Identity)]));
+
+        world.Dispose();
+        Assert.ThrowsExactly<ObjectDisposedException>(() => world.Step([Identity], 0.1f, 1));
+    }
+}

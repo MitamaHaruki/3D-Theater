@@ -20,10 +20,17 @@
     <Project Path="src/3DTheater.Formats/3DTheater.Formats.csproj">
       <Platform Project="x64" />
     </Project>
+    <Project Path="src/3DTheater.Physics/3DTheater.Physics.csproj">
+      <Platform Project="x64" />
+    </Project>
     <Project Path="src/3DTheater.Engine.Interop/3DTheater.Engine.Interop.csproj">
       <Platform Project="x64" />
     </Project>
     <Project Path="src/3DTheater.Engine.Native/3DTheater.Engine.Native.vcxproj" Id="1a745fae-c32c-4add-8be6-151c2fa9a983" />
+    <Project Path="src/3DTheater.Physics.Native/3DTheater.Physics.Native.vcxproj" Id="a4c72fb4-58d8-4b48-9f09-a3562d583da5" />
+  </Folder>
+  <Folder Name="/external/">
+    <Project Path="external/3DTheater.Bullet.vcxproj" Id="f6ec266b-106c-45f0-8200-b523472adab9" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/3DTheater.Animation.Tests/3DTheater.Animation.Tests.csproj">
@@ -33,6 +40,9 @@
       <Platform Project="x64" />
     </Project>
     <Project Path="tests/3DTheater.Formats.Tests/3DTheater.Formats.Tests.csproj">
+      <Platform Project="x64" />
+    </Project>
+    <Project Path="tests/3DTheater.Physics.Tests/3DTheater.Physics.Tests.csproj">
       <Platform Project="x64" />
     </Project>
     <Project Path="tests/3DTheater.Engine.Interop.Tests/3DTheater.Engine.Interop.Tests.csproj">

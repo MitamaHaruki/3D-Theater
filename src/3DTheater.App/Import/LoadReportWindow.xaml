@@ -15,7 +15,7 @@
 
     <DockPanel DockPanel.Dock="Bottom" Margin="0,12,0,0" LastChildFill="False">
       <TextBlock DockPanel.Dock="Left" MaxWidth="460" VerticalAlignment="Center" Style="{StaticResource PlannedNoteStyle}"
-                 Text="読み込めたことと、MMD と同じ見た目・動きになることは別に確かめます。今の表示は簡単な陰影です（物理演算は Phase 3、トゥーンなどは Phase 4）。" />
+                 Text="読み込めたことと、MMD と同じ見た目・動きになることは別に確かめます。今の表示は簡単な陰影です（トゥーンなどは Phase 4）。物理演算の揺れ方も、MMD とまだ見比べていません。" />
       <Button DockPanel.Dock="Right" MinWidth="88" Margin="8,0,0,0" Content="閉じる" IsDefault="True" IsCancel="True" Click="OnCloseClick" />
       <Button DockPanel.Dock="Right" MinWidth="88" Content="内容をコピー" Click="OnCopyClick" />
     </DockPanel>

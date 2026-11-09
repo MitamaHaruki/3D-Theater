@@ -112,6 +112,7 @@ internal sealed class ModelPresenceAction : IUndoableAction, IDisposable
         _context.Models[_node.Id] = _loaded;
         _context.Scene.Insert(_context.Scene.ModelsGroup, _index, _node);
         _context.Animation.ApplyFrame();
+        _context.Physics.Reset(); // 外していた間の物理の続きではなく、今の姿勢から始める
         _context.Animation.NotifyStateChanged();
         _context.RenderLoop.InvalidateAll();
     }

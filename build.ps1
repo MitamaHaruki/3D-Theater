@@ -49,7 +49,8 @@ if (-not $SkipTests) {
     foreach ($project in 'tests\3DTheater.Engine.Interop.Tests\3DTheater.Engine.Interop.Tests.csproj',
                          'tests\3DTheater.Editor.Tests\3DTheater.Editor.Tests.csproj',
                          'tests\3DTheater.Formats.Tests\3DTheater.Formats.Tests.csproj',
-                         'tests\3DTheater.Animation.Tests\3DTheater.Animation.Tests.csproj') {
+                         'tests\3DTheater.Animation.Tests\3DTheater.Animation.Tests.csproj',
+                         'tests\3DTheater.Physics.Tests\3DTheater.Physics.Tests.csproj') {
         Write-Host "==> C# のテスト（$([IO.Path]::GetFileNameWithoutExtension($project))）" -ForegroundColor Cyan
         dotnet test (Join-Path $root $project) --no-build -c $Configuration -p:Platform=x64
         if ($LASTEXITCODE -ne 0) { throw "C# のテストに失敗しました: $project" }

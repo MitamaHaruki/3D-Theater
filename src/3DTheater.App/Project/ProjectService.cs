@@ -26,7 +26,7 @@ internal sealed class ProjectService
     private readonly Window _owner;
     private readonly DispatcherTimer _autosaveTimer;
     private int _suppressDirty;
-    private (int FrameRate, int EndFrame, bool Loop) _playbackSettings;
+    private (int FrameRate, int EndFrame, bool Loop, bool Physics) _playbackSettings;
 
     public ProjectService(EditorContext context, Window owner)
     {
@@ -41,15 +41,8 @@ internal sealed class ProjectService
                 MarkDirty(); // モデルの読み込み（元に戻せない操作）
             }
         };
-        context.Playback.StateChanged += (_, _) =>
-        {
-            var now = PlaybackSettings();
-            if (now != _playbackSettings)
-            {
-                _playbackSettings = now;
-                MarkDirty();
-            }
-        };
+        context.Physics.Changed += (_, _) => OnPlaybackSettingsChanged();
+        context.Playback.StateChanged += (_, _) => OnPlaybackSettingsChanged();
         _autosaveTimer = new DispatcherTimer(AutosaveInterval, DispatcherPriority.Background, (_, _) => Autosave(), owner.Dispatcher);
         _autosaveTimer.Start();
     }
@@ -155,6 +148,7 @@ internal sealed class ProjectService
         {
             _context.ResetProject();
             ProjectApply.ApplyScene(_context.Scene, _context.Playback, _context.Animation, project, report);
+            _context.Physics.Enabled = project.Physics;
             // 自動保存のファイルは別の場所にあるので、モデルの場所は元のプロジェクトのフォルダーから探す
             string? baseDirectory = Path.GetDirectoryName(recoveredFrom is not null && project.AutosaveOf is { } original ? original : fullPath);
             foreach (ModelEntry entry in project.Models)
@@ -165,6 +159,7 @@ internal sealed class ProjectService
             _context.Playback.Seek(project.Playback.CurrentFrame);
             _context.Animation.NotifyStateChanged();
             _context.Undo.Clear();
+            _context.Physics.Reset(); // 開いたフレームの姿勢から物理を始める
             _playbackSettings = PlaybackSettings();
         }
         finally
@@ -295,6 +290,7 @@ internal sealed class ProjectService
         {
             ProjectFile project = ProjectCapture.Capture(_context.Scene, _context.Playback, _context.Animation,
                 Path.GetDirectoryName(fullPath), _context.MissingModels);
+            project.Physics = _context.Physics.Enabled;
             SafeFile.WriteAllText(fullPath, ProjectSerializer.Serialize(project));
             SetClean(fullPath);
             DeleteOwnAutosave();
@@ -337,6 +333,7 @@ internal sealed class ProjectService
         {
             string? directory = CurrentPath is null ? null : Path.GetDirectoryName(CurrentPath);
             ProjectFile project = ProjectCapture.Capture(_context.Scene, _context.Playback, _context.Animation, directory, _context.MissingModels);
+            project.Physics = _context.Physics.Enabled;
             project.AutosaveOf = CurrentPath;
             SafeFile.WriteAllText(OwnAutosaveFile, ProjectSerializer.Serialize(project));
         }
@@ -401,7 +398,19 @@ internal sealed class ProjectService
         StateChanged?.Invoke(this, EventArgs.Empty);
     }
 
-    private (int, int, bool) PlaybackSettings() => (_context.Playback.FrameRate, _context.Playback.EndFrame, _context.Playback.Loop);
+    // 再生の設定（フレームの速さ・終わりのフレーム・ループ）と物理の ON/OFF が変わったら、変更ありにする
+    private void OnPlaybackSettingsChanged()
+    {
+        var now = PlaybackSettings();
+        if (now != _playbackSettings)
+        {
+            _playbackSettings = now;
+            MarkDirty();
+        }
+    }
+
+    private (int, int, bool, bool) PlaybackSettings() =>
+        (_context.Playback.FrameRate, _context.Playback.EndFrame, _context.Playback.Loop, _context.Physics.Enabled);
 
     private void ShowReport(string path, LoadReport report)
     {

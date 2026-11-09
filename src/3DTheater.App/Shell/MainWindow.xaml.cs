@@ -72,6 +72,8 @@ public partial class MainWindow : Window
         context.Gizmo.LocalSpace = _settings.Gizmo.LocalSpace;
         context.Gizmo.Changed += (_, _) => UpdateGizmoControls();
         UpdateGizmoControls();
+        context.Physics.Changed += (_, _) => UpdatePhysicsControls();
+        UpdatePhysicsControls();
 
         _statusTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(500), DispatcherPriority.Background, (_, _) => UpdateStatus(), Dispatcher);
         _statusTimer.Start();
@@ -481,6 +483,25 @@ public partial class MainWindow : Window
     private void OnExportCameraClick(object sender, RoutedEventArgs e) => MotionExporter.ExportCameraVmd(_context, this);
 
     private void OnRemoveModelClick(object sender, RoutedEventArgs e) => RemoveSelectedModels();
+
+    private void OnPhysicsClick(object sender, RoutedEventArgs e)
+    {
+        _context.Physics.Enabled = !_context.Physics.Enabled;
+        UpdatePhysicsControls();
+    }
+
+    private void OnResetPhysicsClick(object sender, RoutedEventArgs e)
+    {
+        _context.Physics.Reset();
+        Logging.AppLog.Info("物理をリセットしました（剛体を今の姿勢に置き直しました）");
+    }
+
+    private void UpdatePhysicsControls()
+    {
+        bool enabled = _context.Physics.Enabled;
+        PhysicsMenuItem.IsChecked = enabled;
+        PhysicsButton.IsChecked = enabled;
+    }
 
     /// <summary>選んだモデル（ボーン・モーフを選んでいればその持ち主）をシーンから外す（Ctrl+Z で戻せる）。</summary>
     private void RemoveSelectedModels()

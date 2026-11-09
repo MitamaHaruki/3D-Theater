@@ -171,7 +171,7 @@ public sealed class PmxReaderTests
 
         PmxRigidBody head = d.RigidBodies[0];
         Assert.AreEqual(PmxRigidShape.Capsule, head.Shape);
-        Assert.AreEqual((ushort)0xFFF7, head.NoCollisionMask);
+        Assert.AreEqual((ushort)0xFFF7, head.CollisionMask);
         Assert.AreEqual(PmxPhysicsMode.Physics, head.Mode);
         Assert.AreEqual(0.1f, head.Restitution);
 

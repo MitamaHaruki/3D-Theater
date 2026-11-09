@@ -259,8 +259,11 @@ public sealed class PmxRigidBody
     public string NameUniversal { get; init; } = string.Empty;
     public int BoneIndex { get; init; } = -1;
     public byte Group { get; init; }
-    /// <summary>ぶつからない相手のグループ（ビットが立っているグループとは衝突しない）。</summary>
-    public ushort NoCollisionMask { get; init; }
+    /// <summary>
+    /// ぶつかる相手のグループ（ビットが立っているグループと衝突する）。PMX の仕様では「非衝突グループフラグ」と呼ぶが、
+    /// 実際のファイルには、PMXEditor で「非衝突」に印を付けたグループのビットを 0 にした値が入っている（saba・three.js と同じ扱い）。
+    /// </summary>
+    public ushort CollisionMask { get; init; }
     public PmxRigidShape Shape { get; init; }
     public Vector3 Size { get; init; }
     public Vector3 Position { get; init; }

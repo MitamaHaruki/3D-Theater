@@ -87,7 +87,11 @@
                       ToolTip="PMX モデルをシーンに加えて表示します（ドラッグでも読み込めます）" />
             <MenuItem Header="選んだモデルを外す" InputGestureText="Delete" Click="OnRemoveModelClick"
                       ToolTip="選んだモデルをシーンから外します（モデルのファイルは消しません。Ctrl+Z で戻せます）" />
-            <MenuItem Header="物理演算" Style="{StaticResource PlannedItemStyle}" ToolTip="Phase 3 で対応します" />
+            <Separator />
+            <MenuItem x:Name="PhysicsMenuItem" Header="物理演算" IsCheckable="True" Click="OnPhysicsClick"
+                      ToolTip="剛体とジョイントで、髪・スカートなどを揺らします（初期値は ON。プロジェクトに保存します）" />
+            <MenuItem Header="物理をリセット" Click="OnResetPhysicsClick"
+                      ToolTip="剛体を今の姿勢に置き直して、落ち着かせます（揺れが暴れたときなど）" />
           </MenuItem>
           <MenuItem Header="モーション(_A)" SubmenuOpened="OnMotionMenuOpened">
             <MenuItem Header="モーション・ポーズを読み込む（VMD / VPD）..." Click="OnImportMotionClick" />
@@ -180,6 +184,8 @@
             <Button Style="{StaticResource TextButtonStyle}" Content="4 画面" Tag="Quad" Click="OnPreviewLayoutClick" ToolTip="選んでいるプレビューを 4 画面にする" />
             <Rectangle Style="{StaticResource ToolbarSeparatorStyle}" />
             <Button x:Name="PlayButton" Style="{StaticResource IconButtonStyle}" Content="&#xE768;" Click="OnPlayClick" ToolTip="再生 / 一時停止（Space）" />
+            <ToggleButton x:Name="PhysicsButton" Style="{StaticResource TextButtonStyle}" Content="物理" Click="OnPhysicsClick"
+                          ToolTip="物理演算（髪・スカートなどの揺れ）の ON / OFF" />
           </StackPanel>
           <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
             <Button Style="{StaticResource TextButtonStyle}" Click="OnResetLayoutClick" ToolTip="パネルの並びを初期配置に戻す">

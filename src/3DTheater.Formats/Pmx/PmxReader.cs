@@ -387,7 +387,7 @@ public static class PmxReader
                     NameUniversal = Text(),
                     BoneIndex = Index(sizes.Bone),
                     Group = c.ReadByte(),
-                    NoCollisionMask = c.ReadUInt16(),
+                    CollisionMask = c.ReadUInt16(),
                     Shape = (PmxRigidShape)c.ReadByte(),
                     Size = c.ReadVector3(),
                     Position = c.ReadVector3(),

@@ -131,7 +131,7 @@ internal static class TestModels
         [
             new PmxRigidBody
             {
-                Name = "頭", BoneIndex = 0, Group = 3, NoCollisionMask = 0xFFF7, Shape = PmxRigidShape.Capsule, Size = new Vector3(1, 2, 0),
+                Name = "頭", BoneIndex = 0, Group = 3, CollisionMask = 0xFFF7, Shape = PmxRigidShape.Capsule, Size = new Vector3(1, 2, 0),
                 Position = new Vector3(0, 15, 0), Rotation = new Vector3(0.1f, 0.2f, 0.3f), Mass = 1, LinearDamping = 0.5f,
                 AngularDamping = 0.5f, Restitution = 0.1f, Friction = 0.5f, Mode = PmxPhysicsMode.Physics,
             },

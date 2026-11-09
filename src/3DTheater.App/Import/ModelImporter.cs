@@ -8,6 +8,7 @@ using Theater3D.Editor;
 using Theater3D.Engine.Interop;
 using Theater3D.Formats;
 using Theater3D.Formats.Pmx;
+using Theater3D.Physics;
 
 namespace Theater3D.App.Import;
 
@@ -36,18 +37,21 @@ internal static class ModelImporter
         string baseDirectory = Path.GetDirectoryName(Path.GetFullPath(path))!;
 
         // ファイルの読み込み・形の組み立て・テクスチャの読み込みは別のスレッドで行い、画面を止めない
-        (PmxLoadResult result, PreparedModel? prepared, ModelRig? rig) = await Task.Run<(PmxLoadResult, PreparedModel?, ModelRig?)>(() =>
+        (PmxLoadResult result, PreparedModel? prepared, ModelRig? rig, ModelPhysics? physics) =
+            await Task.Run<(PmxLoadResult, PreparedModel?, ModelRig?, ModelPhysics?)>(() =>
         {
             PmxLoadResult loaded = PmxReader.Load(path);
             if (!loaded.Succeeded)
             {
-                return (loaded, null, null);
+                return (loaded, null, null, null);
             }
-            return (loaded, ModelMeshBuilder.Prepare(loaded.Document!, baseDirectory, loaded.Report), ModelRig.FromPmx(loaded.Document!));
+            ModelRig rig = ModelRig.FromPmx(loaded.Document!);
+            return (loaded, ModelMeshBuilder.Prepare(loaded.Document!, baseDirectory, loaded.Report), rig, CreatePhysics(loaded.Document!, rig, loaded.Report));
         });
 
         if (!result.Succeeded)
         {
+            physics?.Dispose();
             LogIssues(result.Report);
             AppLog.Warning($"モデルを読み込めませんでした: {path}");
             if (interactive)
@@ -88,7 +92,7 @@ internal static class ModelImporter
         var node = new ModelNode(name, Path.GetFullPath(path), summary, d.Comment, prepared!.DisplayBoundsMin, prepared.DisplayBoundsMax);
         ModelPartsBuilder.Attach(node, d, rig!);
 
-        context.Models[node.Id] = new LoadedModel(d, result.Report, mesh, rig!, prepared);
+        context.Models[node.Id] = new LoadedModel(d, result.Report, mesh, rig!, prepared, physics);
         context.Scene.Add(context.Scene.ModelsGroup, node);
         if (interactive)
         {
@@ -98,6 +102,10 @@ internal static class ModelImporter
         AppLog.Info(
             $"モデル「{name}」を読み込みました（{stopwatch.Elapsed.TotalMilliseconds:F0} ms、頂点 {summary.Vertices:N0}・材質 {summary.Materials:N0}・" +
             $"ボーン {summary.Bones:N0}・モーフ {summary.Morphs:N0}、注意 {result.Report.WarningCount} 件）");
+        if (physics is not null)
+        {
+            AppLog.Info($"物理演算: 剛体 {physics.BodyCount:N0} 個（物理で動くもの {physics.DynamicBodyCount:N0} 個）・ジョイント {physics.JointCount:N0} 個");
+        }
 
         if (interactive && result.Report.Issues.Any(i => i.Severity >= LoadSeverity.Warning))
         {
@@ -129,6 +137,20 @@ internal static class ModelImporter
                 throw;
             }
             return ModelMeshBuilder.Upload(engine, prepared, report);
+        }
+    }
+
+    /// <summary>剛体とジョイントから物理を作る（剛体が無ければ null）。物理の DLL が使えなくても、モデルは読み込む。</summary>
+    private static ModelPhysics? CreatePhysics(PmxDocument document, ModelRig rig, LoadReport report)
+    {
+        try
+        {
+            return ModelPhysics.Create(document, rig, report);
+        }
+        catch (Exception ex) when (ex is PhysicsException or DllNotFoundException or EntryPointNotFoundException)
+        {
+            report.Warning(LoadIssueCategory.Unsupported, $"物理演算を用意できなかったため、このモデルは物理なしで動かします（{ex.Message}）");
+            return null;
         }
     }
 

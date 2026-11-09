@@ -6,6 +6,7 @@ using Theater3D.Editor;
 using Theater3D.Engine.Interop;
 using Theater3D.Formats;
 using Theater3D.Formats.Pmx;
+using Theater3D.Physics;
 
 namespace Theater3D.App;
 
@@ -16,12 +17,13 @@ namespace Theater3D.App;
 /// </summary>
 public sealed class LoadedModel : IDisposable
 {
-    internal LoadedModel(PmxDocument document, LoadReport report, NativeMesh? mesh, ModelRig rig, Import.PreparedModel prepared)
+    internal LoadedModel(PmxDocument document, LoadReport report, NativeMesh? mesh, ModelRig rig, Import.PreparedModel prepared, ModelPhysics? physics)
     {
         Document = document;
         Report = report;
         Mesh = mesh;
         Rig = rig;
+        Physics = physics;
         Indices = prepared.Indices;
         CoreVertices = prepared.CoreVertices;
         DisplayBoundsMin = prepared.DisplayBoundsMin;
@@ -46,6 +48,16 @@ public sealed class LoadedModel : IDisposable
     public NativeMesh? Mesh { get; private set; }
 
     public ModelRig Rig { get; }
+
+    /// <summary>剛体とジョイントの物理演算。剛体の無いモデル・物理を使えなかったときは null。</summary>
+    public ModelPhysics? Physics { get; private set; }
+
+    /// <summary>物理演算で失敗したとき、このモデルの物理をやめる（姿勢は物理なしで計算する）。</summary>
+    public void DisablePhysics()
+    {
+        Physics?.Dispose();
+        Physics = null;
+    }
 
     public PoseInput Input { get; }
 
@@ -87,6 +99,7 @@ public sealed class LoadedModel : IDisposable
     {
         Mesh?.Dispose();
         Mesh = null;
+        DisablePhysics();
     }
 }
 
@@ -110,6 +123,7 @@ public sealed class EditorContext
         Gizmo = new GizmoSettings();
         Gizmo.Changed += (_, _) => RenderLoop.InvalidateAll();
         Undo.Changed += (_, _) => KeySelection.Prune(); // 元に戻したキーは選択から外す
+        Physics = new PhysicsController(this);
         Poses = new PoseUpdater(this);
 
         Scene.NodeChanged += (_, _) => RenderLoop.InvalidateAll();
@@ -148,6 +162,9 @@ public sealed class EditorContext
 
     /// <summary>ボーン・モーフの値が変わったモデルを、描画の前に変形し直す。</summary>
     public PoseUpdater Poses { get; }
+
+    /// <summary>物理演算の ON/OFF と進め方。</summary>
+    public PhysicsController Physics { get; }
 
     /// <summary>
     /// GPU の面を WPF と共有できない環境（ソフトウェア描画など）だと分かったら true。
@@ -189,6 +206,7 @@ public sealed class EditorContext
         Playback.EndFrame = 300;
         Playback.Loop = true;
         Animation.AutoKey = false;
+        Physics.Enabled = true;
         Animation.NotifyStateChanged();
         Undo.Clear();
         RenderLoop.InvalidateAll();

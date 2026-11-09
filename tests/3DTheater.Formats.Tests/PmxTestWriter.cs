@@ -262,7 +262,7 @@ internal sealed class PmxTestWriter
             Text(r.NameUniversal);
             Index(r.BoneIndex, s.Bone);
             _w.Write(r.Group);
-            _w.Write(r.NoCollisionMask);
+            _w.Write(r.CollisionMask);
             _w.Write((byte)r.Shape);
             V3(r.Size);
             V3(r.Position);

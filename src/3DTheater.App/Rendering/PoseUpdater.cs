@@ -2,10 +2,12 @@ using System.Diagnostics;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using Theater3D.App.Logging;
 using Theater3D.Animation;
 using Theater3D.Domain;
 using Theater3D.Editor;
 using Theater3D.Engine.Interop;
+using Theater3D.Physics;
 
 namespace Theater3D.App.Rendering;
 
@@ -13,6 +15,7 @@ namespace Theater3D.App.Rendering;
 /// ボーンの移動・回転とモーフの値が変わったモデルを、次の描画の前に変形し直して GPU へ送る。
 /// 1 回の描画の前にまとめて 1 度だけ計算するので、値を続けて変えても無駄な計算をしない。
 /// 頂点の変形は CPU で行う（選択の当たり判定とテストで同じ計算を使うため。docs/設計判断記録.md 参照）。
+/// 物理演算が ON なら、物理の前まで計算 → 物理（<see cref="PhysicsController.Current"/> の進め方で）→ 物理の後、の順に求める。
 /// </summary>
 public sealed class PoseUpdater
 {
@@ -37,11 +40,13 @@ public sealed class PoseUpdater
 
     public void UpdateDirtyModels()
     {
+        PhysicsStep step = _context.Physics.Current;
+        _context.Physics.Consume(); // 同じ進め方で 2 度進めない（当たり判定のために先に呼ばれたときなど）
         foreach (ModelNode node in _context.Scene.ModelsGroup.Children.OfType<ModelNode>())
         {
             if (_context.GetLoaded(node) is { IsPoseDirty: true } model)
             {
-                Update(node, model);
+                Update(node, model, step);
             }
         }
     }
@@ -60,7 +65,7 @@ public sealed class PoseUpdater
         }
     }
 
-    private void Update(ModelNode node, LoadedModel model)
+    private void Update(ModelNode node, LoadedModel model, PhysicsStep step)
     {
         long start = Stopwatch.GetTimestamp();
         model.IsPoseDirty = false;
@@ -76,7 +81,19 @@ public sealed class PoseUpdater
             input.MorphWeights[morph.Index] = morph.Weight;
         }
 
-        PoseEvaluator.Evaluate(model.Rig, input, model.State);
+        if (_context.Physics.Enabled && model.Physics is { } physics)
+        {
+            PoseEvaluator.EvaluateBeforePhysics(model.Rig, input, model.State);
+            if (!TryPhysics(node, model, physics, step))
+            {
+                PoseEvaluator.EvaluateBeforePhysics(model.Rig, input, model.State); // 物理の途中の結果を捨てる
+            }
+            PoseEvaluator.EvaluateAfterPhysics(model.Rig, model.State);
+        }
+        else
+        {
+            PoseEvaluator.Evaluate(model.Rig, input, model.State);
+        }
         Skinner.Apply(model.Rig, model.State, model.Vertices, out Vector3 min, out Vector3 max);
         for (int i = 0; i < model.Positions.Length; i++)
         {
@@ -109,5 +126,34 @@ public sealed class PoseUpdater
             }
         }
         _timer.Add(Stopwatch.GetElapsedTime(start));
+    }
+
+    private static bool TryPhysics(ModelNode node, LoadedModel model, ModelPhysics physics, PhysicsStep step)
+    {
+        try
+        {
+            // 物理はモデルの座標で計算するので、モデルを傾けて置いたときは重力も傾ける
+            Quaternion placement = SceneRotation.ToQuaternion(node.Rotation);
+            physics.SetGravity(Vector3.Transform(new Vector3(0, -ModelPhysics.GravityStrength, 0), Quaternion.Inverse(placement)));
+            switch (step.Kind)
+            {
+                case PhysicsStepKind.Reset:
+                    physics.Reset(model.State);
+                    break;
+                case PhysicsStepKind.Step:
+                    physics.Step(model.State, step.Seconds);
+                    break;
+                default:
+                    physics.Apply(model.State);
+                    break;
+            }
+            return true;
+        }
+        catch (PhysicsException ex)
+        {
+            AppLog.Error($"モデル「{node.Name}」の物理演算に失敗したため、このモデルの物理をやめます", ex);
+            model.DisablePhysics();
+            return false;
+        }
     }
 }

@@ -116,6 +116,9 @@ public sealed class ModelRig
     /// <summary>付与と IK を解く順番（物理後のものを最後に、次に変形階層、次に番号）。</summary>
     public int[] DeformOrder { get; private init; } = [];
 
+    /// <summary><see cref="DeformOrder"/> の中で、物理後のボーンが始まる位置（物理後のボーンが無ければ全体の数）。</summary>
+    public int AfterPhysicsStart { get; private init; }
+
     /// <summary>親が子より先に来る順番。</summary>
     public int[] HierarchyOrder { get; private init; } = [];
 
@@ -226,6 +229,7 @@ public sealed class ModelRig
             Bones = bones,
             HierarchyOrder = [.. hierarchy],
             DeformOrder = deformOrder,
+            AfterPhysicsStart = bones.Count(b => !b.AfterPhysics),
             Morphs = BuildMorphs(d),
             Skin = BuildSkin(d),
             RestPositions = [.. d.Vertices.Select(v => v.Position)],

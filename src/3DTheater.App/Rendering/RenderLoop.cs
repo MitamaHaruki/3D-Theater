@@ -68,6 +68,12 @@ public sealed class RenderLoop(NativeEngine? engine, PlaybackService playback)
     /// <summary>描き直す区画があるとき、描画を頼む直前に呼ばれる（モデルの変形を GPU へ送るなど）。</summary>
     public event EventHandler? BeforeRender;
 
+    /// <summary>画面の更新ごとに、再生位置を進めた後で呼ばれる（前の更新からの時間）。物理演算の進め方を決めるのに使う。</summary>
+    public event EventHandler<TimeSpan>? Ticking;
+
+    /// <summary>描き直す区画が無く再生もしていなくても、描画ループを止めない条件（物理が落ち着くまでなど）。</summary>
+    public Func<bool>? KeepRunning { get; set; }
+
     /// <summary>直近 1 秒ほどで実際に描いた回数。止まっているときは 0。</summary>
     public double FramesPerSecond { get; private set; }
 
@@ -142,6 +148,7 @@ public sealed class RenderLoop(NativeEngine? engine, PlaybackService playback)
         TimeSpan step = Stopwatch.GetElapsedTime(_lastTimestamp, now);
         _lastTimestamp = now;
         playback.Advance(step > MaxStep ? MaxStep : step); // 再生位置が進むと、各区画は Invalidate される
+        Ticking?.Invoke(this, step > MaxStep ? MaxStep : step);
 
         // GPU を作り直している間は描かない（作り直したら全区画を描き直す）
         int rendered = DeviceState == DeviceState.Ready ? RenderChangedTargets() : 0;
@@ -153,7 +160,8 @@ public sealed class RenderLoop(NativeEngine? engine, PlaybackService playback)
         }
         UpdateFrameRate(now);
 
-        if (!playback.IsPlaying && (DeviceState != DeviceState.Ready || !_targets.Any(t => t.CanRender && t.NeedsRender)))
+        bool idle = DeviceState != DeviceState.Ready || !_targets.Any(t => t.CanRender && t.NeedsRender);
+        if (!playback.IsPlaying && idle && KeepRunning?.Invoke() != true)
         {
             Stop();
         }

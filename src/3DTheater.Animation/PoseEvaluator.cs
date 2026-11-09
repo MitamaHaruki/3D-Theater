@@ -40,6 +40,8 @@ public sealed class PoseState
         VertexOffsets = new Vector3[rig.RestPositions.Length];
         UvOffsets = new Vector2[rig.RestPositions.Length];
         Materials = new MaterialValues[rig.BaseMaterials.Length];
+        PhysicsDriven = new bool[n];
+        Refreshed = new bool[n];
     }
 
     /// <summary>ボーンの置き方（モデルの座標で）。</summary>
@@ -74,12 +76,26 @@ public sealed class PoseState
 
     public MaterialValues[] Materials { get; }
 
+    /// <summary>物理演算で置き方を決めたボーン（<see cref="SetPhysicsResult"/>）。物理の前の計算で消す。</summary>
+    public bool[] PhysicsDriven { get; }
+
+    /// <summary>物理で動いたボーンにつながる子を求め直すときの作業用。</summary>
+    internal bool[] Refreshed { get; }
+
     /// <summary><see cref="VertexOffsets"/> に 0 でない値が入っているかもしれない。</summary>
     internal bool HasVertexOffsets { get; set; }
 
     internal bool HasUvOffsets { get; set; }
 
     public Vector3 BonePosition(int bone) => Global[bone].Translation;
+
+    /// <summary>物理演算の結果でボーンを置く（モデルの座標で。拡大を含まないこと）。</summary>
+    public void SetPhysicsResult(int bone, Matrix4x4 global)
+    {
+        Global[bone] = global;
+        GlobalRotation[bone] = Quaternion.Normalize(Quaternion.CreateFromRotationMatrix(global));
+        PhysicsDriven[bone] = true;
+    }
 }
 
 /// <summary>
@@ -89,14 +105,25 @@ public sealed class PoseState
 /// 3. 変形の順番（物理後 → 変形階層 → 番号）に、付与（回転・移動を分けてもらう）と IK を解く
 /// 4. 頂点モーフ・UV モーフ・材質モーフを求める
 /// IK は繰り返し法（CCD）で解き、ひざのように 1 軸だけ制限のあるリンクは、その軸まわりだけで回す。
-/// 物理演算は Phase 3 で、物理後のボーンは今はそのまま続けて計算する。
+/// 物理演算を使うときは、3 の「物理後」でないボーンまでを <see cref="EvaluateBeforePhysics"/> で求め、
+/// 物理の結果でボーンを置いて（<see cref="PoseState.SetPhysicsResult"/>、<see cref="RefreshPhysicsChildren"/>）から、
+/// 残りを <see cref="EvaluateAfterPhysics"/> で求める（MMD と同じ順番）。
 /// </summary>
 public static class PoseEvaluator
 {
     private const float IkConvergence = 1e-4f;
 
+    /// <summary>物理演算を使わずに全部を求める。</summary>
     public static void Evaluate(ModelRig rig, PoseInput input, PoseState state)
     {
+        EvaluateBeforePhysics(rig, input, state);
+        EvaluateAfterPhysics(rig, state);
+    }
+
+    /// <summary>物理の前まで（モーフの値、ボーンの回転・移動、物理後でないボーンの付与と IK）を求める。</summary>
+    public static void EvaluateBeforePhysics(ModelRig rig, PoseInput input, PoseState state)
+    {
+        Array.Clear(state.PhysicsDriven);
         EvaluateMorphWeights(rig, input, state);
         ApplyBoneMorphs(rig, state);
 
@@ -119,10 +146,56 @@ public static class PoseEvaluator
         {
             UpdateGlobal(rig, state, i);
         }
+        SolveDeformOrder(rig, state, 0, rig.AfterPhysicsStart);
+    }
 
-        foreach (int i in rig.DeformOrder)
+    /// <summary>
+    /// 物理で置いたボーン（<see cref="PoseState.PhysicsDriven"/>）の子孫のうち、物理で動かないボーンの置き方を、
+    /// 親から順に求め直す（髪の先に付いた飾りのボーンなどが、物理で動いた親に付いていくように）。
+    /// </summary>
+    public static void RefreshPhysicsChildren(ModelRig rig, PoseState state)
+    {
+        bool[] refreshed = state.Refreshed;
+        foreach (int i in rig.HierarchyOrder)
         {
-            RigBone bone = bones[i];
+            int parent = rig.Bones[i].Parent;
+            if (state.PhysicsDriven[i])
+            {
+                refreshed[i] = true;
+            }
+            else if (parent >= 0 && refreshed[parent])
+            {
+                UpdateGlobal(rig, state, i);
+                refreshed[i] = true;
+            }
+            else
+            {
+                refreshed[i] = false;
+            }
+        }
+    }
+
+    /// <summary>物理の後（物理後のボーンの付与と IK、頂点を動かす行列、頂点・UV・材質モーフ）を求める。</summary>
+    public static void EvaluateAfterPhysics(ModelRig rig, PoseState state)
+    {
+        SolveDeformOrder(rig, state, rig.AfterPhysicsStart, rig.DeformOrder.Length);
+        RigBone[] bones = rig.Bones;
+        for (int i = 0; i < bones.Length; i++)
+        {
+            state.Skinning[i] = Matrix4x4.CreateTranslation(-bones[i].RestPosition) * state.Global[i];
+        }
+
+        EvaluateVertexMorphs(rig, state);
+        EvaluateMaterialMorphs(rig, state);
+    }
+
+    // 変形の順番の first 番目から last の手前までのボーンの、付与と IK を解く
+    private static void SolveDeformOrder(ModelRig rig, PoseState state, int first, int last)
+    {
+        for (int k = first; k < last; k++)
+        {
+            int i = rig.DeformOrder[k];
+            RigBone bone = rig.Bones[i];
             if (bone.HasInherit)
             {
                 UpdateInherit(rig, state, i);
@@ -133,14 +206,6 @@ public static class PoseEvaluator
                 SolveIk(rig, state, i);
             }
         }
-
-        for (int i = 0; i < bones.Length; i++)
-        {
-            state.Skinning[i] = Matrix4x4.CreateTranslation(-bones[i].RestPosition) * state.Global[i];
-        }
-
-        EvaluateVertexMorphs(rig, state);
-        EvaluateMaterialMorphs(rig, state);
     }
 
     /// <summary>ボーンの先端の位置（表示用）。先端をボーンで指定していればそのボーンの位置。</summary>
@@ -196,7 +261,13 @@ public static class PoseEvaluator
         if (bone.InheritRotation)
         {
             Quaternion r = bone.InheritLocal || !source.InheritRotation ? state.AnimationRotation[s] : state.InheritRotation[s];
-            if (source.IsIkLink)
+            if (state.PhysicsDriven[s])
+            {
+                // 物理で置いたボーンからは、物理で決まった回転（親から見た回転）を受け継ぐ（物理後のボーンが物理に付いていくように）
+                Quaternion parent = source.Parent >= 0 ? state.GlobalRotation[source.Parent] : Quaternion.Identity;
+                r = Quaternion.Normalize(Quaternion.Inverse(parent) * state.GlobalRotation[s]);
+            }
+            else if (source.IsIkLink)
             {
                 r = state.IkRotation[s] * r; // 足 D のように、IK で回されたボーンの回転も受け継ぐ
             }
@@ -229,7 +300,11 @@ public static class PoseEvaluator
 
     private static void UpdateSubtree(ModelRig rig, PoseState state, int index)
     {
-        UpdateGlobal(rig, state, index);
+        // 物理で置いたボーンは動かさない（その子は、物理の結果に付いていく）
+        if (!state.PhysicsDriven[index])
+        {
+            UpdateGlobal(rig, state, index);
+        }
         foreach (int child in rig.Bones[index].Children)
         {
             UpdateSubtree(rig, state, child);
