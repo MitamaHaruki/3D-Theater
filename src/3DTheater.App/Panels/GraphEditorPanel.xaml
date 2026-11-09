@@ -1,0 +1,99 @@
+<UserControl x:Class="Theater3D.App.Panels.GraphEditorPanel"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:c="clr-namespace:Theater3D.App.Controls"
+             Background="{StaticResource PanelBrush}">
+  <UserControl.Resources>
+    <Style TargetType="c:NumberBox" BasedOn="{StaticResource {x:Type TextBox}}">
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="Height" Value="22" />
+      <Setter Property="Padding" Value="3,0" />
+      <Setter Property="FontSize" Value="11.5" />
+    </Style>
+    <Style x:Key="PresetButtonStyle" TargetType="Button" BasedOn="{StaticResource TextButtonStyle}">
+      <Setter Property="Height" Value="24" />
+      <Setter Property="Padding" Value="6,0" />
+      <Setter Property="Margin" Value="0,0,4,4" />
+      <Setter Property="IsEnabled" Value="{Binding CanEditCurve}" />
+    </Style>
+  </UserControl.Resources>
+
+  <DockPanel>
+    <!-- 上の段: 対象の名前・線の表示の切り替え・全体を表示 -->
+    <DockPanel DockPanel.Dock="Top" Margin="8,4,8,2">
+      <Button DockPanel.Dock="Right" Style="{StaticResource TextButtonStyle}" Content="全体を表示" Click="OnFitClick"
+              ToolTip="キーの範囲が全部見えるようにします（ホイールで左右、Ctrl + ホイールで拡大縮小）" />
+      <TextBlock DockPanel.Dock="Left" Margin="0,0,12,0" VerticalAlignment="Center" FontWeight="SemiBold" Text="{Binding Title}"
+                 TextTrimming="CharacterEllipsis" MaxWidth="360" />
+      <ItemsControl VerticalAlignment="Center" ItemsSource="{Binding SeriesItems}">
+        <ItemsControl.ItemsPanel>
+          <ItemsPanelTemplate>
+            <WrapPanel />
+          </ItemsPanelTemplate>
+        </ItemsControl.ItemsPanel>
+        <ItemsControl.ItemTemplate>
+          <DataTemplate>
+            <CheckBox Margin="0,0,10,0" MinHeight="0" IsChecked="{Binding IsVisible}" ToolTip="この線を出すか">
+              <StackPanel Orientation="Horizontal">
+                <Rectangle Width="12" Height="3" Margin="0,0,4,0" VerticalAlignment="Center" Fill="{Binding Brush}" />
+                <TextBlock FontSize="11.5" Text="{Binding Name}" />
+              </StackPanel>
+            </CheckBox>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+    </DockPanel>
+
+    <!-- 右: 補間曲線の枠と操作 -->
+    <Border DockPanel.Dock="Right" Width="440" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1,0,0,0">
+      <Grid Margin="4,2,8,6">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="Auto" />
+          <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+        <!-- 曲線の枠は、パネルの高さに合わせた正方形 -->
+        <ContentControl x:Name="BoxHost" MaxWidth="240" VerticalAlignment="Stretch"
+                        Width="{Binding ActualHeight, RelativeSource={RelativeSource Self}}" />
+        <StackPanel Grid.Column="1" Margin="8,2,0,0">
+          <TextBlock FontSize="11" TextWrapping="Wrap" Foreground="{StaticResource SubTextBrush}" Text="{Binding CurveNote}" />
+          <DockPanel Margin="0,4,0,0">
+            <ComboBox DockPanel.Dock="Left" Width="100" MinHeight="0" Height="26" FontSize="12" ToolTip="変える曲線"
+                      ItemsSource="{Binding ChannelNames}" SelectedIndex="{Binding Channel}" />
+            <CheckBox Margin="8,0,0,0" VerticalAlignment="Center" Content="全部同じ" IsChecked="{Binding AllChannels}"
+                      ToolTip="全部の曲線（ボーンなら移動 X・Y・Z と回転）を同じ形にします" />
+          </DockPanel>
+          <Grid Margin="0,4,0,0" IsEnabled="{Binding CanEditCurve}"
+                ToolTip="制御点の位置（MMD と同じ 0〜127）。1 つめ（赤）の横・縦と、2 つめ（青）の横・縦">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="Auto" />
+              <ColumnDefinition Width="*" />
+              <ColumnDefinition Width="Auto" />
+              <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+              <RowDefinition Height="25" />
+              <RowDefinition Height="25" />
+            </Grid.RowDefinitions>
+            <TextBlock VerticalAlignment="Center" Margin="0,0,4,0" Foreground="#FFF06A6A" Text="1 横" />
+            <c:NumberBox Grid.Column="1" Value="{Binding X1}" Step="1" Format="0" />
+            <TextBlock Grid.Column="2" VerticalAlignment="Center" Margin="8,0,4,0" Foreground="#FFF06A6A" Text="1 縦" />
+            <c:NumberBox Grid.Column="3" Value="{Binding Y1}" Step="1" Format="0" />
+            <TextBlock Grid.Row="1" VerticalAlignment="Center" Margin="0,0,4,0" Foreground="#FF6A9AF0" Text="2 横" />
+            <c:NumberBox Grid.Row="1" Grid.Column="1" Value="{Binding X2}" Step="1" Format="0" />
+            <TextBlock Grid.Row="1" Grid.Column="2" VerticalAlignment="Center" Margin="8,0,4,0" Foreground="#FF6A9AF0" Text="2 縦" />
+            <c:NumberBox Grid.Row="1" Grid.Column="3" Value="{Binding Y2}" Step="1" Format="0" />
+          </Grid>
+          <WrapPanel Margin="0,4,0,0" ToolTip="補間曲線の形（全部の曲線にするかは「全部同じ」に従う。段階は全部の曲線）">
+            <Button Style="{StaticResource PresetButtonStyle}" Content="線形" Tag="Linear" Click="OnPresetClick" ToolTip="一定の速さで動く" />
+            <Button Style="{StaticResource PresetButtonStyle}" Content="なめらか" Tag="Smooth" Click="OnPresetClick" ToolTip="ゆっくり動き出し、ゆっくり止まる" />
+            <Button Style="{StaticResource PresetButtonStyle}" Content="加速" Tag="EaseIn" Click="OnPresetClick" ToolTip="ゆっくり動き出し、速く着く" />
+            <Button Style="{StaticResource PresetButtonStyle}" Content="減速" Tag="EaseOut" Click="OnPresetClick" ToolTip="速く動き出し、ゆっくり止まる" />
+            <Button Style="{StaticResource PresetButtonStyle}" Content="段階" Tag="Step" Click="OnPresetClick" ToolTip="次のキーまで値を変えない（全部の曲線）" />
+          </WrapPanel>
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <ContentControl x:Name="GraphHost" />
+  </DockPanel>
+</UserControl>

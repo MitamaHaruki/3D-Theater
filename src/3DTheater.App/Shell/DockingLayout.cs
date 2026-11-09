@@ -22,6 +22,7 @@ public sealed class DockingLayout
     public const string MorphId = "Panel.Morph";
     public const string TimelineId = "Panel.Timeline";
     public const string LogId = "Panel.Log";
+    public const string GraphId = "Panel.Graph";
     private const string PreviewPrefix = "Preview.";
 
     private readonly DockingManager _dock;
@@ -39,6 +40,7 @@ public sealed class DockingLayout
             [PropertiesId] = ("プロパティ", new PropertiesPanel(context), AnchorableShowStrategy.Right),
             [MorphId] = ("モーフ", new MorphPanel(context), AnchorableShowStrategy.Right),
             [TimelineId] = ("タイムライン", new TimelinePanel(context), AnchorableShowStrategy.Bottom),
+            [GraphId] = ("グラフ", new GraphEditorPanel(context), AnchorableShowStrategy.Bottom),
             [LogId] = ("ログ", new LogPanel(), AnchorableShowStrategy.Bottom),
         };
         dock.DocumentClosed += (_, e) =>
@@ -62,6 +64,7 @@ public sealed class DockingLayout
         (PropertiesId, "プロパティ"),
         (MorphId, "モーフ"),
         (TimelineId, "タイムライン"),
+        (GraphId, "グラフ"),
         (LogId, "ログ"),
     ];
 
@@ -96,6 +99,7 @@ public sealed class DockingLayout
 
         var bottom = new LayoutAnchorablePane { DockHeight = new GridLength(240) };
         bottom.Children.Add(CreateAnchorable(TimelineId));
+        bottom.Children.Add(CreateAnchorable(GraphId));
         bottom.Children.Add(CreateAnchorable(LogId));
         bottom.SelectedContentIndex = 0;
 
@@ -153,7 +157,7 @@ public sealed class DockingLayout
         if (anchorable is null)
         {
             anchorable = CreateAnchorable(id);
-            anchorable.AddToLayout(_dock, _panels[id].Side);
+            AddMissing(anchorable);
             anchorable.IsActive = true;
         }
         else if (anchorable.IsHidden)
@@ -201,12 +205,24 @@ public sealed class DockingLayout
         // 前回のレイアウトに無かった標準パネルは足しておく（後の版で増えたパネルなど）
         foreach (string id in _panels.Keys.Where(id => FindAnchorable(id) is null))
         {
-            CreateAnchorable(id).AddToLayout(_dock, _panels[id].Side);
+            AddMissing(CreateAnchorable(id));
         }
         if (_previews.Count == 0)
         {
             AddPreview();
         }
+    }
+
+    // 下に出すパネル（グラフなど）は、タイムラインと同じ場所にタブで足す（無ければ下の端に）
+    private void AddMissing(LayoutAnchorable anchorable)
+    {
+        AnchorableShowStrategy side = _panels[anchorable.ContentId].Side;
+        if (side == AnchorableShowStrategy.Bottom && FindAnchorable(TimelineId)?.Parent is LayoutAnchorablePane pane)
+        {
+            pane.Children.Add(anchorable);
+            return;
+        }
+        anchorable.AddToLayout(_dock, side);
     }
 
     private LayoutAnchorable? FindAnchorable(string id) =>
