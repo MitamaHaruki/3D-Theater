@@ -27,6 +27,12 @@ public sealed class SceneDocument
     /// <summary>読み込んだモデルを置くグループ。</summary>
     public SceneNode ModelsGroup { get; private set; } = null!;
 
+    /// <summary>音声を置くグループ（音声は 1 つまで）。</summary>
+    public SceneNode AudioGroup { get; private set; } = null!;
+
+    /// <summary>今の音声（無ければ null）。</summary>
+    public AudioNode? Audio => AudioGroup.Children.OfType<AudioNode>().FirstOrDefault();
+
     /// <summary>どれかの項目の値が変わった。</summary>
     public event EventHandler<SceneNodeChangedEventArgs>? NodeChanged;
 
@@ -38,7 +44,7 @@ public sealed class SceneDocument
 
     /// <summary>
     /// 決まった役目の項目（プロジェクトの保存で名前の代わりに使う）。名前は変えられることがあるため。
-    /// "camera"・"light"・"testObject"・"stage" と、まとまりの "group.cameras"・"group.lights"・"group.models"・"group.stage"。
+    /// "camera"・"light"・"testObject"・"stage" と、まとまりの "group.cameras"・"group.lights"・"group.models"・"group.stage"・"group.audio"。
     /// </summary>
     public IReadOnlyDictionary<string, SceneNode> FixedNodes => _fixedNodes;
 
@@ -64,13 +70,17 @@ public sealed class SceneDocument
         NodeChanged?.Invoke(this, new SceneNodeChangedEventArgs(parent, nameof(SceneNode.Children)));
     }
 
-    /// <summary>新しいプロジェクトの状態に戻す（読み込んだモデルを外し、カメラ・照明などを初期の値にする）。外したモデルを返す。</summary>
+    /// <summary>新しいプロジェクトの状態に戻す（読み込んだモデルと音声を外し、カメラ・照明などを初期の値にする）。外したモデルを返す。</summary>
     public IReadOnlyList<ModelNode> ResetToDefault()
     {
         ModelNode[] models = [.. ModelsGroup.Children.OfType<ModelNode>()];
         foreach (ModelNode model in models)
         {
             Remove(model);
+        }
+        foreach (SceneNode audio in AudioGroup.Children.ToArray())
+        {
+            Remove(audio);
         }
         foreach (var (node, state) in _defaults)
         {
@@ -110,10 +120,12 @@ public sealed class SceneDocument
         var lights = Group("照明");
         var models = Group("モデル");
         var stage = Group("ステージ");
+        var audio = Group("音声");
         document.Add(root, cameras);
         document.Add(root, lights);
         document.Add(root, models);
         document.Add(root, stage);
+        document.Add(root, audio);
 
         // MMD の初期のカメラと同じ（注視点 (0, 10, 0)、距離 45、視野角 30）。モデルの全身が収まる
         document.Add(cameras, new CameraNode("メインカメラ")
@@ -128,11 +140,13 @@ public sealed class SceneDocument
         var grid = new SceneNode(SceneNodeKind.Stage, "床グリッド", hasTransform: false);
         document.Add(stage, grid);
         document.ModelsGroup = models;
+        document.AudioGroup = audio;
 
         document._fixedNodes["group.cameras"] = cameras;
         document._fixedNodes["group.lights"] = lights;
         document._fixedNodes["group.models"] = models;
         document._fixedNodes["group.stage"] = stage;
+        document._fixedNodes["group.audio"] = audio;
         document._fixedNodes["camera"] = cameras.Children[0];
         document._fixedNodes["light"] = lights.Children[0];
         document._fixedNodes["testObject"] = models.Children[0];

@@ -138,6 +138,7 @@ public sealed class EditorContext
         Gizmo.Changed += (_, _) => RenderLoop.InvalidateAll();
         Undo.Changed += (_, _) => KeySelection.Prune(); // 元に戻したキーは選択から外す
         Physics = new PhysicsController(this);
+        Audio = new Audio.AudioService(this);
         Poses = new PoseUpdater(this);
 
         Scene.NodeChanged += (_, _) => RenderLoop.InvalidateAll();
@@ -180,6 +181,12 @@ public sealed class EditorContext
     /// <summary>物理演算の ON/OFF と進め方。</summary>
     public PhysicsController Physics { get; }
 
+    /// <summary>音声の再生と、再生位置の時計。</summary>
+    public Audio.AudioService Audio { get; }
+
+    /// <summary>プロジェクトを開いたときに見つからなかった音声（保存し直しても消さずに、そのまま書き戻す）。</summary>
+    public AudioEntry? MissingAudio { get; set; }
+
     /// <summary>
     /// GPU の面を WPF と共有できない環境（ソフトウェア描画など）だと分かったら true。
     /// 以後の区画は、描いた絵を読み出して表示する予備の方式で作る。
@@ -216,6 +223,7 @@ public sealed class EditorContext
             }
         }
         MissingModels.Clear();
+        MissingAudio = null;
         Playback.FrameRate = 30;
         Playback.EndFrame = 300;
         Playback.Loop = true;

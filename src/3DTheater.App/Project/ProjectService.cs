@@ -155,6 +155,10 @@ internal sealed class ProjectService
             {
                 await OpenModelAsync(entry, baseDirectory, report);
             }
+            if (project.Audio is { } audio)
+            {
+                await OpenAudioAsync(audio, baseDirectory, report);
+            }
             _context.Animation.ApplyFrame();
             _context.Playback.Seek(project.Playback.CurrentFrame);
             _context.Animation.NotifyStateChanged();
@@ -289,7 +293,7 @@ internal sealed class ProjectService
         try
         {
             ProjectFile project = ProjectCapture.Capture(_context.Scene, _context.Playback, _context.Animation,
-                Path.GetDirectoryName(fullPath), _context.MissingModels);
+                Path.GetDirectoryName(fullPath), _context.MissingModels, _context.MissingAudio);
             project.Physics = _context.Physics.Enabled;
             SafeFile.WriteAllText(fullPath, ProjectSerializer.Serialize(project));
             SetClean(fullPath);
@@ -332,7 +336,7 @@ internal sealed class ProjectService
         try
         {
             string? directory = CurrentPath is null ? null : Path.GetDirectoryName(CurrentPath);
-            ProjectFile project = ProjectCapture.Capture(_context.Scene, _context.Playback, _context.Animation, directory, _context.MissingModels);
+            ProjectFile project = ProjectCapture.Capture(_context.Scene, _context.Playback, _context.Animation, directory, _context.MissingModels, _context.MissingAudio);
             project.Physics = _context.Physics.Enabled;
             project.AutosaveOf = CurrentPath;
             SafeFile.WriteAllText(OwnAutosaveFile, ProjectSerializer.Serialize(project));
@@ -396,6 +400,39 @@ internal sealed class ProjectService
         CurrentPath = path;
         IsDirty = false;
         StateChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// 保存した音声を開く。見つからない・読めないときは知らせ、保存し直しても消さないよう覚えておく。
+    /// </summary>
+    private async Task OpenAudioAsync(AudioEntry entry, string? baseDirectory, LoadReport report)
+    {
+        string? path = ProjectApply.ResolveAudioPath(entry, baseDirectory);
+        if (path is null)
+        {
+            report.Warning(LoadIssueCategory.MissingFile, $"音声のファイルが見つかりません: {entry.AbsoluteFile ?? entry.File}（保存し直しても、この音声の設定は残します）");
+            _context.MissingAudio = entry;
+            return;
+        }
+        Media.AudioClip clip;
+        try
+        {
+            clip = await Task.Run(() => Media.AudioClip.Open(path));
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            report.Warning(LoadIssueCategory.Format, $"音声を読み込めませんでした: {path}（{ex.Message}）");
+            _context.MissingAudio = entry;
+            return;
+        }
+        var node = new AudioNode(string.IsNullOrWhiteSpace(entry.Name) ? Path.GetFileNameWithoutExtension(path) : entry.Name, path, clip.Duration)
+        {
+            StartFrame = entry.StartFrame,
+            Volume = entry.Volume,
+            IsVisible = entry.Visible,
+            IsLocked = entry.Locked,
+        };
+        _context.Scene.Add(_context.Scene.AudioGroup, node);
     }
 
     // 再生の設定（フレームの速さ・終わりのフレーム・ループ）と物理の ON/OFF が変わったら、変更ありにする

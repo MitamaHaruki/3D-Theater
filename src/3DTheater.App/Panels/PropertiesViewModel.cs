@@ -37,6 +37,7 @@ public sealed class PropertiesViewModel : ObservableObject
         SceneNodeKind.Stage => "ステージ",
         SceneNodeKind.Bone => "ボーン",
         SceneNodeKind.Morph => "モーフ",
+        SceneNodeKind.Audio => "音声",
         _ => "グループ",
     };
 
@@ -102,6 +103,30 @@ public sealed class PropertiesViewModel : ObservableObject
     public bool IsTestObject => _node is TestObjectNode;
 
     public bool IsModel => _node is ModelNode;
+
+    public bool IsAudio => _node is AudioNode;
+
+    public string AudioFile => (_node as AudioNode)?.FilePath ?? string.Empty;
+
+    public string AudioLengthText => _node is AudioNode audio
+        ? $"{audio.Duration:m\\:ss\\.fff}（{audio.StartFrame} 〜 {audio.EndFrame(_context.Playback.FrameRate)} フレーム）"
+        : string.Empty;
+
+    public string AudioDeviceNote => _node is AudioNode && !_context.Audio.CanPlaySound
+        ? "音を鳴らせません（音の出る装置が無いか、ファイルを読めません）。再生は音なしで進みます。"
+        : string.Empty;
+
+    public double AudioStartFrame
+    {
+        get => (_node as AudioNode)?.StartFrame ?? 0;
+        set => Edit("鳴り始めのフレーム", n => ((AudioNode)n).StartFrame = (int)Math.Round(value));
+    }
+
+    public double AudioVolume
+    {
+        get => ((_node as AudioNode)?.Volume ?? 0) * 100;
+        set => Edit("音量", n => ((AudioNode)n).Volume = (float)(value / 100));
+    }
 
     public ModelNode? Model => _node as ModelNode;
 

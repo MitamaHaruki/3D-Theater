@@ -45,6 +45,7 @@ public sealed class SceneTreeItem : ObservableObject
         SceneNodeKind.Stage => "",
         SceneNodeKind.Bone => Node is BoneNode { Traits.IsIk: true } ? "" : "",
         SceneNodeKind.Morph => "",
+        SceneNodeKind.Audio => "\uE8D6",
         _ => Parent is null ? "" : "",
     };
 

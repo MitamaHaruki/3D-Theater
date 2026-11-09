@@ -20,6 +20,9 @@
     <Project Path="src/3DTheater.Formats/3DTheater.Formats.csproj">
       <Platform Project="x64" />
     </Project>
+    <Project Path="src/3DTheater.Media/3DTheater.Media.csproj">
+      <Platform Project="x64" />
+    </Project>
     <Project Path="src/3DTheater.Physics/3DTheater.Physics.csproj">
       <Platform Project="x64" />
     </Project>
@@ -40,6 +43,9 @@
       <Platform Project="x64" />
     </Project>
     <Project Path="tests/3DTheater.Formats.Tests/3DTheater.Formats.Tests.csproj">
+      <Platform Project="x64" />
+    </Project>
+    <Project Path="tests/3DTheater.Media.Tests/3DTheater.Media.Tests.csproj">
       <Platform Project="x64" />
     </Project>
     <Project Path="tests/3DTheater.Physics.Tests/3DTheater.Physics.Tests.csproj">

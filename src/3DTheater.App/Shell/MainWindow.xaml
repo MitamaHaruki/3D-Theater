@@ -48,6 +48,9 @@
                       ToolTip="PMX モデルをシーンに加えて表示します（ドラッグでも読み込めます）" />
             <MenuItem Header="モーション・ポーズを読み込む（VMD / VPD）..." Click="OnImportMotionClick"
                       ToolTip="今操作しているモデルに当てはめます（ウィンドウへのドラッグでも読み込めます）" />
+            <MenuItem Header="音声を読み込む（WAV / MP3 など）..." Click="OnImportAudioClick"
+                      ToolTip="曲などを読み込み、再生に合わせて鳴らします（音声は 1 つまで。ウィンドウへのドラッグでも読み込めます）" />
+            <MenuItem Header="音声を外す" Click="OnRemoveAudioClick" ToolTip="シーンから音声を外します（ファイルは消しません。Ctrl+Z で戻せます）" />
             <MenuItem Header="書き出し（PNG / 連番）..." Style="{StaticResource PlannedItemStyle}" ToolTip="Phase 4 で対応します" />
             <Separator />
             <MenuItem Header="終了(_X)" InputGestureText="Alt+F4" Click="OnExitClick" />

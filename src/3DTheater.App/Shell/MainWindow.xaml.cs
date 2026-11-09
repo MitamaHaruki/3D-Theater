@@ -118,6 +118,7 @@ public partial class MainWindow : Window
         }
         _context.Undo.Clear(); // 外したままのモデル（履歴の中にある）の GPU の資源も、エンジンより先に手放す
         _context.DisposeModels();
+        _context.Audio.Dispose();
     }
 
     protected override void OnPreviewKeyDown(KeyEventArgs e)
@@ -487,6 +488,33 @@ public partial class MainWindow : Window
 
     private void OnRemoveModelClick(object sender, RoutedEventArgs e) => RemoveSelectedModels();
 
+    private async void OnImportAudioClick(object sender, RoutedEventArgs e)
+    {
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = "音声を読み込む",
+            Filter = Audio.AudioImporter.FileFilter,
+            Multiselect = false,
+        };
+        if (dialog.ShowDialog(this) == true)
+        {
+            await ImportFilesAsync(dialog.FileNames);
+        }
+    }
+
+    private void OnRemoveAudioClick(object sender, RoutedEventArgs e)
+    {
+        if (_context.Scene.Audio is null)
+        {
+            SetStatus("外す音声がありません", isError: false);
+            return;
+        }
+        if (Audio.AudioPresenceAction.Replace(_context, null))
+        {
+            SetStatus("音声を外しました（Ctrl+Z で戻せます）", isError: false);
+        }
+    }
+
     // メニューは押すと印が切り替わってから Click が来る
     private void OnPhysicsClick(object sender, RoutedEventArgs e)
     {
@@ -514,9 +542,14 @@ public partial class MainWindow : Window
         PhysicsButton.IsChecked = enabled;
     }
 
-    /// <summary>選んだモデル（ボーン・モーフを選んでいればその持ち主）をシーンから外す（Ctrl+Z で戻せる）。</summary>
+    /// <summary>選んだモデル（ボーン・モーフを選んでいればその持ち主）か音声を、シーンから外す（Ctrl+Z で戻せる）。</summary>
     private void RemoveSelectedModels()
     {
+        if (_context.Selection.Items.OfType<Domain.AudioNode>().Any())
+        {
+            OnRemoveAudioClick(this, new RoutedEventArgs());
+            return;
+        }
         Domain.ModelNode[] models = [.. _context.Selection.Items
             .Select(n => n as Domain.ModelNode ?? n.FindAncestor<Domain.ModelNode>())
             .OfType<Domain.ModelNode>().Distinct()];
@@ -700,7 +733,8 @@ public partial class MainWindow : Window
     private void OnPreviewDragOver(object sender, DragEventArgs e)
     {
         bool accepted = e.Data.GetData(DataFormats.FileDrop) is string[] files
-            && files.Any(f => ModelImporter.IsModelFile(f) || MotionImporter.IsMotionFile(f) || Project.ProjectService.IsProjectFile(f));
+            && files.Any(f => ModelImporter.IsModelFile(f) || MotionImporter.IsMotionFile(f) || Audio.AudioImporter.IsAudioFile(f)
+                || Project.ProjectService.IsProjectFile(f));
         e.Effects = accepted ? DragDropEffects.Copy : DragDropEffects.None;
         e.Handled = true;
     }
@@ -714,7 +748,7 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>モデルを先に、続いてモーション・ポーズを読み込む（モーションは読み込んだモデルに当てはめる）。</summary>
+    /// <summary>モデルを先に、続いてモーション・ポーズ、最後に音声を読み込む（モーションは読み込んだモデルに当てはめる）。</summary>
     private async Task ImportFilesAsync(IEnumerable<string> paths)
     {
         List<string> files = [.. paths];
@@ -737,6 +771,10 @@ public partial class MainWindow : Window
                 _busy = false;
                 UpdateStatus();
             }
+        }
+        if (files.LastOrDefault(Audio.AudioImporter.IsAudioFile) is { } audioFile) // 音声は 1 つまで
+        {
+            await Audio.AudioImporter.ImportAsync(_context, audioFile, this);
         }
     }
 

@@ -15,6 +15,8 @@ public enum SceneNodeKind
     Bone,
     /// <summary>モデルのモーフ（表情など）。</summary>
     Morph,
+    /// <summary>音声（曲など）。再生に合わせて鳴らす。</summary>
+    Audio,
 }
 
 /// <summary>
@@ -334,6 +336,57 @@ public sealed class LightNode(string name) : SceneNode(SceneNodeKind.Light, name
         if (extra is LightState s)
         {
             Intensity = s.Intensity;
+        }
+    }
+}
+
+/// <summary>
+/// 音声（曲など）。ファイルは参照するだけで書き換えない。<see cref="StartFrame"/> のフレームで鳴り始め、再生に合わせて鳴らす。
+/// 表示（<see cref="SceneNode.IsVisible"/>）を切ると音を消す（タイミングを保つため、音量 0 で流し続ける）。
+/// </summary>
+public sealed class AudioNode : SceneNode
+{
+    private int _startFrame;
+    private float _volume = 1f;
+
+    public AudioNode(string name, string filePath, TimeSpan duration)
+        : base(SceneNodeKind.Audio, name, hasTransform: false)
+    {
+        FilePath = filePath;
+        Duration = duration < TimeSpan.Zero ? TimeSpan.Zero : duration;
+    }
+
+    /// <summary>音声ファイルの場所（絶対パス）。</summary>
+    public string FilePath { get; }
+
+    /// <summary>音声の長さ。</summary>
+    public TimeSpan Duration { get; }
+
+    /// <summary>鳴り始めるフレーム（負なら、音声の頭を飛ばして 0 フレーム目から途中を鳴らす）。</summary>
+    public int StartFrame
+    {
+        get => _startFrame;
+        set => SetProperty(ref _startFrame, Math.Clamp(value, -1_000_000, 1_000_000));
+    }
+
+    /// <summary>音量（0〜1）。</summary>
+    public float Volume
+    {
+        get => _volume;
+        set => SetProperty(ref _volume, float.IsFinite(value) ? Math.Clamp(value, 0f, 1f) : _volume);
+    }
+
+    /// <summary>音声が終わるフレーム（鳴り始めのフレーム + 長さ。<paramref name="frameRate"/> は作品のフレームの速さ）。</summary>
+    public int EndFrame(int frameRate) => StartFrame + (int)Math.Ceiling(Duration.TotalSeconds * frameRate);
+
+    protected override object? CaptureExtra(bool includeKeys) => new AudioState(StartFrame, Volume);
+
+    protected override void RestoreExtra(object? extra)
+    {
+        if (extra is AudioState s)
+        {
+            StartFrame = s.StartFrame;
+            Volume = s.Volume;
         }
     }
 }

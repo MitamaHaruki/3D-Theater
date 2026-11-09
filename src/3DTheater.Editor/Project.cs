@@ -37,6 +37,31 @@ public sealed class ProjectFile
     public Dictionary<string, NodeEntry> Nodes { get; set; } = [];
 
     public List<ModelEntry> Models { get; set; } = [];
+
+    /// <summary>音声（無ければ null）。</summary>
+    public AudioEntry? Audio { get; set; }
+}
+
+public sealed class AudioEntry
+{
+    /// <summary>音声のファイル。プロジェクトのフォルダーから見た場所（ドライブが違えば絶対パス）。</summary>
+    public string File { get; set; } = string.Empty;
+
+    /// <summary>保存したときの絶対パス（フォルダーごと動かしていないときの予備）。</summary>
+    public string? AbsoluteFile { get; set; }
+
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>鳴り始めのフレーム。</summary>
+    public int StartFrame { get; set; }
+
+    /// <summary>音量（0〜1）。</summary>
+    public float Volume { get; set; } = 1f;
+
+    /// <summary>鳴らすか（シーン一覧の目の印）。</summary>
+    public bool Visible { get; set; } = true;
+
+    public bool Locked { get; set; }
 }
 
 public sealed class PlaybackEntry
@@ -208,8 +233,9 @@ public static class ProjectCapture
 {
     /// <param name="projectDirectory">モデルの場所を相対で書くときの基準（無題なら null で、絶対パスで書く）。</param>
     /// <param name="missingModels">開いたときに見つからなかったモデル（消さずにそのまま書き戻す）。</param>
+    /// <param name="missingAudio">開いたときに見つからなかった音声（シーンに音声が無ければ、そのまま書き戻す）。</param>
     public static ProjectFile Capture(SceneDocument scene, PlaybackService playback, AnimationService animation,
-        string? projectDirectory, IEnumerable<ModelEntry> missingModels)
+        string? projectDirectory, IEnumerable<ModelEntry> missingModels, AudioEntry? missingAudio = null)
     {
         var project = new ProjectFile
         {
@@ -233,6 +259,18 @@ public static class ProjectCapture
             project.Models.Add(Model(model, projectDirectory));
         }
         project.Models.AddRange(missingModels);
+        project.Audio = scene.Audio is { } audio
+            ? new AudioEntry
+            {
+                File = RelativeOrAbsolute(audio.FilePath, projectDirectory),
+                AbsoluteFile = audio.FilePath,
+                Name = audio.Name,
+                StartFrame = audio.StartFrame,
+                Volume = audio.Volume,
+                Visible = audio.IsVisible,
+                Locked = audio.IsLocked,
+            }
+            : missingAudio;
         return project;
     }
 
@@ -361,16 +399,21 @@ public static class ProjectCapture
 public static class ProjectApply
 {
     /// <summary>モデルのファイルを探す。プロジェクトのフォルダーから見た場所 → 保存したときの絶対パスの順。見つからなければ null。</summary>
-    public static string? ResolveModelPath(ModelEntry entry, string? projectDirectory)
+    public static string? ResolveModelPath(ModelEntry entry, string? projectDirectory) => ResolvePath(entry.File, entry.AbsoluteFile, projectDirectory);
+
+    /// <summary>音声のファイルを探す（モデルと同じ順）。見つからなければ null。</summary>
+    public static string? ResolveAudioPath(AudioEntry entry, string? projectDirectory) => ResolvePath(entry.File, entry.AbsoluteFile, projectDirectory);
+
+    private static string? ResolvePath(string file, string? absoluteFile, string? projectDirectory)
     {
         var candidates = new List<string>();
-        if (!string.IsNullOrWhiteSpace(entry.File))
+        if (!string.IsNullOrWhiteSpace(file))
         {
-            candidates.Add(Path.IsPathRooted(entry.File) || projectDirectory is null ? entry.File : Path.GetFullPath(Path.Combine(projectDirectory, entry.File)));
+            candidates.Add(Path.IsPathRooted(file) || projectDirectory is null ? file : Path.GetFullPath(Path.Combine(projectDirectory, file)));
         }
-        if (!string.IsNullOrWhiteSpace(entry.AbsoluteFile))
+        if (!string.IsNullOrWhiteSpace(absoluteFile))
         {
-            candidates.Add(entry.AbsoluteFile);
+            candidates.Add(absoluteFile);
         }
         return candidates.FirstOrDefault(File.Exists);
     }

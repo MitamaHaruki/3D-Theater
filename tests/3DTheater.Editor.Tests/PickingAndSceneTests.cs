@@ -92,7 +92,7 @@ public sealed class SceneTests
     public void DefaultSceneHasExpectedGroupsAndTestObject()
     {
         SceneDocument scene = SceneDocument.CreateDefault();
-        CollectionAssert.AreEqual(new[] { "カメラ", "照明", "モデル", "ステージ" }, scene.Root.Children.Select(c => c.Name).ToArray());
+        CollectionAssert.AreEqual(new[] { "カメラ", "照明", "モデル", "ステージ", "音声" }, scene.Root.Children.Select(c => c.Name).ToArray());
         Assert.IsNotNull(scene.FindFirst<CameraNode>());
         Assert.IsNotNull(scene.FindFirst<LightNode>());
         Assert.IsNotNull(scene.FindFirst<TestObjectNode>());

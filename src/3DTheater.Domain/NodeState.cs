@@ -14,6 +14,8 @@ public sealed record LightState(float Intensity);
 
 public sealed record TestObjectState(bool SpinWithFrame);
 
+public sealed record AudioState(int StartFrame, float Volume);
+
 /// <summary>ボーンの値。<see cref="Keys"/> はキーも写したときだけ入る（値だけの編集ではキーを写さない）。</summary>
 public sealed record BoneState(Quaternion Orientation, bool HasUnregisteredChange, KeySnapshot<BoneKey>? Keys);
 

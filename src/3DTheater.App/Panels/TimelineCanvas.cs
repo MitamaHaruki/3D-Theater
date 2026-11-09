@@ -61,6 +61,9 @@ public sealed class TimelineCanvas : FrameworkElement
     private readonly Brush _movingKey = Frozen(new SolidColorBrush(Color.FromArgb(0x50, 0xE6, 0xE6, 0xE6)));
     private readonly Brush _bandFill = Frozen(new SolidColorBrush(Color.FromArgb(0x30, 0x4A, 0x9E, 0xFF)));
     private readonly Pen _bandPen = FrozenPen(Color.FromArgb(0xC0, 0x4A, 0x9E, 0xFF));
+    private readonly Brush _audioFill = Frozen(new SolidColorBrush(Color.FromArgb(0x28, 0x3F, 0xB9, 0x50)));
+    private readonly Pen _wavePen = FrozenPen(Color.FromArgb(0xC0, 0x5F, 0xD0, 0x70));
+    private readonly Pen _rulerWavePen = FrozenPen(Color.FromArgb(0x50, 0x5F, 0xD0, 0x70));
     private readonly Typeface _face = new("Yu Gothic UI");
     private readonly Typeface _iconFace;
 
@@ -91,6 +94,7 @@ public sealed class TimelineCanvas : FrameworkElement
             RebuildSelectedFrames();
             InvalidateVisual();
         };
+        context.Audio.WaveformChanged += (_, _) => InvalidateVisual();
         context.Scene.NodeChanged += (_, e) =>
         {
             // 行の組み直しは項目が増減したときだけ（ボーンやモーフの値を動かすたびには組み直さない）
@@ -174,6 +178,12 @@ public sealed class TimelineCanvas : FrameworkElement
         double laneLeft = NameColumnWidth;
         dc.PushClip(new RectangleGeometry(new Rect(laneLeft, 0, Math.Max(0, width - laneLeft), height)));
 
+        // 目盛りの帯にも音声の波形を薄く描く（音声の行がスクロールで隠れていても、拍の位置が見えるように）
+        if (_context.Scene.Audio is { } rulerAudio)
+        {
+            DrawWaveform(dc, rulerAudio, 0, RulerHeight, width, null, _rulerWavePen);
+        }
+
         int majorStep = ChooseMajorStep();
         int minorStep = Math.Max(1, majorStep / 5);
         int first = (int)Math.Floor(_firstFrame / minorStep) * minorStep;
@@ -190,12 +200,17 @@ public sealed class TimelineCanvas : FrameworkElement
             }
         }
 
-        // キーフレーム（ボーン・モーフの行はその項目のキー、まとまりの行は中のキーをまとめて薄く）
+        // キーフレーム（ボーン・モーフの行はその項目のキー、まとまりの行は中のキーをまとめて薄く）。音声の行は波形
         for (int i = 0; i < _rows.Count; i++)
         {
             double y = RulerHeight + (i * RowHeight) - _scrollY;
             if (y + RowHeight < RulerHeight || y > height)
             {
+                continue;
+            }
+            if (_rows[i].Node is AudioNode audio)
+            {
+                DrawWaveform(dc, audio, y + 2, RowHeight - 4, width, _audioFill, _wavePen);
                 continue;
             }
             DrawKeys(dc, _rows[i].Node, y + (RowHeight / 2), Math.Max(0, first), last);
@@ -691,6 +706,51 @@ public sealed class TimelineCanvas : FrameworkElement
     }
 
     private void SeekTo(double x) => _context.Playback.Seek(Math.Max(0, (int)Math.Round(XToFrame(x))));
+
+    // 音声の波形: 鳴る範囲を薄く塗り（fill があれば）、1 ピクセルごとにいちばん大きな振れ幅を縦線で描く
+    private void DrawWaveform(DrawingContext dc, AudioNode audio, double top, double bandHeight, double width, Brush? fill, Pen pen)
+    {
+        int fps = _context.Playback.FrameRate;
+        double startX = Math.Max(NameColumnWidth, FrameToX(audio.StartFrame));
+        double endX = Math.Min(width, FrameToX(audio.StartFrame + (audio.Duration.TotalSeconds * fps)));
+        if (endX <= startX)
+        {
+            return;
+        }
+        if (fill is not null)
+        {
+            dc.DrawRectangle(fill, null, new Rect(startX, top, endX - startX, bandHeight));
+        }
+        float[]? peaks = _context.Audio.PeaksFor(audio);
+        if (peaks is not { Length: > 0 })
+        {
+            return; // 波形はまだ求めている途中
+        }
+        double middle = top + (bandHeight / 2);
+        double half = (bandHeight / 2) - 1;
+        double peaksPerFrame = Media.AudioClip.PeaksPerSecond / (double)fps;
+        var geometry = new StreamGeometry();
+        using (StreamGeometryContext g = geometry.Open())
+        {
+            for (double x = Math.Floor(startX); x < endX; x++)
+            {
+                int a = (int)Math.Floor((XToFrame(x) - audio.StartFrame) * peaksPerFrame);
+                int b = (int)Math.Ceiling((XToFrame(x + 1) - audio.StartFrame) * peaksPerFrame);
+                a = Math.Clamp(a, 0, peaks.Length - 1);
+                b = Math.Clamp(Math.Max(b, a + 1), 1, peaks.Length);
+                float peak = 0;
+                for (int k = a; k < b; k++)
+                {
+                    peak = Math.Max(peak, peaks[k]);
+                }
+                double h = Math.Max(0.5, peak * half);
+                g.BeginFigure(new Point(x + 0.5, middle - h), false, false);
+                g.LineTo(new Point(x + 0.5, middle + h), true, false);
+            }
+        }
+        geometry.Freeze();
+        dc.DrawGeometry(null, pen, geometry);
+    }
 
     private double FrameToX(double frame) => NameColumnWidth + LeftPadding + ((frame - _firstFrame) * _pixelsPerFrame);
 

@@ -1,5 +1,12 @@
 namespace Theater3D.Editor;
 
+/// <summary>再生位置を決める外の時計（音声など）。</summary>
+public interface IPlaybackClock
+{
+    /// <summary>今の再生位置（フレーム。端数あり）を答えられれば true。</summary>
+    bool TryGetFramePosition(out double frame);
+}
+
 /// <summary>
 /// 再生位置（フレーム）と再生状態。プレビュー・タイムライン・書き出しが同じ位置を見るための唯一の持ち主。
 /// 時間の進みは外から <see cref="Advance"/> で与える（画面の更新に合わせるため、またテストしやすくするため）。
@@ -133,6 +140,12 @@ public sealed class PlaybackService
 
     public void GoToEnd() => Seek(_endFrame);
 
+    /// <summary>
+    /// 再生中の位置を決める外の時計（音声）。時計が位置を答えれば、その位置へ進める（実際の時間を足していかない）。
+    /// 答えないとき（音声の範囲の外など）は、今までどおり実際の時間で進める。再生時刻を 1 か所で決めるため（指示書 3.1）。
+    /// </summary>
+    public IPlaybackClock? Clock { get; set; }
+
     public void Advance(TimeSpan elapsed)
     {
         if (!_isPlaying || elapsed <= TimeSpan.Zero)
@@ -140,14 +153,28 @@ public sealed class PlaybackService
             return;
         }
 
-        _subFrame += elapsed.TotalSeconds * _frameRate;
-        // 時間の切り捨て（1 tick = 100ns）で 3.99999… のようになっても 1 フレーム遅れないよう、わずかな誤差は許す
-        int steps = (int)Math.Floor(_subFrame + 1e-4);
-        if (steps == 0)
+        int steps;
+        if (Clock?.TryGetFramePosition(out double position) == true && double.IsFinite(position))
         {
-            return;
+            // 時計が少し遅れて見えても、戻さない（鳴らし始めの直後など）
+            steps = (int)Math.Floor(position + 1e-4) - _currentFrame;
+            _subFrame = 0;
+            if (steps <= 0)
+            {
+                return;
+            }
         }
-        _subFrame -= steps;
+        else
+        {
+            _subFrame += elapsed.TotalSeconds * _frameRate;
+            // 時間の切り捨て（1 tick = 100ns）で 3.99999… のようになっても 1 フレーム遅れないよう、わずかな誤差は許す
+            steps = (int)Math.Floor(_subFrame + 1e-4);
+            if (steps == 0)
+            {
+                return;
+            }
+            _subFrame -= steps;
+        }
 
         int next = _currentFrame + steps;
         if (next > _endFrame)

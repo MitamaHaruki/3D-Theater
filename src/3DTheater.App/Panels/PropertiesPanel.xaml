@@ -259,6 +259,39 @@
                      Text="被写界深度・ブルームなどの映像効果は Phase 4 で対応します。" />
         </StackPanel>
 
+        <!-- 音声 -->
+        <StackPanel Visibility="{Binding IsAudio, Converter={StaticResource BoolToVisibility}}">
+          <TextBlock Text="音声" Style="{StaticResource SectionHeaderStyle}" Margin="0,14,0,6" />
+          <Grid>
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="96" />
+              <ColumnDefinition Width="*" />
+              <ColumnDefinition Width="84" />
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+              <RowDefinition Height="Auto" />
+              <RowDefinition Height="26" />
+              <RowDefinition Height="28" />
+              <RowDefinition Height="30" />
+            </Grid.RowDefinitions>
+            <TextBlock Text="ファイル" Style="{StaticResource RowLabelStyle}" VerticalAlignment="Top" Margin="0,3,0,0" />
+            <TextBlock Grid.Column="1" Grid.ColumnSpan="2" Text="{Binding AudioFile}" TextWrapping="Wrap" Margin="0,3,0,3"
+                       ToolTip="{Binding AudioFile}" />
+            <TextBlock Grid.Row="1" Text="長さ" Style="{StaticResource RowLabelStyle}" />
+            <TextBlock Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" VerticalAlignment="Center" Text="{Binding AudioLengthText}" />
+            <TextBlock Grid.Row="2" Text="鳴り始め" Style="{StaticResource RowLabelStyle}"
+                       ToolTip="音声が鳴り始めるフレーム。負の数にすると、音声の頭を飛ばして 0 フレーム目から途中を鳴らします" />
+            <c:NumberBox Grid.Row="2" Grid.Column="2" Value="{Binding AudioStartFrame}" Step="1" Format="0" />
+            <TextBlock Grid.Row="3" Text="音量" Style="{StaticResource RowLabelStyle}" />
+            <Slider Grid.Row="3" Grid.Column="1" Margin="0,0,8,0" VerticalAlignment="Center" Minimum="0" Maximum="100"
+                    Value="{Binding AudioVolume}" IsEnabled="{Binding IsEditable}" />
+            <c:NumberBox Grid.Row="3" Grid.Column="2" Value="{Binding AudioVolume}" Step="5" Format="0'%'" />
+          </Grid>
+          <TextBlock Margin="0,6,0,0" Style="{StaticResource PlannedNoteStyle}"
+                     Text="再生中は、鳴っている位置に合わせてフレームを進めます。シーン一覧の目の印で音を消せます（タイミングは変わりません）。" />
+          <TextBlock Margin="0,4,0,0" Foreground="OrangeRed" TextWrapping="Wrap" Text="{Binding AudioDeviceNote}" />
+        </StackPanel>
+
         <!-- 照明 -->
         <StackPanel Visibility="{Binding IsLight, Converter={StaticResource BoolToVisibility}}">
           <TextBlock Text="照明" Style="{StaticResource SectionHeaderStyle}" Margin="0,14,0,6" />
