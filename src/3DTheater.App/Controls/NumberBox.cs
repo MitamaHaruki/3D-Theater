@@ -138,7 +138,7 @@ public sealed class NumberBox : TextBox
             ShowValue();
             return;
         }
-        string text = Text.Trim().TrimEnd('°', ' ', 'm');
+        string text = Text.Trim().TrimEnd('°', ' ', 'm', '%');
         if (double.TryParse(text, NumberStyles.Float, CultureInfo.CurrentCulture, out double parsed)
             || double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out parsed))
         {

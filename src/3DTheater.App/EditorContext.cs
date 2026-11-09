@@ -140,6 +140,7 @@ public sealed class EditorContext
         Physics = new PhysicsController(this);
         Audio = new Audio.AudioService(this);
         Poses = new PoseUpdater(this);
+        MorphPresets = Shell.MorphPresetStore.Load();
 
         Scene.NodeChanged += (_, _) => RenderLoop.InvalidateAll();
         Selection.Changed += (_, _) => RenderLoop.InvalidateAll();
@@ -148,6 +149,9 @@ public sealed class EditorContext
     }
 
     public NativeEngine? Engine { get; }
+
+    /// <summary>表情のプリセット（利用者ごと。変わるたびに保存する）。</summary>
+    public MorphPresetLibrary MorphPresets { get; }
 
     public SceneDocument Scene { get; }
 

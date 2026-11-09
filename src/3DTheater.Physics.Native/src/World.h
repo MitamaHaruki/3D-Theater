@@ -41,6 +41,7 @@ public:
     void Reset(const TpTransform* transforms, int count);
     void Step(const TpTransform* targets, int count, float timeStep, int substeps);
     void GetTransforms(TpTransform* out, int count) const;
+    void ApplyImpulses(const TpImpulse* impulses, int count);
 
 private:
     static constexpr uint32_t kMagic = 0x44575054; // "TPWD"

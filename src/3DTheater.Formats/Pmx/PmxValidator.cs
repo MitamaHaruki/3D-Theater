@@ -227,7 +227,8 @@ internal static partial class PmxValidator
     {
         var badRef = new Tally("モーフが存在しない頂点・ボーン・材質などを指しています（その部分は効きません）", LoadSeverity.Warning, LoadIssueCategory.InvalidReference);
         var nestedGroup = new Tally("グループモーフの中にグループモーフか自分自身があります（MMD と同じく、その部分は効きません）", LoadSeverity.Warning, LoadIssueCategory.Format);
-        var newTypes = new Tally("フリップ・インパルスモーフ（PMX 2.1）は読み込むだけで、動きには未対応です", LoadSeverity.Warning, LoadIssueCategory.Unsupported);
+        var newTypes = new Tally("PMX 2.1 のフリップ・インパルスモーフがあります（MMD では効きませんが、このアプリでは効きます。インパルスは物理演算が ON のとき）",
+            LoadSeverity.Info, LoadIssueCategory.Note);
         var missingUvChannel = new Tally("追加 UV モーフが、モデルに無い追加 UV を指しています（効きません）", LoadSeverity.Warning, LoadIssueCategory.Format);
 
         for (int i = 0; i < d.Morphs.Length; i++)

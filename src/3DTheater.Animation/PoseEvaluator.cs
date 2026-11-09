@@ -67,7 +67,7 @@ public sealed class PoseState
 
     internal Vector3[] MorphTranslation { get; }
 
-    /// <summary>グループモーフを展開した後のモーフの値。</summary>
+    /// <summary>フリップモーフとグループモーフを当てた後のモーフの値（インパルスモーフの強さにも使う）。</summary>
     public float[] EffectiveMorphWeights { get; }
 
     public Vector3[] VertexOffsets { get; }
@@ -100,7 +100,7 @@ public sealed class PoseState
 
 /// <summary>
 /// ボーンとモーフを PMX の決まりに沿って計算する（指示書 4.2・4.3）。全ボーンを一度に処理するのではなく、次の順に行う:
-/// 1. モーフの値を求める（グループモーフを展開）。ボーンモーフはボーンの回転・移動に足す
+/// 1. モーフの値を求める（フリップモーフで切り替え、グループモーフを展開）。ボーンモーフはボーンの回転・移動に足す
 /// 2. 各ボーンの回転・移動を決め、親から子へ置き方を積み上げる
 /// 3. 変形の順番（物理後 → 変形階層 → 番号）に、付与（回転・移動を分けてもらう）と IK を解く
 /// 4. 頂点モーフ・UV モーフ・材質モーフを求める
@@ -215,21 +215,78 @@ public static class PoseEvaluator
         return b.TailBone >= 0 ? state.Global[b.TailBone].Translation : Vector3.Transform(b.TailOffset, state.Global[bone]);
     }
 
+    /// <summary>
+    /// モーフの値を求める（PMX 2.1 の決まりの順）。
+    /// 1 回目: 番号の順に、フリップモーフ（グループモーフの中のものも）で選んだモーフの値を書き換える。
+    /// 2 回目: グループモーフの値 × 割合 を、中のモーフ（フリップモーフは除く）に足す。グループモーフの値は 1 回目の後のもの
+    /// （フリップモーフでグループモーフを切り替えられる）。
+    /// </summary>
     private static void EvaluateMorphWeights(ModelRig rig, PoseInput input, PoseState state)
     {
-        float[] effective = state.EffectiveMorphWeights;
-        Array.Copy(input.MorphWeights, effective, effective.Length);
-        foreach (RigMorph morph in rig.Morphs)
+        float[] values = state.EffectiveMorphWeights;
+        Array.Copy(input.MorphWeights, values, values.Length);
+        RigMorph[] morphs = rig.Morphs;
+        if (rig.HasFlipMorphs)
         {
-            float w = input.MorphWeights[morph.Index];
+            foreach (RigMorph morph in morphs)
+            {
+                if (morph.Type == PmxMorphType.Flip)
+                {
+                    ApplyFlip(morph, values[morph.Index], values);
+                }
+                else if (morph.Type == PmxMorphType.Group && values[morph.Index] != 0)
+                {
+                    float w = values[morph.Index];
+                    foreach (MorphGroupOffset offset in morph.GroupOffsets)
+                    {
+                        if (morphs[offset.Morph].Type == PmxMorphType.Flip)
+                        {
+                            ApplyFlip(morphs[offset.Morph], w * offset.Weight, values);
+                        }
+                    }
+                }
+            }
+        }
+
+        // グループモーフは別のグループモーフを中に持たない（読み込み時に外してある）ので、足している途中でグループの値は変わらない
+        foreach (RigMorph morph in morphs)
+        {
+            float w = values[morph.Index];
             if (morph.Type != PmxMorphType.Group || w == 0)
             {
                 continue;
             }
             foreach (MorphGroupOffset offset in morph.GroupOffsets)
             {
-                effective[offset.Morph] += w * offset.Weight;
+                if (morphs[offset.Morph].Type != PmxMorphType.Flip)
+                {
+                    values[offset.Morph] += w * offset.Weight;
+                }
             }
+        }
+    }
+
+    /// <summary>
+    /// フリップモーフ: 値 0〜1 を（選び先の数 + 1）に等しく分け、0 の区切りは「どれも選ばない」、それ以外はその番目の選び先の値を
+    /// 登録の値で書き換える（掛け算ではない）。範囲の外は端に寄せる。
+    /// </summary>
+    public static int FlipIndex(int count, float value)
+    {
+        if (count <= 0 || !float.IsFinite(value))
+        {
+            return -1;
+        }
+        value = Math.Clamp(value, 0f, 1f);
+        return Math.Clamp((int)((count + 1) * value) - 1, -1, count - 1);
+    }
+
+    private static void ApplyFlip(RigMorph flip, float value, float[] values)
+    {
+        int index = FlipIndex(flip.FlipOffsets.Length, value);
+        if (index >= 0)
+        {
+            MorphGroupOffset target = flip.FlipOffsets[index];
+            values[target.Morph] = target.Weight;
         }
     }
 

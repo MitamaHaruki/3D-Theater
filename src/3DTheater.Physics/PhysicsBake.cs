@@ -56,7 +56,7 @@ public sealed class PhysicsBake : IDisposable
         }
         else
         {
-            _physics.Step(_state, 1f / FrameRate);
+            _physics.Step(_state, 1f / FrameRate, impulseFrames: 1);
         }
         var transforms = new PhysicsTransform[_physics.BodyCount];
         _physics.CopyTransforms(transforms);

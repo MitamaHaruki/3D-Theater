@@ -512,7 +512,11 @@ public sealed class BoneNode : SceneNode
         get => _orientation;
         set
         {
-            Quaternion q = value.LengthSquared() > 1e-12f ? Quaternion.Normalize(value) : Quaternion.Identity;
+            // 長さがほぼ 1 ならそのまま使う（写した値を戻すときに、もう一度そろえ直して値がわずかにずれないように）
+            float lengthSquared = value.LengthSquared();
+            Quaternion q = !(lengthSquared > 1e-12f) ? Quaternion.Identity
+                : MathF.Abs(lengthSquared - 1f) <= 1e-6f ? value
+                : Quaternion.Normalize(value);
             if (q == _orientation)
             {
                 return;

@@ -275,4 +275,52 @@ void World::GetTransforms(TpTransform* out, int count) const
     }
 }
 
+void World::ApplyImpulses(const TpImpulse* impulses, int count)
+{
+    if (count < 0 || (count > 0 && !impulses)) {
+        throw Error(TP_E_INVALID_ARG, L"勢いの一覧が正しくありません");
+    }
+    // 先に全部を確かめる（途中で失敗して、一部だけ与えたままにならないように）
+    for (int i = 0; i < count; ++i) {
+        const TpImpulse& impulse = impulses[i];
+        if (impulse.body < 0 || impulse.body >= BodyCount()) {
+            throw Error(TP_E_INVALID_ARG, std::format(L"勢いを与える剛体の番号（{}）が正しくありません", impulse.body));
+        }
+        if (!IsFinite(impulse.linear, 3) || !IsFinite(impulse.torque, 3)) {
+            throw Error(TP_E_INVALID_ARG, L"勢いに数でない値があります");
+        }
+    }
+    for (int i = 0; i < count; ++i) {
+        const TpImpulse& impulse = impulses[i];
+        Body& body = bodies_[static_cast<size_t>(impulse.body)];
+        if (body.kinematic) {
+            continue;
+        }
+        btRigidBody& rb = *body.body;
+        if ((impulse.flags & TP_IMPULSE_STOP) != 0) {
+            // PMX 2.1 の「停止制御」: 剛体の動きを 0 にする（置き方はそのまま）
+            rb.setLinearVelocity(btVector3(0, 0, 0));
+            rb.setAngularVelocity(btVector3(0, 0, 0));
+            rb.setInterpolationLinearVelocity(btVector3(0, 0, 0));
+            rb.setInterpolationAngularVelocity(btVector3(0, 0, 0));
+            rb.setInterpolationWorldTransform(rb.getWorldTransform());
+            rb.clearForces();
+        }
+        btVector3 linear = ToVector(impulse.linear);
+        btVector3 torque = ToVector(impulse.torque);
+        if ((impulse.flags & TP_IMPULSE_LOCAL) != 0) {
+            const btMatrix3x3& basis = rb.getWorldTransform().getBasis();
+            linear = basis * linear;
+            torque = basis * torque;
+        }
+        if (!linear.isZero()) {
+            rb.applyCentralImpulse(linear);
+        }
+        if (!torque.isZero()) {
+            rb.applyTorqueImpulse(torque);
+        }
+        rb.activate(true);
+    }
+}
+
 } // namespace tp

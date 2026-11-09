@@ -111,4 +111,9 @@ TP_API TpResult TP_CALL tp_world_get_transforms(TpWorld* world, TpTransform* out
     return Guard([&] { ToWorld(world).GetTransforms(out_transforms, count); });
 }
 
+TP_API TpResult TP_CALL tp_world_apply_impulses(TpWorld* world, const TpImpulse* impulses, int32_t count)
+{
+    return Guard([&] { ToWorld(world).ApplyImpulses(impulses, count); });
+}
+
 } // extern "C"

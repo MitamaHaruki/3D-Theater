@@ -27,6 +27,10 @@ public sealed class ModelPhysics : IDisposable
     private readonly ModelRig _rig;
     private readonly Body[] _bodies;
     private readonly PhysicsTransform[] _buffer;
+    private readonly RigMorph[] _impulseMorphs;
+    private readonly ImpulseSum[] _impulseSums;
+    private readonly int[] _impulseBodies;
+    private readonly PhysicsImpulse[] _impulses;
 
     private ModelPhysics(PhysicsWorld world, ModelRig rig, Body[] bodies, int joints)
     {
@@ -35,9 +39,16 @@ public sealed class ModelPhysics : IDisposable
         _bodies = bodies;
         _buffer = new PhysicsTransform[bodies.Length];
         JointCount = joints;
+        _impulseMorphs = [.. rig.Morphs.Where(m => m.ImpulseOffsets.Length > 0)];
+        _impulseSums = new ImpulseSum[bodies.Length];
+        _impulseBodies = new int[bodies.Length];
+        _impulses = new PhysicsImpulse[bodies.Length * 2];
     }
 
     public int BodyCount => _bodies.Length;
+
+    /// <summary>剛体を押すインパルスモーフ（PMX 2.1）があるか。</summary>
+    public bool HasImpulseMorphs => _impulseMorphs.Length > 0;
 
     public int JointCount { get; }
 
@@ -159,8 +170,12 @@ public sealed class ModelPhysics : IDisposable
         Apply(state);
     }
 
-    /// <summary><paramref name="seconds"/> 秒進める。ボーン追従の剛体は、前の置き方から今のボーンの置き方まで少しずつ動かす。</summary>
-    public void Step(PoseState state, float seconds)
+    /// <summary>
+    /// <paramref name="seconds"/> 秒進める。ボーン追従の剛体は、前の置き方から今のボーンの置き方まで少しずつ動かす。
+    /// インパルスモーフ（<see cref="PoseState.EffectiveMorphWeights"/> の値）の勢いは、進める前に
+    /// 「1 フレームにつき 1 回」として <paramref name="impulseFrames"/> 回分を与える（何フレームか続けて進めるときはその数）。
+    /// </summary>
+    public void Step(PoseState state, float seconds, float impulseFrames = 1f)
     {
         if (NeedsReset)
         {
@@ -173,9 +188,79 @@ public sealed class ModelPhysics : IDisposable
         }
         if (seconds > 0)
         {
+            ApplyImpulseMorphs(state, impulseFrames);
             _world.Step(_buffer, seconds, Substeps(seconds));
         }
         Apply(state);
+    }
+
+    /// <summary>
+    /// インパルスモーフの勢いを剛体ごとに合わせて与える（PMX 2.1 の決まり）: 値が 0 のモーフは使わない。
+    /// 速さと回転の力が両方 0 の項目は「止める」。それ以外は 設定の値 × モーフの値 を、剛体の向きで回すもの（ローカル）と
+    /// そのまま使うものに分けて足し、止めてから与える。ボーン追従の剛体には与えない。
+    /// </summary>
+    private void ApplyImpulseMorphs(PoseState state, float scale)
+    {
+        if (_impulseMorphs.Length == 0 || !(scale > 0))
+        {
+            return;
+        }
+        int touched = 0;
+        foreach (RigMorph morph in _impulseMorphs)
+        {
+            float w = state.EffectiveMorphWeights[morph.Index];
+            if (w == 0 || !float.IsFinite(w))
+            {
+                continue;
+            }
+            foreach (MorphImpulseOffset o in morph.ImpulseOffsets)
+            {
+                if (_bodies[o.RigidBody].Kinematic)
+                {
+                    continue;
+                }
+                ref ImpulseSum sum = ref _impulseSums[o.RigidBody];
+                if (!sum.Used)
+                {
+                    sum = new ImpulseSum { Used = true };
+                    _impulseBodies[touched++] = o.RigidBody;
+                }
+                if (o.IsStop)
+                {
+                    sum.Stop = true;
+                }
+                else if (o.Local)
+                {
+                    sum.LocalLinear += o.Velocity * (w * scale);
+                    sum.LocalTorque += o.Torque * (w * scale);
+                }
+                else
+                {
+                    sum.GlobalLinear += o.Velocity * (w * scale);
+                    sum.GlobalTorque += o.Torque * (w * scale);
+                }
+            }
+        }
+
+        int count = 0;
+        for (int k = 0; k < touched; k++)
+        {
+            int body = _impulseBodies[k];
+            ref ImpulseSum sum = ref _impulseSums[body];
+            _impulses[count++] = new PhysicsImpulse
+            {
+                Body = body,
+                Flags = sum.Stop ? PhysicsImpulseFlags.Stop : PhysicsImpulseFlags.None,
+                Linear = sum.GlobalLinear,
+                Torque = sum.GlobalTorque,
+            };
+            if (sum.LocalLinear != Vector3.Zero || sum.LocalTorque != Vector3.Zero)
+            {
+                _impulses[count++] = new PhysicsImpulse { Body = body, Flags = PhysicsImpulseFlags.Local, Linear = sum.LocalLinear, Torque = sum.LocalTorque };
+            }
+            sum = default;
+        }
+        _world.ApplyImpulses(_impulses.AsSpan(0, count));
     }
 
     /// <summary>今の剛体の置き方で、物理演算のボーンを置く（計算は進めない）。</summary>
@@ -244,4 +329,15 @@ public sealed class ModelPhysics : IDisposable
     private static Vector3 Finite(Vector3 v) => new(Finite(v.X), Finite(v.Y), Finite(v.Z));
 
     private readonly record struct Body(int Bone, PmxPhysicsMode Mode, bool Kinematic, Matrix4x4 Offset, Matrix4x4 InverseOffset);
+
+    /// <summary>剛体 1 つに与える勢いの合計（インパルスモーフ）。</summary>
+    private struct ImpulseSum
+    {
+        public bool Used;
+        public bool Stop;
+        public Vector3 LocalLinear;
+        public Vector3 LocalTorque;
+        public Vector3 GlobalLinear;
+        public Vector3 GlobalTorque;
+    }
 }

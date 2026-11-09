@@ -75,6 +75,46 @@ public sealed class UndoTests
     }
 
     [TestMethod]
+    public void ChangesAreNotMergedAcrossAnAutoKeySwitch()
+    {
+        // 元に戻すの検証（でたらめな編集）で見つけた不具合: 自動キー ON の操作（キーも写す）に、OFF の操作（キーを写さない）を
+        // まとめると、やり直しでキーが戻らなかった
+        var (model, _, animation, edits) = Create();
+        MorphNode blink = model.Morphs[0];
+        animation.AutoKey = true;
+        edits.Change("まばたきの値", [blink], () => blink.Weight = 0.4f, mergeKey: "blink"); // キーを置く
+        animation.AutoKey = false;
+        edits.Change("まばたきの値", [blink], () => blink.Weight = 0.7f, mergeKey: "blink");
+
+        Assert.AreEqual(2, edits.Undo.UndoCount, "キーを写したかどうかが違う操作はまとめない");
+        edits.Undo.Undo();
+        edits.Undo.Undo();
+        Assert.AreEqual(0, blink.Keys.Count);
+        edits.Undo.Redo();
+        Assert.AreEqual(0.4f, blink.Keys.Keys[0].Weight, "やり直すと、自動キーで置いたキーも戻る");
+        edits.Undo.Redo();
+        Assert.AreEqual(0.7f, blink.Weight);
+        Assert.AreEqual(0.4f, blink.Keys.Keys[0].Weight);
+    }
+
+    [TestMethod]
+    public void BoneRotationIsRestoredExactly()
+    {
+        // 元に戻すの検証で見つけた点: 写した回転を戻すとき、長さをそろえ直して値がわずかにずれていた
+        var (model, _, _, edits) = Create();
+        BoneNode center = model.Bones[0];
+        for (int i = 0; i < 200; i++)
+        {
+            Quaternion q = Quaternion.Normalize(Quaternion.CreateFromYawPitchRoll(i * 0.37f, i * 0.11f, i * -0.23f));
+            center.Orientation = q;
+            NodeState state = center.CaptureState();
+            edits.Change("戻す", [center], () => center.Orientation = Quaternion.Identity);
+            edits.Undo.Undo();
+            Assert.AreEqual(state, center.CaptureState(), $"{i} 回目");
+        }
+    }
+
+    [TestMethod]
     public void KeyRegistrationIsUndoneTogetherWithTheUnregisteredMark()
     {
         var (model, playback, animation, edits) = Create();

@@ -271,7 +271,8 @@ public sealed class PmxReaderTests
 
         string[] unsupported = [.. result.Report.Issues.Where(i => i.Category == LoadIssueCategory.Unsupported).Select(i => i.Message)];
         Assert.IsTrue(unsupported.Any(m => m.Contains("QDEF")), "QDEF");
-        Assert.IsTrue(unsupported.Any(m => m.Contains("フリップ")), "フリップ・インパルスモーフ");
+        Assert.IsFalse(unsupported.Any(m => m.Contains("フリップ")), "フリップ・インパルスモーフは対応済み");
+        Assert.IsTrue(result.Report.Issues.Any(i => i.Category == LoadIssueCategory.Note && i.Message.Contains("フリップ")), "MMD では効かないことを知らせる");
         Assert.IsTrue(unsupported.Any(m => m.Contains("ジョイントの種類")), "2.1 のジョイント");
         Assert.IsTrue(unsupported.Any(m => m.Contains("ソフトボディ")), "ソフトボディ");
         Assert.IsTrue(unsupported.Any(m => m.Contains("点・線")), "材質の描き方");

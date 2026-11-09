@@ -77,6 +77,15 @@ public readonly record struct MorphBoneOffset(int Bone, Vector3 Translation, Qua
 
 public readonly record struct MorphGroupOffset(int Morph, float Weight);
 
+/// <summary>
+/// インパルスモーフ（PMX 2.1）の 1 つ分。剛体に勢い（移動の速さ・回転の力）を与える。
+/// <paramref name="Local"/> なら剛体の向きで回してから与える。速さと回転の力が両方 0 なら「止める」（剛体の動きを 0 にする）。
+/// </summary>
+public readonly record struct MorphImpulseOffset(int RigidBody, bool Local, Vector3 Velocity, Vector3 Torque)
+{
+    public bool IsStop => Velocity == Vector3.Zero && Torque == Vector3.Zero;
+}
+
 /// <summary>材質の値（材質モーフで変わる分）。</summary>
 public struct MaterialValues
 {
@@ -100,7 +109,11 @@ public sealed class RigMorph
     public MorphUvOffset[] UvOffsets { get; init; } = [];
     public MorphBoneOffset[] BoneOffsets { get; init; } = [];
     public MorphGroupOffset[] GroupOffsets { get; init; } = [];
+    /// <summary>フリップモーフ（PMX 2.1）の選び先。モーフの値で 1 つを選び、その値を書き換える。</summary>
+    public MorphGroupOffset[] FlipOffsets { get; init; } = [];
     public MorphMaterialOffset[] MaterialOffsets { get; init; } = [];
+    /// <summary>インパルスモーフ（PMX 2.1）の、剛体に与える勢い。物理演算でだけ使う。</summary>
+    public MorphImpulseOffset[] ImpulseOffsets { get; init; } = [];
 }
 
 /// <summary>
@@ -123,6 +136,9 @@ public sealed class ModelRig
     public int[] HierarchyOrder { get; private init; } = [];
 
     public RigMorph[] Morphs { get; private init; } = [];
+
+    /// <summary>フリップモーフ（それを含むグループモーフも）があるか。無ければモーフの値を求める 1 回目の見回りを省く。</summary>
+    public bool HasFlipMorphs { get; private init; }
 
     public SkinWeight[] Skin { get; private init; } = [];
 
@@ -223,6 +239,7 @@ public sealed class ModelRig
         }
 
         int[] deformOrder = [.. bones.OrderBy(b => b.AfterPhysics ? 1 : 0).ThenBy(b => b.Layer).ThenBy(b => b.Index).Select(b => b.Index)];
+        RigMorph[] morphs = BuildMorphs(d);
 
         return new ModelRig
         {
@@ -230,7 +247,8 @@ public sealed class ModelRig
             HierarchyOrder = [.. hierarchy],
             DeformOrder = deformOrder,
             AfterPhysicsStart = bones.Count(b => !b.AfterPhysics),
-            Morphs = BuildMorphs(d),
+            Morphs = morphs,
+            HasFlipMorphs = morphs.Any(m => m.FlipOffsets.Length > 0),
             Skin = BuildSkin(d),
             RestPositions = [.. d.Vertices.Select(v => v.Position)],
             RestNormals = [.. d.Vertices.Select(v => v.Normal.LengthSquared() > 1e-12f ? Vector3.Normalize(v.Normal) : Vector3.UnitY)],
@@ -297,6 +315,7 @@ public sealed class ModelRig
     private static RigMorph[] BuildMorphs(PmxDocument d)
     {
         int vertexCount = d.Vertices.Length, boneCount = d.Bones.Length, morphCount = d.Morphs.Length, materialCount = d.Materials.Length;
+        int bodyCount = d.RigidBodies.Length;
         var morphs = new RigMorph[morphCount];
         for (int i = 0; i < morphCount; i++)
         {
@@ -318,6 +337,14 @@ public sealed class ModelRig
                     ? [.. m.GroupOffsets.Where(o => (uint)o.Morph < (uint)morphCount && o.Morph != i && d.Morphs[o.Morph].Type != PmxMorphType.Group)
                         .Select(o => new MorphGroupOffset(o.Morph, o.Weight))]
                     : [],
+                // フリップモーフは、グループモーフと違って選び先に決まりが無い（自分自身も選べる。PMX 2.1）
+                FlipOffsets = m.Type == PmxMorphType.Flip
+                    ? [.. m.GroupOffsets.Where(o => (uint)o.Morph < (uint)morphCount).Select(o => new MorphGroupOffset(o.Morph, o.Weight))]
+                    : [],
+                ImpulseOffsets = m.Type == PmxMorphType.Impulse
+                    ? [.. m.ImpulseOffsets.Where(o => (uint)o.RigidBody < (uint)bodyCount)
+                        .Select(o => new MorphImpulseOffset(o.RigidBody, o.Local, Finite(o.Velocity), Finite(o.Torque)))]
+                    : [],
                 MaterialOffsets = [.. m.MaterialOffsets.Where(o => o.Material == -1 || (uint)o.Material < (uint)materialCount)
                     .Select(o => new MorphMaterialOffset(o.Material, o.Operation == PmxMaterialOperation.Add, new MaterialValues
                     {
@@ -332,4 +359,7 @@ public sealed class ModelRig
         }
         return morphs;
     }
+
+    private static Vector3 Finite(Vector3 v) => new(
+        float.IsFinite(v.X) ? v.X : 0, float.IsFinite(v.Y) ? v.Y : 0, float.IsFinite(v.Z) ? v.Z : 0);
 }

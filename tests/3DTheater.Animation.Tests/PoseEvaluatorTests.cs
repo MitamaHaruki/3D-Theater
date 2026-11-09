@@ -250,6 +250,119 @@ public sealed class PoseEvaluatorTests
     }
 
     [TestMethod]
+    public void FlipIndexSplitsTheValueIntoCountPlusOneParts()
+    {
+        // 選び先 3 つ: 0〜0.25 未満は「どれも選ばない」、その後 0.25 ずつ 1 つめ・2 つめ・3 つめ
+        Assert.AreEqual(-1, PoseEvaluator.FlipIndex(3, 0f));
+        Assert.AreEqual(-1, PoseEvaluator.FlipIndex(3, 0.24f));
+        Assert.AreEqual(0, PoseEvaluator.FlipIndex(3, 0.25f));
+        Assert.AreEqual(1, PoseEvaluator.FlipIndex(3, 0.5f));
+        Assert.AreEqual(2, PoseEvaluator.FlipIndex(3, 0.75f));
+        Assert.AreEqual(2, PoseEvaluator.FlipIndex(3, 1f), "1 は最後");
+        Assert.AreEqual(-1, PoseEvaluator.FlipIndex(3, -0.5f), "範囲の外は端に寄せる");
+        Assert.AreEqual(2, PoseEvaluator.FlipIndex(3, 5f));
+        Assert.AreEqual(-1, PoseEvaluator.FlipIndex(3, float.NaN));
+        Assert.AreEqual(-1, PoseEvaluator.FlipIndex(0, 1f), "選び先が無い");
+    }
+
+    [TestMethod]
+    public void FlipMorphOverwritesOnlyTheSelectedMorph()
+    {
+        var b = new TestRigBuilder();
+        b.Bone("根元", Vector3.Zero);
+        b.Vertex(Vector3.Zero);
+        int a = b.Morph(new PmxMorph { Name = "A", Type = PmxMorphType.Vertex, VertexOffsets = [new PmxVertexOffset(0, Vector3.UnitX)] });
+        int c = b.Morph(new PmxMorph { Name = "B", Type = PmxMorphType.Vertex, VertexOffsets = [new PmxVertexOffset(0, Vector3.UnitY)] });
+        int flip = b.Morph(new PmxMorph { Name = "切り替え", Type = PmxMorphType.Flip, GroupOffsets = [new PmxGroupOffset(a, 1), new PmxGroupOffset(c, 0.5f)] });
+        ModelRig rig = b.Build();
+        var input = new PoseInput(rig);
+        input.MorphWeights[a] = 0.3f;
+        input.MorphWeights[c] = 0.2f;
+
+        input.MorphWeights[flip] = 0.5f; // 3 つに分けた真ん中 → 1 つめ（A）
+        PoseState state = Evaluate(rig, input);
+        Assert.AreEqual(1f, state.EffectiveMorphWeights[a], 1e-6f, "掛けたり足したりせず、登録の値で書き換える");
+        Assert.AreEqual(0.2f, state.EffectiveMorphWeights[c], 1e-6f, "選ばなかったものはそのまま");
+        AssertEx.AreClose(new Vector3(1, 0.2f, 0), state.VertexOffsets[0]);
+
+        input.MorphWeights[flip] = 1f; // → 2 つめ（B）
+        state = Evaluate(rig, input);
+        Assert.AreEqual(0.3f, state.EffectiveMorphWeights[a], 1e-6f);
+        Assert.AreEqual(0.5f, state.EffectiveMorphWeights[c], 1e-6f);
+
+        input.MorphWeights[flip] = 0.1f; // どれも選ばない
+        state = Evaluate(rig, input);
+        Assert.AreEqual(0.3f, state.EffectiveMorphWeights[a], 1e-6f);
+        Assert.AreEqual(0.2f, state.EffectiveMorphWeights[c], 1e-6f);
+    }
+
+    [TestMethod]
+    public void FlipMorphCanSwitchGroupMorphs()
+    {
+        var b = new TestRigBuilder();
+        b.Bone("根元", Vector3.Zero);
+        b.Vertex(Vector3.Zero);
+        int a = b.Morph(new PmxMorph { Name = "A", Type = PmxMorphType.Vertex, VertexOffsets = [new PmxVertexOffset(0, Vector3.UnitX)] });
+        int c = b.Morph(new PmxMorph { Name = "B", Type = PmxMorphType.Vertex, VertexOffsets = [new PmxVertexOffset(0, Vector3.UnitY)] });
+        int groupA = b.Morph(new PmxMorph { Name = "表情A", Type = PmxMorphType.Group, GroupOffsets = [new PmxGroupOffset(a, 1)] });
+        int groupB = b.Morph(new PmxMorph { Name = "表情B", Type = PmxMorphType.Group, GroupOffsets = [new PmxGroupOffset(c, 1)] });
+        int flip = b.Morph(new PmxMorph { Name = "切り替え", Type = PmxMorphType.Flip, GroupOffsets = [new PmxGroupOffset(groupA, 1), new PmxGroupOffset(groupB, 1)] });
+        ModelRig rig = b.Build();
+        var input = new PoseInput(rig);
+
+        input.MorphWeights[flip] = 0.4f;
+        PoseState state = Evaluate(rig, input);
+        AssertEx.AreClose(Vector3.UnitX, state.VertexOffsets[0], message: "表情A");
+
+        input.MorphWeights[flip] = 0.9f;
+        state = Evaluate(rig, input);
+        AssertEx.AreClose(Vector3.UnitY, state.VertexOffsets[0], message: "表情B");
+    }
+
+    [TestMethod]
+    public void GroupMorphDrivesFlipMorphsInsideIt()
+    {
+        var b = new TestRigBuilder();
+        b.Bone("根元", Vector3.Zero);
+        b.Vertex(Vector3.Zero);
+        int a = b.Morph(new PmxMorph { Name = "A", Type = PmxMorphType.Vertex, VertexOffsets = [new PmxVertexOffset(0, Vector3.UnitX)] });
+        int c = b.Morph(new PmxMorph { Name = "B", Type = PmxMorphType.Vertex, VertexOffsets = [new PmxVertexOffset(0, Vector3.UnitY)] });
+        int flip = b.Morph(new PmxMorph { Name = "切り替え", Type = PmxMorphType.Flip, GroupOffsets = [new PmxGroupOffset(a, 1), new PmxGroupOffset(c, 1)] });
+        int group = b.Morph(new PmxMorph { Name = "まとめ", Type = PmxMorphType.Group, GroupOffsets = [new PmxGroupOffset(flip, 0.5f), new PmxGroupOffset(c, 0.25f)] });
+        ModelRig rig = b.Build();
+        var input = new PoseInput(rig);
+        input.MorphWeights[group] = 1f;
+
+        PoseState state = Evaluate(rig, input);
+
+        // 切り替えには 1 × 0.5 = 0.5 が渡って A を選ぶ。B には普通に 0.25 を足す
+        Assert.AreEqual(1f, state.EffectiveMorphWeights[a], 1e-6f);
+        Assert.AreEqual(0.25f, state.EffectiveMorphWeights[c], 1e-6f);
+        Assert.AreEqual(0f, state.EffectiveMorphWeights[flip], "フリップモーフ自身の値には足さない");
+    }
+
+    [TestMethod]
+    public void FlipMorphsRunInIndexOrder()
+    {
+        var b = new TestRigBuilder();
+        b.Bone("根元", Vector3.Zero);
+        b.Vertex(Vector3.Zero);
+        int a = b.Morph(new PmxMorph { Name = "A", Type = PmxMorphType.Vertex, VertexOffsets = [new PmxVertexOffset(0, Vector3.UnitX)] });
+        int c = b.Morph(new PmxMorph { Name = "B", Type = PmxMorphType.Vertex, VertexOffsets = [new PmxVertexOffset(0, Vector3.UnitY)] });
+        int first = b.Morph(new PmxMorph { Name = "先", Type = PmxMorphType.Flip, GroupOffsets = [new PmxGroupOffset(3, 1)] }); // 後のフリップを 1 にする
+        int second = b.Morph(new PmxMorph { Name = "後", Type = PmxMorphType.Flip, GroupOffsets = [new PmxGroupOffset(a, 1), new PmxGroupOffset(c, 1)] });
+        ModelRig rig = b.Build();
+        var input = new PoseInput(rig);
+        input.MorphWeights[first] = 1f;
+
+        PoseState state = Evaluate(rig, input);
+
+        Assert.AreEqual(1f, state.EffectiveMorphWeights[second]);
+        Assert.AreEqual(0f, state.EffectiveMorphWeights[a]);
+        Assert.AreEqual(1f, state.EffectiveMorphWeights[c], "書き換えた値で、後のフリップが最後の選び先を選ぶ");
+    }
+
+    [TestMethod]
     public void UvMorphMovesTextureCoordinates()
     {
         var b = new TestRigBuilder();

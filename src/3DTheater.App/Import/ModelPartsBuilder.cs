@@ -142,8 +142,8 @@ internal static class ModelPartsBuilder
         PmxMorphType.AdditionalUv1 or PmxMorphType.AdditionalUv2 or PmxMorphType.AdditionalUv3 or PmxMorphType.AdditionalUv4
             => $"追加 UV {(int)type - (int)PmxMorphType.AdditionalUv1 + 1}（今は効きません）",
         PmxMorphType.Material => "材質",
-        PmxMorphType.Flip => "フリップ（今は効きません）",
-        PmxMorphType.Impulse => "インパルス（今は効きません）",
+        PmxMorphType.Flip => "フリップ",
+        PmxMorphType.Impulse => "インパルス（物理演算が ON のとき剛体を押す）",
         _ => "不明",
     };
 }

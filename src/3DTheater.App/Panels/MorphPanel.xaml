@@ -5,10 +5,29 @@
              Background="{StaticResource PanelBrush}">
   <UserControl.Resources>
     <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+    <c:InverseBoolToVisibilityConverter x:Key="InverseBoolToVisibility" />
     <Style TargetType="c:NumberBox" BasedOn="{StaticResource {x:Type TextBox}}">
       <Setter Property="MinHeight" Value="0" />
       <Setter Property="Height" Value="22" />
       <Setter Property="Padding" Value="3,0" />
+      <Setter Property="FontSize" Value="11.5" />
+    </Style>
+    <!-- 行の「◆」（今のフレームにキーがあれば橙） -->
+    <Style x:Key="KeyButtonStyle" TargetType="Button" BasedOn="{StaticResource IconButtonStyle}">
+      <Setter Property="FontFamily" Value="Yu Gothic UI" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Width" Value="24" />
+      <Setter Property="Height" Value="24" />
+      <Setter Property="Foreground" Value="{StaticResource SubTextBrush}" />
+      <Style.Triggers>
+        <DataTrigger Binding="{Binding HasKey}" Value="True">
+          <Setter Property="Foreground" Value="#FFF0A040" />
+        </DataTrigger>
+      </Style.Triggers>
+    </Style>
+    <Style x:Key="SmallTextButtonStyle" TargetType="Button" BasedOn="{StaticResource TextButtonStyle}">
+      <Setter Property="Height" Value="24" />
+      <Setter Property="Padding" Value="6,0" />
       <Setter Property="FontSize" Value="11.5" />
     </Style>
   </UserControl.Resources>
@@ -39,9 +58,91 @@
           </TextBlock>
         </Grid>
       </DockPanel>
+      <!-- 未登録の変更があるときだけ出す -->
+      <DockPanel Margin="0,4,0,0" Visibility="{Binding HasUnregistered, Converter={StaticResource BoolToVisibility}}">
+        <Button DockPanel.Dock="Right" Style="{StaticResource SmallTextButtonStyle}" Content="まとめて登録" Click="OnRegisterChangedClick"
+                ToolTip="このモデルのモーフの未登録の変更を、全部今のフレームのキーにします（元に戻せます）" />
+        <TextBlock VerticalAlignment="Center" FontSize="11.5" Foreground="#FFF0A040" Text="{Binding UnregisteredNote}" />
+      </DockPanel>
     </StackPanel>
     <TextBlock DockPanel.Dock="Top" Margin="10,6" Text="{Binding EmptyNote}" Foreground="{StaticResource SubTextBrush}"
                Visibility="{Binding IsEmptyNoteVisible, Converter={StaticResource BoolToVisibility}}" />
+
+    <!-- 表情のプリセット: 保存と、割合で混ぜて当てる -->
+    <Border DockPanel.Dock="Bottom" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0"
+            Visibility="{Binding HasModel, Converter={StaticResource BoolToVisibility}}">
+      <Expander Margin="6,2,6,6" IsExpanded="True">
+        <Expander.Header>
+          <TextBlock FontWeight="SemiBold" Text="表情のプリセット（保存と混合）" />
+        </Expander.Header>
+        <StackPanel Margin="2,4,2,0">
+          <DockPanel>
+            <Button DockPanel.Dock="Right" Margin="6,0,0,0" Style="{StaticResource SmallTextButtonStyle}" Content="保存" Click="OnSavePresetClick"
+                    ToolTip="今上の一覧に出ているモーフ（分類と名前の絞り込みに合うもの）の値を、名前を付けて覚えます。0 のモーフも覚えるので、当てると 0 に戻ります。同じ名前があれば置き換えます" />
+            <Grid>
+              <TextBox x:Name="PresetNameBox" MinHeight="0" Height="24" Padding="6,1" FontSize="12" KeyDown="OnPresetNameKeyDown"
+                       Text="{Binding PresetName, UpdateSourceTrigger=PropertyChanged}" />
+              <TextBlock Margin="9,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False" Foreground="{StaticResource DisabledTextBrush}"
+                         FontSize="12" Text="名前（空なら「表情 1」など）">
+                <TextBlock.Style>
+                  <Style TargetType="TextBlock">
+                    <Style.Triggers>
+                      <DataTrigger Binding="{Binding Text, ElementName=PresetNameBox}" Value="">
+                        <Setter Property="Visibility" Value="Visible" />
+                      </DataTrigger>
+                    </Style.Triggers>
+                    <Setter Property="Visibility" Value="Collapsed" />
+                  </Style>
+                </TextBlock.Style>
+              </TextBlock>
+            </Grid>
+          </DockPanel>
+
+          <TextBlock Margin="2,6,2,2" TextWrapping="Wrap" FontSize="11.5" Foreground="{StaticResource SubTextBrush}"
+                     Visibility="{Binding HasPresets, Converter={StaticResource InverseBoolToVisibility}}"
+                     Text="まだありません。表情を作ってから「保存」を押すと、ここに並び、割合で混ぜて当てられます（どのモデルでも、名前の合うモーフに当たります）。" />
+
+          <ScrollViewer MaxHeight="220" Margin="0,4,0,0" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                        Visibility="{Binding HasPresets, Converter={StaticResource BoolToVisibility}}">
+            <ItemsControl ItemsSource="{Binding Presets}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <Grid Margin="0,1,0,5" ToolTip="{Binding ToolTip}">
+                    <Grid.ColumnDefinitions>
+                      <ColumnDefinition Width="*" />
+                      <ColumnDefinition Width="54" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                      <RowDefinition Height="24" />
+                      <RowDefinition Height="24" />
+                    </Grid.RowDefinitions>
+                    <DockPanel Grid.ColumnSpan="2">
+                      <Button DockPanel.Dock="Right" Style="{StaticResource IconButtonStyle}" Width="24" Height="24" FontSize="12"
+                              Content="&#xE74D;" ToolTip="このプリセットを消します" Click="OnDeletePresetClick" />
+                      <Button DockPanel.Dock="Right" Style="{StaticResource SmallTextButtonStyle}" Content="当てる" Click="OnApplyPresetClick"
+                              ToolTip="このプリセットを 100% にします（ほかの割合はそのまま）" />
+                      <TextBlock DockPanel.Dock="Right" Margin="6,0" VerticalAlignment="Center" FontSize="11" Foreground="{StaticResource SubTextBrush}"
+                                 Text="{Binding MatchText}" />
+                      <TextBlock VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Text="{Binding Name}" />
+                    </DockPanel>
+                    <Slider Grid.Row="1" Margin="0,0,6,0" VerticalAlignment="Center" Minimum="0" Maximum="100" SmallChange="1" LargeChange="10"
+                            IsMoveToPointEnabled="True" Value="{Binding Ratio}" ToolTip="混ぜる割合（動かすと、すぐ当たります）" />
+                    <c:NumberBox Grid.Row="1" Grid.Column="1" Value="{Binding Ratio}" Step="1" Format="0'%'" ToolTip="混ぜる割合（%）" />
+                  </Grid>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </ScrollViewer>
+
+          <DockPanel Margin="0,2,0,0" Visibility="{Binding HasPresets, Converter={StaticResource BoolToVisibility}}">
+            <Button DockPanel.Dock="Right" Style="{StaticResource SmallTextButtonStyle}" Content="混ぜる前に戻す" Click="OnResetMixClick"
+                    ToolTip="割合を全部 0% にして、混ぜる前の値に戻します" />
+            <TextBlock VerticalAlignment="Center" TextWrapping="Wrap" FontSize="11" Foreground="{StaticResource SubTextBrush}"
+                       Text="手で値を変えると、割合は 0% に戻ります（値はそのまま）" />
+          </DockPanel>
+        </StackPanel>
+      </Expander>
+    </Border>
 
     <ListBox x:Name="List" ItemsSource="{Binding Rows}" Background="Transparent" BorderThickness="0" Padding="2,0"
              ScrollViewer.HorizontalScrollBarVisibility="Disabled"
@@ -53,7 +154,7 @@
           <Setter Property="Template">
             <Setter.Value>
               <ControlTemplate TargetType="ListBoxItem">
-                <Border x:Name="Row" Background="Transparent" CornerRadius="3" Padding="6,1">
+                <Border x:Name="Row" Background="Transparent" CornerRadius="3" Padding="6,1,2,1">
                   <ContentPresenter />
                 </Border>
                 <ControlTemplate.Triggers>
@@ -71,18 +172,21 @@
       </ListBox.ItemContainerStyle>
       <ListBox.ItemTemplate>
         <DataTemplate>
-          <Grid Height="28" ToolTip="{Binding ToolTip}">
+          <Grid Height="28">
             <Grid.ColumnDefinitions>
               <ColumnDefinition Width="3*" MinWidth="70" />
               <ColumnDefinition Width="4*" />
               <ColumnDefinition Width="58" />
+              <ColumnDefinition Width="26" />
             </Grid.ColumnDefinitions>
-            <TextBlock VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Text="{Binding Name}"
+            <TextBlock VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Text="{Binding DisplayName}" ToolTip="{Binding ToolTip}"
                        Background="Transparent" Cursor="Hand" MouseLeftButtonDown="OnNameMouseDown" />
             <Slider Grid.Column="1" Margin="6,0" VerticalAlignment="Center" Minimum="0" Maximum="1" SmallChange="0.01" LargeChange="0.1"
                     IsMoveToPointEnabled="True" Value="{Binding Weight}" IsEnabled="{Binding IsEditable}" />
             <c:NumberBox Grid.Column="2" Value="{Binding Weight}" Step="0.01" Format="0.000"
                          IsReadOnly="{Binding IsEditable, Converter={x:Static c:BoolNegation.Instance}}" />
+            <Button Grid.Column="3" Margin="2,0,0,0" Style="{StaticResource KeyButtonStyle}" Content="{Binding KeyGlyph}"
+                    ToolTip="{Binding KeyToolTip}" IsEnabled="{Binding IsEditable}" Click="OnKeyClick" />
           </Grid>
         </DataTemplate>
       </ListBox.ItemTemplate>

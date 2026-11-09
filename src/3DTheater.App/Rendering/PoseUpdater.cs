@@ -96,7 +96,7 @@ public sealed class PoseUpdater
                     model.ShowingBakedPhysics = false;
                     step = PhysicsStep.Reset;
                 }
-                if (!TryPhysics(node, model, physics, step))
+                if (!TryPhysics(node, model, physics, step, _context.Playback.FrameRate))
                 {
                     PoseEvaluator.EvaluateBeforePhysics(model.Rig, input, model.State); // 物理の途中の結果を捨てる
                 }
@@ -141,7 +141,7 @@ public sealed class PoseUpdater
         _timer.Add(Stopwatch.GetElapsedTime(start));
     }
 
-    private static bool TryPhysics(ModelNode node, LoadedModel model, ModelPhysics physics, PhysicsStep step)
+    private static bool TryPhysics(ModelNode node, LoadedModel model, ModelPhysics physics, PhysicsStep step, int frameRate)
     {
         try
         {
@@ -153,7 +153,8 @@ public sealed class PoseUpdater
                     physics.Reset(model.State);
                     break;
                 case PhysicsStepKind.Step:
-                    physics.Step(model.State, step.Seconds);
+                    // インパルスモーフは 1 フレームにつき 1 回（止まっているときに落ち着かせる間は、進めた時間の割合で）
+                    physics.Step(model.State, step.Seconds, step.Seconds * frameRate);
                     break;
                 default:
                     physics.Apply(model.State);

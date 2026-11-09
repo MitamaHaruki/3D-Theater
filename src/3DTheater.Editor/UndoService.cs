@@ -170,13 +170,15 @@ public sealed class EditService(UndoService undo, AnimationService animation, Pl
 
         DateTime now = DateTime.UtcNow;
         if (mergeKey is not null && Undo.Top is SceneChange top && top.MergeKey == mergeKey && now - top.LastChanged < MergeWindow
-            && top.ReplayCount == Undo.ReplayCount && top.Nodes.SequenceEqual(targets))
+            && top.ReplayCount == Undo.ReplayCount && top.IncludesKeys == includeKeys && top.Nodes.SequenceEqual(targets))
         {
+            // キーを写したかどうかが違う操作はまとめない（途中で自動キーを切り替えたとき、キーを写していない側の写しで
+            // 元に戻す・やり直しをすると、キーが戻らなくなるため）
             top.Absorb(after, now);
             Undo.NotifyTopChanged();
             return true;
         }
-        Undo.Push(new SceneChange(this, description, targets, before, after, mergeKey, now) { ReplayCount = Undo.ReplayCount });
+        Undo.Push(new SceneChange(this, description, targets, before, after, mergeKey, now, includeKeys) { ReplayCount = Undo.ReplayCount });
         return true;
     }
 
@@ -256,8 +258,8 @@ public sealed class EditService(UndoService undo, AnimationService animation, Pl
         public void Redo() => owner.RestoreTiming(nodes, after, timingAfter);
     }
 
-    internal void Push(string description, SceneNode[] nodes, NodeState[] before, NodeState[] after) =>
-        Undo.Push(new SceneChange(this, description, nodes, before, after, null, DateTime.UtcNow) { ReplayCount = Undo.ReplayCount });
+    internal void Push(string description, SceneNode[] nodes, NodeState[] before, NodeState[] after, bool includeKeys) =>
+        Undo.Push(new SceneChange(this, description, nodes, before, after, null, DateTime.UtcNow, includeKeys) { ReplayCount = Undo.ReplayCount });
 
     /// <summary>写しの値に戻す（元に戻す・やり直しから呼ぶ）。</summary>
     internal void Restore(IReadOnlyList<SceneNode> nodes, IReadOnlyList<NodeState> states)
@@ -277,7 +279,8 @@ public sealed class EditService(UndoService undo, AnimationService animation, Pl
 
     /// <summary>項目の値を書き換える操作 1 つ。</summary>
     private sealed class SceneChange(
-        EditService owner, string description, SceneNode[] nodes, NodeState[] before, NodeState[] after, string? mergeKey, DateTime time) : IUndoableAction
+        EditService owner, string description, SceneNode[] nodes, NodeState[] before, NodeState[] after, string? mergeKey, DateTime time,
+        bool includesKeys) : IUndoableAction
     {
         private NodeState[] _after = after;
 
@@ -286,6 +289,9 @@ public sealed class EditService(UndoService undo, AnimationService animation, Pl
         public IReadOnlyList<SceneNode> Nodes => nodes;
 
         public string? MergeKey { get; } = mergeKey;
+
+        /// <summary>キーも写したか。</summary>
+        public bool IncludesKeys { get; } = includesKeys;
 
         public DateTime LastChanged { get; private set; } = time;
 
@@ -338,7 +344,7 @@ public sealed class EditTransaction
         {
             return false;
         }
-        _owner.Push(_description, _nodes, _before, after);
+        _owner.Push(_description, _nodes, _before, after, _includeKeys);
         return true;
     }
 

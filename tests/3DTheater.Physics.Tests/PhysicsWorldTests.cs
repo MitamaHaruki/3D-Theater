@@ -135,4 +135,44 @@ public sealed class PhysicsWorldTests
         world.Dispose();
         Assert.ThrowsExactly<ObjectDisposedException>(() => world.Step([Identity], 0.1f, 1));
     }
+
+    [TestMethod]
+    public void ImpulsesChangeTheVelocityAndStopClearsIt()
+    {
+        using var world = PhysicsWorld.Create(Vector3.Zero);
+        PhysicsBodyDesc turned = Body(PhysicsShape.Sphere, PhysicsBodyKind.Dynamic, new Vector3(0.5f), new Vector3(10, 0, 0), mask: 0);
+        turned.Transform.Rotation = Quaternion.CreateFromAxisAngle(Vector3.UnitY, MathF.PI / 2); // 剛体の +X が世界の -Z を向く
+        world.AddBodies(
+        [
+            Body(PhysicsShape.Sphere, PhysicsBodyKind.Dynamic, new Vector3(0.5f), Vector3.Zero, mask: 0),
+            turned,
+            Body(PhysicsShape.Sphere, PhysicsBodyKind.Kinematic, new Vector3(0.5f), new Vector3(0, 5, 0), mask: 0),
+        ]);
+        PhysicsTransform[] targets = [Identity, Identity, new PhysicsTransform(new Vector3(0, 5, 0), Quaternion.Identity)];
+
+        world.ApplyImpulses(
+        [
+            new PhysicsImpulse { Body = 0, Linear = new Vector3(2, 0, 0) },
+            new PhysicsImpulse { Body = 1, Flags = PhysicsImpulseFlags.Local, Linear = new Vector3(2, 0, 0) },
+            new PhysicsImpulse { Body = 2, Linear = new Vector3(5, 0, 0) },
+        ]);
+        world.Step(targets, 1f, 120);
+        PhysicsTransform[] after = Read(world);
+        Assert.AreEqual(0f, Vector3.Distance(new Vector3(2, 0, 0), after[0].Position), 0.05f, "重さ 1 なら、勢い 2 で 1 秒に 2 進む");
+        Assert.AreEqual(0f, Vector3.Distance(new Vector3(10, 0, -2), after[1].Position), 0.05f, "剛体の向きで回してから押す");
+        Assert.AreEqual(0f, Vector3.Distance(new Vector3(0, 5, 0), after[2].Position), 1e-3f, "外から置き方を与える剛体は押さない");
+
+        world.ApplyImpulses(
+        [
+            new PhysicsImpulse { Body = 0, Flags = PhysicsImpulseFlags.Stop },
+            new PhysicsImpulse { Body = 1, Flags = PhysicsImpulseFlags.Stop, Linear = new Vector3(0, 1, 0) }, // 止めてから押す
+        ]);
+        world.Step(targets, 1f, 120);
+        after = Read(world);
+        Assert.AreEqual(0f, Vector3.Distance(new Vector3(2, 0, 0), after[0].Position), 0.05f, "止めると、その場に止まる");
+        Assert.AreEqual(0f, Vector3.Distance(new Vector3(10, 1, -2), after[1].Position), 0.05f, "止めてから押すと、前の速さは残らない");
+
+        Assert.ThrowsExactly<PhysicsException>(() => world.ApplyImpulses([new PhysicsImpulse { Body = 3 }]));
+        Assert.ThrowsExactly<PhysicsException>(() => world.ApplyImpulses([new PhysicsImpulse { Body = 0, Linear = new Vector3(float.NaN) }]));
+    }
 }

@@ -84,6 +84,30 @@ public struct PhysicsJointDesc
     public Vector3 AngularStiffness;
 }
 
+[Flags]
+public enum PhysicsImpulseFlags : uint
+{
+    None = 0,
+
+    /// <summary>勢いを剛体の向きで回してから与える。</summary>
+    Local = 1,
+
+    /// <summary>先に剛体の動き（速さ・回転の速さ）を 0 にする。</summary>
+    Stop = 2,
+}
+
+/// <summary>剛体 1 つに与える勢い（tp_physics.h の TpImpulse と同じ並び）。外から置き方を与える剛体には効かない。</summary>
+[StructLayout(LayoutKind.Sequential)]
+public struct PhysicsImpulse
+{
+    public int Body;
+    public PhysicsImpulseFlags Flags;
+    /// <summary>移動の勢い（重さで割った分だけ速さが変わる）。</summary>
+    public Vector3 Linear;
+    /// <summary>回転の勢い。</summary>
+    public Vector3 Torque;
+}
+
 /// <summary>物理の C API が失敗を返したときの例外。</summary>
 public sealed class PhysicsException(int result, string message) : Exception($"{message}（{result}）")
 {
@@ -97,7 +121,7 @@ public sealed class PhysicsException(int result, string message) : Exception($"{
 public sealed unsafe partial class PhysicsWorld : IDisposable
 {
     public const int ExpectedApiVersionMajor = 0;
-    public const int ExpectedApiVersionMinor = 1;
+    public const int ExpectedApiVersionMinor = 2;
 
     private const string Library = "3DTheater.Physics.Native";
     private nint _handle;
@@ -186,6 +210,19 @@ public sealed unsafe partial class PhysicsWorld : IDisposable
         }
     }
 
+    /// <summary>剛体に勢いを与える（次の <see cref="Step"/> の前に）。並んだ順に、止める → 勢いを足す、を行う。</summary>
+    public void ApplyImpulses(ReadOnlySpan<PhysicsImpulse> impulses)
+    {
+        if (impulses.IsEmpty)
+        {
+            return;
+        }
+        fixed (PhysicsImpulse* p = impulses)
+        {
+            Check(tp_world_apply_impulses(Handle, p, impulses.Length));
+        }
+    }
+
     public void Dispose()
     {
         if (_handle == 0)
@@ -258,4 +295,8 @@ public sealed unsafe partial class PhysicsWorld : IDisposable
     [LibraryImport(Library)]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     private static partial int tp_world_get_transforms(nint world, PhysicsTransform* transforms, int count);
+
+    [LibraryImport(Library)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    private static partial int tp_world_apply_impulses(nint world, PhysicsImpulse* impulses, int count);
 }

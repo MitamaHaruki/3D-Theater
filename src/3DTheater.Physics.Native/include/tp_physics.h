@@ -24,7 +24,7 @@ extern "C" {
 #endif
 
 #define TP_API_VERSION_MAJOR 0
-#define TP_API_VERSION_MINOR 1
+#define TP_API_VERSION_MINOR 2
 #define TP_API_VERSION ((TP_API_VERSION_MAJOR << 16) | TP_API_VERSION_MINOR)
 
 typedef int32_t TpResult;
@@ -84,6 +84,19 @@ typedef struct TpJointDesc {
     float angular_stiffness[3];
 } TpJointDesc;
 
+enum {
+    TP_IMPULSE_LOCAL = 1, // linear・torque を剛体の向きで回してから与える
+    TP_IMPULSE_STOP = 2,  // 先に剛体の動き（速さ・回転の速さ・たまった力）を 0 にする
+};
+
+// 剛体 1 つに与える勢い（PMX 2.1 のインパルスモーフ）。外から置き方を与える剛体には何もしない
+typedef struct TpImpulse {
+    int32_t body;
+    uint32_t flags;   // TP_IMPULSE_* の組み合わせ
+    float linear[3];  // 移動の勢い（Bullet の applyCentralImpulse）
+    float torque[3];  // 回転の勢い（Bullet の applyTorqueImpulse）
+} TpImpulse;
+
 typedef struct TpWorldDesc {
     uint32_t struct_size;
     float gravity[3];
@@ -112,6 +125,8 @@ TP_API TpResult TP_CALL tp_world_step(
     TpWorld* world, const TpTransform* targets, int32_t count, float time_step, int32_t substeps);
 // 全剛体の今の置き方を読み出す
 TP_API TpResult TP_CALL tp_world_get_transforms(TpWorld* world, TpTransform* out_transforms, int32_t count);
+// 剛体に勢いを与える（次の tp_world_step の前に呼ぶ）。並んだ順に、止める → 勢いを足す、を行う（API 0.2）
+TP_API TpResult TP_CALL tp_world_apply_impulses(TpWorld* world, const TpImpulse* impulses, int32_t count);
 
 #ifdef __cplusplus
 }
