@@ -101,6 +101,15 @@ public sealed unsafe class NativeView : IDisposable
                 GroundShadowColor = frame.GroundShadowColor,
                 ShadowMapSize = (uint)Math.Max(0, frame.ShadowMapSize),
                 ClearColor = frame.ClearColor,
+                PostFlags = (uint)frame.Effects.Flags,
+                Exposure = frame.Effects.Exposure,
+                Contrast = frame.Effects.Contrast,
+                Saturation = frame.Effects.Saturation,
+                Temperature = frame.Effects.Temperature,
+                BloomIntensity = frame.Effects.BloomIntensity,
+                BloomThreshold = frame.Effects.BloomThreshold,
+                BloomSpread = frame.Effects.BloomSpread,
+                Vignette = frame.Effects.Vignette,
             };
             return NativeError.Check(NativeMethods.ViewRender(Handle, &parameters)) == NativeResult.Ok;
         }

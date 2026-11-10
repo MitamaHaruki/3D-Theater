@@ -13,6 +13,11 @@
 // FxCompile が中間フォルダに書き出すシェーダーのバイト列
 #include "BasicPS.h"
 #include "BasicVS.h"
+#include "BloomDownPS.h"
+#include "BloomPrefilterPS.h"
+#include "BloomUpPS.h"
+#include "PostCompositePS.h"
+#include "PostVS.h"
 #include "EdgePS.h"
 #include "EdgeVS.h"
 #include "GroundShadowPS.h"
@@ -52,6 +57,23 @@ struct ObjectConstants {
     DirectX::XMFLOAT4 shadowParams;
     DirectX::XMFLOAT4 groundShadowColor;
 };
+
+struct PostConstants {
+    DirectX::XMFLOAT4 sourceTexel;
+    DirectX::XMFLOAT4 bloomParams;
+    DirectX::XMFLOAT4 gradeParams;
+    DirectX::XMFLOAT4 whiteBalance;
+    DirectX::XMFLOAT4 backgroundColor;
+    uint32_t flags[4];
+};
+
+constexpr uint32_t kKnownPostFlags = TT_POST_COLOR | TT_POST_BLOOM | TT_POST_VIGNETTE;
+
+// 数でない値は fallback に、範囲の外は範囲に収める
+float Sanitize(float value, float fallback, float minimum, float maximum) noexcept
+{
+    return std::isfinite(value) ? std::clamp(value, minimum, maximum) : fallback;
+}
 
 struct MaterialConstants {
     DirectX::XMFLOAT4 diffuse;
@@ -109,6 +131,7 @@ Engine::Engine(const TtEngineDesc& desc)
     CreateDevice();
     CreateSceneResources();
     CreateModelResources();
+    CreatePostResources();
 }
 
 Engine::~Engine()
@@ -157,6 +180,7 @@ void Engine::Recover()
     CreateDevice();
     CreateSceneResources();
     CreateModelResources();
+    CreatePostResources();
     ++generation_;
     for (DeviceObject* object : objects_) {
         object->RestoreDeviceResources();
@@ -172,6 +196,13 @@ void Engine::ReleaseDevice() noexcept
         context_->Flush();
     }
     gpuDoneQuery_.Reset();
+    postConstantBuffer_.Reset();
+    postCompositeShader_.Reset();
+    bloomUpShader_.Reset();
+    bloomDownShader_.Reset();
+    bloomPrefilterShader_.Reset();
+    postVertexShader_.Reset();
+    farDepthState_.Reset();
     shadowMapSrv_.Reset();
     shadowMapDsv_.Reset();
     shadowMapSize_ = 0;
@@ -462,7 +493,7 @@ uint32_t Engine::SupportedSampleCount(uint32_t requested) const
 }
 
 void Engine::DrawScene(ID3D11RenderTargetView* rtv, ID3D11DepthStencilView* dsv, int width, int height, const TtFrameParams& params,
-    bool multisampled)
+    bool multisampled, ScenePart part)
 {
     using namespace DirectX;
 
@@ -471,6 +502,7 @@ void Engine::DrawScene(ID3D11RenderTargetView* rtv, ID3D11DepthStencilView* dsv,
     ID3D11DeviceContext* ctx = context_.Get();
     const XMMATRIX viewProj = load(params.view) * load(params.projection);
     basicState_ = multisampled ? multisampleLineState_.Get() : rasterizerState_.Get();
+    const bool drawScene = part != ScenePart::Overlays;
 
     // モデルの描き方（照明・カメラの位置・輪郭線の太さ・影）は、1 枚の中で共通
     ModelFrame frame{};
@@ -496,40 +528,117 @@ void Engine::DrawScene(ID3D11RenderTargetView* rtv, ID3D11DepthStencilView* dsv,
     XMStoreFloat4x4(&frame.lightViewProj, XMMatrixIdentity());
     frame.groundShadowColor = {params.ground_shadow_color[0], params.ground_shadow_color[1], params.ground_shadow_color[2],
         params.ground_shadow_color[3]};
-    if ((params.flags & TT_FRAME_SELF_SHADOW) && params.item_count > 0) {
+    if (drawScene && (params.flags & TT_FRAME_SELF_SHADOW) && params.item_count > 0) {
         RenderShadowMap(params, frame); // 影を落とすものが無ければ、セルフシャドウなしのまま
     }
 
     ctx->OMSetRenderTargets(1, &rtv, dsv);
     const D3D11_VIEWPORT viewport{0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height), 0.0f, 1.0f};
     ctx->RSSetViewports(1, &viewport);
-    if (params.flags & TT_FRAME_CLEAR_COLOR) {
+    if (part == ScenePart::Scene) {
+        const float transparent[4] = {0.0f, 0.0f, 0.0f, 0.0f}; // 背景は映像効果の仕上げで後ろに置く
+        ctx->ClearRenderTargetView(rtv, transparent);
+    } else if (part == ScenePart::All && (params.flags & TT_FRAME_CLEAR_COLOR)) {
         float clear[4];
         for (int i = 0; i < 4; ++i) {
-            clear[i] = std::isfinite(params.clear_color[i]) ? std::clamp(params.clear_color[i], 0.0f, 1.0f) : 0.0f;
+            clear[i] = Sanitize(params.clear_color[i], 0.0f, 0.0f, 1.0f);
         }
         ctx->ClearRenderTargetView(rtv, clear);
-    } else {
+    } else if (part == ScenePart::All) {
         ctx->ClearRenderTargetView(rtv, kClearColor);
     }
-    ctx->ClearDepthStencilView(dsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+    if (drawScene) {
+        ctx->ClearDepthStencilView(dsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+    }
 
     SetBasicPipeline();
     const UINT stride = sizeof(DemoVertex);
     const UINT offset = 0;
 
-    // 固定視点では、格子と座標軸をいちばん奥に描く（奥行きを比べも書きもしないので、後から描くモデルが必ず上に重なる）
+    // 固定視点では、格子と座標軸をいちばん奥に描く（全部を描くときは奥行きを無視して先に描き、後から描くモデルを上に重ねる。
+    // 映像効果を使うときは、場面の後に「何も描かれていない所」だけへ描く）
     const bool gridBehind = (params.flags & TT_FRAME_GRID_BEHIND) != 0;
-    if (gridBehind) {
-        ctx->OMSetDepthStencilState(overlayDepthState_.Get(), 0);
+    if (part == ScenePart::All) {
+        DrawGridAndAxes(params, viewProj, gridBehind ? GridDepth::Ignore : GridDepth::Normal, width, height);
+    }
+
+    if (drawScene && (params.flags & TT_FRAME_SHOW_TEST_OBJECT)) {
+        const XMMATRIX worldViewProj = load(params.test_object_world) * viewProj;
+        SetConstants(worldViewProj);
+        ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        ctx->IASetVertexBuffers(0, 1, cubeVertexBuffer_.GetAddressOf(), &stride, &offset);
+        ctx->IASetIndexBuffer(cubeIndexBuffer_.Get(), DXGI_FORMAT_R16_UINT, 0);
+        ctx->DrawIndexed(cubeIndexCount_, 0, 0);
+    }
+
+    // 地面の影は、モデルより先に床へ描く（モデルの奥行きで隠れる所は、後から描くモデルが上書きする）
+    if (drawScene && (params.flags & TT_FRAME_GROUND_SHADOW) && params.item_count > 0) {
+        DrawGroundShadows(params, frame);
+    }
+
+    // モデル（並び順に描く。半透明の材質があるので、MMD と同じく並び順をそのまま使う）
+    for (uint32_t i = 0; drawScene && i < params.item_count; ++i) {
+        const TtDrawItem& item = params.items[i];
+        const auto& mesh = *reinterpret_cast<const Mesh*>(item.mesh);
+        const XMMATRIX world = load(item.world);
+        DrawMesh(mesh, world, frame);
+        if (edgePixels > 0.0f && mesh.HasEdges() && !mesh.IsEmpty()) {
+            DrawEdges(mesh);
+        }
+        if (part == ScenePart::All && (item.flags & TT_DRAW_SELECTED)) {
+            SetBasicPipeline();
+            DrawBox(mesh.BoundsMin(), mesh.BoundsMax(), world, viewProj);
+        }
+    }
+
+    // 重ね描き（映像効果の後）: 格子と座標軸、選択の枠。奥行きは場面のものを使う
+    if (part == ScenePart::Overlays) {
+        SetBasicPipeline();
+        DrawGridAndAxes(params, viewProj, gridBehind ? GridDepth::Farthest : GridDepth::Normal, width, height);
+        for (uint32_t i = 0; i < params.item_count; ++i) {
+            const TtDrawItem& item = params.items[i];
+            if (item.flags & TT_DRAW_SELECTED) {
+                const auto& mesh = *reinterpret_cast<const Mesh*>(item.mesh);
+                DrawBox(mesh.BoundsMin(), mesh.BoundsMax(), load(item.world), viewProj);
+            }
+        }
+    }
+    if (part != ScenePart::Scene && (params.flags & TT_FRAME_SHOW_TEST_OBJECT) && (params.flags & TT_FRAME_TEST_OBJECT_SELECTED)) {
+        SetBasicPipeline();
+        SetConstants(load(params.test_object_world) * viewProj);
+        ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_LINELIST);
+        ctx->IASetVertexBuffers(0, 1, cubeEdgeVertexBuffer_.GetAddressOf(), &stride, &offset);
+        ctx->Draw(cubeEdgeVertexCount_, 0);
+    }
+
+    if (part != ScenePart::Scene && params.overlay_vertex_count >= 2) {
+        SetBasicPipeline();
+        DrawOverlayLines(params.overlay_lines, params.overlay_vertex_count - (params.overlay_vertex_count % 2), viewProj);
+    }
+
+    ctx->OMSetBlendState(nullptr, nullptr, 0xFFFFFFFF);
+    ctx->OMSetRenderTargets(0, nullptr, nullptr);
+}
+
+void Engine::DrawGridAndAxes(const TtFrameParams& params, DirectX::CXMMATRIX viewProj, GridDepth depth, int width, int height)
+{
+    using namespace DirectX;
+    ID3D11DeviceContext* ctx = context_.Get();
+    const UINT stride = sizeof(DemoVertex);
+    const UINT offset = 0;
+    ctx->OMSetDepthStencilState(
+        depth == GridDepth::Ignore ? overlayDepthState_.Get() : depth == GridDepth::Farthest ? farDepthState_.Get() : depthState_.Get(), 0);
+    if (depth == GridDepth::Farthest) {
+        // 奥行きを全部 1 にして、奥行き 1 のまま（何も描かれていない）所だけに描く
+        const D3D11_VIEWPORT farthest{0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height), 1.0f, 1.0f};
+        ctx->RSSetViewports(1, &farthest);
     }
     ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_LINELIST);
     if (params.flags & TT_FRAME_SHOW_GRID) {
-        SetConstants(load(params.grid_world) * viewProj);
+        SetConstants(XMLoadFloat4x4(reinterpret_cast<const XMFLOAT4X4*>(params.grid_world)) * viewProj);
         ctx->IASetVertexBuffers(0, 1, gridVertexBuffer_.GetAddressOf(), &stride, &offset);
         ctx->Draw(gridVertexCount_, 0);
     }
-
     SetConstants(viewProj);
     ctx->IASetVertexBuffers(0, 1, axisVertexBuffer_.GetAddressOf(), &stride, &offset);
     const uint32_t axisFlags[] = {TT_FRAME_SHOW_AXIS_X, TT_FRAME_SHOW_AXIS_Y, TT_FRAME_SHOW_AXIS_Z};
@@ -538,52 +647,135 @@ void Engine::DrawScene(ID3D11RenderTargetView* rtv, ID3D11DepthStencilView* dsv,
             ctx->Draw(2, axis * 2);
         }
     }
-    if (gridBehind) {
-        ctx->OMSetDepthStencilState(depthState_.Get(), 0);
+    ctx->OMSetDepthStencilState(depthState_.Get(), 0);
+    if (depth == GridDepth::Farthest) {
+        const D3D11_VIEWPORT viewport{0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height), 0.0f, 1.0f};
+        ctx->RSSetViewports(1, &viewport);
     }
+}
 
-    if (params.flags & TT_FRAME_SHOW_TEST_OBJECT) {
-        const XMMATRIX worldViewProj = load(params.test_object_world) * viewProj;
-        SetConstants(worldViewProj);
-        ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-        ctx->IASetVertexBuffers(0, 1, cubeVertexBuffer_.GetAddressOf(), &stride, &offset);
-        ctx->IASetIndexBuffer(cubeIndexBuffer_.Get(), DXGI_FORMAT_R16_UINT, 0);
-        ctx->DrawIndexed(cubeIndexCount_, 0, 0);
+bool Engine::UsesPostEffects(const TtFrameParams& params) noexcept
+{
+    return (params.post_flags & kKnownPostFlags) != 0;
+}
 
-        if (params.flags & TT_FRAME_TEST_OBJECT_SELECTED) {
-            ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_LINELIST);
-            ctx->IASetVertexBuffers(0, 1, cubeEdgeVertexBuffer_.GetAddressOf(), &stride, &offset);
-            ctx->Draw(cubeEdgeVertexCount_, 0);
-        }
-    }
+void Engine::CreatePostSurface(PostSurface& surface, UINT width, UINT height, DXGI_FORMAT format)
+{
+    D3D11_TEXTURE2D_DESC desc{};
+    desc.Width = std::max<UINT>(width, 1);
+    desc.Height = std::max<UINT>(height, 1);
+    desc.MipLevels = 1;
+    desc.ArraySize = 1;
+    desc.Format = format;
+    desc.SampleDesc.Count = 1;
+    desc.Usage = D3D11_USAGE_DEFAULT;
+    desc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+    CheckHr(device_->CreateTexture2D(&desc, nullptr, &surface.texture), L"映像効果の画像の作成");
+    CheckHr(device_->CreateRenderTargetView(surface.texture.Get(), nullptr, &surface.rtv), L"映像効果の描画先ビューの作成");
+    CheckHr(device_->CreateShaderResourceView(surface.texture.Get(), nullptr, &surface.srv), L"映像効果の画像のビューの作成");
+    surface.width = desc.Width;
+    surface.height = desc.Height;
+}
 
-    // 地面の影は、モデルより先に床へ描く（モデルの奥行きで隠れる所は、後から描くモデルが上書きする）
-    if ((params.flags & TT_FRAME_GROUND_SHADOW) && params.item_count > 0) {
-        DrawGroundShadows(params, frame);
-    }
+void Engine::ApplyPostEffects(const TtFrameParams& params, ID3D11ShaderResourceView* scene, const std::vector<PostSurface>& bloomDown,
+    const std::vector<PostSurface>& bloomUp, ID3D11RenderTargetView* output, int width, int height)
+{
+    ID3D11DeviceContext* ctx = context_.Get();
+    uint32_t flags = params.post_flags & kKnownPostFlags;
 
-    // モデル（並び順に描く。半透明の材質があるので、MMD と同じく並び順をそのまま使う）
-    for (uint32_t i = 0; i < params.item_count; ++i) {
-        const TtDrawItem& item = params.items[i];
-        const auto& mesh = *reinterpret_cast<const Mesh*>(item.mesh);
-        const XMMATRIX world = load(item.world);
-        DrawMesh(mesh, world, frame);
-        if (edgePixels > 0.0f && mesh.HasEdges() && !mesh.IsEmpty()) {
-            DrawEdges(mesh);
-        }
-        if (item.flags & TT_DRAW_SELECTED) {
-            SetBasicPipeline();
-            DrawBox(mesh.BoundsMin(), mesh.BoundsMax(), world, viewProj);
-        }
-    }
-
-    if (params.overlay_vertex_count >= 2) {
-        SetBasicPipeline();
-        DrawOverlayLines(params.overlay_lines, params.overlay_vertex_count - (params.overlay_vertex_count % 2), viewProj);
+    PostConstants constants{};
+    const float threshold = Sanitize(params.bloom_threshold, 0.8f, 0.0f, 1.0f);
+    const float intensity = Sanitize(params.bloom_intensity, 0.0f, 0.0f, 8.0f);
+    constants.bloomParams = {threshold, std::max(threshold * 0.5f, 0.02f), Sanitize(params.bloom_spread, 0.7f, 0.0f, 1.0f), intensity};
+    constants.gradeParams = {std::exp2(Sanitize(params.exposure, 0.0f, -5.0f, 5.0f)), Sanitize(params.contrast, 1.0f, 0.0f, 3.0f),
+        Sanitize(params.saturation, 1.0f, 0.0f, 3.0f), Sanitize(params.vignette, 0.0f, 0.0f, 1.0f)};
+    // 色温度: 黄色く（赤を強め、青を弱める）か、青く。明るさがあまり変わらないよう、両側へ少しずつ
+    const float temperature = Sanitize(params.temperature, 0.0f, -1.0f, 1.0f);
+    constants.whiteBalance = {1.0f + 0.2f * temperature, 1.0f, 1.0f - 0.2f * temperature, 0.0f};
+    if (params.flags & TT_FRAME_CLEAR_COLOR) {
+        constants.backgroundColor = {Sanitize(params.clear_color[0], 0.0f, 0.0f, 1.0f), Sanitize(params.clear_color[1], 0.0f, 0.0f, 1.0f),
+            Sanitize(params.clear_color[2], 0.0f, 0.0f, 1.0f), Sanitize(params.clear_color[3], 0.0f, 0.0f, 1.0f)};
+    } else {
+        constants.backgroundColor = {kClearColor[0], kClearColor[1], kClearColor[2], kClearColor[3]};
     }
 
     ctx->OMSetBlendState(nullptr, nullptr, 0xFFFFFFFF);
+    ctx->OMSetDepthStencilState(overlayDepthState_.Get(), 0);
+    ctx->RSSetState(rasterizerState_.Get());
+    ctx->IASetInputLayout(nullptr);
+    ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ctx->VSSetShader(postVertexShader_.Get(), nullptr, 0);
+    ctx->PSSetConstantBuffers(0, 1, postConstantBuffer_.GetAddressOf());
+    ctx->PSSetSamplers(0, 1, clampSampler_.GetAddressOf());
+
+    ID3D11ShaderResourceView* const none[2] = {nullptr, nullptr};
+    auto pass = [&](ID3D11PixelShader* shader, ID3D11RenderTargetView* target, UINT w, UINT h, ID3D11ShaderResourceView* first,
+                    ID3D11ShaderResourceView* second, UINT sourceWidth, UINT sourceHeight) {
+        ctx->PSSetShaderResources(0, 2, none); // 前の段で書いた画像を、読む前に描画先から外す
+        ctx->OMSetRenderTargets(1, &target, nullptr);
+        const D3D11_VIEWPORT viewport{0.0f, 0.0f, static_cast<float>(w), static_cast<float>(h), 0.0f, 1.0f};
+        ctx->RSSetViewports(1, &viewport);
+        constants.sourceTexel = {1.0f / static_cast<float>(std::max<UINT>(sourceWidth, 1)),
+            1.0f / static_cast<float>(std::max<UINT>(sourceHeight, 1)), static_cast<float>(w), static_cast<float>(h)};
+        constants.flags[0] = flags;
+        D3D11_MAPPED_SUBRESOURCE mapped{};
+        CheckHr(ctx->Map(postConstantBuffer_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped), L"映像効果の定数の更新");
+        std::memcpy(mapped.pData, &constants, sizeof(constants));
+        ctx->Unmap(postConstantBuffer_.Get(), 0);
+        ID3D11ShaderResourceView* const sources[2] = {first, second};
+        ctx->PSSetShaderResources(0, 2, sources);
+        ctx->PSSetShader(shader, nullptr, 0);
+        ctx->Draw(3, 0);
+    };
+
+    ID3D11ShaderResourceView* bloom = nullptr;
+    if ((flags & TT_POST_BLOOM) && intensity > 0.0f && bloomDown.size() >= 2 && bloomUp.size() + 1 == bloomDown.size()) {
+        // 明るい所を取り出して縮め、さらに半分ずつ縮めてから、小さい段から順に広げて混ぜ直す
+        pass(bloomPrefilterShader_.Get(), bloomDown[0].rtv.Get(), bloomDown[0].width, bloomDown[0].height, scene, nullptr,
+            static_cast<UINT>(width), static_cast<UINT>(height));
+        for (size_t i = 1; i < bloomDown.size(); ++i) {
+            pass(bloomDownShader_.Get(), bloomDown[i].rtv.Get(), bloomDown[i].width, bloomDown[i].height, bloomDown[i - 1].srv.Get(),
+                nullptr, bloomDown[i - 1].width, bloomDown[i - 1].height);
+        }
+        const PostSurface* lower = &bloomDown.back();
+        for (size_t i = bloomUp.size(); i-- > 0;) {
+            pass(bloomUpShader_.Get(), bloomUp[i].rtv.Get(), bloomUp[i].width, bloomUp[i].height, bloomDown[i].srv.Get(), lower->srv.Get(),
+                lower->width, lower->height);
+            lower = &bloomUp[i];
+        }
+        bloom = bloomUp[0].srv.Get();
+    } else {
+        flags &= ~static_cast<uint32_t>(TT_POST_BLOOM);
+    }
+    pass(postCompositeShader_.Get(), output, static_cast<UINT>(width), static_cast<UINT>(height), scene, bloom,
+        bloom ? bloomDown[0].width : 1, bloom ? bloomDown[0].height : 1);
+
+    ctx->PSSetShaderResources(0, 2, none);
     ctx->OMSetRenderTargets(0, nullptr, nullptr);
+}
+
+void Engine::CreatePostResources()
+{
+    D3D11_DEPTH_STENCIL_DESC farthest{};
+    farthest.DepthEnable = TRUE;
+    farthest.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
+    farthest.DepthFunc = D3D11_COMPARISON_LESS_EQUAL;
+    CheckHr(device_->CreateDepthStencilState(&farthest, &farDepthState_), L"いちばん奥に描く深度設定の作成");
+
+    CheckHr(device_->CreateVertexShader(g_PostVS, sizeof(g_PostVS), nullptr, &postVertexShader_), L"映像効果の頂点シェーダーの作成");
+    CheckHr(device_->CreatePixelShader(g_BloomPrefilterPS, sizeof(g_BloomPrefilterPS), nullptr, &bloomPrefilterShader_),
+        L"ブルームの取り出しのシェーダーの作成");
+    CheckHr(device_->CreatePixelShader(g_BloomDownPS, sizeof(g_BloomDownPS), nullptr, &bloomDownShader_), L"ブルームの縮小のシェーダーの作成");
+    CheckHr(device_->CreatePixelShader(g_BloomUpPS, sizeof(g_BloomUpPS), nullptr, &bloomUpShader_), L"ブルームの拡大のシェーダーの作成");
+    CheckHr(device_->CreatePixelShader(g_PostCompositePS, sizeof(g_PostCompositePS), nullptr, &postCompositeShader_),
+        L"映像効果の仕上げのシェーダーの作成");
+
+    D3D11_BUFFER_DESC desc{};
+    desc.ByteWidth = sizeof(PostConstants);
+    desc.Usage = D3D11_USAGE_DYNAMIC;
+    desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+    CheckHr(device_->CreateBuffer(&desc, nullptr, &postConstantBuffer_), L"映像効果の定数バッファーの作成");
 }
 
 void Engine::SetBasicPipeline()

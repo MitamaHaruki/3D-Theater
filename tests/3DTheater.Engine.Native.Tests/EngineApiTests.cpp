@@ -5,8 +5,10 @@
 #include <CppUnitTest.h>
 #include <DirectXMath.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <limits>
 #include <string>
 #include <thread>
 #include <utility>
@@ -710,6 +712,210 @@ public:
         Assert::AreEqual<int>(TT_OK, tt_engine_simulate_device_lost(engine));
         Assert::AreEqual<int>(TT_OK, tt_engine_recover(engine));
         Assert::IsTrue(count(render(width, height), white) > 20);
+
+        Assert::AreEqual<int>(TT_OK, tt_mesh_destroy(mesh));
+        Assert::AreEqual<int>(TT_OK, tt_view_destroy(view));
+        Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
+    }
+
+    TEST_METHOD(ColorGradingAndVignetteChangeTheScene)
+    {
+        // 画面いっぱいの四角形（橙色のテクスチャ）を、効果なしの色を基準にして比べる
+        TtEngine* engine = CreateWarpEngine();
+        constexpr int width = 64;
+        constexpr int height = 48;
+        TtView* view = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_view_create_offscreen(engine, width, height, 0, &view));
+        TtTexture* texture = CreateSolidTexture(engine, 60, 120, 200);
+        const TtMeshMaterial material = QuadMaterial(texture);
+        const TtMeshDesc desc = QuadDesc(kClockwise, &material);
+        TtMesh* mesh = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_mesh_create(engine, &desc, &mesh));
+        Assert::AreEqual<int>(TT_OK, tt_texture_destroy(texture));
+
+        auto render = [&](auto&& setup) {
+            TtFrameParams params = MakeFrontParams();
+            TtDrawItem item = DrawItem(mesh);
+            DirectX::XMStoreFloat4x4(reinterpret_cast<DirectX::XMFLOAT4X4*>(item.world), DirectX::XMMatrixScaling(4.0f, 4.0f, 1.0f));
+            params.items = &item;
+            params.item_count = 1;
+            params.exposure = 0.0f;
+            params.contrast = 1.0f;
+            params.saturation = 1.0f;
+            setup(params);
+            return RenderAndRead(engine, view, params, width, height);
+        };
+        const size_t center = (static_cast<size_t>(height / 2) * width + width / 2) * 4;
+        const std::vector<uint8_t> base = render([](TtFrameParams&) {});
+        const int b = base[center], g = base[center + 1], r = base[center + 2];
+        Assert::IsTrue(r > g && g > b && b > 20, L"基準の色（橙色）");
+
+        std::vector<uint8_t> brighter = render([](TtFrameParams& p) { p.post_flags = TT_POST_COLOR; p.exposure = 1.0f; });
+        Assert::IsTrue(IsNear(brighter[center + 1], std::min(255, g * 2), 3) && IsNear(brighter[center], std::min(255, b * 2), 3),
+            L"明るさ +1 で 2 倍");
+        std::vector<uint8_t> gray = render([](TtFrameParams& p) { p.post_flags = TT_POST_COLOR; p.saturation = 0.0f; });
+        const int luminance = static_cast<int>(std::lround(0.2126 * r + 0.7152 * g + 0.0722 * b));
+        Assert::IsTrue(IsNear(gray[center], luminance, 2) && IsNear(gray[center + 1], luminance, 2) && IsNear(gray[center + 2], luminance, 2),
+            L"彩度 0 で白黒（明るさは保つ）");
+        std::vector<uint8_t> warm = render([](TtFrameParams& p) { p.post_flags = TT_POST_COLOR; p.temperature = 1.0f; });
+        Assert::IsTrue(warm[center + 2] > r && warm[center] < b && IsNear(warm[center + 1], g, 2), L"色温度 +1 で赤が増え、青が減る");
+        std::vector<uint8_t> flat = render([](TtFrameParams& p) { p.post_flags = TT_POST_COLOR; p.contrast = 0.0f; });
+        Assert::IsTrue(IsNear(flat[center], 128, 2) && IsNear(flat[center + 2], 128, 2), L"コントラスト 0 で全部が中間の灰色");
+
+        std::vector<uint8_t> vignette = render([](TtFrameParams& p) { p.post_flags = TT_POST_VIGNETTE; p.vignette = 1.0f; });
+        Assert::IsTrue(IsNear(vignette[center + 2], r, 2), L"周辺減光は中央を変えない");
+        Assert::IsTrue(vignette[2] < r / 3, L"四隅は暗くなる");
+
+        std::vector<uint8_t> unknown = render([](TtFrameParams& p) {
+            p.post_flags = TT_POST_COLOR;
+            p.exposure = std::numeric_limits<float>::quiet_NaN();
+        });
+        Assert::IsTrue(IsNear(unknown[center + 2], r, 2) && IsNear(unknown[center], b, 2), L"数でない値は「変えない」");
+
+        // なめらかに描くとき（MSAA）も同じ
+        Assert::AreEqual<int>(TT_OK, tt_view_set_sample_count(view, 4, nullptr));
+        std::vector<uint8_t> msaa = render([](TtFrameParams& p) { p.post_flags = TT_POST_COLOR; p.exposure = 1.0f; });
+        Assert::IsTrue(IsNear(msaa[center + 1], std::min(255, g * 2), 3), L"MSAA でも色調補正がかかる");
+
+        Assert::AreEqual<int>(TT_OK, tt_mesh_destroy(mesh));
+        Assert::AreEqual<int>(TT_OK, tt_view_destroy(view));
+        Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
+    }
+
+    TEST_METHOD(BloomGlowsAroundBrightAreas)
+    {
+        // 黒い背景の真ん中に小さな白い四角形。ブルームを使うと、四角形の外の近くが明るくなる
+        TtEngine* engine = CreateWarpEngine();
+        constexpr int width = 64;
+        constexpr int height = 48;
+        TtView* view = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_view_create_offscreen(engine, width, height, 0, &view));
+        TtTexture* texture = CreateSolidTexture(engine, 255, 255, 255);
+        TtMeshMaterial material = QuadMaterial(texture);
+        material.specular_power = 0.0f;
+        const TtMeshDesc desc = QuadDesc(kClockwise, &material);
+        TtMesh* mesh = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_mesh_create(engine, &desc, &mesh));
+        Assert::AreEqual<int>(TT_OK, tt_texture_destroy(texture));
+
+        auto render = [&](uint32_t flags, float threshold, float alpha) {
+            TtFrameParams params = MakeFrontParams();
+            params.flags = TT_FRAME_CLEAR_COLOR;
+            params.clear_color[3] = alpha; // 黒（alpha = 0 なら透明）
+            TtDrawItem item = DrawItem(mesh);
+            DirectX::XMStoreFloat4x4(reinterpret_cast<DirectX::XMFLOAT4X4*>(item.world), DirectX::XMMatrixScaling(0.3f, 0.3f, 1.0f));
+            params.items = &item;
+            params.item_count = 1;
+            params.post_flags = flags;
+            params.contrast = 1.0f;
+            params.saturation = 1.0f;
+            params.bloom_intensity = 1.0f;
+            params.bloom_threshold = threshold;
+            params.bloom_spread = 0.7f;
+            return RenderAndRead(engine, view, params, width, height);
+        };
+        const size_t center = (static_cast<size_t>(height / 2) * width + width / 2) * 4;
+        // 四角形（半幅 0.3、約 3 画素）の外、中央から 5 画素右
+        const size_t nearby = (static_cast<size_t>(height / 2) * width + width / 2 + 5) * 4;
+
+        std::vector<uint8_t> plain = render(0, 0.5f, 1.0f);
+        Assert::IsTrue(plain[center + 1] > 200, L"四角形は白");
+        Assert::AreEqual<int>(0, plain[nearby + 1], L"効果なしなら、外は黒のまま");
+
+        std::vector<uint8_t> glow = render(TT_POST_BLOOM, 0.5f, 1.0f);
+        Assert::IsTrue(glow[nearby + 1] > 2, L"ブルームで、外の近くが明るくなる");
+        Assert::IsTrue(glow[center + 1] >= plain[center + 1], L"明るい所は暗くならない");
+        Assert::AreEqual<int>(0, glow[0], L"遠くの隅までは届かない");
+
+        std::vector<uint8_t> highThreshold = render(TT_POST_BLOOM, 1.0f, 1.0f);
+        Assert::IsTrue(highThreshold[nearby + 1] < glow[nearby + 1], L"光り始める明るさを上げると、にじみは減る");
+
+        std::vector<uint8_t> transparent = render(TT_POST_BLOOM, 0.5f, 0.0f);
+        Assert::IsTrue(transparent[nearby + 3] > 0 && transparent[nearby + 1] > 0, L"透明な背景の上では、にじんだ光の分だけ不透明になる");
+        Assert::AreEqual<int>(0, transparent[3], L"何も無い隅は透明のまま");
+
+        Assert::AreEqual<int>(TT_OK, tt_mesh_destroy(mesh));
+        Assert::AreEqual<int>(TT_OK, tt_view_destroy(view));
+        Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
+    }
+
+    TEST_METHOD(BackgroundAndOverlaysAreNotGraded)
+    {
+        // 色調補正（暗く・白黒）をかけても、背景の色、重ね描きの線、いちばん奥の格子はそのまま。モデルだけが変わる
+        TtEngine* engine = CreateWarpEngine();
+        constexpr int width = 64;
+        constexpr int height = 48;
+        TtView* view = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_view_create_offscreen(engine, width, height, 0, &view));
+        TtTexture* red = CreateSolidTexture(engine, 0, 0, 255);
+        const TtMeshMaterial material = QuadMaterial(red);
+        const TtMeshDesc desc = QuadDesc(kClockwise, &material);
+        TtMesh* mesh = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_mesh_create(engine, &desc, &mesh));
+        Assert::AreEqual<int>(TT_OK, tt_texture_destroy(red));
+        // 四角形より奥を横切る白い線（奥行きを無視して手前に描く）
+        const TtLineVertex lines[] = {
+            {{-3.0f, 0.0f, 2.0f}, {1.0f, 1.0f, 1.0f, 1.0f}},
+            {{3.0f, 0.0f, 2.0f}, {1.0f, 1.0f, 1.0f, 1.0f}},
+        };
+
+        for (uint32_t samples : {1u, 4u}) {
+            Assert::AreEqual<int>(TT_OK, tt_view_set_sample_count(view, samples, nullptr));
+            TtFrameParams params = MakeFrontParams();
+            params.flags = TT_FRAME_CLEAR_COLOR | TT_FRAME_SHOW_GRID | TT_FRAME_GRID_BEHIND;
+            params.clear_color[0] = 0.0f;
+            params.clear_color[1] = 0.0f;
+            params.clear_color[2] = 1.0f; // 青い背景
+            params.clear_color[3] = 1.0f;
+            DirectX::XMStoreFloat4x4(reinterpret_cast<DirectX::XMFLOAT4X4*>(params.grid_world),
+                DirectX::XMMatrixScaling(0.25f, 0.25f, 0.25f) * DirectX::XMMatrixRotationX(-DirectX::XM_PIDIV2));
+            TtDrawItem item = DrawItem(mesh);
+            DirectX::XMStoreFloat4x4(reinterpret_cast<DirectX::XMFLOAT4X4*>(item.world), DirectX::XMMatrixTranslation(0.0f, 0.0f, 0.5f));
+            params.items = &item;
+            params.item_count = 1;
+            params.overlay_lines = lines;
+            params.overlay_vertex_count = 2;
+            params.post_flags = TT_POST_COLOR;
+            params.exposure = -1.0f;
+            params.contrast = 1.0f;
+            params.saturation = 0.0f;
+            std::vector<uint8_t> pixels = RenderAndRead(engine, view, params, width, height);
+
+            const uint8_t* model = &pixels[(static_cast<size_t>(height / 2 - 6) * width + width / 2) * 4];
+            Assert::IsTrue(IsNear(model[0], model[2], 2) && model[2] < 60, L"モデルは暗く白黒になる");
+            bool foundWhite = false;
+            for (int y = height / 2 - 1; y <= height / 2; ++y) {
+                const uint8_t* p = &pixels[(static_cast<size_t>(y) * width + width / 2) * 4];
+                // MSAA では線が 2 行にまたがって少し混ざるが、色調補正（暗く）がかかっていれば 128 以下になる
+                foundWhite |= p[0] > 150 && p[1] > 150 && p[2] > 150;
+            }
+            Assert::IsTrue(foundWhite, L"重ね描きの線は暗くならずに、モデルの上に出る");
+            // 背景の所（上の 8 行）には、そのままの青と、格子の線の両方がある
+            int pureBlue = 0;
+            int gridOutside = 0;
+            for (int y = 0; y < 8; ++y) {
+                for (int x = 0; x < width; ++x) {
+                    const uint8_t* p = &pixels[(static_cast<size_t>(y) * width + x) * 4];
+                    const bool blue = p[0] > 250 && p[1] < 5 && p[2] < 5;
+                    pureBlue += blue ? 1 : 0;
+                    gridOutside += blue ? 0 : 1;
+                }
+            }
+            Assert::IsTrue(pureBlue > 0, L"背景の青はそのまま");
+            Assert::IsTrue(gridOutside > 0, L"背景の所には格子が出る");
+            // 四角形の内側（重ね描きの線の近くは除く）は、モデルの色だけ（いちばん奥の格子はモデルに隠れる）
+            int gridInside = 0;
+            for (int y = 17; y <= 31; ++y) {
+                if (y >= height / 2 - 2 && y <= height / 2 + 1) {
+                    continue;
+                }
+                for (int x = 25; x <= 39; ++x) {
+                    const uint8_t* p = &pixels[(static_cast<size_t>(y) * width + x) * 4];
+                    gridInside += (std::abs(p[0] - model[0]) > 6 || std::abs(p[2] - model[2]) > 6) ? 1 : 0;
+                }
+            }
+            Assert::AreEqual(0, gridInside, L"いちばん奥の格子は、モデルに隠れる");
+        }
 
         Assert::AreEqual<int>(TT_OK, tt_mesh_destroy(mesh));
         Assert::AreEqual<int>(TT_OK, tt_view_destroy(view));

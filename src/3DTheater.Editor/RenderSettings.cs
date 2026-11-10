@@ -3,7 +3,8 @@ using System.Numerics;
 namespace Theater3D.Editor;
 
 /// <summary>
-/// 作品の描き方の設定（プロジェクトに保存する）。今はセルフシャドウと地面の影の ON / OFF。初期値はどちらも ON（MMD と同じ）。
+/// 作品の描き方の設定（プロジェクトに保存する）。セルフシャドウと地面の影の ON / OFF（初期値はどちらも ON。MMD と同じ）と、
+/// 映像効果（初期値はなし）。
 /// </summary>
 public sealed class RenderSettings
 {
@@ -12,6 +13,7 @@ public sealed class RenderSettings
 
     private bool _selfShadow = true;
     private bool _groundShadow = true;
+    private VisualEffects _effects = VisualEffects.None;
 
     /// <summary>どれかの設定が変わった。</summary>
     public event EventHandler? Changed;
@@ -30,11 +32,28 @@ public sealed class RenderSettings
         set => Set(ref _groundShadow, value);
     }
 
+    /// <summary>映像効果（色調補正・ブルーム・周辺減光）。値は範囲に収めて持つ。</summary>
+    public VisualEffects Effects
+    {
+        get => _effects;
+        set
+        {
+            VisualEffects normalized = (value ?? VisualEffects.None).Normalized();
+            if (normalized == _effects)
+            {
+                return;
+            }
+            _effects = normalized;
+            Changed?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
     /// <summary>初期の設定に戻す（新しいプロジェクト）。</summary>
     public void Reset()
     {
         SelfShadow = true;
         GroundShadow = true;
+        Effects = VisualEffects.None;
     }
 
     private void Set(ref bool field, bool value)

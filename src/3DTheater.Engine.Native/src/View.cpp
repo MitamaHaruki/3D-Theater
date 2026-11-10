@@ -251,8 +251,40 @@ uint32_t View::SetSampleCount(uint32_t requested)
     return actual;
 }
 
+void View::EnsurePostResources(bool bloom)
+{
+    if (!scene_.texture) {
+        engine_.CreatePostSurface(scene_, static_cast<UINT>(width_), static_cast<UINT>(height_), Engine::kColorFormat);
+    }
+    if (!bloom || !bloomDown_.empty()) {
+        return;
+    }
+    // 1/2 から半分ずつ 6 段まで（小さくなりすぎたら止める）。光が色の段階に分かれないよう、16 ビットの浮動小数点で持つ
+    constexpr int kBloomLevels = 6;
+    UINT w = static_cast<UINT>(width_);
+    UINT h = static_cast<UINT>(height_);
+    for (int level = 0; level < kBloomLevels; ++level) {
+        w = std::max<UINT>(1, (w + 1) / 2);
+        h = std::max<UINT>(1, (h + 1) / 2);
+        PostSurface surface;
+        engine_.CreatePostSurface(surface, w, h, DXGI_FORMAT_R16G16B16A16_FLOAT);
+        bloomDown_.push_back(std::move(surface));
+        if (w <= 2 || h <= 2) {
+            break;
+        }
+    }
+    for (size_t i = 0; i + 1 < bloomDown_.size(); ++i) {
+        PostSurface surface;
+        engine_.CreatePostSurface(surface, bloomDown_[i].width, bloomDown_[i].height, DXGI_FORMAT_R16G16B16A16_FLOAT);
+        bloomUp_.push_back(std::move(surface));
+    }
+}
+
 void View::ReleaseSizeDependentResources() noexcept
 {
+    scene_ = PostSurface{};
+    bloomDown_.clear();
+    bloomUp_.clear();
     ReleaseSampleResources();
     rtv_.Reset();
     colorTexture_.Reset();
@@ -294,7 +326,21 @@ bool View::Render(const TtFrameParams& params)
     }
 
     const bool multisampled = sampleCount_ > 1;
-    engine_.DrawScene(multisampled ? msaaRtv_.Get() : rtv_.Get(), dsv_.Get(), width_, height_, params, multisampled);
+    ID3D11RenderTargetView* target = multisampled ? msaaRtv_.Get() : rtv_.Get();
+    if (!Engine::UsesPostEffects(params)) {
+        engine_.DrawScene(target, dsv_.Get(), width_, height_, params, multisampled);
+    } else {
+        // 場面を背景なしで描き（MSAA ならまとめてから）、映像効果をかけて描画先へ書き、その上に格子や選択の枠を重ねる。
+        // MSAA の描画先へ書いた効果の結果は、どの点も同じ色なので、重ね描きの線だけがなめらかに混ざる
+        EnsurePostResources((params.post_flags & TT_POST_BLOOM) != 0);
+        engine_.DrawScene(multisampled ? msaaRtv_.Get() : scene_.rtv.Get(), dsv_.Get(), width_, height_, params, multisampled,
+            Engine::ScenePart::Scene);
+        if (multisampled) {
+            engine_.Context()->ResolveSubresource(scene_.texture.Get(), 0, msaaTexture_.Get(), 0, Engine::kColorFormat);
+        }
+        engine_.ApplyPostEffects(params, scene_.srv.Get(), bloomDown_, bloomUp_, target, width_, height_);
+        engine_.DrawScene(target, dsv_.Get(), width_, height_, params, multisampled, Engine::ScenePart::Overlays);
+    }
     if (multisampled) {
         // 1 画素の点を平均して、表示・読み出しに使う面へまとめる
         engine_.Context()->ResolveSubresource(colorTexture_.Get(), 0, msaaTexture_.Get(), 0, Engine::kColorFormat);

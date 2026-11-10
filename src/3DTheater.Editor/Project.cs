@@ -52,12 +52,21 @@ public sealed class RenderingEntry
 
     public bool GroundShadow { get; set; } = true;
 
-    public static RenderingEntry From(RenderSettings settings) => new() { SelfShadow = settings.SelfShadow, GroundShadow = settings.GroundShadow };
+    /// <summary>映像効果（初期のまま＝何も使わず値も初期値なら書かない。無い古いファイルは映像効果なし）。</summary>
+    public VisualEffects? Effects { get; set; }
+
+    public static RenderingEntry From(RenderSettings settings) => new()
+    {
+        SelfShadow = settings.SelfShadow,
+        GroundShadow = settings.GroundShadow,
+        Effects = settings.Effects == VisualEffects.None ? null : settings.Effects,
+    };
 
     public void ApplyTo(RenderSettings settings)
     {
         settings.SelfShadow = SelfShadow;
         settings.GroundShadow = GroundShadow;
+        settings.Effects = Effects ?? VisualEffects.None;
     }
 }
 

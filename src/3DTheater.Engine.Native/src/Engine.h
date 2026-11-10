@@ -11,6 +11,15 @@ namespace tt {
 
 class Mesh;
 
+// 映像効果に使う画像（描画先にも、読む画像にもなる）
+struct PostSurface {
+    ComPtr<ID3D11Texture2D> texture;
+    ComPtr<ID3D11RenderTargetView> rtv;
+    ComPtr<ID3D11ShaderResourceView> srv;
+    UINT width = 0;
+    UINT height = 0;
+};
+
 // GPU の上に資源を持つもの（ビュー・テクスチャ・メッシュ）。
 // GPU が使えなくなったとき、エンジンが全部の資源を手放させ、デバイスを作り直してから作り直させる。
 class DeviceObject {
@@ -44,11 +53,27 @@ public:
     void FillInfo(TtEngineInfo& info) const;
     void QueryVideoMemory(TtVideoMemoryInfo& info) const;
 
+    // 1 枚のうち、どこを描くか。映像効果を使うときは、場面 → 効果 → 重ね描き の順に分けて描く
+    enum class ScenePart {
+        All,      // 全部（映像効果を使わないとき）。背景で消して、格子 → 場面 → 選択の枠 → 重ね描きの線
+        Scene,    // 場面だけ（確認用の立方体・地面の影・モデル）。背景は透明（0, 0, 0, 0）で消す
+        Overlays, // 場面の上に重ねる物（格子・座標軸・選択の枠・重ね描きの線）。消さずに、場面の奥行きを使って描く
+    };
+
     // 1 つのビューの場面を描く（GPU へ頼むだけで完了は待たない）。描き終えたら描画先の割り当てを外す。
     // params.items の中身は呼び出し側（C API の入口）で確かめ済みであること。
     // multisampled は描画先が MSAA（1 画素に複数の点）か。線を、点の数に合わせてなめらかに描く
     void DrawScene(ID3D11RenderTargetView* rtv, ID3D11DepthStencilView* dsv, int width, int height, const TtFrameParams& params,
-        bool multisampled);
+        bool multisampled, ScenePart part = ScenePart::All);
+
+    // 映像効果を使うか（post_flags に知っている効果があるか）
+    static bool UsesPostEffects(const TtFrameParams& params) noexcept;
+    // 映像効果の画像を作る
+    void CreatePostSurface(PostSurface& surface, UINT width, UINT height, DXGI_FORMAT format);
+    // 映像効果をかける: scene（背景なしで描いた場面）から output（width x height）へ。背景も置く。
+    // bloomDown はブルームの縮めた段（半分ずつ小さく、2 つ以上）、bloomUp は広げ直す段（bloomDown より 1 つ少なく、同じ大きさ）
+    void ApplyPostEffects(const TtFrameParams& params, ID3D11ShaderResourceView* scene, const std::vector<PostSurface>& bloomDown,
+        const std::vector<PostSurface>& bloomUp, ID3D11RenderTargetView* output, int width, int height);
 
     // ビューの描画先の色の形式（スワップチェーンとも同じ）
     static constexpr DXGI_FORMAT kColorFormat = DXGI_FORMAT_B8G8R8A8_UNORM;
@@ -84,6 +109,7 @@ private:
     void CreateDevice();
     void CreateSceneResources();
     void CreateModelResources();
+    void CreatePostResources();
     void ReleaseDevice() noexcept;
     void SetBasicPipeline();
     void SetConstants(DirectX::FXMMATRIX worldViewProj);
@@ -107,6 +133,9 @@ private:
     void DrawGroundShadows(const TtFrameParams& params, const ModelFrame& frame);
     void EnsureShadowMap(UINT size);
     void DrawBox(const DirectX::XMFLOAT3& minimum, const DirectX::XMFLOAT3& maximum, DirectX::FXMMATRIX world, DirectX::CXMMATRIX viewProj);
+    // 格子と座標軸。Normal = 奥行きを比べる、Ignore = 奥行きを無視していちばん先に描く、Farthest = 何も描かれていない所だけに描く
+    enum class GridDepth { Normal, Ignore, Farthest };
+    void DrawGridAndAxes(const TtFrameParams& params, DirectX::CXMMATRIX viewProj, GridDepth depth, int width, int height);
     void DrawOverlayLines(const TtLineVertex* vertices, uint32_t count, DirectX::CXMMATRIX viewProj);
 
     uint32_t magic_ = kMagic;
@@ -151,6 +180,15 @@ private:
     ComPtr<ID3D11Buffer> overlayVertexBuffer_; // 重ね描きの線（足りなくなったら大きく作り直す）
     UINT overlayVertexCapacity_ = 0;
     ComPtr<ID3D11DepthStencilState> overlayDepthState_;
+    ComPtr<ID3D11DepthStencilState> farDepthState_; // 奥行き 1（何も描かれていない所）だけに描く
+
+    // 映像効果（画面全体の三角形を描いて、画像から画像へ処理する）
+    ComPtr<ID3D11VertexShader> postVertexShader_;
+    ComPtr<ID3D11PixelShader> bloomPrefilterShader_;
+    ComPtr<ID3D11PixelShader> bloomDownShader_;
+    ComPtr<ID3D11PixelShader> bloomUpShader_;
+    ComPtr<ID3D11PixelShader> postCompositeShader_;
+    ComPtr<ID3D11Buffer> postConstantBuffer_;
 
     // モデル（MMD と同じトゥーンの色の計算と輪郭線）
     ComPtr<ID3D11VertexShader> modelVertexShader_;

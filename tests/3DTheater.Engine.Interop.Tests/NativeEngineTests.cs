@@ -76,6 +76,31 @@ public sealed class NativeEngineTests
     }
 
     [TestMethod]
+    public void PostEffectsReachTheEngine()
+    {
+        // 確認用の立方体（場面）は色調補正で暗くなり、背景はそのまま。周辺減光は背景の四隅も暗くする
+        using var engine = NativeEngine.Create(NativeEngineOptions.UseWarp);
+        const int width = 64;
+        const int height = 48;
+        using var view = engine.CreateOffscreenView(width, height);
+        byte[] Render(PostEffects effects)
+        {
+            Assert.IsTrue(view.Render(DefaultFrame with { Flags = FrameFlags.ShowTestObject, Effects = effects }));
+            engine.WaitForGpu();
+            var pixels = new byte[width * height * 4];
+            view.ReadPixels(pixels, width * 4);
+            return pixels;
+        }
+        int center = ((height / 2 * width) + (width / 2)) * 4;
+        byte[] plain = Render(PostEffects.None);
+        byte[] darker = Render(new PostEffects(PostEffectFlags.Color, Exposure: -1f));
+        Assert.IsLessThan(plain[center + 1] * 0.6, (double)darker[center + 1], "立方体は半分ほどの明るさになる");
+        CollectionAssert.AreEqual(BackgroundBgra, darker[..4], "背景には色調補正がかからない");
+        byte[] vignette = Render(new PostEffects(PostEffectFlags.Vignette, Vignette: 1f));
+        Assert.IsLessThan(BackgroundBgra[1] / 2, (int)vignette[1], "周辺減光は四隅の背景も暗くする");
+    }
+
+    [TestMethod]
     public void TexturedMeshIsDrawnFromCSharp()
     {
         using var engine = NativeEngine.Create(NativeEngineOptions.UseWarp);

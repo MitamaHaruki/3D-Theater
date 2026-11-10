@@ -46,6 +46,8 @@ private:
     // MSAA の描画先と奥行き（点の数で変わる物）
     void CreateSampleResources();
     void ReleaseSampleResources() noexcept;
+    // 映像効果の画像（使うときに作る。大きさが変わったら作り直す）
+    void EnsurePostResources(bool bloom);
     void ReleaseSwapChain() noexcept;
 
     uint32_t magic_ = kMagic;
@@ -65,6 +67,9 @@ private:
     ComPtr<ID3D11RenderTargetView> rtv_;
     ComPtr<ID3D11Texture2D> msaaTexture_; // MSAA のときだけ。ここへ描いてから colorTexture_ へまとめる
     ComPtr<ID3D11RenderTargetView> msaaRtv_;
+    PostSurface scene_;                   // 映像効果を使うときの、背景なしの場面
+    std::vector<PostSurface> bloomDown_;  // ブルームの縮めた段（半分ずつ）
+    std::vector<PostSurface> bloomUp_;    // ブルームの広げ直す段
     ComPtr<ID3D11Texture2D> depthTexture_;
     ComPtr<ID3D11DepthStencilView> dsv_;
 

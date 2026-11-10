@@ -56,6 +56,16 @@ internal unsafe struct TtFrameParams
     public uint ShadowMapSize;
     public uint Reserved4;
     public Vector4 ClearColor;
+    public uint PostFlags;
+    public float Exposure;
+    public float Contrast;
+    public float Saturation;
+    public float Temperature;
+    public float BloomIntensity;
+    public float BloomThreshold;
+    public float BloomSpread;
+    public float Vignette;
+    public uint Reserved5;
 }
 
 [StructLayout(LayoutKind.Sequential)]

@@ -129,6 +129,22 @@
     <FxCompile Include="shaders\GroundShadowPS.hlsl">
       <ShaderType>Pixel</ShaderType>
     </FxCompile>
+    <None Include="shaders\Post.hlsli" />
+    <FxCompile Include="shaders\PostVS.hlsl">
+      <ShaderType>Vertex</ShaderType>
+    </FxCompile>
+    <FxCompile Include="shaders\BloomPrefilterPS.hlsl">
+      <ShaderType>Pixel</ShaderType>
+    </FxCompile>
+    <FxCompile Include="shaders\BloomDownPS.hlsl">
+      <ShaderType>Pixel</ShaderType>
+    </FxCompile>
+    <FxCompile Include="shaders\BloomUpPS.hlsl">
+      <ShaderType>Pixel</ShaderType>
+    </FxCompile>
+    <FxCompile Include="shaders\PostCompositePS.hlsl">
+      <ShaderType>Pixel</ShaderType>
+    </FxCompile>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

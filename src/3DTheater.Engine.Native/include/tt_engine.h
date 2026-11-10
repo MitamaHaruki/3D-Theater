@@ -27,7 +27,7 @@ extern "C" {
 
 // 上位 16 ビットが大きな版、下位 16 ビットが小さな版。大きな版が違う DLL とは組み合わせない。
 #define TT_API_VERSION_MAJOR 0
-#define TT_API_VERSION_MINOR 10
+#define TT_API_VERSION_MINOR 11
 #define TT_API_VERSION ((TT_API_VERSION_MAJOR << 16) | TT_API_VERSION_MINOR)
 
 // 0 以上は成功、負の値は失敗。
@@ -104,6 +104,14 @@ enum {
     TT_FRAME_GROUND_SHADOW = 1u << 8,        // 地面の影（高さ 0 の床へ照明の向きに押しつぶして描く。API 0.7）
     TT_FRAME_GRID_BEHIND = 1u << 9,          // 格子と座標軸を、奥行きに関係なくいちばん奥に描く（モデルの後ろ。固定視点用。API 0.8）
     TT_FRAME_CLEAR_COLOR = 1u << 10,         // 背景を clear_color で消す（a = 0 で透明。書き出し用。API 0.9）。無ければ編集画面の背景色
+};
+
+// 映像効果（TtFrameParams.post_flags。API 0.11）。どれかを使うと、場面を背景なしで描いてから効果をかけ、背景を後ろに置く。
+// 背景・格子・座標軸・選択の枠・重ね描きの線には、色調補正とブルームはかからない（周辺減光は背景にもかかる）
+enum {
+    TT_POST_COLOR = 1u << 0,    // 色調補正（exposure・contrast・saturation・temperature）
+    TT_POST_BLOOM = 1u << 1,    // ブルーム（明るい所が周りへにじむ光。bloom_*）
+    TT_POST_VIGNETTE = 1u << 2, // 周辺減光（画面の四隅を暗くする。vignette）
 };
 
 // ---- モデルの形（メッシュ）と材質 ----
@@ -222,6 +230,17 @@ typedef struct TtFrameParams {
     // 背景の色（TT_FRAME_CLEAR_COLOR のとき）。透明（a < 1）で描くと、読み出した色は「透明度をかけ合わせた値」になる
     // （半透明の材質を重ねた結果。PNG に書くときは色を透明度で割り戻すこと）
     float clear_color[4];
+    // ここから API 0.11（映像効果。post_flags が 0 なら何もしない。範囲の外の値は範囲に収め、数でない値は「変えない」にする）
+    uint32_t post_flags;   // TT_POST_*
+    float exposure;        // 明るさ（段。0 で変えない。+1 で 2 倍。-5〜5）
+    float contrast;        // コントラスト（1 で変えない。0〜3）
+    float saturation;      // 彩度（1 で変えない。0 で白黒。0〜3）
+    float temperature;     // 色温度（0 で変えない。-1 で青く、+1 で黄色く）
+    float bloom_intensity; // ブルームの強さ（0〜8）
+    float bloom_threshold; // 光り始める明るさ（0〜1。r・g・b のいちばん大きい値で比べる）
+    float bloom_spread;    // 広がり（0〜1。大きいほど遠くまで広がる）
+    float vignette;        // 周辺減光の強さ（0〜1。四隅の暗さ）
+    uint32_t reserved5;
 } TtFrameParams;
 
 TT_API uint32_t TT_CALL tt_get_api_version(void);

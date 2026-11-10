@@ -222,7 +222,7 @@
                      VerticalScrollBarVisibility="Auto" Text="{Binding Model.Comment, Mode=OneWay}" />
           </StackPanel>
           <TextBlock Margin="0,8,0,0" Style="{StaticResource PlannedNoteStyle}"
-                     Text="今は簡単な陰影で表示します。選んだモデルにはボーンを線で重ねて表示します（書き出しには映りません）。髪などの揺れは物理演算（モデルメニュー・ツールバーの「物理」）で計算します。トゥーン・輪郭線・影は Phase 4 で対応します。" />
+                     Text="MMD と同じトゥーン描画で、輪郭線と影も描きます（影・映像効果はレンダリングのメニュー）。選んだモデルにはボーンを線で重ねて表示します（書き出しには映りません）。髪などの揺れは物理演算（モデルメニュー・ツールバーの「物理」）で計算します。" />
         </StackPanel>
 
         <!-- カメラ -->
@@ -256,7 +256,7 @@
             <TextBlock Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="2" VerticalAlignment="Center" Text="{Binding KeyCountText}" />
           </Grid>
           <TextBlock Margin="0,6,0,0" Style="{StaticResource PlannedNoteStyle}"
-                     Text="被写界深度・ブルームなどの映像効果は Phase 4 で対応します。" />
+                     Text="ブルーム・色調補正・周辺減光は、レンダリングのメニューの「映像効果」で設定します。被写界深度は今後対応します。" />
         </StackPanel>
 
         <!-- 音声 -->
@@ -305,7 +305,7 @@
             <c:NumberBox Grid.Column="2" Value="{Binding Intensity}" Step="0.1" Format="0.00" />
           </Grid>
           <TextBlock Margin="0,6,0,0" Style="{StaticResource PlannedNoteStyle}"
-                     Text="照明の値は保存されますが、描画への反映は Phase 4（陰影の描画）で対応します。" />
+                     Text="照明の向き（回転）と明るさで、モデルの陰影と影を描きます。シーン一覧の目の印で照明を隠すと、照明なし（材質の環境色だけ）で描きます。" />
         </StackPanel>
 
         <!-- 確認用の立方体 -->

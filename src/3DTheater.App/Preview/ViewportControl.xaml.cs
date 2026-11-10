@@ -2,6 +2,7 @@ using System.Numerics;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using Theater3D.App.Rendering;
 using Theater3D.Domain;
 using Theater3D.Editor;
 using Theater3D.Engine.Interop;
@@ -289,7 +290,7 @@ public partial class ViewportControl : UserControl, IDisposable
         }
         return new FrameParameters(flags, matrices.View, matrices.Projection, gridWorld, testWorld, _drawItems, _lines.Memory,
             lightDirection, lightColor, SceneLighting.EdgePixelScale(pixelHeight), RenderSettings.GroundShadowColor,
-            ShadowMapSize: _context.PreviewQuality.Profile.ShadowMapSize);
+            ShadowMapSize: _context.PreviewQuality.Profile.ShadowMapSize, Effects: _context.Rendering.Effects.ToNative());
     }
 
     private static float MaxScale(SceneNode node) => Math.Max(Math.Abs(node.Scale.X), Math.Max(Math.Abs(node.Scale.Y), Math.Abs(node.Scale.Z)));

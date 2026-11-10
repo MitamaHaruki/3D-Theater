@@ -170,6 +170,33 @@ public sealed class ProjectTests
     }
 
     [TestMethod]
+    public void VisualEffectsAreSavedOnlyWhenUsed()
+    {
+        var report = new LoadReport();
+        var settings = new RenderSettings();
+        string plain = ProjectSerializer.Serialize(new ProjectFile { Rendering = RenderingEntry.From(settings) });
+        Assert.IsFalse(plain.Contains("effects", StringComparison.OrdinalIgnoreCase), "使っていなければ書かない（前の版と同じファイル）");
+
+        settings.Effects = VisualEffects.None with { BloomEnabled = true, BloomIntensity = 1.5f, Exposure = 0.5f };
+        string json = ProjectSerializer.Serialize(new ProjectFile { Rendering = RenderingEntry.From(settings) });
+        ProjectFile read = ProjectSerializer.Deserialize(json, report)!;
+        var restored = new RenderSettings();
+        read.Rendering.ApplyTo(restored);
+        Assert.AreEqual(settings.Effects, restored.Effects, "OFF の値（明るさ）も含めて戻る");
+        Assert.IsTrue(restored.Effects.BloomEnabled && !restored.Effects.ColorEnabled);
+
+        // 範囲の外の値は収める。一部だけ書かれたものは、残りを初期値にする
+        ProjectFile odd = ProjectSerializer.Deserialize(
+            """{"format":"3DTheater.Project","version":1,"rendering":{"effects":{"vignetteEnabled":true,"vignette":5,"contrast":-1}}}""", report)!;
+        var fromOdd = new RenderSettings();
+        odd.Rendering.ApplyTo(fromOdd);
+        Assert.AreEqual(1f, fromOdd.Effects.Vignette);
+        Assert.AreEqual(0f, fromOdd.Effects.Contrast);
+        Assert.AreEqual(0.8f, fromOdd.Effects.BloomThreshold, "書かれていない値は初期値");
+        Assert.IsTrue(fromOdd.SelfShadow, "書かれていない影の設定も初期値");
+    }
+
+    [TestMethod]
     public void BrokenNewerOrForeignFilesAreRejected()
     {
         var report = new LoadReport();
