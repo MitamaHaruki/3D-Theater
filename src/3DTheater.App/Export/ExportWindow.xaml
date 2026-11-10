@@ -1,0 +1,92 @@
+<Window x:Class="Theater3D.App.Export.ExportWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="画像の書き出し（PNG）"
+        Width="560" SizeToContent="Height" ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        Background="{StaticResource PanelBrush}" Foreground="{StaticResource TextBrush}"
+        FontFamily="Yu Gothic UI" FontSize="12" UseLayoutRounding="True">
+  <Window.Resources>
+    <Style x:Key="LabelStyle" TargetType="TextBlock">
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Margin" Value="0,0,12,0" />
+      <Setter Property="Foreground" Value="{StaticResource SubTextBrush}" />
+    </Style>
+    <Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="Height" Value="28" />
+      <Setter Property="Padding" Value="6,2" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+  </Window.Resources>
+
+  <StackPanel Margin="18,14,18,16">
+    <Grid x:Name="SettingsPanel">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="Auto" />
+        <ColumnDefinition Width="*" />
+      </Grid.ColumnDefinitions>
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="Auto" />
+      </Grid.RowDefinitions>
+
+      <TextBlock Style="{StaticResource LabelStyle}" Text="書き出すもの" />
+      <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="0,4">
+        <RadioButton x:Name="StillRadio" Content="静止画（今のフレーム）" Margin="0,0,18,0" Checked="OnKindChanged" />
+        <RadioButton x:Name="SequenceRadio" Content="連番（フレームの範囲）" Checked="OnKindChanged" />
+      </StackPanel>
+
+      <TextBlock Grid.Row="1" Style="{StaticResource LabelStyle}" Text="フレーム" />
+      <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Margin="0,4">
+        <TextBox x:Name="FirstFrameBox" Width="80" />
+        <TextBlock x:Name="RangeSeparator" Margin="8,0" VerticalAlignment="Center" Text="〜" />
+        <TextBox x:Name="LastFrameBox" Width="80" />
+        <TextBlock x:Name="FrameNote" Margin="10,0,0,0" VerticalAlignment="Center" Foreground="{StaticResource SubTextBrush}" />
+      </StackPanel>
+
+      <TextBlock Grid.Row="2" Style="{StaticResource LabelStyle}" Text="大きさ" />
+      <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" Margin="0,4">
+        <TextBox x:Name="WidthBox" Width="72" ToolTip="幅（ピクセル）" />
+        <TextBlock Margin="6,0" VerticalAlignment="Center" Text="×" />
+        <TextBox x:Name="HeightBox" Width="72" ToolTip="高さ（ピクセル）" />
+        <ComboBox x:Name="SizePresetBox" Margin="10,0,0,0" Width="170" MinHeight="0" Height="28" SelectionChanged="OnSizePresetChanged"
+                  ToolTip="よく使う大きさ" />
+      </StackPanel>
+
+      <TextBlock Grid.Row="3" Style="{StaticResource LabelStyle}" Text="仕上げ" />
+      <CheckBox x:Name="SmoothCheck" Grid.Row="3" Grid.Column="1" Margin="0,6" Content="なめらかにする（2 倍の大きさで描いて縮め、線や輪郭のギザギザを減らす）" />
+
+      <TextBlock Grid.Row="4" Style="{StaticResource LabelStyle}" Text="背景" />
+      <StackPanel Grid.Row="4" Grid.Column="1" Orientation="Horizontal" Margin="0,4">
+        <CheckBox x:Name="TransparentCheck" Content="透明（透過 PNG）" VerticalAlignment="Center" Checked="OnTransparentChanged" Unchecked="OnTransparentChanged" />
+        <TextBlock x:Name="BackgroundLabel" Margin="18,0,6,0" VerticalAlignment="Center" Foreground="{StaticResource SubTextBrush}" Text="色" />
+        <TextBox x:Name="BackgroundBox" Width="90" ToolTip="背景の色（#RRGGBB。例: 白 = #FFFFFF）" TextChanged="OnBackgroundChanged" />
+        <Border x:Name="BackgroundSwatch" Width="28" Height="20" Margin="6,0,0,0" CornerRadius="3" BorderThickness="1" BorderBrush="{StaticResource BorderBrush}" />
+      </StackPanel>
+
+      <TextBlock Grid.Row="5" Style="{StaticResource LabelStyle}" Text="書き出し先" />
+      <DockPanel Grid.Row="5" Grid.Column="1" Margin="0,4">
+        <Button DockPanel.Dock="Right" Margin="6,0,0,0" MinWidth="72" Content="参照..." Click="OnBrowseClick" />
+        <TextBox x:Name="PathBox" />
+      </DockPanel>
+    </Grid>
+
+    <TextBlock x:Name="NoteText" Margin="0,10,0,0" TextWrapping="Wrap" Foreground="{StaticResource SubTextBrush}" FontSize="11.5" />
+
+    <!-- 書き出しの間だけ出す -->
+    <StackPanel x:Name="ProgressPanel" Margin="0,12,0,0" Visibility="Collapsed">
+      <ProgressBar x:Name="ProgressBar" Height="8" Minimum="0" Maximum="1" />
+      <TextBlock x:Name="ProgressText" Margin="0,6,0,0" Foreground="{StaticResource SubTextBrush}" />
+    </StackPanel>
+
+    <DockPanel Margin="0,16,0,0" LastChildFill="False">
+      <Button x:Name="CloseButton" DockPanel.Dock="Right" MinWidth="88" Margin="8,0,0,0" Content="閉じる" IsCancel="True" Click="OnCloseClick" />
+      <Button x:Name="ExportButton" DockPanel.Dock="Right" MinWidth="88" Content="書き出す" IsDefault="True" Click="OnExportClick" />
+    </DockPanel>
+  </StackPanel>
+</Window>

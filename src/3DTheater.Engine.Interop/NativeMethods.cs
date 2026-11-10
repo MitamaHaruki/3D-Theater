@@ -55,6 +55,7 @@ internal unsafe struct TtFrameParams
     public Vector4 GroundShadowColor;
     public uint ShadowMapSize;
     public uint Reserved4;
+    public Vector4 ClearColor;
 }
 
 [StructLayout(LayoutKind.Sequential)]

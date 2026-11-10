@@ -591,6 +591,48 @@ public:
         Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
     }
 
+    TEST_METHOD(BackgroundCanBeAColorOrTransparent)
+    {
+        // 書き出し用: 背景を決まった色・透明で消せる。透明な背景に半透明の物を描くと、色は透明度をかけ合わせた値になる
+        TtEngine* engine = CreateWarpEngine();
+        constexpr int width = 32;
+        constexpr int height = 32;
+        TtView* view = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_view_create_offscreen(engine, width, height, 0, &view));
+        TtMeshMaterial material = QuadMaterial(nullptr);
+        material.diffuse[3] = 0.5f; // 白・不透明度 0.5
+        const TtMeshDesc desc = QuadDesc(kClockwise, &material);
+        TtMesh* mesh = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_mesh_create(engine, &desc, &mesh));
+
+        auto render = [&](float r, float g, float b, float a, bool withQuad) {
+            TtFrameParams params = MakeFrontParams();
+            params.flags = TT_FRAME_CLEAR_COLOR;
+            params.clear_color[0] = r;
+            params.clear_color[1] = g;
+            params.clear_color[2] = b;
+            params.clear_color[3] = a;
+            const TtDrawItem item = DrawItem(mesh);
+            params.items = withQuad ? &item : nullptr;
+            params.item_count = withQuad ? 1 : 0;
+            return RenderAndRead(engine, view, params, width, height);
+        };
+        const size_t center = (static_cast<size_t>(height / 2) * width + width / 2) * 4;
+
+        std::vector<uint8_t> orange = render(1.0f, 0.5f, 0.0f, 1.0f, false);
+        Assert::IsTrue(IsNear(orange[0], 0, 1) && IsNear(orange[1], 128, 1) && IsNear(orange[2], 255, 1) && orange[3] == 255, L"決まった色で消す");
+
+        std::vector<uint8_t> transparent = render(0.0f, 0.0f, 0.0f, 0.0f, true);
+        Assert::AreEqual<int>(0, transparent[3], L"何も無い所は透明");
+        const uint8_t* p = &transparent[center];
+        Assert::IsTrue(IsNear(p[0], 128, 2) && IsNear(p[1], 128, 2) && IsNear(p[2], 128, 2) && IsNear(p[3], 128, 2),
+            L"半透明の白は、透明度をかけ合わせた灰色・透明度 0.5 で残る");
+
+        Assert::AreEqual<int>(TT_OK, tt_mesh_destroy(mesh));
+        Assert::AreEqual<int>(TT_OK, tt_view_destroy(view));
+        Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
+    }
+
     TEST_METHOD(GridCanBeDrawnBehindModels)
     {
         // 正面の視点と同じく、格子を画面に平行な面（Z = 0）に置き、その奥（Z = 0.5）に赤い四角形を置く。

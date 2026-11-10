@@ -27,7 +27,7 @@ extern "C" {
 
 // 上位 16 ビットが大きな版、下位 16 ビットが小さな版。大きな版が違う DLL とは組み合わせない。
 #define TT_API_VERSION_MAJOR 0
-#define TT_API_VERSION_MINOR 8
+#define TT_API_VERSION_MINOR 9
 #define TT_API_VERSION ((TT_API_VERSION_MAJOR << 16) | TT_API_VERSION_MINOR)
 
 // 0 以上は成功、負の値は失敗。
@@ -103,6 +103,7 @@ enum {
     TT_FRAME_SELF_SHADOW = 1u << 7,          // セルフシャドウ（照明から見た奥行きの画像で、モデルに落ちる影を描く。API 0.7）
     TT_FRAME_GROUND_SHADOW = 1u << 8,        // 地面の影（高さ 0 の床へ照明の向きに押しつぶして描く。API 0.7）
     TT_FRAME_GRID_BEHIND = 1u << 9,          // 格子と座標軸を、奥行きに関係なくいちばん奥に描く（モデルの後ろ。固定視点用。API 0.8）
+    TT_FRAME_CLEAR_COLOR = 1u << 10,         // 背景を clear_color で消す（a = 0 で透明。書き出し用。API 0.9）。無ければ編集画面の背景色
 };
 
 // ---- モデルの形（メッシュ）と材質 ----
@@ -217,6 +218,10 @@ typedef struct TtFrameParams {
     float ground_shadow_color[4]; // 地面の影の色（a は不透明度）
     uint32_t shadow_map_size;     // セルフシャドウの奥行きの画像の 1 辺（0 なら 2048。256〜8192）
     uint32_t reserved4;
+    // ここから API 0.9
+    // 背景の色（TT_FRAME_CLEAR_COLOR のとき）。透明（a < 1）で描くと、読み出した色は「透明度をかけ合わせた値」になる
+    // （半透明の材質を重ねた結果。PNG に書くときは色を透明度で割り戻すこと）
+    float clear_color[4];
 } TtFrameParams;
 
 TT_API uint32_t TT_CALL tt_get_api_version(void);

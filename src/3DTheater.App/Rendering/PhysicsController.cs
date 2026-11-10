@@ -83,6 +83,12 @@ public sealed class PhysicsController
         }
     }
 
+    /// <summary>
+    /// 書き出しの間は true にする。どのフレームも焼き込みの結果で描き（姿勢を変えた直後でも）、足りなければいくつでもその場で計算する
+    /// （プレビューと書き出しで同じ姿勢になるように）。
+    /// </summary>
+    internal bool ForceBaked { get; set; }
+
     /// <summary>この画面の更新で行う物理の進め方。<see cref="PoseUpdater"/> が使ったら <see cref="PhysicsStep.None"/> に戻す。</summary>
     public PhysicsStep Current { get; private set; }
 
@@ -117,7 +123,7 @@ public sealed class PhysicsController
     internal bool TryApplyBaked(ModelNode node, LoadedModel model, int frame)
     {
         bool playing = _context.Playback.IsPlaying;
-        if (!_enabled || (!playing && _clock.IsSettling(DateTime.UtcNow)))
+        if (!_enabled || (!ForceBaked && !playing && _clock.IsSettling(DateTime.UtcNow)))
         {
             return false; // 姿勢を変えた直後は、画面の物理で揺れを見せる
         }
@@ -127,7 +133,7 @@ public sealed class PhysicsController
             return false;
         }
         int missing = frame - bake.Count + 1;
-        if (missing > 0 && missing <= (playing ? CatchUpWhilePlaying : CatchUpWhilePaused))
+        if (missing > 0 && (ForceBaked || missing <= (playing ? CatchUpWhilePlaying : CatchUpWhilePaused)))
         {
             try
             {

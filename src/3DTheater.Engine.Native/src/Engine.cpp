@@ -484,7 +484,15 @@ void Engine::DrawScene(
     ctx->OMSetRenderTargets(1, &rtv, dsv);
     const D3D11_VIEWPORT viewport{0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height), 0.0f, 1.0f};
     ctx->RSSetViewports(1, &viewport);
-    ctx->ClearRenderTargetView(rtv, kClearColor);
+    if (params.flags & TT_FRAME_CLEAR_COLOR) {
+        float clear[4];
+        for (int i = 0; i < 4; ++i) {
+            clear[i] = std::isfinite(params.clear_color[i]) ? std::clamp(params.clear_color[i], 0.0f, 1.0f) : 0.0f;
+        }
+        ctx->ClearRenderTargetView(rtv, clear);
+    } else {
+        ctx->ClearRenderTargetView(rtv, kClearColor);
+    }
     ctx->ClearDepthStencilView(dsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
 
     SetBasicPipeline();

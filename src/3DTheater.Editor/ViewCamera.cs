@@ -157,12 +157,7 @@ public sealed class ViewCamera
 
         if (Kind == ViewKind.Camera && sceneCamera is not null)
         {
-            Vector3 radians = sceneCamera.Rotation * (MathF.PI / 180f);
-            CameraBasis cameraBasis = CameraBasis.FromAngles(radians.Y, radians.X, radians.Z);
-            Matrix4x4 cameraProjection = Matrix4x4.CreatePerspectiveFieldOfViewLeftHanded(
-                sceneCamera.FieldOfView * MathF.PI / 180f, aspect, sceneCamera.NearClip, sceneCamera.FarClip);
-            return new ViewMatrices(
-                cameraBasis.CreateViewMatrix(sceneCamera.Position), cameraProjection, cameraBasis, sceneCamera.Position, false);
+            return SceneCameraMatrices(sceneCamera, aspect);
         }
 
         CameraBasis basis = CameraBasis.FromAngles(Yaw, Pitch);
@@ -180,6 +175,18 @@ public sealed class ViewCamera
         float far = Math.Max(1000f, Distance * 200f);
         Matrix4x4 perspective = Matrix4x4.CreatePerspectiveFieldOfViewLeftHanded(FieldOfView, aspect, near, far);
         return new ViewMatrices(basis.CreateViewMatrix(eye), perspective, basis, eye, false);
+    }
+
+    /// <summary>シーンのカメラから見た行列（カメラ視点・書き出しで使う）。</summary>
+    public static ViewMatrices SceneCameraMatrices(CameraNode sceneCamera, float aspectRatio)
+    {
+        float aspect = aspectRatio > 0f && float.IsFinite(aspectRatio) ? aspectRatio : 1f;
+        Vector3 radians = sceneCamera.Rotation * (MathF.PI / 180f);
+        CameraBasis cameraBasis = CameraBasis.FromAngles(radians.Y, radians.X, radians.Z);
+        Matrix4x4 cameraProjection = Matrix4x4.CreatePerspectiveFieldOfViewLeftHanded(
+            sceneCamera.FieldOfView * MathF.PI / 180f, aspect, sceneCamera.NearClip, sceneCamera.FarClip);
+        return new ViewMatrices(
+            cameraBasis.CreateViewMatrix(sceneCamera.Position), cameraProjection, cameraBasis, sceneCamera.Position, false);
     }
 
     private void LeaveCameraView(CameraNode? sceneCamera)

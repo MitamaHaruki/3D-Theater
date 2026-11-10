@@ -51,7 +51,8 @@
             <MenuItem Header="音声を読み込む（WAV / MP3 など）..." Click="OnImportAudioClick"
                       ToolTip="曲などを読み込み、再生に合わせて鳴らします（音声は 1 つまで。ウィンドウへのドラッグでも読み込めます）" />
             <MenuItem Header="音声を外す" Click="OnRemoveAudioClick" ToolTip="シーンから音声を外します（ファイルは消しません。Ctrl+Z で戻せます）" />
-            <MenuItem Header="書き出し（PNG / 連番）..." Style="{StaticResource PlannedItemStyle}" ToolTip="Phase 4 で対応します" />
+            <MenuItem Header="画像を書き出す（PNG / 連番）..." Click="OnExportStillClick"
+                      ToolTip="シーンのカメラから見た絵を PNG で書き出します（レンダリングのメニューと同じ）" />
             <Separator />
             <MenuItem Header="終了(_X)" InputGestureText="Alt+F4" Click="OnExitClick" />
           </MenuItem>
@@ -121,8 +122,10 @@
             <MenuItem x:Name="GroundShadowMenuItem" Header="地面の影" IsCheckable="True" Click="OnGroundShadowClick"
                       ToolTip="高さ 0 の床に、照明の向きに沿ってモデルの影を描きます（初期値は ON。プロジェクトに保存します）" />
             <Separator />
-            <MenuItem Header="静止画を書き出す（PNG）..." Style="{StaticResource PlannedItemStyle}" ToolTip="Phase 4 で対応します" />
-            <MenuItem Header="連番を書き出す..." Style="{StaticResource PlannedItemStyle}" ToolTip="Phase 4 で対応します" />
+            <MenuItem Header="静止画を書き出す（PNG）..." Click="OnExportStillClick"
+                      ToolTip="今のフレームを、シーンのカメラから見た絵で PNG に書き出します（背景の透過もできます）" />
+            <MenuItem Header="連番を書き出す（PNG）..." Click="OnExportSequenceClick"
+                      ToolTip="フレームの範囲を 1 フレーム 1 枚の PNG で書き出します（名前_0000.png …）" />
             <MenuItem Header="描画品質の設定..." Style="{StaticResource PlannedItemStyle}" ToolTip="Phase 4 で対応します" />
           </MenuItem>
           <MenuItem Header="ツール(_T)">

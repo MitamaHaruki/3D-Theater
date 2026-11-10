@@ -27,6 +27,28 @@ public sealed class UserSettings
 
     /// <summary>ギズモの方式・道具・座標（全プレビューで共通の初期設定。指示書 2.6）。</summary>
     public GizmoPreferences Gizmo { get; set; } = new();
+
+    /// <summary>前回の書き出しの設定（次に開いたときの初期値）。</summary>
+    public ExportPreferences Export { get; set; } = new();
+}
+
+/// <summary>前回の PNG の書き出しの設定。</summary>
+public sealed class ExportPreferences
+{
+    public int Width { get; set; } = 1920;
+
+    public int Height { get; set; } = 1080;
+
+    public bool Smooth { get; set; } = true;
+
+    public bool Transparent { get; set; }
+
+    /// <summary>背景の色（#RRGGBB）。</summary>
+    public string Background { get; set; } = "#FFFFFF";
+
+    public string? StillPath { get; set; }
+
+    public string? SequencePath { get; set; }
 }
 
 public sealed class GizmoPreferences

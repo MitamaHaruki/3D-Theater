@@ -25,6 +25,9 @@ public enum FrameFlags : uint
 
     /// <summary>格子と座標軸を、奥行きに関係なくいちばん奥に描く（モデルの後ろ。固定視点で使う）。</summary>
     GridBehind = 1u << 9,
+
+    /// <summary>背景を <see cref="FrameParameters.ClearColor"/> で消す（a = 0 で透明。書き出し用）。</summary>
+    ClearColor = 1u << 10,
 }
 
 /// <summary>
@@ -33,6 +36,7 @@ public enum FrameFlags : uint
 /// 照明（<see cref="LightDirection"/> は光が進む向き）は <see cref="FrameFlags.UseLight"/> のときだけ使う。
 /// <see cref="EdgePixelScale"/> は材質の輪郭線の太さ 1 を何ピクセルにするか（0 なら輪郭線を描かない）。
 /// <see cref="ShadowMapSize"/> はセルフシャドウの奥行きの画像の 1 辺（0 なら 2048）。
+/// <see cref="ClearColor"/> は <see cref="FrameFlags.ClearColor"/> のときの背景の色。透明で描くと、読み出した色は透明度をかけ合わせた値になる。
 /// </summary>
 public readonly record struct FrameParameters(
     FrameFlags Flags,
@@ -46,4 +50,5 @@ public readonly record struct FrameParameters(
     Vector3 LightColor = default,
     float EdgePixelScale = 0,
     Vector4 GroundShadowColor = default,
-    int ShadowMapSize = 0);
+    int ShadowMapSize = 0,
+    Vector4 ClearColor = default);

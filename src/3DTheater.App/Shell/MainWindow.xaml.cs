@@ -537,6 +537,22 @@ public partial class MainWindow : Window
         Logging.AppLog.Info("物理をリセットしました（剛体を今の姿勢に置き直しました）");
     }
 
+    private void OnExportStillClick(object sender, RoutedEventArgs e) => OpenExport(Editor.ExportKind.Still);
+
+    private void OnExportSequenceClick(object sender, RoutedEventArgs e) => OpenExport(Editor.ExportKind.Sequence);
+
+    private void OpenExport(Editor.ExportKind kind)
+    {
+        if (_context.Engine is null)
+        {
+            MessageBox.Show(this, "描画エンジンが使えないため、書き出せません。", "画像の書き出し", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        _context.Playback.Pause();
+        var window = new Export.ExportWindow(_context, _settings.Export, kind, _project.CurrentPath) { Owner = this };
+        window.ShowDialog();
+    }
+
     private void OnSelfShadowClick(object sender, RoutedEventArgs e) => _context.Rendering.SelfShadow = SelfShadowMenuItem.IsChecked;
 
     private void OnGroundShadowClick(object sender, RoutedEventArgs e) => _context.Rendering.GroundShadow = GroundShadowMenuItem.IsChecked;
