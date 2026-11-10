@@ -1,7 +1,7 @@
 namespace Theater3D.Editor;
 
 /// <summary>
-/// 映像効果（色調補正・ブルーム・周辺減光・被写界深度）。作品の描き方としてプロジェクトに保存し、プレビューと書き出しの両方にかける。
+/// 映像効果（色調補正・ブルーム・周辺減光・被写界深度・環境光の遮り）。作品の描き方としてプロジェクトに保存し、プレビューと書き出しの両方にかける。
 /// それぞれ ON / OFF でき、OFF の間も値は覚えておく。値は <see cref="Normalized"/> で範囲に収める。
 /// 背景・格子・選択の枠・ボーン・ギズモには、色調補正とブルームはかからない（周辺減光は背景にもかかる）。
 /// 被写界深度はシーンのカメラの効果なので、カメラ視点の区画と書き出しにだけかける（ほかの視点では、ピントの距離に意味が無いため）。
@@ -16,6 +16,8 @@ public sealed record VisualEffects
     public const float MaxFocusDistance = 1000f;
     public const float MaxFocusRange = 200f;
     public const float MaxDofBlur = 32f;
+    public const float MinAoRadius = 0.1f;
+    public const float MaxAoRadius = 10f;
 
     /// <summary>映像効果なし（新しいプロジェクト・前の版のファイル）。</summary>
     public static VisualEffects None { get; } = new();
@@ -68,8 +70,17 @@ public sealed record VisualEffects
     /// <summary>ぼけの大きさ（高さ 1080 の画像での、ぼけの円の半径の画素。大きな画像では比例して大きくする）。</summary>
     public float DofBlur { get; init; } = 6f;
 
+    /// <summary>環境光の遮り（物の隙間や接する所を暗くする）を使う。</summary>
+    public bool AoEnabled { get; init; }
+
+    /// <summary>環境光の遮りの強さ（0〜1）。</summary>
+    public float AoStrength { get; init; } = 0.6f;
+
+    /// <summary>環境光の遮りの広がり（ワールドの長さ。これより離れた物は遮らない。人の大きさのモデルの背丈は 20 ほど）。</summary>
+    public float AoRadius { get; init; } = 1f;
+
     /// <summary>どれかの効果を使うか。</summary>
-    public bool Any => ColorEnabled || BloomEnabled || VignetteEnabled || DofEnabled;
+    public bool Any => ColorEnabled || BloomEnabled || VignetteEnabled || DofEnabled || AoEnabled;
 
     /// <summary>ピントの距離（注視点に合わせるときは、カメラの注視点までの距離）。</summary>
     public float FocusDistanceFor(float cameraTargetDistance) => DofFocusOnTarget ? cameraTargetDistance : DofFocusDistance;
@@ -94,6 +105,8 @@ public sealed record VisualEffects
             DofFocusDistance = Fit(DofFocusDistance, 0.5f, MaxFocusDistance, d.DofFocusDistance),
             DofFocusRange = Fit(DofFocusRange, 0f, MaxFocusRange, d.DofFocusRange),
             DofBlur = Fit(DofBlur, 0f, MaxDofBlur, d.DofBlur),
+            AoStrength = Fit(AoStrength, 0f, 1f, d.AoStrength),
+            AoRadius = Fit(AoRadius, MinAoRadius, MaxAoRadius, d.AoRadius),
         };
     }
 

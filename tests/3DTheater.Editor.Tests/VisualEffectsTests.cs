@@ -100,6 +100,26 @@ public sealed class VisualEffectsTests
     }
 
     [TestMethod]
+    public void AmbientOcclusionIsKeptInRangeAndSaved()
+    {
+        Assert.IsFalse(VisualEffects.None.AoEnabled, "初期値は OFF");
+        VisualEffects ao = VisualEffects.None with { AoEnabled = true };
+        Assert.IsTrue(ao.Any);
+
+        VisualEffects wild = (ao with { AoStrength = 5f, AoRadius = 0f }).Normalized();
+        Assert.AreEqual(1f, wild.AoStrength);
+        Assert.AreEqual(VisualEffects.MinAoRadius, wild.AoRadius);
+        Assert.AreEqual(VisualEffects.None.AoRadius, (ao with { AoRadius = float.NaN }).Normalized().AoRadius, "数でない値は初期値");
+
+        var settings = new RenderSettings { Effects = ao with { AoStrength = 0.4f, AoRadius = 2.5f } };
+        ProjectFile read = ProjectSerializer.Deserialize(
+            ProjectSerializer.Serialize(new ProjectFile { Rendering = RenderingEntry.From(settings) }), new Formats.LoadReport())!;
+        var restored = new RenderSettings();
+        read.Rendering.ApplyTo(restored);
+        Assert.AreEqual(settings.Effects, restored.Effects, "環境光の遮りの値も保存して戻る");
+    }
+
+    [TestMethod]
     public void FloorReflectionIsKeptInRangeAndSaved()
     {
         Assert.IsFalse(FloorReflection.Off.Enabled);

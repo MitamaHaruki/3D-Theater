@@ -35,6 +35,7 @@ public static class EffectsMapping
         Add(style.ShadowTintEnabled, PostEffectFlags.ShadowTint);
         Add(style.PaperEnabled, PostEffectFlags.Paper);
         Add(effects.DofEnabled && sceneCamera is not null, PostEffectFlags.DepthOfField);
+        Add(effects.AoEnabled, PostEffectFlags.AmbientOcclusion);
 
         float heightScale = Math.Max(1, pixelHeight) / 1080f;
         float focus = effects.FocusDistanceFor(sceneCamera?.TargetDistance ?? effects.DofFocusDistance);
@@ -52,7 +53,9 @@ public static class EffectsMapping
             DofFocusDistance: focus,
             DofFocusRange: effects.DofFocusRange,
             DofMaxBlur: effects.DofBlur * heightScale,
-            DofTransition: VisualEffects.DofTransitionFor(focus));
+            DofTransition: VisualEffects.DofTransitionFor(focus),
+            AoStrength: effects.AoStrength,
+            AoRadius: effects.AoRadius);
 
         void Add(bool enabled, PostEffectFlags flag)
         {

@@ -27,7 +27,7 @@ extern "C" {
 
 // 上位 16 ビットが大きな版、下位 16 ビットが小さな版。大きな版が違う DLL とは組み合わせない。
 #define TT_API_VERSION_MAJOR 0
-#define TT_API_VERSION_MINOR 16
+#define TT_API_VERSION_MINOR 17
 #define TT_API_VERSION ((TT_API_VERSION_MAJOR << 16) | TT_API_VERSION_MINOR)
 
 // 0 以上は成功、負の値は失敗。
@@ -120,6 +120,8 @@ enum {
     TT_POST_PAPER = 1u << 6,       // 紙の質感（細かいむらを重ねる。paper_*）
     // ここから API 0.16
     TT_POST_DOF = 1u << 7, // 被写界深度（ピントの距離の前後をぼかす。dof_*。背景もぼかす。格子・重ね描きの線はぼかさない）
+    // ここから API 0.17
+    TT_POST_AO = 1u << 8, // 環境光の遮り（奥行きから、物の隙間や接する所を暗くする。ao_*。被写界深度・ブルームより先にかける）
 };
 
 // ---- モデルの形（メッシュ）と材質 ----
@@ -309,6 +311,9 @@ typedef struct TtFrameParams {
     float dof_focus_range;    // ピントの合う幅（前後の合計。0 以上）
     float dof_max_blur;       // ぼけの最大の大きさ（円の半径、画素。0〜64）
     float dof_transition;     // ピントの合う幅の外で、ぼけが最大になるまでの距離（0.01 以上）
+    // ここから API 0.17（環境光の遮り。TT_POST_AO のとき）
+    float ao_strength; // 強さ（0〜2。0 なら何もしない）
+    float ao_radius;   // 広がり（ワールドの長さ。これより離れた物は遮らない。0.01 以上）
 } TtFrameParams;
 
 TT_API uint32_t TT_CALL tt_get_api_version(void);

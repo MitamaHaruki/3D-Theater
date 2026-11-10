@@ -266,7 +266,7 @@ uint32_t View::SetSampleCount(uint32_t requested)
     return actual;
 }
 
-void View::EnsurePostResources(bool bloom, bool depth, bool dof)
+void View::EnsurePostResources(bool bloom, bool depth, bool dof, bool ao)
 {
     if (!scene_.texture) {
         engine_.CreatePostSurface(scene_, static_cast<UINT>(width_), static_cast<UINT>(height_), Engine::kColorFormat);
@@ -276,6 +276,11 @@ void View::EnsurePostResources(bool bloom, bool depth, bool dof)
     }
     if (dof && !dof_.texture) {
         engine_.CreatePostSurface(dof_, static_cast<UINT>(width_), static_cast<UINT>(height_), Engine::kColorFormat);
+    }
+    if (ao && !ao_.texture) {
+        engine_.CreatePostSurface(ao_, static_cast<UINT>(width_), static_cast<UINT>(height_), DXGI_FORMAT_R8_UNORM);
+        engine_.CreatePostSurface(aoBlur_, static_cast<UINT>(width_), static_cast<UINT>(height_), DXGI_FORMAT_R8_UNORM);
+        engine_.CreatePostSurface(aoScene_, static_cast<UINT>(width_), static_cast<UINT>(height_), Engine::kColorFormat);
     }
     if (!bloom || !bloomDown_.empty()) {
         return;
@@ -306,6 +311,9 @@ void View::ReleaseSizeDependentResources() noexcept
     scene_ = PostSurface{};
     linearDepth_ = PostSurface{};
     dof_ = PostSurface{};
+    ao_ = PostSurface{};
+    aoBlur_ = PostSurface{};
+    aoScene_ = PostSurface{};
     bloomDown_.clear();
     bloomUp_.clear();
     ReleaseSampleResources();
@@ -356,8 +364,9 @@ bool View::Render(const TtFrameParams& params)
         // 場面を背景なしで描き（MSAA ならまとめてから）、映像効果をかけて描画先へ書き、その上に格子や選択の枠を重ねる。
         // MSAA の描画先へ書いた効果の結果は、どの点も同じ色なので、重ね描きの線だけがなめらかに混ざる
         const bool dof = (params.post_flags & TT_POST_DOF) != 0;
-        const bool lines = (params.post_flags & TT_POST_LINES) != 0 || dof;
-        EnsurePostResources((params.post_flags & TT_POST_BLOOM) != 0, lines, dof);
+        const bool ao = (params.post_flags & TT_POST_AO) != 0;
+        const bool lines = (params.post_flags & TT_POST_LINES) != 0 || dof || ao; // 奥行きを使う効果
+        EnsurePostResources((params.post_flags & TT_POST_BLOOM) != 0, lines, dof, ao);
         engine_.DrawScene(multisampled ? msaaRtv_.Get() : scene_.rtv.Get(), dsv_.Get(), width_, height_, params, multisampled,
             Engine::ScenePart::Scene);
         if (multisampled) {
@@ -371,6 +380,9 @@ bool View::Render(const TtFrameParams& params)
         inputs.depthMultisampled = multisampled;
         inputs.linearDepth = lines ? &linearDepth_ : nullptr;
         inputs.dof = dof ? &dof_ : nullptr;
+        inputs.ao = ao ? &ao_ : nullptr;
+        inputs.aoBlur = ao ? &aoBlur_ : nullptr;
+        inputs.aoScene = ao ? &aoScene_ : nullptr;
         engine_.ApplyPostEffects(params, inputs, target, width_, height_);
         engine_.DrawScene(target, dsv_.Get(), width_, height_, params, multisampled, Engine::ScenePart::Overlays);
     }

@@ -145,6 +145,8 @@ public sealed unsafe class NativeView : IDisposable
                 DofFocusRange = frame.Effects.DofFocusRange,
                 DofMaxBlur = frame.Effects.DofMaxBlur,
                 DofTransition = frame.Effects.DofTransition,
+                AoStrength = frame.Effects.AoStrength,
+                AoRadius = frame.Effects.AoRadius,
             };
             return NativeError.Check(NativeMethods.ViewRender(Handle, &parameters)) == NativeResult.Ok;
         }

@@ -15,6 +15,8 @@ cbuffer PostConstants : register(b0)
     float4 ShadowTint;       // rgb = 影の色（明るさを 1 にそろえたもの）
     float4 ProjectionParams; // x = 投影の (3,3)、y = 投影の (4,3)、z = 1 なら平行投影
     float4 DofParams;        // 被写界深度: x = ピントの距離、y = ピントの合う幅の半分、z = ぼけの最大（画素）、w = 最大になるまでの距離
+    float4 AoParams;         // 環境光の遮り: x = 強さ、y = 広がり（ワールドの長さ）、z = 広がりの上限（画素）
+    float4 AoProjection;     // 画面の位置を見る向きの座標に戻す値: x = 投影の (1,1)、y = (2,2)、zw = 中心のずれ
 };
 
 Texture2D Source : register(t0);
@@ -36,6 +38,7 @@ static const uint kPostPosterize = 16;
 static const uint kPostShadowTint = 32;
 static const uint kPostPaper = 64;
 static const uint kPostDof = 128;
+static const uint kPostAo = 256;
 
 // 何も描かれていない所の距離
 static const float kNothing = 1e30;

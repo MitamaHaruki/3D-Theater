@@ -92,6 +92,9 @@ public enum PostEffectFlags : uint
 
     /// <summary>被写界深度（ピントの距離の前後をぼかす）。</summary>
     DepthOfField = 1u << 7,
+
+    /// <summary>環境光の遮り（奥行きから、物の隙間や接する所を暗くする）。</summary>
+    AmbientOcclusion = 1u << 8,
 }
 
 /// <summary>
@@ -102,6 +105,7 @@ public enum PostEffectFlags : uint
 /// イラスト風: 線画は色・太さ（画素）・濃さ（0〜1）・細かさ（0〜1）、塗りは段数（2〜16）、影の色は色と強さ（0〜1）、
 /// 紙の質感は強さ（0〜1）と粒の大きさ（画素）。線画・塗り・影の色は背景にかからない。
 /// 被写界深度は、ピントの距離・ピントの合う幅（前後の合計）・ぼけの最大（画素）・最大になるまでの距離（カメラから見る向きの距離）。
+/// 環境光の遮りは、強さ（0〜2）と広がり（ワールドの長さ。これより離れた物は遮らない）。
 /// </summary>
 public readonly record struct PostEffects(
     PostEffectFlags Flags,
@@ -125,7 +129,9 @@ public readonly record struct PostEffects(
     float DofFocusDistance = 45f,
     float DofFocusRange = 4f,
     float DofMaxBlur = 0f,
-    float DofTransition = 20f)
+    float DofTransition = 20f,
+    float AoStrength = 0f,
+    float AoRadius = 1f)
 {
     /// <summary>映像効果なし。</summary>
     public static PostEffects None => new(PostEffectFlags.None);

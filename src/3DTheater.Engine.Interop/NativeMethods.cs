@@ -87,6 +87,8 @@ internal unsafe struct TtFrameParams
     public float DofFocusRange;
     public float DofMaxBlur;
     public float DofTransition;
+    public float AoStrength;
+    public float AoRadius;
 }
 
 [StructLayout(LayoutKind.Sequential)]

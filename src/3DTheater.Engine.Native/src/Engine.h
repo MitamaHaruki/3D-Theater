@@ -79,6 +79,9 @@ public:
         bool depthMultisampled = false;                    // 奥行きが MSAA か
         const PostSurface* linearDepth = nullptr;          // 線画・被写界深度の準備（見る向きの距離）を書く画像
         const PostSurface* dof = nullptr;                  // 被写界深度でぼかした場面を書く画像
+        const PostSurface* ao = nullptr;                   // 環境光の遮りの、光の届く割合を書く画像
+        const PostSurface* aoBlur = nullptr;               // 光の届く割合を横にならしたものを書く画像
+        const PostSurface* aoScene = nullptr;              // 環境光の遮りをかけた場面を書く画像
     };
     // 映像効果をかける: 場面から output（width x height）へ。背景も置く
     void ApplyPostEffects(const TtFrameParams& params, const PostInputs& inputs, ID3D11RenderTargetView* output, int width, int height);
@@ -204,6 +207,9 @@ private:
     ComPtr<ID3D11PixelShader> linearDepthShader_;
     ComPtr<ID3D11PixelShader> linearDepthMsShader_;
     ComPtr<ID3D11PixelShader> dofShader_;
+    ComPtr<ID3D11PixelShader> aoShader_;
+    ComPtr<ID3D11PixelShader> aoBlurShader_;
+    ComPtr<ID3D11PixelShader> aoApplyShader_;
     ComPtr<ID3D11Buffer> postConstantBuffer_;
 
     // モデル（MMD と同じトゥーンの色の計算と輪郭線）

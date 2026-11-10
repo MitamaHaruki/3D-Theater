@@ -1402,6 +1402,67 @@ public:
         Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
     }
 
+    TEST_METHOD(AmbientOcclusionDarkensCreases)
+    {
+        // 奥の壁（z = 2）に、60 度傾けた板が x = 0 で接する。接する所の近くの壁と板だけが暗くなる
+        TtEngine* engine = CreateWarpEngine();
+        constexpr int width = 256;
+        constexpr int height = 192;
+        TtView* view = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_view_create_offscreen(engine, width, height, 0, &view));
+        TtTexture* texture = CreateSolidTexture(engine, 160, 160, 160);
+        const TtMeshMaterial material = QuadMaterial(texture);
+        const TtMeshDesc desc = QuadDesc(kClockwise, &material);
+        TtMesh* mesh = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_mesh_create(engine, &desc, &mesh));
+        Assert::AreEqual<int>(TT_OK, tt_texture_destroy(texture));
+
+        auto render = [&](uint32_t flags, float strength, float radius) {
+            TtFrameParams params = MakeFrontParams();
+            params.flags = TT_FRAME_CLEAR_COLOR;
+            params.clear_color[3] = 1.0f;
+            TtDrawItem items[2] = {DrawItem(mesh), DrawItem(mesh)};
+            DirectX::XMStoreFloat4x4(reinterpret_cast<DirectX::XMFLOAT4X4*>(items[0].world),
+                DirectX::XMMatrixScaling(2.0f, 2.0f, 1.0f) * DirectX::XMMatrixTranslation(0.0f, 0.0f, 2.0f));
+            DirectX::XMStoreFloat4x4(reinterpret_cast<DirectX::XMFLOAT4X4*>(items[1].world),
+                DirectX::XMMatrixScaling(1.0f, 2.0f, 1.0f) * DirectX::XMMatrixRotationY(DirectX::XM_PI / 3.0f)
+                    * DirectX::XMMatrixTranslation(0.5f, 0.0f, 2.0f - 0.8660f));
+            params.items = items;
+            params.item_count = 2;
+            params.post_flags = flags;
+            params.contrast = 1.0f;
+            params.saturation = 1.0f;
+            params.ao_strength = strength;
+            params.ao_radius = radius;
+            return RenderAndRead(engine, view, params, width, height);
+        };
+        auto green = [&](const std::vector<uint8_t>& pixels, int x, int y) {
+            return static_cast<int>(pixels[(static_cast<size_t>(y) * width + x) * 4 + 1]);
+        };
+
+        const std::vector<uint8_t> plain = render(0, 0.0f, 0.4f);
+        const std::vector<uint8_t> occluded = render(TT_POST_AO, 1.0f, 0.4f);
+        const int middle = height / 2;
+        const int crease = green(plain, width / 2 - 2, middle);
+        Assert::IsTrue(crease > 40, L"接する所の近くの壁が描かれている");
+        Assert::IsTrue(green(occluded, width / 2 - 2, middle) < crease * 9 / 10, L"接する所の近くの壁は暗くなる");
+        for (int x : {72, 80}) {
+            Assert::IsTrue(std::abs(green(plain, x, middle) - green(occluded, x, middle)) <= 2, L"接する所から離れた平らな壁は変わらない");
+        }
+        Assert::IsTrue(green(occluded, width / 2 + 1, middle) < green(plain, width / 2 + 1, middle) * 9 / 10, L"接する所の近くの板も暗くなる");
+        Assert::IsTrue(std::abs(green(plain, 164, middle) - green(occluded, 164, middle)) <= 2, L"板の、接する所から離れた所は変わらない");
+        Assert::AreEqual(green(plain, 2, 2), green(occluded, 2, 2), L"背景は変わらない");
+
+        const std::vector<uint8_t> none = render(TT_POST_AO, 0.0f, 0.4f);
+        Assert::IsTrue(std::abs(crease - green(none, width / 2 - 2, middle)) <= 1, L"強さ 0 なら何もしない");
+        const std::vector<uint8_t> narrow = render(TT_POST_AO, 1.0f, 0.05f);
+        Assert::IsTrue(green(narrow, width / 2 - 2, middle) > green(occluded, width / 2 - 2, middle), L"広がりを小さくすると、接する所から少し離れた点は明るくなる");
+
+        Assert::AreEqual<int>(TT_OK, tt_mesh_destroy(mesh));
+        Assert::AreEqual<int>(TT_OK, tt_view_destroy(view));
+        Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
+    }
+
     TEST_METHOD(GridCanBeDrawnBehindModels)
     {
         // 正面の視点と同じく、格子を画面に平行な面（Z = 0）に置き、その奥（Z = 0.5）に赤い四角形を置く。

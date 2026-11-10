@@ -146,6 +146,7 @@
       <ShaderType>Pixel</ShaderType>
     </FxCompile>
     <None Include="shaders\LinearDepth.hlsli" />
+    <None Include="shaders\AoBlur.hlsli" />
     <FxCompile Include="shaders\LinearDepthPS.hlsl">
       <ShaderType>Pixel</ShaderType>
     </FxCompile>
@@ -153,6 +154,15 @@
       <ShaderType>Pixel</ShaderType>
     </FxCompile>
     <FxCompile Include="shaders\DofPS.hlsl">
+      <ShaderType>Pixel</ShaderType>
+    </FxCompile>
+    <FxCompile Include="shaders\AoPS.hlsl">
+      <ShaderType>Pixel</ShaderType>
+    </FxCompile>
+    <FxCompile Include="shaders\AoBlurPS.hlsl">
+      <ShaderType>Pixel</ShaderType>
+    </FxCompile>
+    <FxCompile Include="shaders\AoApplyPS.hlsl">
       <ShaderType>Pixel</ShaderType>
     </FxCompile>
   </ItemGroup>

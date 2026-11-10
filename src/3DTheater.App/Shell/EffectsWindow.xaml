@@ -113,6 +113,29 @@
       <TextBlock x:Name="VignetteText" Grid.Column="2" Style="{StaticResource ValueStyle}" />
     </Grid>
 
+    <!-- 環境光の遮り -->
+    <CheckBox x:Name="AoCheck" Style="{StaticResource GroupCheckStyle}" Content="環境光の遮り（物の隙間や接する所を暗くする）"
+              Checked="OnCheckChanged" Unchecked="OnCheckChanged" />
+    <Grid IsEnabled="{Binding IsChecked, ElementName=AoCheck}">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="140" />
+        <ColumnDefinition Width="*" />
+        <ColumnDefinition Width="60" />
+      </Grid.ColumnDefinitions>
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="Auto" />
+      </Grid.RowDefinitions>
+      <TextBlock Style="{StaticResource RowLabelStyle}" Text="強さ" />
+      <Slider x:Name="AoStrengthSlider" Grid.Column="1" Style="{StaticResource EffectSliderStyle}" Minimum="0" Maximum="1"
+              AutomationProperties.Name="環境光の遮りの強さ" ValueChanged="OnSliderChanged" />
+      <TextBlock x:Name="AoStrengthText" Grid.Column="2" Style="{StaticResource ValueStyle}" />
+      <TextBlock Grid.Row="1" Style="{StaticResource RowLabelStyle}" Text="広がり" ToolTip="これより離れた物は遮らない（ワールドの長さ。人の大きさのモデルの背丈は 20 ほど）" />
+      <Slider x:Name="AoRadiusSlider" Grid.Row="1" Grid.Column="1" Style="{StaticResource EffectSliderStyle}" Minimum="0.1" Maximum="10"
+              SmallChange="0.1" LargeChange="0.5" AutomationProperties.Name="環境光の遮りの広がり" ValueChanged="OnSliderChanged" />
+      <TextBlock x:Name="AoRadiusText" Grid.Row="1" Grid.Column="2" Style="{StaticResource ValueStyle}" />
+    </Grid>
+
     <!-- 被写界深度 -->
     <CheckBox x:Name="DofCheck" Style="{StaticResource GroupCheckStyle}" Content="被写界深度（ピントの前後をぼかす。カメラ視点と書き出しだけ）"
               Checked="OnCheckChanged" Unchecked="OnCheckChanged" />

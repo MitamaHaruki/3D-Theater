@@ -21,6 +21,9 @@
 #include "EdgePS.h"
 #include "EdgeVS.h"
 #include "DofPS.h"
+#include "AoPS.h"
+#include "AoBlurPS.h"
+#include "AoApplyPS.h"
 #include "GroundShadowPS.h"
 #include "LinearDepthMsPS.h"
 #include "LinearDepthPS.h"
@@ -86,10 +89,12 @@ struct PostConstants {
     DirectX::XMFLOAT4 shadowTint;
     DirectX::XMFLOAT4 projectionParams;
     DirectX::XMFLOAT4 dofParams;
+    DirectX::XMFLOAT4 aoParams;
+    DirectX::XMFLOAT4 aoProjection;
 };
 
 constexpr uint32_t kKnownPostFlags = TT_POST_COLOR | TT_POST_BLOOM | TT_POST_VIGNETTE | TT_POST_LINES | TT_POST_POSTERIZE
-    | TT_POST_SHADOW_TINT | TT_POST_PAPER | TT_POST_DOF;
+    | TT_POST_SHADOW_TINT | TT_POST_PAPER | TT_POST_DOF | TT_POST_AO;
 
 // 数でない値は fallback に、範囲の外は範囲に収める
 float Sanitize(float value, float fallback, float minimum, float maximum) noexcept
@@ -222,6 +227,9 @@ void Engine::ReleaseDevice() noexcept
     }
     gpuDoneQuery_.Reset();
     dofShader_.Reset();
+    aoShader_.Reset();
+    aoBlurShader_.Reset();
+    aoApplyShader_.Reset();
     linearDepthMsShader_.Reset();
     linearDepthShader_.Reset();
     postConstantBuffer_.Reset();
@@ -764,6 +772,15 @@ void Engine::ApplyPostEffects(const TtFrameParams& params, const PostInputs& inp
     if (maxBlur < 0.5f) {
         flags &= ~static_cast<uint32_t>(TT_POST_DOF); // ぼけが無ければ何もしない
     }
+    // 環境光の遮り: 画面での広がりの上限は画像の高さの 15%（大きすぎると、見る点がまばらになる）
+    const float aoStrength = Sanitize(params.ao_strength, 0.0f, 0.0f, 2.0f);
+    constants.aoParams = {aoStrength, Sanitize(params.ao_radius, 1.0f, 0.01f, 1e4f), std::max(static_cast<float>(height) * 0.15f, 2.0f), 0.0f};
+    const bool orthographic = constants.projectionParams.z > 0.5f;
+    constants.aoProjection = {params.projection[0], params.projection[5], orthographic ? params.projection[12] : params.projection[8],
+        orthographic ? params.projection[13] : params.projection[9]};
+    if (aoStrength <= 0.0f || constants.aoProjection.x == 0.0f || constants.aoProjection.y == 0.0f) {
+        flags &= ~static_cast<uint32_t>(TT_POST_AO);
+    }
 
     ctx->OMSetBlendState(nullptr, nullptr, 0xFFFFFFFF);
     ctx->OMSetDepthStencilState(overlayDepthState_.Get(), 0);
@@ -796,15 +813,27 @@ void Engine::ApplyPostEffects(const TtFrameParams& params, const PostInputs& inp
         ctx->Draw(3, 0);
     };
 
-    // 線画・被写界深度の準備: 奥行きを見る向きの距離に直す
-    if ((flags & (TT_POST_LINES | TT_POST_DOF)) && inputs.depth && inputs.linearDepth && inputs.linearDepth->rtv) {
+    // 線画・被写界深度・環境光の遮りの準備: 奥行きを見る向きの距離に直す
+    constexpr uint32_t kDepthEffects = TT_POST_LINES | TT_POST_DOF | TT_POST_AO;
+    if ((flags & kDepthEffects) && inputs.depth && inputs.linearDepth && inputs.linearDepth->rtv) {
         fourth = inputs.depth;
         pass(inputs.depthMultisampled ? linearDepthMsShader_.Get() : linearDepthShader_.Get(), inputs.linearDepth->rtv.Get(),
             static_cast<UINT>(width), static_cast<UINT>(height), nullptr, nullptr, static_cast<UINT>(width), static_cast<UINT>(height));
         fourth = nullptr;
         third = inputs.linearDepth->srv.Get();
     } else {
-        flags &= ~static_cast<uint32_t>(TT_POST_LINES | TT_POST_DOF);
+        flags &= ~kDepthEffects;
+    }
+
+    // 環境光の遮り: 光の届く割合を求め、横と縦にならして場面に掛ける（被写界深度でぼかす前に）
+    if ((flags & TT_POST_AO) && inputs.ao && inputs.ao->rtv && inputs.aoBlur && inputs.aoBlur->rtv && inputs.aoScene && inputs.aoScene->rtv) {
+        pass(aoShader_.Get(), inputs.ao->rtv.Get(), static_cast<UINT>(width), static_cast<UINT>(height), nullptr, nullptr,
+            static_cast<UINT>(width), static_cast<UINT>(height));
+        pass(aoBlurShader_.Get(), inputs.aoBlur->rtv.Get(), static_cast<UINT>(width), static_cast<UINT>(height), inputs.ao->srv.Get(),
+            nullptr, static_cast<UINT>(width), static_cast<UINT>(height));
+        pass(aoApplyShader_.Get(), inputs.aoScene->rtv.Get(), static_cast<UINT>(width), static_cast<UINT>(height), scene,
+            inputs.aoBlur->srv.Get(), static_cast<UINT>(width), static_cast<UINT>(height));
+        scene = inputs.aoScene->srv.Get();
     }
 
     // 被写界深度: 場面をぼかしてから、そのあとの効果（ブルーム・仕上げ）にかける
@@ -860,6 +889,9 @@ void Engine::CreatePostResources()
     CheckHr(device_->CreatePixelShader(g_LinearDepthMsPS, sizeof(g_LinearDepthMsPS), nullptr, &linearDepthMsShader_),
         L"線画の準備（MSAA）のシェーダーの作成");
     CheckHr(device_->CreatePixelShader(g_DofPS, sizeof(g_DofPS), nullptr, &dofShader_), L"被写界深度のシェーダーの作成");
+    CheckHr(device_->CreatePixelShader(g_AoPS, sizeof(g_AoPS), nullptr, &aoShader_), L"環境光の遮りのシェーダーの作成");
+    CheckHr(device_->CreatePixelShader(g_AoBlurPS, sizeof(g_AoBlurPS), nullptr, &aoBlurShader_), L"環境光の遮りをならすシェーダーの作成");
+    CheckHr(device_->CreatePixelShader(g_AoApplyPS, sizeof(g_AoApplyPS), nullptr, &aoApplyShader_), L"環境光の遮りをかけるシェーダーの作成");
 
     D3D11_BUFFER_DESC desc{};
     desc.ByteWidth = sizeof(PostConstants);

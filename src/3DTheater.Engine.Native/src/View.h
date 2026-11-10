@@ -47,7 +47,7 @@ private:
     void CreateSampleResources();
     void ReleaseSampleResources() noexcept;
     // 映像効果の画像（使うときに作る。大きさが変わったら作り直す）
-    void EnsurePostResources(bool bloom, bool depth, bool dof);
+    void EnsurePostResources(bool bloom, bool depth, bool dof, bool ao);
     void ReleaseSwapChain() noexcept;
 
     uint32_t magic_ = kMagic;
@@ -72,6 +72,9 @@ private:
     std::vector<PostSurface> bloomUp_;    // ブルームの広げ直す段
     PostSurface linearDepth_;             // 線画・被写界深度の準備（見る向きの距離）
     PostSurface dof_;                     // 被写界深度でぼかした場面
+    PostSurface ao_;                      // 環境光の遮りの、光の届く割合
+    PostSurface aoBlur_;                  // 光の届く割合を横にならしたもの
+    PostSurface aoScene_;                 // 環境光の遮りをかけた場面
     ComPtr<ID3D11Texture2D> depthTexture_;
     ComPtr<ID3D11DepthStencilView> dsv_;
     ComPtr<ID3D11ShaderResourceView> depthSrv_; // 奥行きを読む（線画に使う）
