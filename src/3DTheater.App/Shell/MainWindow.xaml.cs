@@ -541,11 +541,13 @@ public partial class MainWindow : Window
 
     private void OnExportSequenceClick(object sender, RoutedEventArgs e) => OpenExport(Editor.ExportKind.Sequence);
 
+    private void OnExportVideoClick(object sender, RoutedEventArgs e) => OpenExport(Editor.ExportKind.Video);
+
     private void OpenExport(Editor.ExportKind kind)
     {
         if (_context.Engine is null)
         {
-            MessageBox.Show(this, "描画エンジンが使えないため、書き出せません。", "画像の書き出し", MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show(this, "描画エンジンが使えないため、書き出せません。", "書き出し", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
         _context.Playback.Pause();

@@ -1,7 +1,7 @@
 <Window x:Class="Theater3D.App.Export.ExportWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="画像の書き出し（PNG）"
+        Title="書き出し（PNG・動画）"
         Width="560" SizeToContent="Height" ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
         Background="{StaticResource PanelBrush}" Foreground="{StaticResource TextBrush}"
@@ -33,12 +33,14 @@
         <RowDefinition Height="Auto" />
         <RowDefinition Height="Auto" />
         <RowDefinition Height="Auto" />
+        <RowDefinition Height="Auto" />
       </Grid.RowDefinitions>
 
       <TextBlock Style="{StaticResource LabelStyle}" Text="書き出すもの" />
       <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="0,4">
         <RadioButton x:Name="StillRadio" Content="静止画（今のフレーム）" Margin="0,0,18,0" Checked="OnKindChanged" />
-        <RadioButton x:Name="SequenceRadio" Content="連番（フレームの範囲）" Checked="OnKindChanged" />
+        <RadioButton x:Name="SequenceRadio" Content="連番（フレームの範囲）" Margin="0,0,18,0" Checked="OnKindChanged" />
+        <RadioButton x:Name="VideoRadio" Content="動画（MP4）" Checked="OnKindChanged" />
       </StackPanel>
 
       <TextBlock Grid.Row="1" Style="{StaticResource LabelStyle}" Text="フレーム" />
@@ -69,8 +71,18 @@
         <Border x:Name="BackgroundSwatch" Width="28" Height="20" Margin="6,0,0,0" CornerRadius="3" BorderThickness="1" BorderBrush="{StaticResource BorderBrush}" />
       </StackPanel>
 
-      <TextBlock Grid.Row="5" Style="{StaticResource LabelStyle}" Text="書き出し先" />
-      <DockPanel Grid.Row="5" Grid.Column="1" Margin="0,4">
+      <TextBlock x:Name="VideoLabel" Grid.Row="5" Style="{StaticResource LabelStyle}" Text="動画" />
+      <StackPanel x:Name="VideoPanel" Grid.Row="5" Grid.Column="1" Orientation="Horizontal" Margin="0,4">
+        <ComboBox x:Name="QualityBox" Width="120" MinHeight="0" Height="28" ToolTip="画質（高画質は、1 秒あたりのデータの量を 2 倍にします）">
+          <ComboBoxItem Content="標準の画質" />
+          <ComboBoxItem Content="高画質" />
+        </ComboBox>
+        <CheckBox x:Name="AudioCheck" Margin="14,0,0,0" VerticalAlignment="Center" Content="シーンの音声を入れる" />
+        <TextBlock x:Name="AudioNote" Margin="8,0,0,0" VerticalAlignment="Center" Foreground="{StaticResource SubTextBrush}" FontSize="11.5" />
+      </StackPanel>
+
+      <TextBlock Grid.Row="6" Style="{StaticResource LabelStyle}" Text="書き出し先" />
+      <DockPanel Grid.Row="6" Grid.Column="1" Margin="0,4">
         <Button DockPanel.Dock="Right" Margin="6,0,0,0" MinWidth="72" Content="参照..." Click="OnBrowseClick" />
         <TextBox x:Name="PathBox" />
       </DockPanel>

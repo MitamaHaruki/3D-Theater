@@ -49,6 +49,12 @@ public sealed class ExportPreferences
     public string? StillPath { get; set; }
 
     public string? SequencePath { get; set; }
+
+    public string? VideoPath { get; set; }
+
+    public bool VideoHighQuality { get; set; }
+
+    public bool IncludeAudio { get; set; } = true;
 }
 
 public sealed class GizmoPreferences

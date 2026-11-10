@@ -37,6 +37,26 @@ public sealed class ImageExportTests
     }
 
     [TestMethod]
+    public void VideoSettingsFollowH264Rules()
+    {
+        var video = new ExportOptions { Kind = ExportKind.Video, Width = 1920, Height = 1080, FirstFrame = 0, LastFrame = 60, OutputPath = @"C:\out\movie.png", Transparent = true };
+        Assert.HasCount(0, video.Validate(300));
+        CollectionAssert.AreEqual(new[] { @"C:\out\movie.mp4" }, video.Paths.ToArray(), "拡張子は .mp4");
+        Assert.HasCount(61, video.Frames);
+        Assert.IsFalse(video.UsesTransparency, "動画は透明にできない");
+        Assert.AreEqual(6_220_800, video.VideoBitrate(30), "フル HD・30 fps の標準は約 6 Mbps");
+        Assert.AreEqual(12_441_600, (video with { HighQuality = true }).VideoBitrate(30));
+        Assert.AreEqual(1_000_000, (video with { Width = 160, Height = 96 }).VideoBitrate(24), "少なすぎるときは 1 Mbps");
+
+        Assert.HasCount(1, (video with { Width = 1919 }).Validate(300), "奇数");
+        Assert.HasCount(1, (video with { Width = 4096, Height = 4096 }).Validate(300), "画素の数が多すぎる");
+        Assert.HasCount(0, (video with { Width = 2160, Height = 3840 }).Validate(300), "縦長の 4K はよい");
+        Assert.HasCount(1, (video with { Width = 32, Height = 32 }).Validate(300), "小さすぎる");
+        Assert.HasCount(0, (video with { Width = 64, Height = 64 }).Validate(300));
+        Assert.HasCount(1, (video with { LastFrame = 400 }).Validate(300));
+    }
+
+    [TestMethod]
     public void DownsamplingAveragesWithoutDarkeningTransparentEdges()
     {
         // 左上だけ不透明な赤、ほかは透明（透明度をかけ合わせた値）

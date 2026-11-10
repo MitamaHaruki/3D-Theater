@@ -10,16 +10,31 @@ public enum ExportKind
 
     /// <summary>フレームの範囲を 1 枚ずつ（連番）。</summary>
     Sequence,
+
+    /// <summary>フレームの範囲を動画（MP4: H.264 と AAC）に。</summary>
+    Video,
 }
 
 /// <summary>
-/// PNG の書き出しの設定（指示書 6.3）。大きさ・なめらかさ・背景（透明か色か）・フレームの範囲・書き出し先。
+/// 書き出しの設定（指示書 6.3）。大きさ・なめらかさ・背景（透明か色か）・フレームの範囲・書き出し先。
 /// 連番は、書き出し先のファイル名の後ろに「_フレームの番号」を付ける（shot.png → shot_0000.png、shot_0001.png …）。
+/// 動画は MP4（H.264・AAC）で、幅と高さは偶数・各 64〜4096・合わせて 4096 × 2304 まで（H.264 の決まり）。透明にはできない。
 /// </summary>
 public sealed record ExportOptions
 {
     /// <summary>描く大きさの上限（Direct3D 11 のテクスチャの 1 辺の上限）。</summary>
     public const int MaxRenderSize = 16384;
+
+    /// <summary>動画の 1 辺の上限と、画素の数の上限（H.264 のレベル 5.1〜5.2 の 4096 × 2304）。</summary>
+    public const int MaxVideoSide = 4096;
+
+    /// <summary>動画の 1 辺の下限（Windows の符号化の部品には、32 × 32 などのごく小さい動画を受け付けないものがある）。</summary>
+    public const int MinVideoSide = 64;
+
+    public const int MaxVideoPixels = 4096 * 2304;
+
+    /// <summary>動画の音声（AAC）の 1 秒あたりのビット数。</summary>
+    public const int AudioBitrate = 192_000;
 
     public ExportKind Kind { get; init; } = ExportKind.Still;
 
@@ -40,8 +55,29 @@ public sealed record ExportOptions
 
     public int LastFrame { get; init; }
 
-    /// <summary>静止画はそのファイル、連番は名前の頭にするファイル（拡張子は .png）。</summary>
+    /// <summary>静止画・動画はそのファイル、連番は名前の頭にするファイル（拡張子は .png・動画は .mp4）。</summary>
     public string OutputPath { get; init; } = string.Empty;
+
+    /// <summary>動画の画質（高画質ならビット数を 2 倍にする）。</summary>
+    public bool HighQuality { get; init; }
+
+    /// <summary>動画にシーンの音声を入れる。</summary>
+    public bool IncludeAudio { get; init; } = true;
+
+    public bool IsVideo => Kind == ExportKind.Video;
+
+    /// <summary>透明にするか（動画は透明にできないので、いつも false）。</summary>
+    public bool UsesTransparency => Transparent && !IsVideo;
+
+    /// <summary>
+    /// 動画の映像の 1 秒あたりのビット数: 画素の数 × フレームの速さ × 0.1（高画質は 0.2）。1〜100 Mbps に収める。
+    /// フル HD・30 fps で約 6 Mbps（高画質は約 12 Mbps）。
+    /// </summary>
+    public int VideoBitrate(int frameRate)
+    {
+        double bits = (double)Width * Height * Math.Max(1, frameRate) * (HighQuality ? 0.2 : 0.1);
+        return (int)Math.Clamp(bits, 1_000_000, 100_000_000);
+    }
 
     /// <summary>描く倍率（なめらかにするなら 2）。</summary>
     public int Supersample => Smooth ? 2 : 1;
@@ -56,9 +92,12 @@ public sealed record ExportOptions
         : [.. Enumerable.Range(FirstFrame, LastFrame - FirstFrame + 1)];
 
     /// <summary>書き出すファイル（<see cref="Frames"/> と同じ順）。</summary>
-    public IReadOnlyList<string> Paths => Kind == ExportKind.Still
-        ? [ImageExport.WithPngExtension(OutputPath)]
-        : [.. Frames.Select(f => ImageExport.SequencePath(OutputPath, f, LastFrame))];
+    public IReadOnlyList<string> Paths => Kind switch
+    {
+        ExportKind.Still => [ImageExport.WithPngExtension(OutputPath)],
+        ExportKind.Video => [Path.ChangeExtension(OutputPath, ".mp4")],
+        _ => [.. Frames.Select(f => ImageExport.SequencePath(OutputPath, f, LastFrame))],
+    };
 
     /// <summary>設定の誤り（無ければ空）。<paramref name="endFrame"/> は作品の終わりのフレーム。</summary>
     public IReadOnlyList<string> Validate(int endFrame)
@@ -78,7 +117,22 @@ public sealed record ExportOptions
         {
             errors.Add($"フレームは 0〜{endFrame:N0}（作品の終わり）の間にしてください。");
         }
-        if (Kind == ExportKind.Sequence && (LastFrame < FirstFrame || LastFrame > endFrame))
+        if (IsVideo && Width >= 1 && Height >= 1)
+        {
+            if (Width % 2 != 0 || Height % 2 != 0)
+            {
+                errors.Add("動画の幅と高さは偶数にしてください（H.264 の決まり）。");
+            }
+            if (Width > MaxVideoSide || Height > MaxVideoSide || (long)Width * Height > MaxVideoPixels)
+            {
+                errors.Add($"動画の大きさは、幅・高さとも {MaxVideoSide:N0} まで、合わせて 4,096 × 2,304 の画素の数までにしてください（H.264 の決まり）。");
+            }
+            if (Width < MinVideoSide || Height < MinVideoSide)
+            {
+                errors.Add($"動画の幅と高さは {MinVideoSide} 以上にしてください。");
+            }
+        }
+        if (Kind != ExportKind.Still && (LastFrame < FirstFrame || LastFrame > endFrame))
         {
             errors.Add($"最後のフレームは、最初のフレーム以上・{endFrame:N0}（作品の終わり）以下にしてください。");
         }

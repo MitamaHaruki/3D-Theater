@@ -1,14 +1,29 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- 音声の読み込み・波形・再生（NAudio）。画面（WPF）には依存しない -->
+  <!-- 音声の読み込み・波形・再生（NAudio）と、動画の書き出し（C++ の DLL）。画面（WPF）には依存しない -->
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>Theater3D.Media</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <NativeOutDir>$(RepoRoot)artifacts\native\x64\$(Configuration)\</NativeOutDir>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="NAudio.Core" Version="2.4.0" />
     <PackageReference Include="NAudio.Wasapi" Version="2.4.0" />
+  </ItemGroup>
+
+  <!-- C++ の動画の書き出し（Media Foundation を包んだ DLL）を先にビルドさせ、できた DLL をこのプロジェクトと参照元の出力へコピーする -->
+  <ItemGroup>
+    <ProjectReference Include="..\3DTheater.Video.Native\3DTheater.Video.Native.vcxproj"
+                      ReferenceOutputAssembly="false"
+                      SkipGetTargetFrameworkProperties="true"
+                      SetPlatform="Platform=x64"
+                      Private="false" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="$(NativeOutDir)3DTheater.Video.Native.dll" Link="3DTheater.Video.Native.dll" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+    <None Include="$(NativeOutDir)3DTheater.Video.Native.pdb" Link="3DTheater.Video.Native.pdb" CopyToOutputDirectory="PreserveNewest" Visible="false" />
   </ItemGroup>
 
 </Project>
