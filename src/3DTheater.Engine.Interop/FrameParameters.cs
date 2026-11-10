@@ -22,6 +22,9 @@ public enum FrameFlags : uint
 
     /// <summary>地面の影（高さ 0 の床に落ちる影）を <see cref="FrameParameters.GroundShadowColor"/> で描く。</summary>
     GroundShadow = 1u << 8,
+
+    /// <summary>格子と座標軸を、奥行きに関係なくいちばん奥に描く（モデルの後ろ。固定視点で使う）。</summary>
+    GridBehind = 1u << 9,
 }
 
 /// <summary>

@@ -491,6 +491,11 @@ void Engine::DrawScene(
     const UINT stride = sizeof(DemoVertex);
     const UINT offset = 0;
 
+    // 固定視点では、格子と座標軸をいちばん奥に描く（奥行きを比べも書きもしないので、後から描くモデルが必ず上に重なる）
+    const bool gridBehind = (params.flags & TT_FRAME_GRID_BEHIND) != 0;
+    if (gridBehind) {
+        ctx->OMSetDepthStencilState(overlayDepthState_.Get(), 0);
+    }
     ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_LINELIST);
     if (params.flags & TT_FRAME_SHOW_GRID) {
         SetConstants(load(params.grid_world) * viewProj);
@@ -505,6 +510,9 @@ void Engine::DrawScene(
         if (params.flags & axisFlags[axis]) {
             ctx->Draw(2, axis * 2);
         }
+    }
+    if (gridBehind) {
+        ctx->OMSetDepthStencilState(depthState_.Get(), 0);
     }
 
     if (params.flags & TT_FRAME_SHOW_TEST_OBJECT) {

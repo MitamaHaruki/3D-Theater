@@ -27,7 +27,7 @@ extern "C" {
 
 // 上位 16 ビットが大きな版、下位 16 ビットが小さな版。大きな版が違う DLL とは組み合わせない。
 #define TT_API_VERSION_MAJOR 0
-#define TT_API_VERSION_MINOR 7
+#define TT_API_VERSION_MINOR 8
 #define TT_API_VERSION ((TT_API_VERSION_MAJOR << 16) | TT_API_VERSION_MINOR)
 
 // 0 以上は成功、負の値は失敗。
@@ -102,6 +102,7 @@ enum {
     TT_FRAME_USE_LIGHT = 1u << 6,            // light_direction・light_color を使う（無ければ MMD の初期の照明）
     TT_FRAME_SELF_SHADOW = 1u << 7,          // セルフシャドウ（照明から見た奥行きの画像で、モデルに落ちる影を描く。API 0.7）
     TT_FRAME_GROUND_SHADOW = 1u << 8,        // 地面の影（高さ 0 の床へ照明の向きに押しつぶして描く。API 0.7）
+    TT_FRAME_GRID_BEHIND = 1u << 9,          // 格子と座標軸を、奥行きに関係なくいちばん奥に描く（モデルの後ろ。固定視点用。API 0.8）
 };
 
 // ---- モデルの形（メッシュ）と材質 ----

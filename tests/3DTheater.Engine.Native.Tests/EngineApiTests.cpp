@@ -591,6 +591,54 @@ public:
         Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
     }
 
+    TEST_METHOD(GridCanBeDrawnBehindModels)
+    {
+        // 正面の視点と同じく、格子を画面に平行な面（Z = 0）に置き、その奥（Z = 0.5）に赤い四角形を置く。
+        // ふつうは格子が手前なので四角形の上に線が出るが、TT_FRAME_GRID_BEHIND なら格子はいちばん奥になる
+        TtEngine* engine = CreateWarpEngine();
+        constexpr int width = 64;
+        constexpr int height = 48;
+        TtView* view = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_view_create_offscreen(engine, width, height, 0, &view));
+        TtTexture* red = CreateSolidTexture(engine, 0, 0, 255);
+        const TtMeshMaterial material = QuadMaterial(red);
+        const TtMeshDesc desc = QuadDesc(kClockwise, &material);
+        TtMesh* mesh = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_mesh_create(engine, &desc, &mesh));
+        Assert::AreEqual<int>(TT_OK, tt_texture_destroy(red));
+
+        auto render = [&](uint32_t flags) {
+            TtFrameParams params = MakeFrontParams();
+            params.flags = TT_FRAME_SHOW_GRID | flags;
+            // 格子は 0 の線を描かない（座標軸が描く）ので、4 分の 1 に縮めて、四角形の内側に線を通す
+            DirectX::XMStoreFloat4x4(reinterpret_cast<DirectX::XMFLOAT4X4*>(params.grid_world),
+                DirectX::XMMatrixScaling(0.25f, 0.25f, 0.25f) * DirectX::XMMatrixRotationX(-DirectX::XM_PIDIV2));
+            TtDrawItem item = DrawItem(mesh);
+            DirectX::XMStoreFloat4x4(reinterpret_cast<DirectX::XMFLOAT4X4*>(item.world), DirectX::XMMatrixTranslation(0.0f, 0.0f, 0.5f));
+            params.items = &item;
+            params.item_count = 1;
+            return RenderAndRead(engine, view, params, width, height);
+        };
+        // 四角形の内側で、赤でない点（格子の線）を数える
+        auto notRed = [&](const std::vector<uint8_t>& pixels) {
+            int count = 0;
+            for (int y = 17; y <= 31; ++y) {
+                for (int x = 25; x <= 39; ++x) {
+                    const uint8_t* p = &pixels[(static_cast<size_t>(y) * width + x) * 4];
+                    count += (p[2] > 150 && p[1] < 40 && p[0] < 40) ? 0 : 1;
+                }
+            }
+            return count;
+        };
+
+        Assert::IsTrue(notRed(render(0)) > 0, L"ふつうは、手前の格子の線が四角形の上に出る");
+        Assert::AreEqual(0, notRed(render(TT_FRAME_GRID_BEHIND)), L"いちばん奥に描くと、格子は四角形に隠れる");
+
+        Assert::AreEqual<int>(TT_OK, tt_mesh_destroy(mesh));
+        Assert::AreEqual<int>(TT_OK, tt_view_destroy(view));
+        Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
+    }
+
     TEST_METHOD(GroundShadowDarkensTheFloorOnce)
     {
         // 高さ 1 と 1.25 の小さな水平の四角形を、斜め上（光は +X・下向き、傾き 2:1）から照らし、真上から見る。

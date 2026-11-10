@@ -231,6 +231,11 @@ public partial class ViewportControl : UserControl, IDisposable
         bool gridVisible = ShowGrid && (_context.StageGrid?.IsEffectivelyVisible ?? true);
         if (gridVisible)
         {
+            // 固定視点（正面・側面・上面など）の格子は画面に平行でモデルを貫くので、モデルの後ろに描く。自由視点・カメラ視点は床として奥行きどおりに描く
+            if (Camera.Kind.IsFixed())
+            {
+                flags |= FrameFlags.GridBehind;
+            }
             flags |= FrameFlags.ShowGrid | plane switch
             {
                 GridPlane.XY => FrameFlags.ShowAxisX | FrameFlags.ShowAxisY,
