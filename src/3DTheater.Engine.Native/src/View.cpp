@@ -200,17 +200,31 @@ void View::CreateSampleResources()
         CheckHr(device->CreateRenderTargetView(msaaTexture_.Get(), nullptr, &msaaRtv_), L"なめらかに描く描画先ビューの作成");
     }
 
+    // 奥行きは、描くときは深度バッファーとして使い、線画では画像として読む（形式を決めずに作り、ビューごとに決める）
     D3D11_TEXTURE2D_DESC depthDesc{};
     depthDesc.Width = static_cast<UINT>(width_);
     depthDesc.Height = static_cast<UINT>(height_);
     depthDesc.MipLevels = 1;
     depthDesc.ArraySize = 1;
-    depthDesc.Format = Engine::kDepthFormat;
+    depthDesc.Format = DXGI_FORMAT_R24G8_TYPELESS;
     depthDesc.SampleDesc.Count = sampleCount_;
     depthDesc.Usage = D3D11_USAGE_DEFAULT;
-    depthDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL;
+    depthDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE;
     CheckHr(device->CreateTexture2D(&depthDesc, nullptr, &depthTexture_), L"深度バッファーの作成");
-    CheckHr(device->CreateDepthStencilView(depthTexture_.Get(), nullptr, &dsv_), L"深度ビューの作成");
+    const bool multisampled = sampleCount_ > 1;
+    D3D11_DEPTH_STENCIL_VIEW_DESC dsvDesc{};
+    dsvDesc.Format = Engine::kDepthFormat;
+    dsvDesc.ViewDimension = multisampled ? D3D11_DSV_DIMENSION_TEXTURE2DMS : D3D11_DSV_DIMENSION_TEXTURE2D;
+    CheckHr(device->CreateDepthStencilView(depthTexture_.Get(), &dsvDesc, &dsv_), L"深度ビューの作成");
+    D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc{};
+    srvDesc.Format = DXGI_FORMAT_R24_UNORM_X8_TYPELESS;
+    if (multisampled) {
+        srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DMS;
+    } else {
+        srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+        srvDesc.Texture2D.MipLevels = 1;
+    }
+    CheckHr(device->CreateShaderResourceView(depthTexture_.Get(), &srvDesc, &depthSrv_), L"奥行きを読むビューの作成");
 }
 
 void View::ReleaseSampleResources() noexcept
@@ -220,6 +234,7 @@ void View::ReleaseSampleResources() noexcept
     }
     msaaRtv_.Reset();
     msaaTexture_.Reset();
+    depthSrv_.Reset();
     dsv_.Reset();
     depthTexture_.Reset();
 }
@@ -251,10 +266,13 @@ uint32_t View::SetSampleCount(uint32_t requested)
     return actual;
 }
 
-void View::EnsurePostResources(bool bloom)
+void View::EnsurePostResources(bool bloom, bool lines)
 {
     if (!scene_.texture) {
         engine_.CreatePostSurface(scene_, static_cast<UINT>(width_), static_cast<UINT>(height_), Engine::kColorFormat);
+    }
+    if (lines && !linearDepth_.texture) {
+        engine_.CreatePostSurface(linearDepth_, static_cast<UINT>(width_), static_cast<UINT>(height_), DXGI_FORMAT_R32G32_FLOAT);
     }
     if (!bloom || !bloomDown_.empty()) {
         return;
@@ -283,6 +301,7 @@ void View::EnsurePostResources(bool bloom)
 void View::ReleaseSizeDependentResources() noexcept
 {
     scene_ = PostSurface{};
+    linearDepth_ = PostSurface{};
     bloomDown_.clear();
     bloomUp_.clear();
     ReleaseSampleResources();
@@ -332,13 +351,21 @@ bool View::Render(const TtFrameParams& params)
     } else {
         // 場面を背景なしで描き（MSAA ならまとめてから）、映像効果をかけて描画先へ書き、その上に格子や選択の枠を重ねる。
         // MSAA の描画先へ書いた効果の結果は、どの点も同じ色なので、重ね描きの線だけがなめらかに混ざる
-        EnsurePostResources((params.post_flags & TT_POST_BLOOM) != 0);
+        const bool lines = (params.post_flags & TT_POST_LINES) != 0;
+        EnsurePostResources((params.post_flags & TT_POST_BLOOM) != 0, lines);
         engine_.DrawScene(multisampled ? msaaRtv_.Get() : scene_.rtv.Get(), dsv_.Get(), width_, height_, params, multisampled,
             Engine::ScenePart::Scene);
         if (multisampled) {
             engine_.Context()->ResolveSubresource(scene_.texture.Get(), 0, msaaTexture_.Get(), 0, Engine::kColorFormat);
         }
-        engine_.ApplyPostEffects(params, scene_.srv.Get(), bloomDown_, bloomUp_, target, width_, height_);
+        Engine::PostInputs inputs;
+        inputs.scene = scene_.srv.Get();
+        inputs.bloomDown = &bloomDown_;
+        inputs.bloomUp = &bloomUp_;
+        inputs.depth = lines ? depthSrv_.Get() : nullptr;
+        inputs.depthMultisampled = multisampled;
+        inputs.linearDepth = lines ? &linearDepth_ : nullptr;
+        engine_.ApplyPostEffects(params, inputs, target, width_, height_);
         engine_.DrawScene(target, dsv_.Get(), width_, height_, params, multisampled, Engine::ScenePart::Overlays);
     }
     if (multisampled) {

@@ -98,6 +98,16 @@ public sealed class NativeEngineTests
         CollectionAssert.AreEqual(BackgroundBgra, darker[..4], "背景には色調補正がかからない");
         byte[] vignette = Render(new PostEffects(PostEffectFlags.Vignette, Vignette: 1f));
         Assert.IsLessThan(BackgroundBgra[1] / 2, (int)vignette[1], "周辺減光は四隅の背景も暗くする");
+
+        // イラスト風の値も届く: 線画（赤）が立方体の輪郭に引かれる
+        byte[] lines = Render(new PostEffects(PostEffectFlags.Lines, LineColor: new System.Numerics.Vector3(1f, 0f, 0f), LineWidth: 1f,
+            LineStrength: 1f, LineDetail: 0.5f));
+        int red = 0;
+        for (int i = 0; i < lines.Length; i += 4)
+        {
+            red += lines[i + 2] > 200 && lines[i + 1] < 80 && lines[i] < 80 ? 1 : 0;
+        }
+        Assert.IsGreaterThan(10, red, "立方体の輪郭に赤い線");
     }
 
     [TestMethod]

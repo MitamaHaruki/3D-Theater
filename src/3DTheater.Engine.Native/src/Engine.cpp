@@ -21,6 +21,8 @@
 #include "EdgePS.h"
 #include "EdgeVS.h"
 #include "GroundShadowPS.h"
+#include "LinearDepthMsPS.h"
+#include "LinearDepthPS.h"
 #include "ModelPS.h"
 #include "ModelVS.h"
 #include "ShadowVS.h"
@@ -65,9 +67,15 @@ struct PostConstants {
     DirectX::XMFLOAT4 whiteBalance;
     DirectX::XMFLOAT4 backgroundColor;
     uint32_t flags[4];
+    DirectX::XMFLOAT4 lineParams;
+    DirectX::XMFLOAT4 lineColor;
+    DirectX::XMFLOAT4 paintParams;
+    DirectX::XMFLOAT4 shadowTint;
+    DirectX::XMFLOAT4 projectionParams;
 };
 
-constexpr uint32_t kKnownPostFlags = TT_POST_COLOR | TT_POST_BLOOM | TT_POST_VIGNETTE;
+constexpr uint32_t kKnownPostFlags =
+    TT_POST_COLOR | TT_POST_BLOOM | TT_POST_VIGNETTE | TT_POST_LINES | TT_POST_POSTERIZE | TT_POST_SHADOW_TINT | TT_POST_PAPER;
 
 // 数でない値は fallback に、範囲の外は範囲に収める
 float Sanitize(float value, float fallback, float minimum, float maximum) noexcept
@@ -196,6 +204,8 @@ void Engine::ReleaseDevice() noexcept
         context_->Flush();
     }
     gpuDoneQuery_.Reset();
+    linearDepthMsShader_.Reset();
+    linearDepthShader_.Reset();
     postConstantBuffer_.Reset();
     postCompositeShader_.Reset();
     bloomUpShader_.Reset();
@@ -677,11 +687,15 @@ void Engine::CreatePostSurface(PostSurface& surface, UINT width, UINT height, DX
     surface.height = desc.Height;
 }
 
-void Engine::ApplyPostEffects(const TtFrameParams& params, ID3D11ShaderResourceView* scene, const std::vector<PostSurface>& bloomDown,
-    const std::vector<PostSurface>& bloomUp, ID3D11RenderTargetView* output, int width, int height)
+void Engine::ApplyPostEffects(const TtFrameParams& params, const PostInputs& inputs, ID3D11RenderTargetView* output, int width, int height)
 {
+    using namespace DirectX;
     ID3D11DeviceContext* ctx = context_.Get();
     uint32_t flags = params.post_flags & kKnownPostFlags;
+    ID3D11ShaderResourceView* scene = inputs.scene;
+    static const std::vector<PostSurface> kNoLevels;
+    const std::vector<PostSurface>& bloomDown = inputs.bloomDown ? *inputs.bloomDown : kNoLevels;
+    const std::vector<PostSurface>& bloomUp = inputs.bloomUp ? *inputs.bloomUp : kNoLevels;
 
     PostConstants constants{};
     const float threshold = Sanitize(params.bloom_threshold, 0.8f, 0.0f, 1.0f);
@@ -699,6 +713,24 @@ void Engine::ApplyPostEffects(const TtFrameParams& params, ID3D11ShaderResourceV
         constants.backgroundColor = {kClearColor[0], kClearColor[1], kClearColor[2], kClearColor[3]};
     }
 
+    // イラスト風: 線画の細かさ 0〜1 を、段差（奥行きの差の割合）と折れ目（曲がりの割合）のしきい値にする
+    const float detail = Sanitize(params.line_detail, 0.5f, 0.0f, 1.0f);
+    constants.lineParams = {Sanitize(params.line_width, 1.0f, 0.5f, 8.0f), Sanitize(params.line_strength, 1.0f, 0.0f, 1.0f),
+        0.08f + (0.005f - 0.08f) * detail, 0.02f + (0.0015f - 0.02f) * detail};
+    constants.lineColor = {Sanitize(params.line_color[0], 0.0f, 0.0f, 1.0f), Sanitize(params.line_color[1], 0.0f, 0.0f, 1.0f),
+        Sanitize(params.line_color[2], 0.0f, 0.0f, 1.0f), 1.0f};
+    constants.paintParams = {static_cast<float>(std::clamp<uint32_t>(params.posterize_levels, 2, 16)),
+        Sanitize(params.shadow_tint_strength, 0.0f, 0.0f, 1.0f), Sanitize(params.paper_strength, 0.0f, 0.0f, 1.0f),
+        Sanitize(params.paper_grain, 2.0f, 0.5f, 64.0f)};
+    // 影の色は色合いだけを使う（明るさを 1 にそろえる。黒に近い色は、色合いが決まらないので灰色にする）
+    XMVECTOR tint = XMVectorSet(Sanitize(params.shadow_tint[0], 0.5f, 0.0f, 1.0f), Sanitize(params.shadow_tint[1], 0.5f, 0.0f, 1.0f),
+        Sanitize(params.shadow_tint[2], 0.5f, 0.0f, 1.0f), 0.0f);
+    const float tintLuminance = XMVectorGetX(XMVector3Dot(tint, XMVectorSet(0.2126f, 0.7152f, 0.0722f, 0.0f)));
+    tint = tintLuminance > 0.02f ? XMVectorScale(tint, 1.0f / tintLuminance) : XMVectorSet(1.0f, 1.0f, 1.0f, 0.0f);
+    XMStoreFloat4(&constants.shadowTint, tint);
+    // 奥行きを距離に直すための投影の値（行ベクトル × 行列の並び。(3,4) が 0 なら平行投影）
+    constants.projectionParams = {params.projection[10], params.projection[14], params.projection[11] == 0.0f ? 1.0f : 0.0f, 0.0f};
+
     ctx->OMSetBlendState(nullptr, nullptr, 0xFFFFFFFF);
     ctx->OMSetDepthStencilState(overlayDepthState_.Get(), 0);
     ctx->RSSetState(rasterizerState_.Get());
@@ -708,10 +740,12 @@ void Engine::ApplyPostEffects(const TtFrameParams& params, ID3D11ShaderResourceV
     ctx->PSSetConstantBuffers(0, 1, postConstantBuffer_.GetAddressOf());
     ctx->PSSetSamplers(0, 1, clampSampler_.GetAddressOf());
 
-    ID3D11ShaderResourceView* const none[2] = {nullptr, nullptr};
+    ID3D11ShaderResourceView* const none[4] = {nullptr, nullptr, nullptr, nullptr};
+    ID3D11ShaderResourceView* third = nullptr; // 線画の準備（見る向きの距離）
+    ID3D11ShaderResourceView* fourth = nullptr; // 場面の奥行き（線画の準備のときだけ）
     auto pass = [&](ID3D11PixelShader* shader, ID3D11RenderTargetView* target, UINT w, UINT h, ID3D11ShaderResourceView* first,
                     ID3D11ShaderResourceView* second, UINT sourceWidth, UINT sourceHeight) {
-        ctx->PSSetShaderResources(0, 2, none); // 前の段で書いた画像を、読む前に描画先から外す
+        ctx->PSSetShaderResources(0, 4, none); // 前の段で書いた画像を、読む前に描画先から外す
         ctx->OMSetRenderTargets(1, &target, nullptr);
         const D3D11_VIEWPORT viewport{0.0f, 0.0f, static_cast<float>(w), static_cast<float>(h), 0.0f, 1.0f};
         ctx->RSSetViewports(1, &viewport);
@@ -722,11 +756,22 @@ void Engine::ApplyPostEffects(const TtFrameParams& params, ID3D11ShaderResourceV
         CheckHr(ctx->Map(postConstantBuffer_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped), L"映像効果の定数の更新");
         std::memcpy(mapped.pData, &constants, sizeof(constants));
         ctx->Unmap(postConstantBuffer_.Get(), 0);
-        ID3D11ShaderResourceView* const sources[2] = {first, second};
-        ctx->PSSetShaderResources(0, 2, sources);
+        ID3D11ShaderResourceView* const sources[4] = {first, second, third, fourth};
+        ctx->PSSetShaderResources(0, 4, sources);
         ctx->PSSetShader(shader, nullptr, 0);
         ctx->Draw(3, 0);
     };
+
+    // 線画の準備: 奥行きを見る向きの距離に直す
+    if ((flags & TT_POST_LINES) && inputs.depth && inputs.linearDepth && inputs.linearDepth->rtv) {
+        fourth = inputs.depth;
+        pass(inputs.depthMultisampled ? linearDepthMsShader_.Get() : linearDepthShader_.Get(), inputs.linearDepth->rtv.Get(),
+            static_cast<UINT>(width), static_cast<UINT>(height), nullptr, nullptr, static_cast<UINT>(width), static_cast<UINT>(height));
+        fourth = nullptr;
+        third = inputs.linearDepth->srv.Get();
+    } else {
+        flags &= ~static_cast<uint32_t>(TT_POST_LINES);
+    }
 
     ID3D11ShaderResourceView* bloom = nullptr;
     if ((flags & TT_POST_BLOOM) && intensity > 0.0f && bloomDown.size() >= 2 && bloomUp.size() + 1 == bloomDown.size()) {
@@ -750,7 +795,7 @@ void Engine::ApplyPostEffects(const TtFrameParams& params, ID3D11ShaderResourceV
     pass(postCompositeShader_.Get(), output, static_cast<UINT>(width), static_cast<UINT>(height), scene, bloom,
         bloom ? bloomDown[0].width : 1, bloom ? bloomDown[0].height : 1);
 
-    ctx->PSSetShaderResources(0, 2, none);
+    ctx->PSSetShaderResources(0, 4, none);
     ctx->OMSetRenderTargets(0, nullptr, nullptr);
 }
 
@@ -769,6 +814,10 @@ void Engine::CreatePostResources()
     CheckHr(device_->CreatePixelShader(g_BloomUpPS, sizeof(g_BloomUpPS), nullptr, &bloomUpShader_), L"ブルームの拡大のシェーダーの作成");
     CheckHr(device_->CreatePixelShader(g_PostCompositePS, sizeof(g_PostCompositePS), nullptr, &postCompositeShader_),
         L"映像効果の仕上げのシェーダーの作成");
+    CheckHr(device_->CreatePixelShader(g_LinearDepthPS, sizeof(g_LinearDepthPS), nullptr, &linearDepthShader_),
+        L"線画の準備のシェーダーの作成");
+    CheckHr(device_->CreatePixelShader(g_LinearDepthMsPS, sizeof(g_LinearDepthMsPS), nullptr, &linearDepthMsShader_),
+        L"線画の準備（MSAA）のシェーダーの作成");
 
     D3D11_BUFFER_DESC desc{};
     desc.ByteWidth = sizeof(PostConstants);

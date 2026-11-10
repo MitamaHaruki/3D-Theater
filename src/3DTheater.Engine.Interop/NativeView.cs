@@ -110,6 +110,15 @@ public sealed unsafe class NativeView : IDisposable
                 BloomThreshold = frame.Effects.BloomThreshold,
                 BloomSpread = frame.Effects.BloomSpread,
                 Vignette = frame.Effects.Vignette,
+                LineColor = frame.Effects.LineColor,
+                LineWidth = frame.Effects.LineWidth,
+                LineStrength = frame.Effects.LineStrength,
+                LineDetail = frame.Effects.LineDetail,
+                PosterizeLevels = (uint)Math.Clamp(frame.Effects.PosterizeLevels, 2, 16),
+                ShadowTintStrength = frame.Effects.ShadowTintStrength,
+                ShadowTint = frame.Effects.ShadowTint,
+                PaperStrength = frame.Effects.PaperStrength,
+                PaperGrain = frame.Effects.PaperGrain,
             };
             return NativeError.Check(NativeMethods.ViewRender(Handle, &parameters)) == NativeResult.Ok;
         }

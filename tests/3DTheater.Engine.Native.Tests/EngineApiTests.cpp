@@ -922,6 +922,164 @@ public:
         Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
     }
 
+    TEST_METHOD(LinesOutlineSilhouettesAndSteps)
+    {
+        // 黒い背景に白い大きな四角形、その手前に小さな白い四角形。線画（赤）は、外側の輪郭と、手前の四角形の縁に引かれる
+        TtEngine* engine = CreateWarpEngine();
+        constexpr int width = 64;
+        constexpr int height = 48;
+        TtView* view = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_view_create_offscreen(engine, width, height, 0, &view));
+        TtTexture* texture = CreateSolidTexture(engine, 255, 255, 255);
+        const TtMeshMaterial material = QuadMaterial(texture);
+        const TtMeshDesc desc = QuadDesc(kClockwise, &material);
+        TtMesh* mesh = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_mesh_create(engine, &desc, &mesh));
+        Assert::AreEqual<int>(TT_OK, tt_texture_destroy(texture));
+
+        auto render = [&](uint32_t flags, float frontZ, float detail, bool orthographic) {
+            TtFrameParams params = MakeFrontParams();
+            if (orthographic) {
+                DirectX::XMStoreFloat4x4(reinterpret_cast<DirectX::XMFLOAT4X4*>(params.projection),
+                    DirectX::XMMatrixOrthographicLH(5.5f, 4.14f, 0.1f, 100.0f));
+            }
+            params.flags = TT_FRAME_CLEAR_COLOR;
+            params.clear_color[3] = 1.0f; // 黒
+            TtDrawItem items[2] = {DrawItem(mesh), DrawItem(mesh)};
+            DirectX::XMStoreFloat4x4(reinterpret_cast<DirectX::XMFLOAT4X4*>(items[0].world), DirectX::XMMatrixScaling(0.6f, 0.6f, 1.0f));
+            DirectX::XMStoreFloat4x4(reinterpret_cast<DirectX::XMFLOAT4X4*>(items[1].world),
+                DirectX::XMMatrixScaling(0.25f, 0.25f, 1.0f) * DirectX::XMMatrixTranslation(0.0f, 0.0f, frontZ));
+            params.items = items;
+            params.item_count = 2;
+            params.post_flags = flags;
+            params.contrast = 1.0f;
+            params.saturation = 1.0f;
+            params.line_color[0] = 1.0f; // 赤
+            params.line_width = 1.0f;
+            params.line_strength = 1.0f;
+            params.line_detail = detail;
+            return RenderAndRead(engine, view, params, width, height);
+        };
+        auto isRed = [](const uint8_t* p) { return p[2] > 180 && p[1] < 110 && p[0] < 110; };
+        // 真ん中の行で、赤い画素の x（中央からの距離）を集める
+        auto redColumns = [&](const std::vector<uint8_t>& pixels) {
+            std::vector<int> found;
+            for (int x = 0; x < width; ++x) {
+                if (isRed(&pixels[(static_cast<size_t>(height / 2) * width + x) * 4])) {
+                    found.push_back(x - width / 2);
+                }
+            }
+            return found;
+        };
+        auto hasNear = [](const std::vector<int>& xs, int from, int to) {
+            return std::any_of(xs.begin(), xs.end(), [&](int x) { return std::abs(x) >= from && std::abs(x) <= to; });
+        };
+
+        Assert::IsTrue(redColumns(render(0, -0.5f, 0.5f, false)).empty(), L"線画なしなら赤い線は無い");
+        for (uint32_t samples : {1u, 4u}) {
+            Assert::AreEqual<int>(TT_OK, tt_view_set_sample_count(view, samples, nullptr));
+            std::vector<uint8_t> pixels = render(TT_POST_LINES, -0.5f, 0.5f, false);
+            std::vector<int> xs = redColumns(pixels);
+            Assert::IsTrue(hasNear(xs, 5, 8), L"外側の輪郭に線を引く");
+            Assert::IsTrue(hasNear(xs, 2, 4), L"手前の四角形の縁にも線を引く");
+            Assert::AreEqual<int>(0, pixels[1], L"背景には線を引かない");
+            const uint8_t* center = &pixels[(static_cast<size_t>(height / 2) * width + width / 2) * 4];
+            Assert::IsTrue(center[1] > 200, L"面の真ん中は白のまま");
+        }
+        Assert::AreEqual<int>(TT_OK, tt_view_set_sample_count(view, 1, nullptr));
+
+        // 小さな段差（奥行きの差が 2% ほど）は、細かさを上げたときだけ線になる
+        Assert::IsFalse(hasNear(redColumns(render(TT_POST_LINES, -0.1f, 0.0f, false)), 2, 4), L"細かさ 0 では小さな段差に線を引かない");
+        Assert::IsTrue(hasNear(redColumns(render(TT_POST_LINES, -0.1f, 1.0f, false)), 2, 4), L"細かさ 1 なら引く");
+
+        // 平行投影（固定視点）でも引ける
+        std::vector<int> ortho = redColumns(render(TT_POST_LINES, -0.5f, 1.0f, true));
+        Assert::IsFalse(ortho.empty(), L"平行投影でも線を引く");
+
+        Assert::AreEqual<int>(TT_OK, tt_mesh_destroy(mesh));
+        Assert::AreEqual<int>(TT_OK, tt_view_destroy(view));
+        Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
+    }
+
+    TEST_METHOD(PaintShadowTintAndPaperChangeTheLook)
+    {
+        TtEngine* engine = CreateWarpEngine();
+        constexpr int width = 64;
+        constexpr int height = 48;
+        TtView* view = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_view_create_offscreen(engine, width, height, 0, &view));
+        auto makeQuad = [&](uint8_t gray) {
+            TtTexture* texture = CreateSolidTexture(engine, gray, gray, gray);
+            const TtMeshMaterial material = QuadMaterial(texture);
+            const TtMeshDesc desc = QuadDesc(kClockwise, &material);
+            TtMesh* mesh = nullptr;
+            Assert::AreEqual<int>(TT_OK, tt_mesh_create(engine, &desc, &mesh));
+            Assert::AreEqual<int>(TT_OK, tt_texture_destroy(texture));
+            return mesh;
+        };
+        TtMesh* dark = makeQuad(70);
+        TtMesh* bright = makeQuad(235);
+        // 画面いっぱいの四角形を描いて、真ん中の行を読む
+        auto render = [&](TtMesh* mesh, auto&& setup) {
+            TtFrameParams params = MakeFrontParams();
+            params.flags = TT_FRAME_CLEAR_COLOR;
+            params.clear_color[3] = 1.0f;
+            TtDrawItem item = DrawItem(mesh);
+            DirectX::XMStoreFloat4x4(reinterpret_cast<DirectX::XMFLOAT4X4*>(item.world), DirectX::XMMatrixScaling(4.0f, 4.0f, 1.0f));
+            params.items = &item;
+            params.item_count = 1;
+            params.contrast = 1.0f;
+            params.saturation = 1.0f;
+            setup(params);
+            return RenderAndRead(engine, view, params, width, height);
+        };
+        const size_t center = (static_cast<size_t>(height / 2) * width + width / 2) * 4;
+
+        // 塗り: 3 段（黒・中間・白）のどれかになる
+        for (TtMesh* mesh : {dark, bright}) {
+            std::vector<uint8_t> painted = render(mesh, [](TtFrameParams& p) { p.post_flags = TT_POST_POSTERIZE; p.posterize_levels = 3; });
+            const int g = painted[center + 1];
+            Assert::IsTrue(g <= 2 || std::abs(g - 128) <= 3 || g >= 252, L"塗りは決まった段のどれか");
+        }
+        std::vector<uint8_t> darkPainted = render(dark, [](TtFrameParams& p) { p.post_flags = TT_POST_POSTERIZE; p.posterize_levels = 2; });
+        std::vector<uint8_t> brightPainted = render(bright, [](TtFrameParams& p) { p.post_flags = TT_POST_POSTERIZE; p.posterize_levels = 2; });
+        Assert::IsTrue(darkPainted[center + 1] <= 2 && brightPainted[center + 1] >= 252, L"2 段なら、暗い色は黒・明るい色は白");
+
+        // 影の色（青）: 暗い所は青みがかり、明るい所はほとんど変わらない
+        auto blueTint = [](TtFrameParams& p) {
+            p.post_flags = TT_POST_SHADOW_TINT;
+            p.shadow_tint[2] = 1.0f;
+            p.shadow_tint_strength = 1.0f;
+        };
+        std::vector<uint8_t> darkTinted = render(dark, blueTint);
+        Assert::IsTrue(darkTinted[center] > darkTinted[center + 2] + 20, L"暗い所は青みがかる");
+        std::vector<uint8_t> brightTinted = render(bright, blueTint);
+        Assert::IsTrue(std::abs(brightTinted[center] - brightTinted[center + 2]) <= 3, L"明るい所はほとんど変わらない");
+
+        // 紙の質感: 一様な面にむらができる
+        auto spread = [&](const std::vector<uint8_t>& pixels) {
+            int lo = 255;
+            int hi = 0;
+            for (int x = 0; x < width; ++x) {
+                const int g = pixels[(static_cast<size_t>(height / 2) * width + x) * 4 + 1];
+                lo = std::min(lo, g);
+                hi = std::max(hi, g);
+            }
+            return hi - lo;
+        };
+        Assert::IsTrue(spread(render(bright, [](TtFrameParams&) {})) <= 2, L"効果なしなら一様");
+        Assert::IsTrue(spread(render(bright, [](TtFrameParams& p) {
+            p.post_flags = TT_POST_PAPER;
+            p.paper_strength = 1.0f;
+            p.paper_grain = 2.0f;
+        })) > 15, L"紙の質感でむらができる");
+
+        Assert::AreEqual<int>(TT_OK, tt_mesh_destroy(dark));
+        Assert::AreEqual<int>(TT_OK, tt_mesh_destroy(bright));
+        Assert::AreEqual<int>(TT_OK, tt_view_destroy(view));
+        Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
+    }
+
     TEST_METHOD(GridCanBeDrawnBehindModels)
     {
         // 正面の視点と同じく、格子を画面に平行な面（Z = 0）に置き、その奥（Z = 0.5）に赤い四角形を置く。

@@ -44,6 +44,18 @@ public enum PostEffectFlags : uint
 
     /// <summary>周辺減光（画面の四隅を暗くする）。</summary>
     Vignette = 1u << 2,
+
+    /// <summary>線画（奥行きの段差と面の折れ目に線を引く）。</summary>
+    Lines = 1u << 3,
+
+    /// <summary>塗り（明るさの段階を減らす）。</summary>
+    Posterize = 1u << 4,
+
+    /// <summary>影の色（暗い所を選んだ色合いに寄せる）。</summary>
+    ShadowTint = 1u << 5,
+
+    /// <summary>紙の質感（細かいむらを重ねる。背景にもかかる）。</summary>
+    Paper = 1u << 6,
 }
 
 /// <summary>
@@ -51,6 +63,8 @@ public enum PostEffectFlags : uint
 /// <see cref="Exposure"/> は段（+1 で 2 倍の明るさ）、<see cref="Contrast"/>・<see cref="Saturation"/> は 1 で変えない、
 /// <see cref="Temperature"/> は -1（青く）〜 +1（黄色く）。ブルームは強さ・光り始める明るさ（0〜1）・広がり（0〜1）。
 /// <see cref="Vignette"/> は四隅の暗さ（0〜1）。背景・格子・選択の枠・重ね描きの線には、色調補正とブルームはかからない。
+/// イラスト風: 線画は色・太さ（画素）・濃さ（0〜1）・細かさ（0〜1）、塗りは段数（2〜16）、影の色は色と強さ（0〜1）、
+/// 紙の質感は強さ（0〜1）と粒の大きさ（画素）。線画・塗り・影の色は背景にかからない。
 /// </summary>
 public readonly record struct PostEffects(
     PostEffectFlags Flags,
@@ -61,7 +75,16 @@ public readonly record struct PostEffects(
     float BloomIntensity = 0f,
     float BloomThreshold = 0.8f,
     float BloomSpread = 0.7f,
-    float Vignette = 0f)
+    float Vignette = 0f,
+    Vector3 LineColor = default,
+    float LineWidth = 1f,
+    float LineStrength = 1f,
+    float LineDetail = 0.5f,
+    int PosterizeLevels = 4,
+    Vector3 ShadowTint = default,
+    float ShadowTintStrength = 0f,
+    float PaperStrength = 0f,
+    float PaperGrain = 2f)
 {
     /// <summary>映像効果なし。</summary>
     public static PostEffects None => new(PostEffectFlags.None);

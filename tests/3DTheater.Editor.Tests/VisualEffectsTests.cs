@@ -42,6 +42,38 @@ public sealed class VisualEffectsTests
     }
 
     [TestMethod]
+    public void IllustrationValuesAreKeptInRange()
+    {
+        IllustrationStyle none = IllustrationStyle.None;
+        Assert.IsFalse(none.Any);
+        Assert.AreEqual(none, none.Normalized(), "初期値は範囲の中");
+        Assert.IsTrue((none with { PaperEnabled = true }).Any);
+
+        IllustrationStyle fixedUp = new IllustrationStyle
+        {
+            LineWidth = 100f,
+            LineStrength = float.NaN,
+            LineDetail = -1f,
+            LineColor = "#abc",
+            PaintLevels = 1,
+            ShadowColor = "#00ff00",
+            ShadowTintStrength = 2f,
+            PaperStrength = -0.5f,
+            PaperGrain = 0f,
+        }.Normalized();
+        Assert.AreEqual(IllustrationStyle.MaxLineWidth, fixedUp.LineWidth);
+        Assert.AreEqual(none.LineStrength, fixedUp.LineStrength, "数でない値は初期値");
+        Assert.AreEqual(0f, fixedUp.LineDetail);
+        Assert.AreEqual(none.LineColor, fixedUp.LineColor, "#RRGGBB でない色は初期値");
+        Assert.AreEqual(IllustrationStyle.MinPaintLevels, fixedUp.PaintLevels);
+        Assert.AreEqual("#00FF00", fixedUp.ShadowColor);
+        Assert.AreEqual(1f, fixedUp.ShadowTintStrength);
+        Assert.AreEqual(0f, fixedUp.PaperStrength);
+        Assert.AreEqual(IllustrationStyle.MinPaperGrain, fixedUp.PaperGrain);
+        Assert.AreEqual(new System.Numerics.Vector3(0f, 1f, 0f), IllustrationStyle.ColorOf(fixedUp.ShadowColor));
+    }
+
+    [TestMethod]
     public void RenderSettingsNotifyOnlyWhenEffectsChange()
     {
         var settings = new RenderSettings();
@@ -59,8 +91,14 @@ public sealed class VisualEffectsTests
         settings.Effects = settings.Effects with { Exposure = 50f };
         Assert.AreEqual(2, changes, "収めた結果が同じなら知らせない");
 
+        settings.Illustration = IllustrationStyle.None with { LinesEnabled = true };
+        Assert.AreEqual(3, changes, "イラスト風も変わったら知らせる");
+        settings.Illustration = IllustrationStyle.None with { LinesEnabled = true, LineColor = "#2b2222" };
+        Assert.AreEqual(3, changes, "そろえると同じ色なら知らせない");
+
         settings.Reset();
         Assert.AreEqual(VisualEffects.None, settings.Effects, "新しいプロジェクトは映像効果なし");
-        Assert.AreEqual(3, changes);
+        Assert.AreEqual(IllustrationStyle.None, settings.Illustration, "イラスト風もなし");
+        Assert.AreEqual(5, changes, "映像効果とイラスト風の 2 回");
     }
 }

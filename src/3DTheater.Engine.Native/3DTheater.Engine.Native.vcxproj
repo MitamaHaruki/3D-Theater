@@ -145,6 +145,13 @@
     <FxCompile Include="shaders\PostCompositePS.hlsl">
       <ShaderType>Pixel</ShaderType>
     </FxCompile>
+    <None Include="shaders\LinearDepth.hlsli" />
+    <FxCompile Include="shaders\LinearDepthPS.hlsl">
+      <ShaderType>Pixel</ShaderType>
+    </FxCompile>
+    <FxCompile Include="shaders\LinearDepthMsPS.hlsl">
+      <ShaderType>Pixel</ShaderType>
+    </FxCompile>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

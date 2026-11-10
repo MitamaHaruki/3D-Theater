@@ -55,11 +55,15 @@ public sealed class RenderingEntry
     /// <summary>映像効果（初期のまま＝何も使わず値も初期値なら書かない。無い古いファイルは映像効果なし）。</summary>
     public VisualEffects? Effects { get; set; }
 
+    /// <summary>イラスト風の表現（映像効果と同じく、初期のままなら書かない）。</summary>
+    public IllustrationStyle? Illustration { get; set; }
+
     public static RenderingEntry From(RenderSettings settings) => new()
     {
         SelfShadow = settings.SelfShadow,
         GroundShadow = settings.GroundShadow,
         Effects = settings.Effects == VisualEffects.None ? null : settings.Effects,
+        Illustration = settings.Illustration == IllustrationStyle.None ? null : settings.Illustration,
     };
 
     public void ApplyTo(RenderSettings settings)
@@ -67,6 +71,7 @@ public sealed class RenderingEntry
         settings.SelfShadow = SelfShadow;
         settings.GroundShadow = GroundShadow;
         settings.Effects = Effects ?? VisualEffects.None;
+        settings.Illustration = Illustration ?? IllustrationStyle.None;
     }
 }
 

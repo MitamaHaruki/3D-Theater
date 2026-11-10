@@ -197,6 +197,33 @@ public sealed class ProjectTests
     }
 
     [TestMethod]
+    public void IllustrationStyleIsSavedOnlyWhenUsed()
+    {
+        var report = new LoadReport();
+        var settings = new RenderSettings();
+        string plain = ProjectSerializer.Serialize(new ProjectFile { Rendering = RenderingEntry.From(settings) });
+        Assert.IsFalse(plain.Contains("illustration", StringComparison.OrdinalIgnoreCase), "使っていなければ書かない");
+
+        settings.Illustration = IllustrationStyle.None with { LinesEnabled = true, LineColor = "#ff0000", PaintLevels = 3 };
+        string json = ProjectSerializer.Serialize(new ProjectFile { Rendering = RenderingEntry.From(settings) });
+        ProjectFile read = ProjectSerializer.Deserialize(json, report)!;
+        var restored = new RenderSettings();
+        read.Rendering.ApplyTo(restored);
+        Assert.AreEqual(settings.Illustration, restored.Illustration);
+        Assert.AreEqual("#FF0000", restored.Illustration.LineColor, "色は大文字の #RRGGBB にそろえる");
+
+        ProjectFile odd = ProjectSerializer.Deserialize(
+            """{"format":"3DTheater.Project","version":1,"rendering":{"illustration":{"paperEnabled":true,"paintLevels":99,"shadowColor":"青"}}}""",
+            report)!;
+        var fromOdd = new RenderSettings();
+        odd.Rendering.ApplyTo(fromOdd);
+        Assert.IsTrue(fromOdd.Illustration.PaperEnabled);
+        Assert.AreEqual(IllustrationStyle.MaxPaintLevels, fromOdd.Illustration.PaintLevels);
+        Assert.AreEqual(IllustrationStyle.None.ShadowColor, fromOdd.Illustration.ShadowColor, "読めない色は初期値");
+        Assert.AreEqual(VisualEffects.None, fromOdd.Effects, "書かれていない映像効果はなし");
+    }
+
+    [TestMethod]
     public void BrokenNewerOrForeignFilesAreRejected()
     {
         var report = new LoadReport();

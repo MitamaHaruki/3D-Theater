@@ -26,7 +26,7 @@ internal sealed class ProjectService
     private readonly Window _owner;
     private readonly DispatcherTimer _autosaveTimer;
     private int _suppressDirty;
-    private (int FrameRate, int EndFrame, bool Loop, bool Physics, bool SelfShadow, bool GroundShadow, VisualEffects Effects) _playbackSettings;
+    private (int FrameRate, int EndFrame, bool Loop, bool Physics, bool SelfShadow, bool GroundShadow, VisualEffects Effects, IllustrationStyle Illustration) _playbackSettings;
 
     public ProjectService(EditorContext context, Window owner)
     {
@@ -439,7 +439,7 @@ internal sealed class ProjectService
         _context.Scene.Add(_context.Scene.AudioGroup, node);
     }
 
-    // 再生の設定（フレームの速さ・終わりのフレーム・ループ）、物理の ON/OFF、描き方（影・映像効果）が変わったら、変更ありにする
+    // 再生の設定（フレームの速さ・終わりのフレーム・ループ）、物理の ON/OFF、描き方（影・映像効果・イラスト風）が変わったら、変更ありにする
     private void OnPlaybackSettingsChanged()
     {
         var now = PlaybackSettings();
@@ -450,9 +450,9 @@ internal sealed class ProjectService
         }
     }
 
-    private (int, int, bool, bool, bool, bool, VisualEffects) PlaybackSettings() =>
+    private (int, int, bool, bool, bool, bool, VisualEffects, IllustrationStyle) PlaybackSettings() =>
         (_context.Playback.FrameRate, _context.Playback.EndFrame, _context.Playback.Loop, _context.Physics.Enabled,
-            _context.Rendering.SelfShadow, _context.Rendering.GroundShadow, _context.Rendering.Effects);
+            _context.Rendering.SelfShadow, _context.Rendering.GroundShadow, _context.Rendering.Effects, _context.Rendering.Illustration);
 
     private void ShowReport(string path, LoadReport report)
     {

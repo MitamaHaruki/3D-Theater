@@ -70,10 +70,17 @@ public:
     static bool UsesPostEffects(const TtFrameParams& params) noexcept;
     // 映像効果の画像を作る
     void CreatePostSurface(PostSurface& surface, UINT width, UINT height, DXGI_FORMAT format);
-    // 映像効果をかける: scene（背景なしで描いた場面）から output（width x height）へ。背景も置く。
-    // bloomDown はブルームの縮めた段（半分ずつ小さく、2 つ以上）、bloomUp は広げ直す段（bloomDown より 1 つ少なく、同じ大きさ）
-    void ApplyPostEffects(const TtFrameParams& params, ID3D11ShaderResourceView* scene, const std::vector<PostSurface>& bloomDown,
-        const std::vector<PostSurface>& bloomUp, ID3D11RenderTargetView* output, int width, int height);
+    // 映像効果に使う、場面の画像
+    struct PostInputs {
+        ID3D11ShaderResourceView* scene = nullptr;         // 背景なしで描いた場面
+        const std::vector<PostSurface>* bloomDown = nullptr; // ブルームの縮めた段（半分ずつ小さく、2 つ以上）
+        const std::vector<PostSurface>* bloomUp = nullptr;   // 広げ直す段（bloomDown より 1 つ少なく、同じ大きさ）
+        ID3D11ShaderResourceView* depth = nullptr;         // 場面の奥行き（線画に使う）
+        bool depthMultisampled = false;                    // 奥行きが MSAA か
+        const PostSurface* linearDepth = nullptr;          // 線画の準備（見る向きの距離）を書く画像
+    };
+    // 映像効果をかける: 場面から output（width x height）へ。背景も置く
+    void ApplyPostEffects(const TtFrameParams& params, const PostInputs& inputs, ID3D11RenderTargetView* output, int width, int height);
 
     // ビューの描画先の色の形式（スワップチェーンとも同じ）
     static constexpr DXGI_FORMAT kColorFormat = DXGI_FORMAT_B8G8R8A8_UNORM;
@@ -188,6 +195,8 @@ private:
     ComPtr<ID3D11PixelShader> bloomDownShader_;
     ComPtr<ID3D11PixelShader> bloomUpShader_;
     ComPtr<ID3D11PixelShader> postCompositeShader_;
+    ComPtr<ID3D11PixelShader> linearDepthShader_;
+    ComPtr<ID3D11PixelShader> linearDepthMsShader_;
     ComPtr<ID3D11Buffer> postConstantBuffer_;
 
     // モデル（MMD と同じトゥーンの色の計算と輪郭線）

@@ -123,6 +123,8 @@
                       ToolTip="高さ 0 の床に、照明の向きに沿ってモデルの影を描きます（初期値は ON。プロジェクトに保存します）" />
             <MenuItem Header="映像効果..." Click="OnEffectsClick"
                       ToolTip="色調補正（明るさ・コントラスト・彩度・色温度）、ブルーム、周辺減光を設定します。書き出しにもかかります（プロジェクトに保存します）" />
+            <MenuItem Header="イラスト風..." Click="OnIllustrationClick"
+                      ToolTip="線画・塗り（明るさの段階を減らす）・影の色・紙の質感を設定します。書き出しにもかかります（プロジェクトに保存します）" />
             <Separator />
             <MenuItem Header="静止画を書き出す（PNG）..." Click="OnExportStillClick"
                       ToolTip="今のフレームを、シーンのカメラから見た絵で PNG に書き出します（背景の透過もできます）" />

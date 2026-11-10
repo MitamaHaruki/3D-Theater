@@ -47,7 +47,7 @@ private:
     void CreateSampleResources();
     void ReleaseSampleResources() noexcept;
     // 映像効果の画像（使うときに作る。大きさが変わったら作り直す）
-    void EnsurePostResources(bool bloom);
+    void EnsurePostResources(bool bloom, bool lines);
     void ReleaseSwapChain() noexcept;
 
     uint32_t magic_ = kMagic;
@@ -70,8 +70,10 @@ private:
     PostSurface scene_;                   // 映像効果を使うときの、背景なしの場面
     std::vector<PostSurface> bloomDown_;  // ブルームの縮めた段（半分ずつ）
     std::vector<PostSurface> bloomUp_;    // ブルームの広げ直す段
+    PostSurface linearDepth_;             // 線画の準備（見る向きの距離）
     ComPtr<ID3D11Texture2D> depthTexture_;
     ComPtr<ID3D11DepthStencilView> dsv_;
+    ComPtr<ID3D11ShaderResourceView> depthSrv_; // 奥行きを読む（線画に使う）
 
     ComPtr<IDirect3DTexture9> d3d9Texture_;
     ComPtr<IDirect3DSurface9> d3d9Surface_;

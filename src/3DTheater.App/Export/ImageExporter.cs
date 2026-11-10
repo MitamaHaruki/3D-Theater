@@ -28,8 +28,8 @@ internal sealed record ExportAudio(string Path, double StartSeconds, float Volum
 /// - 品質はプレビューに関係なく <see cref="RenderQuality.Export"/>（4 倍のなめらかさ・細かい影）。
 ///   なめらかにするときは、さらに 2 倍の大きさで描いて縮める。透明にするときは、透明度をかけ合わせた色を割り戻してから保存する
 /// - 書き出しの間はプレビューを描かない（フレームごとにプレビューまで描き直さないように）
-/// - 映像効果（色調補正・ブルーム・周辺減光）もプレビューと同じようにかける。ブルームの広がりは画像の大きさに対する割合なので、
-///   大きさを変えても同じ見え方になる
+/// - 映像効果（色調補正・ブルーム・周辺減光）とイラスト風の表現もプレビューと同じようにかける。ブルームの広がりは画像の大きさに
+///   対する割合、線画の太さと紙の粒は画像の高さに合わせるので、大きさを変えても同じ見え方になる
 /// - 描画と読み出しは UI スレッドで、縮小と保存（動画は符号化）は別のスレッドで行い、少し先まで並べて進める
 /// 終わったら（やめた・失敗したときも）、元のフレームに戻す。動画は別の名前で書いてから置き換えるので、
 /// やめた・失敗したときは書きかけを消し、同じ名前の元のファイルはそのまま残る。
@@ -133,7 +133,7 @@ internal static class ImageExporter
         Vector4 clear = options.UsesTransparency ? Vector4.Zero : new Vector4(options.Background, 1f);
         var parameters = new FrameParameters(flags, matrices.View, matrices.Projection, Matrix4x4.Identity, Matrix4x4.Identity, items, default,
             lightDirection, lightColor, SceneLighting.EdgePixelScale(height), RenderSettings.GroundShadowColor,
-            RenderQuality.Export.ShadowMapSize, clear, context.Rendering.Effects.ToNative());
+            RenderQuality.Export.ShadowMapSize, clear, context.Rendering.ToNative(height));
         view.Render(parameters);
 
         int bytes = width * height * 4;

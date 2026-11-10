@@ -27,7 +27,7 @@ extern "C" {
 
 // 上位 16 ビットが大きな版、下位 16 ビットが小さな版。大きな版が違う DLL とは組み合わせない。
 #define TT_API_VERSION_MAJOR 0
-#define TT_API_VERSION_MINOR 11
+#define TT_API_VERSION_MINOR 12
 #define TT_API_VERSION ((TT_API_VERSION_MAJOR << 16) | TT_API_VERSION_MINOR)
 
 // 0 以上は成功、負の値は失敗。
@@ -112,6 +112,11 @@ enum {
     TT_POST_COLOR = 1u << 0,    // 色調補正（exposure・contrast・saturation・temperature）
     TT_POST_BLOOM = 1u << 1,    // ブルーム（明るい所が周りへにじむ光。bloom_*）
     TT_POST_VIGNETTE = 1u << 2, // 周辺減光（画面の四隅を暗くする。vignette）
+    // ここから API 0.12（イラスト風）。線画・塗り・影の色は背景にかからない。紙の質感は背景にもかかる
+    TT_POST_LINES = 1u << 3,       // 線画（奥行きの段差と面の折れ目に、手前の物の側へ線を引く。line_*）
+    TT_POST_POSTERIZE = 1u << 4,   // 塗り（明るさを posterize_levels 段に減らす。色合いは保つ）
+    TT_POST_SHADOW_TINT = 1u << 5, // 影の色（暗い所ほど shadow_tint の色合いに寄せる）
+    TT_POST_PAPER = 1u << 6,       // 紙の質感（細かいむらを重ねる。paper_*）
 };
 
 // ---- モデルの形（メッシュ）と材質 ----
@@ -241,6 +246,17 @@ typedef struct TtFrameParams {
     float bloom_spread;    // 広がり（0〜1。大きいほど遠くまで広がる）
     float vignette;        // 周辺減光の強さ（0〜1。四隅の暗さ）
     uint32_t reserved5;
+    // ここから API 0.12（イラスト風。範囲の外の値は範囲に収める）
+    float line_color[3];         // 線画の色
+    float line_width;            // 線画の太さ（画素。0.5〜8）
+    float line_strength;         // 線画の濃さ（0〜1）
+    float line_detail;           // 細かさ（0〜1。大きいほど、小さな段差・ゆるい折れ目にも線を引く）
+    uint32_t posterize_levels;   // 塗りの段数（2〜16。黒と白を含む）
+    float shadow_tint_strength;  // 影の色の強さ（0〜1）
+    float shadow_tint[3];        // 影の色（明るさは問わない。色合いだけを使う）
+    float paper_strength;        // 紙の質感の強さ（0〜1）
+    float paper_grain;           // 紙の粒の大きさ（画素。0.5〜64）
+    uint32_t reserved6;
 } TtFrameParams;
 
 TT_API uint32_t TT_CALL tt_get_api_version(void);

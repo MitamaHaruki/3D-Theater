@@ -66,6 +66,16 @@ internal unsafe struct TtFrameParams
     public float BloomSpread;
     public float Vignette;
     public uint Reserved5;
+    public Vector3 LineColor;
+    public float LineWidth;
+    public float LineStrength;
+    public float LineDetail;
+    public uint PosterizeLevels;
+    public float ShadowTintStrength;
+    public Vector3 ShadowTint;
+    public float PaperStrength;
+    public float PaperGrain;
+    public uint Reserved6;
 }
 
 [StructLayout(LayoutKind.Sequential)]

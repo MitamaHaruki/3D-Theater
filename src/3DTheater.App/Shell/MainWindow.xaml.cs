@@ -563,6 +563,12 @@ public partial class MainWindow : Window
         window.ShowDialog();
     }
 
+    private void OnIllustrationClick(object sender, RoutedEventArgs e)
+    {
+        var window = new IllustrationWindow(_context.Rendering) { Owner = this };
+        window.ShowDialog();
+    }
+
     private void OnRenderQualityClick(object sender, RoutedEventArgs e)
     {
         var window = new RenderQualityWindow(_context) { Owner = this };

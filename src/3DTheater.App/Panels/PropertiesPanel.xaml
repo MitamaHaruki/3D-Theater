@@ -256,7 +256,7 @@
             <TextBlock Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="2" VerticalAlignment="Center" Text="{Binding KeyCountText}" />
           </Grid>
           <TextBlock Margin="0,6,0,0" Style="{StaticResource PlannedNoteStyle}"
-                     Text="ブルーム・色調補正・周辺減光は、レンダリングのメニューの「映像効果」で設定します。被写界深度は今後対応します。" />
+                     Text="ブルーム・色調補正・周辺減光は、レンダリングのメニューの「映像効果」、線画・塗りなどは「イラスト風」で設定します。被写界深度は今後対応します。" />
         </StackPanel>
 
         <!-- 音声 -->

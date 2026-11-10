@@ -1,0 +1,158 @@
+<Window x:Class="Theater3D.App.Shell.IllustrationWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="イラスト風"
+        Width="480" SizeToContent="Height" ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        Background="{StaticResource PanelBrush}" Foreground="{StaticResource TextBrush}"
+        FontFamily="Yu Gothic UI" FontSize="12" UseLayoutRounding="True">
+  <Window.Resources>
+    <Style x:Key="GroupCheckStyle" TargetType="CheckBox" BasedOn="{StaticResource {x:Type CheckBox}}">
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Margin" Value="0,12,0,4" />
+    </Style>
+    <Style x:Key="RowLabelStyle" TargetType="TextBlock">
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Margin" Value="22,0,12,0" />
+      <Setter Property="Foreground" Value="{StaticResource SubTextBrush}" />
+    </Style>
+    <Style x:Key="ValueStyle" TargetType="TextBlock">
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="TextAlignment" Value="Right" />
+      <Setter Property="Margin" Value="8,0,0,0" />
+    </Style>
+    <Style x:Key="EffectSliderStyle" TargetType="Slider" BasedOn="{StaticResource {x:Type Slider}}">
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Margin" Value="0,5" />
+      <Setter Property="IsMoveToPointEnabled" Value="True" />
+      <Setter Property="SmallChange" Value="0.05" />
+      <Setter Property="LargeChange" Value="0.1" />
+    </Style>
+    <Style x:Key="ColorBoxStyle" TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+      <Setter Property="Width" Value="118" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="Height" Value="28" />
+      <Setter Property="Padding" Value="6,2" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+      <Setter Property="Margin" Value="0,5" />
+    </Style>
+    <Style x:Key="SwatchStyle" TargetType="Border">
+      <Setter Property="Width" Value="28" />
+      <Setter Property="Height" Value="20" />
+      <Setter Property="Margin" Value="8,0,0,0" />
+      <Setter Property="CornerRadius" Value="3" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+    </Style>
+  </Window.Resources>
+
+  <StackPanel Margin="18,4,18,16">
+    <!-- 線画 -->
+    <CheckBox x:Name="LinesCheck" Style="{StaticResource GroupCheckStyle}" Content="線画（奥行きの段差と面の折れ目に線を引く）"
+              Checked="OnCheckChanged" Unchecked="OnCheckChanged" />
+    <Grid IsEnabled="{Binding IsChecked, ElementName=LinesCheck}">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="140" />
+        <ColumnDefinition Width="*" />
+        <ColumnDefinition Width="64" />
+      </Grid.ColumnDefinitions>
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="Auto" />
+      </Grid.RowDefinitions>
+      <TextBlock Style="{StaticResource RowLabelStyle}" Text="太さ" ToolTip="高さ 1080 の画像での画素。大きな画像では比例して太くします" />
+      <Slider x:Name="LineWidthSlider" Grid.Column="1" Style="{StaticResource EffectSliderStyle}" Minimum="0.5" Maximum="4"
+              AutomationProperties.Name="線画の太さ" ValueChanged="OnSliderChanged" />
+      <TextBlock x:Name="LineWidthText" Grid.Column="2" Style="{StaticResource ValueStyle}" />
+      <TextBlock Grid.Row="1" Style="{StaticResource RowLabelStyle}" Text="濃さ" />
+      <Slider x:Name="LineStrengthSlider" Grid.Row="1" Grid.Column="1" Style="{StaticResource EffectSliderStyle}" Minimum="0" Maximum="1"
+              AutomationProperties.Name="線画の濃さ" ValueChanged="OnSliderChanged" />
+      <TextBlock x:Name="LineStrengthText" Grid.Row="1" Grid.Column="2" Style="{StaticResource ValueStyle}" />
+      <TextBlock Grid.Row="2" Style="{StaticResource RowLabelStyle}" Text="細かさ" ToolTip="大きいほど、小さな段差やゆるい折れ目にも線を引きます" />
+      <Slider x:Name="LineDetailSlider" Grid.Row="2" Grid.Column="1" Style="{StaticResource EffectSliderStyle}" Minimum="0" Maximum="1"
+              AutomationProperties.Name="線画の細かさ" ValueChanged="OnSliderChanged" />
+      <TextBlock x:Name="LineDetailText" Grid.Row="2" Grid.Column="2" Style="{StaticResource ValueStyle}" />
+      <TextBlock Grid.Row="3" Style="{StaticResource RowLabelStyle}" Text="色" />
+      <StackPanel Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal">
+        <TextBox x:Name="LineColorBox" Style="{StaticResource ColorBoxStyle}" AutomationProperties.Name="線画の色"
+                 ToolTip="#RRGGBB（例: 黒 = #000000）" TextChanged="OnColorChanged" />
+        <Border x:Name="LineColorSwatch" Style="{StaticResource SwatchStyle}" />
+      </StackPanel>
+    </Grid>
+
+    <!-- 塗り -->
+    <CheckBox x:Name="PaintCheck" Style="{StaticResource GroupCheckStyle}" Content="塗り（明るさの段階を減らす）"
+              Checked="OnCheckChanged" Unchecked="OnCheckChanged" />
+    <Grid IsEnabled="{Binding IsChecked, ElementName=PaintCheck}">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="140" />
+        <ColumnDefinition Width="*" />
+        <ColumnDefinition Width="64" />
+      </Grid.ColumnDefinitions>
+      <TextBlock Style="{StaticResource RowLabelStyle}" Text="段数" ToolTip="黒と白を含めた明るさの段の数。少ないほど、べた塗りに近くなります" />
+      <Slider x:Name="PaintLevelsSlider" Grid.Column="1" Style="{StaticResource EffectSliderStyle}" Minimum="2" Maximum="8"
+              SmallChange="1" LargeChange="1" TickFrequency="1" IsSnapToTickEnabled="True"
+              AutomationProperties.Name="塗りの段数" ValueChanged="OnSliderChanged" />
+      <TextBlock x:Name="PaintLevelsText" Grid.Column="2" Style="{StaticResource ValueStyle}" />
+    </Grid>
+
+    <!-- 影の色 -->
+    <CheckBox x:Name="ShadowTintCheck" Style="{StaticResource GroupCheckStyle}" Content="影の色（暗い所を選んだ色合いに寄せる）"
+              Checked="OnCheckChanged" Unchecked="OnCheckChanged" />
+    <Grid IsEnabled="{Binding IsChecked, ElementName=ShadowTintCheck}">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="140" />
+        <ColumnDefinition Width="*" />
+        <ColumnDefinition Width="64" />
+      </Grid.ColumnDefinitions>
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="Auto" />
+      </Grid.RowDefinitions>
+      <TextBlock Style="{StaticResource RowLabelStyle}" Text="色" ToolTip="色合いだけを使います（明るさはあまり変えません）" />
+      <StackPanel Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal">
+        <TextBox x:Name="ShadowColorBox" Style="{StaticResource ColorBoxStyle}" AutomationProperties.Name="影の色"
+                 ToolTip="#RRGGBB（例: 青紫 = #6A5ACD）" TextChanged="OnColorChanged" />
+        <Border x:Name="ShadowColorSwatch" Style="{StaticResource SwatchStyle}" />
+      </StackPanel>
+      <TextBlock Grid.Row="1" Style="{StaticResource RowLabelStyle}" Text="強さ" />
+      <Slider x:Name="ShadowTintSlider" Grid.Row="1" Grid.Column="1" Style="{StaticResource EffectSliderStyle}" Minimum="0" Maximum="1"
+              AutomationProperties.Name="影の色の強さ" ValueChanged="OnSliderChanged" />
+      <TextBlock x:Name="ShadowTintText" Grid.Row="1" Grid.Column="2" Style="{StaticResource ValueStyle}" />
+    </Grid>
+
+    <!-- 紙の質感 -->
+    <CheckBox x:Name="PaperCheck" Style="{StaticResource GroupCheckStyle}" Content="紙の質感（細かいむらを重ねる）"
+              Checked="OnCheckChanged" Unchecked="OnCheckChanged" />
+    <Grid IsEnabled="{Binding IsChecked, ElementName=PaperCheck}">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="140" />
+        <ColumnDefinition Width="*" />
+        <ColumnDefinition Width="64" />
+      </Grid.ColumnDefinitions>
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="Auto" />
+      </Grid.RowDefinitions>
+      <TextBlock Style="{StaticResource RowLabelStyle}" Text="強さ" />
+      <Slider x:Name="PaperStrengthSlider" Grid.Column="1" Style="{StaticResource EffectSliderStyle}" Minimum="0" Maximum="1"
+              AutomationProperties.Name="紙の質感の強さ" ValueChanged="OnSliderChanged" />
+      <TextBlock x:Name="PaperStrengthText" Grid.Column="2" Style="{StaticResource ValueStyle}" />
+      <TextBlock Grid.Row="1" Style="{StaticResource RowLabelStyle}" Text="粒の大きさ" ToolTip="高さ 1080 の画像での画素" />
+      <Slider x:Name="PaperGrainSlider" Grid.Row="1" Grid.Column="1" Style="{StaticResource EffectSliderStyle}" Minimum="1" Maximum="8"
+              AutomationProperties.Name="紙の粒の大きさ" ValueChanged="OnSliderChanged" />
+      <TextBlock x:Name="PaperGrainText" Grid.Row="1" Grid.Column="2" Style="{StaticResource ValueStyle}" />
+    </Grid>
+
+    <TextBlock Margin="0,14,0,0" TextWrapping="Wrap" Foreground="{StaticResource SubTextBrush}" FontSize="11.5"
+               Text="変えるとすぐにプレビューへ反映し、書き出しにもかかります。線画は MMD の輪郭線（材質のエッジ）とは別に引きます。線画・塗り・影の色は背景にかかりません（紙の質感は背景にもかかります）。設定はプロジェクトに保存します（元に戻す・やり直しの対象ではありません）。" />
+
+    <DockPanel Margin="0,16,0,0" LastChildFill="False">
+      <Button DockPanel.Dock="Left" MinWidth="110" Content="初期値に戻す" Click="OnResetClick"
+              ToolTip="イラスト風の表現をすべて OFF にし、値を初期値に戻します" />
+      <Button DockPanel.Dock="Right" MinWidth="88" Content="閉じる" IsCancel="True" IsDefault="True" Click="OnCloseClick" />
+    </DockPanel>
+  </StackPanel>
+</Window>
