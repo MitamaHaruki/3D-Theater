@@ -10,7 +10,7 @@ public sealed record NodeState(string Name, bool IsVisible, bool IsLocked, Vecto
 
 public sealed record CameraState(float FieldOfView, float NearClip, float FarClip, float TargetDistance, bool HasUnregisteredChange, KeySnapshot<CameraKey>? Keys);
 
-public sealed record LightState(float Intensity);
+public sealed record LightState(float Intensity, Vector3 Color, float Range, float SpotAngle, float SpotSoftness);
 
 public sealed record TestObjectState(bool SpinWithFrame);
 

@@ -133,6 +133,8 @@ private:
         DirectX::XMFLOAT4 groundShadowColor;
     };
     void WriteObjectConstants(DirectX::FXMMATRIX world, DirectX::CXMMATRIX worldViewProj, const ModelFrame& frame);
+    // 足す照明を定数バッファーへ書く（1 枚の描画で 1 回）
+    void WriteLightConstants(const TtFrameParams& params);
     void BindMesh(const Mesh& mesh);
     void DrawMesh(const Mesh& mesh, DirectX::FXMMATRIX world, const ModelFrame& frame);
     void DrawEdges(const Mesh& mesh);
@@ -207,6 +209,7 @@ private:
     ComPtr<ID3D11InputLayout> modelInputLayout_;
     ComPtr<ID3D11Buffer> objectConstantBuffer_;
     ComPtr<ID3D11Buffer> materialConstantBuffer_;
+    ComPtr<ID3D11Buffer> lightConstantBuffer_; // 足す照明
     ComPtr<ID3D11RasterizerState> cullBackState_;
     ComPtr<ID3D11RasterizerState> cullNoneState_;
     ComPtr<ID3D11RasterizerState> cullFrontState_; // 輪郭線（裏側の面だけ描く）

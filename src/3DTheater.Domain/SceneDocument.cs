@@ -30,6 +30,15 @@ public sealed class SceneDocument
     /// <summary>音声を置くグループ（音声は 1 つまで）。</summary>
     public SceneNode AudioGroup { get; private set; } = null!;
 
+    /// <summary>照明を置くグループ（最初の照明は MMD の照明で外せない。「照明を追加」で足した照明はその後ろに並ぶ）。</summary>
+    public SceneNode LightsGroup { get; private set; } = null!;
+
+    /// <summary>MMD の照明（決まった役目の「light」）。</summary>
+    public LightNode MainLight => (LightNode)_fixedNodes["light"];
+
+    /// <summary>「照明を追加」で足した照明（MMD の照明のほか。並び順）。</summary>
+    public IEnumerable<LightNode> AddedLights => LightsGroup.Children.OfType<LightNode>().Where(l => !ReferenceEquals(l, MainLight));
+
     /// <summary>今の音声（無ければ null）。</summary>
     public AudioNode? Audio => AudioGroup.Children.OfType<AudioNode>().FirstOrDefault();
 
@@ -70,7 +79,7 @@ public sealed class SceneDocument
         NodeChanged?.Invoke(this, new SceneNodeChangedEventArgs(parent, nameof(SceneNode.Children)));
     }
 
-    /// <summary>新しいプロジェクトの状態に戻す（読み込んだモデルと音声を外し、カメラ・照明などを初期の値にする）。外したモデルを返す。</summary>
+    /// <summary>新しいプロジェクトの状態に戻す（読み込んだモデル・音声・足した照明を外し、カメラ・照明などを初期の値にする）。外したモデルを返す。</summary>
     public IReadOnlyList<ModelNode> ResetToDefault()
     {
         ModelNode[] models = [.. ModelsGroup.Children.OfType<ModelNode>()];
@@ -81,6 +90,10 @@ public sealed class SceneDocument
         foreach (SceneNode audio in AudioGroup.Children.ToArray())
         {
             Remove(audio);
+        }
+        foreach (LightNode light in AddedLights.ToArray())
+        {
+            Remove(light);
         }
         foreach (var (node, state) in _defaults)
         {
@@ -142,6 +155,7 @@ public sealed class SceneDocument
         document.Add(stage, grid);
         document.ModelsGroup = models;
         document.AudioGroup = audio;
+        document.LightsGroup = lights;
 
         document._fixedNodes["group.cameras"] = cameras;
         document._fixedNodes["group.lights"] = lights;

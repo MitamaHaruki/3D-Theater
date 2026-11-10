@@ -318,24 +318,86 @@ public sealed class CameraNode : SceneNode
     }
 }
 
-public sealed class LightNode(string name) : SceneNode(SceneNodeKind.Light, name, canScale: false)
+/// <summary>照明の種類。</summary>
+public enum LightType
 {
-    private float _intensity = 1f;
+    /// <summary>平行光（太陽のように、どこでも同じ向き・同じ強さ）。向きは回転で決める。</summary>
+    Directional,
 
-    /// <summary>明るさ。照明の色は MMD の初期値 154/255 にこれを掛けたもの（Editor の SceneLighting）。</summary>
+    /// <summary>点光源（電球のように全方向へ。届く距離で 0 になる）。</summary>
+    Point,
+
+    /// <summary>スポットライト（回転の向きへの円すい。届く距離で 0 になる）。</summary>
+    Spot,
+}
+
+/// <summary>
+/// 照明。シーンの最初の照明（決まった役目の「light」）は MMD の照明（平行光。セルフシャドウ・地面の影もこれで決まる）。
+/// 「照明を追加」で足した照明（点光源・スポットライト・平行光）は、モデルをその色で明るくする（影は落とさない）。
+/// 色は MMD の初期値 154/255 に、色と明るさを掛けたもの（Editor の SceneLighting）。
+/// </summary>
+public sealed class LightNode(string name, LightType type = LightType.Directional) : SceneNode(SceneNodeKind.Light, name, canScale: false)
+{
+    public const float MinRange = 0.1f;
+    public const float MaxRange = 1000f;
+
+    private float _intensity = 1f;
+    private Vector3 _color = Vector3.One;
+    private float _range = 30f;
+    private float _spotAngle = 40f;
+    private float _spotSoftness = 0.3f;
+
+    /// <summary>種類（作るときに決め、あとから変えない）。</summary>
+    public LightType Type { get; } = type;
+
+    /// <summary>明るさ（0 以上）。</summary>
     public float Intensity
     {
         get => _intensity;
-        set => SetProperty(ref _intensity, Math.Max(0f, value));
+        set => SetProperty(ref _intensity, float.IsFinite(value) ? Math.Max(0f, value) : _intensity);
     }
 
-    protected override object? CaptureExtra(bool includeKeys) => new LightState(Intensity);
+    /// <summary>色（各 0〜1）。</summary>
+    public Vector3 Color
+    {
+        get => _color;
+        set => SetProperty(ref _color, float.IsFinite(value.X) && float.IsFinite(value.Y) && float.IsFinite(value.Z)
+            ? Vector3.Clamp(value, Vector3.Zero, Vector3.One)
+            : _color);
+    }
+
+    /// <summary>届く距離（点光源・スポットライト。ここで 0 になる）。</summary>
+    public float Range
+    {
+        get => _range;
+        set => SetProperty(ref _range, float.IsFinite(value) ? Math.Clamp(value, MinRange, MaxRange) : _range);
+    }
+
+    /// <summary>スポットライトの円すいの広がり（全体の角度、度。1〜179）。</summary>
+    public float SpotAngle
+    {
+        get => _spotAngle;
+        set => SetProperty(ref _spotAngle, float.IsFinite(value) ? Math.Clamp(value, 1f, 179f) : _spotAngle);
+    }
+
+    /// <summary>スポットライトの縁のぼかし（0〜1）。</summary>
+    public float SpotSoftness
+    {
+        get => _spotSoftness;
+        set => SetProperty(ref _spotSoftness, float.IsFinite(value) ? Math.Clamp(value, 0f, 1f) : _spotSoftness);
+    }
+
+    protected override object? CaptureExtra(bool includeKeys) => new LightState(Intensity, Color, Range, SpotAngle, SpotSoftness);
 
     protected override void RestoreExtra(object? extra)
     {
         if (extra is LightState s)
         {
             Intensity = s.Intensity;
+            Color = s.Color;
+            Range = s.Range;
+            SpotAngle = s.SpotAngle;
+            SpotSoftness = s.SpotSoftness;
         }
     }
 }

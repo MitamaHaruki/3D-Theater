@@ -76,6 +76,24 @@ internal unsafe struct TtFrameParams
     public float PaperStrength;
     public float PaperGrain;
     public uint Reserved6;
+    public TtLight* Lights;
+    public uint LightCount;
+    public uint Reserved7;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal struct TtLight
+{
+    public uint Type;
+    public Vector3 Position;
+    public Vector3 Direction;
+    public float Range;
+    public Vector3 Color;
+    public float SpotAngle;
+    public float SpotSoftness;
+    public uint Reserved0;
+    public uint Reserved1;
+    public uint Reserved2;
 }
 
 [StructLayout(LayoutKind.Sequential)]

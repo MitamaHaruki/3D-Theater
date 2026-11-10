@@ -43,6 +43,50 @@ public sealed class ProjectFile
 
     /// <summary>音声（無ければ null）。</summary>
     public AudioEntry? Audio { get; set; }
+
+    /// <summary>「照明を追加」で足した照明（無ければ書かない）。</summary>
+    public List<LightEntry>? Lights { get; set; }
+}
+
+/// <summary>足した照明 1 つ。色は #RRGGBB、種類は「directional」「point」「spot」。</summary>
+public sealed class LightEntry
+{
+    public string Name { get; set; } = string.Empty;
+
+    public string Type { get; set; } = "point";
+
+    public bool Visible { get; set; } = true;
+
+    public bool Locked { get; set; }
+
+    public float[] Position { get; set; } = [0, 0, 0];
+
+    public float[] Rotation { get; set; } = [0, 0, 0];
+
+    public string Color { get; set; } = "#FFFFFF";
+
+    public float Intensity { get; set; } = 1f;
+
+    public float Range { get; set; } = 30f;
+
+    public float SpotAngle { get; set; } = 40f;
+
+    public float SpotSoftness { get; set; } = 0.3f;
+
+    internal static string TypeName(LightType type) => type switch
+    {
+        LightType.Directional => "directional",
+        LightType.Spot => "spot",
+        _ => "point",
+    };
+
+    internal static LightType? ParseType(string? text) => text?.ToLowerInvariant() switch
+    {
+        "directional" => LightType.Directional,
+        "point" => LightType.Point,
+        "spot" => LightType.Spot,
+        _ => null,
+    };
 }
 
 /// <summary>描き方の設定（<see cref="RenderSettings"/>）。</summary>
@@ -129,6 +173,9 @@ public sealed class NodeEntry
     public float? FarClip { get; set; }
 
     public float? Intensity { get; set; }
+
+    /// <summary>照明の色（#RRGGBB。無い古いファイルは白）。</summary>
+    public string? Color { get; set; }
 
     public bool? SpinWithFrame { get; set; }
 
@@ -333,6 +380,21 @@ public static class ProjectCapture
         {
             project.Nodes[role] = Node(node);
         }
+        List<LightEntry> lights = [.. scene.AddedLights.Select(l => new LightEntry
+        {
+            Name = l.Name,
+            Type = LightEntry.TypeName(l.Type),
+            Visible = l.IsVisible,
+            Locked = l.IsLocked,
+            Position = V(l.Position),
+            Rotation = V(l.Rotation),
+            Color = ImageExport.FormatColor(l.Color),
+            Intensity = l.Intensity,
+            Range = l.Range,
+            SpotAngle = l.SpotAngle,
+            SpotSoftness = l.SpotSoftness,
+        })];
+        project.Lights = lights.Count > 0 ? lights : null;
         foreach (ModelNode model in scene.ModelsGroup.Children.OfType<ModelNode>())
         {
             project.Models.Add(Model(model, projectDirectory));
@@ -374,6 +436,7 @@ public static class ProjectCapture
                 break;
             case LightNode light:
                 entry.Intensity = light.Intensity;
+                entry.Color = light.Color == Vector3.One ? null : ImageExport.FormatColor(light.Color);
                 break;
             case TestObjectNode test:
                 entry.SpinWithFrame = test.SpinWithFrame;
@@ -554,12 +617,40 @@ public static class ProjectApply
                     break;
                 case LightNode light:
                     light.Intensity = entry.Intensity ?? light.Intensity;
+                    light.Color = ImageExport.TryParseColor(entry.Color, out Vector3 color) ? color : Vector3.One;
                     break;
                 case TestObjectNode test:
                     test.SpinWithFrame = entry.SpinWithFrame ?? test.SpinWithFrame;
                     break;
             }
             node.IsLocked = entry.Locked; // ロックは値を戻した後に掛ける
+        }
+
+        // 足した照明（前の照明は外してから、保存した順に足す）
+        foreach (LightNode old in scene.AddedLights.ToArray())
+        {
+            scene.Remove(old);
+        }
+        foreach (LightEntry entry in project.Lights ?? [])
+        {
+            if (LightEntry.ParseType(entry.Type) is not { } type)
+            {
+                report.Warning(LoadIssueCategory.Format, $"照明「{entry.Name}」の種類（{entry.Type}）が分からないため、読み込みませんでした");
+                continue;
+            }
+            var light = new LightNode(string.IsNullOrWhiteSpace(entry.Name) ? LightPresenceAction.NameFor(scene, type) : entry.Name, type)
+            {
+                Position = V(entry.Position, Vector3.Zero),
+                Rotation = V(entry.Rotation, Vector3.Zero),
+                Color = ImageExport.TryParseColor(entry.Color, out Vector3 color) ? color : Vector3.One,
+                Intensity = entry.Intensity,
+                Range = entry.Range,
+                SpotAngle = entry.SpotAngle,
+                SpotSoftness = entry.SpotSoftness,
+                IsVisible = entry.Visible,
+            };
+            scene.Add(scene.LightsGroup, light);
+            light.IsLocked = entry.Locked;
         }
     }
 

@@ -30,6 +30,36 @@ public enum FrameFlags : uint
     ClearColor = 1u << 10,
 }
 
+/// <summary>tt_engine.h の TT_LIGHT_* と同じ値（足す照明の種類）。</summary>
+public enum LightSourceKind : uint
+{
+    /// <summary>平行光。</summary>
+    Directional = 0,
+
+    /// <summary>点光源（全方向。届く距離で 0 になる）。</summary>
+    Point = 1,
+
+    /// <summary>スポットライト（円すい。届く距離で 0 になる）。</summary>
+    Spot = 2,
+}
+
+/// <summary>
+/// 足す照明（メインの照明とは別。tt_engine.h の TtLight）。<see cref="Direction"/> は光が進む向き、<see cref="Color"/> は色 × 明るさ。
+/// <see cref="SpotAngle"/> は円すいの全体の角度（度）、<see cref="SpotSoftness"/> は縁のぼかし（0〜1）。影は落とさない。
+/// </summary>
+public readonly record struct LightSource(
+    LightSourceKind Kind,
+    Vector3 Position,
+    Vector3 Direction,
+    float Range,
+    Vector3 Color,
+    float SpotAngle = 40f,
+    float SpotSoftness = 0.3f)
+{
+    /// <summary>描画エンジンが 1 枚で使う数の上限（TT_MAX_LIGHTS）。</summary>
+    public const int MaxCount = 8;
+}
+
 /// <summary>tt_engine.h の TT_POST_* と同じ値（映像効果）。</summary>
 [Flags]
 public enum PostEffectFlags : uint
@@ -112,4 +142,5 @@ public readonly record struct FrameParameters(
     Vector4 GroundShadowColor = default,
     int ShadowMapSize = 0,
     Vector4 ClearColor = default,
-    PostEffects Effects = default);
+    PostEffects Effects = default,
+    IReadOnlyList<LightSource>? Lights = null);

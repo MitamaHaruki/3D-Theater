@@ -80,8 +80,26 @@ public sealed unsafe class NativeView : IDisposable
         }
 
         ReadOnlySpan<LineVertex> lines = frame.OverlayLines.Span;
+        // 足す照明（エンジンが使うのは最大 8 つ）
+        int lightCount = Math.Min(frame.Lights?.Count ?? 0, LightSource.MaxCount);
+        Span<TtLight> lights = stackalloc TtLight[lightCount];
+        for (int i = 0; i < lightCount; i++)
+        {
+            LightSource light = frame.Lights![i];
+            lights[i] = new TtLight
+            {
+                Type = (uint)light.Kind,
+                Position = light.Position,
+                Direction = light.Direction,
+                Range = light.Range,
+                Color = light.Color,
+                SpotAngle = light.SpotAngle,
+                SpotSoftness = light.SpotSoftness,
+            };
+        }
         fixed (TtDrawItem* itemPointer = items)
         fixed (LineVertex* linePointer = lines)
+        fixed (TtLight* lightPointer = lights)
         {
             var parameters = new TtFrameParams
             {
@@ -119,6 +137,8 @@ public sealed unsafe class NativeView : IDisposable
                 ShadowTint = frame.Effects.ShadowTint,
                 PaperStrength = frame.Effects.PaperStrength,
                 PaperGrain = frame.Effects.PaperGrain,
+                Lights = lightCount > 0 ? lightPointer : null,
+                LightCount = (uint)lightCount,
             };
             return NativeError.Check(NativeMethods.ViewRender(Handle, &parameters)) == NativeResult.Ok;
         }

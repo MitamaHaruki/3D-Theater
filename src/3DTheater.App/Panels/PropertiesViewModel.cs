@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using Theater3D.App.Logging;
 using Theater3D.Domain;
+using Theater3D.Editor;
 
 namespace Theater3D.App.Panels;
 
@@ -274,6 +275,53 @@ public sealed class PropertiesViewModel : ObservableObject
     {
         get => (_node as LightNode)?.Intensity ?? 0;
         set => Edit("明るさ", n => ((LightNode)n).Intensity = (float)value);
+    }
+
+    /// <summary>照明の種類の説明（MMD の照明か、足した照明の種類か）。</summary>
+    public string LightTypeText => _node switch
+    {
+        LightNode l when ReferenceEquals(l, _context.Scene.MainLight) => "MMD の照明（平行光。セルフシャドウ・地面の影もこの向き）",
+        LightNode { Type: LightType.Point } => "点光源（足した照明）",
+        LightNode { Type: LightType.Spot } => "スポットライト（足した照明）",
+        LightNode => "平行光（足した照明）",
+        _ => string.Empty,
+    };
+
+    /// <summary>点光源・スポットライトか（届く距離を出す）。</summary>
+    public bool IsRangedLight => _node is LightNode { Type: LightType.Point or LightType.Spot };
+
+    /// <summary>スポットライトか（広がりとぼかしを出す）。</summary>
+    public bool IsSpotLight => _node is LightNode { Type: LightType.Spot };
+
+    /// <summary>照明の色（#RRGGBB）。読めない文字は入れない。</summary>
+    public string LightColor
+    {
+        get => _node is LightNode l ? ImageExport.FormatColor(l.Color) : string.Empty;
+        set
+        {
+            if (ImageExport.TryParseColor(value, out System.Numerics.Vector3 color))
+            {
+                Edit("色", n => ((LightNode)n).Color = color);
+            }
+        }
+    }
+
+    public double LightRange
+    {
+        get => (_node as LightNode)?.Range ?? 0;
+        set => Edit("届く距離", n => ((LightNode)n).Range = (float)value);
+    }
+
+    public double SpotAngle
+    {
+        get => (_node as LightNode)?.SpotAngle ?? 0;
+        set => Edit("広がり", n => ((LightNode)n).SpotAngle = (float)value);
+    }
+
+    public double SpotSoftness
+    {
+        get => (_node as LightNode)?.SpotSoftness ?? 0;
+        set => Edit("縁のぼかし", n => ((LightNode)n).SpotSoftness = (float)value);
     }
 
     public bool SpinWithFrame

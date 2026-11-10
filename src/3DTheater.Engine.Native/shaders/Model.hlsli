@@ -32,6 +32,21 @@ cbuffer MaterialConstants : register(b1)
     float4 Emissive;          // 拡張材質: 発光（色 × 強さ。どちらの色の計算にも足す）
 };
 
+// 足す照明（メインの照明とは別。最大 8 つ）
+struct ExtraLight
+{
+    float4 position;  // xyz = ワールドの位置、w = 種類（0 平行光・1 点光源・2 スポットライト）
+    float4 direction; // xyz = 光が進む向き（正規化済み）、w = 届く距離
+    float4 color;     // rgb = 色 × 明るさ、w = スポットの外側の角度の cos
+    float4 spot;      // x = スポットの内側（ぼかし始め）の角度の cos
+};
+
+cbuffer LightConstants : register(b2)
+{
+    uint4 LightCount; // x = 数
+    ExtraLight Lights[8];
+};
+
 Texture2D DiffuseTexture : register(t0);
 Texture2D ToonTexture : register(t1);
 Texture2D SphereTexture : register(t2);

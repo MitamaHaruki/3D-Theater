@@ -27,7 +27,7 @@ extern "C" {
 
 // 上位 16 ビットが大きな版、下位 16 ビットが小さな版。大きな版が違う DLL とは組み合わせない。
 #define TT_API_VERSION_MAJOR 0
-#define TT_API_VERSION_MINOR 13
+#define TT_API_VERSION_MINOR 14
 #define TT_API_VERSION ((TT_API_VERSION_MAJOR << 16) | TT_API_VERSION_MINOR)
 
 // 0 以上は成功、負の値は失敗。
@@ -219,6 +219,29 @@ typedef struct TtDrawItem {
     uint32_t reserved;
 } TtDrawItem;
 
+// 足す照明の種類（TtLight.type。API 0.14）
+enum {
+    TT_LIGHT_DIRECTIONAL = 0, // 平行光（direction の向きへ進む光）
+    TT_LIGHT_POINT = 1,       // 点光源（position から全方向。range で 0 になる）
+    TT_LIGHT_SPOT = 2,        // スポットライト（position から direction の向きへの円すい。range で 0 になる）
+};
+
+#define TT_MAX_LIGHTS 8
+
+// 足す照明（メインの照明 light_direction・light_color とは別）。トゥーンの材質には、光の当たる側を
+// 材質の色 × 照明の色で明るくする（トゥーンのある材質は境目をくっきり）。PBR の材質には照り返しも含めて足す。影は落とさない。
+// 数でない値を含む照明は使わない
+typedef struct TtLight {
+    uint32_t type;       // TT_LIGHT_*（知らない値の照明は使わない）
+    float position[3];   // ワールドの位置（平行光は使わない）
+    float direction[3];  // 光が進む向き（点光源は使わない。長さは問わない）
+    float range;         // 届く距離（点光源・スポット。0.01 以上。ここで 0 になるよう、なめらかに弱める）
+    float color[3];      // 色 × 明るさ（0 以上）
+    float spot_angle;    // スポットの円すいの広がり（全体の角度、度。1〜179）
+    float spot_softness; // スポットの縁のぼかし（0〜1）
+    uint32_t reserved[3];
+} TtLight;
+
 // 行列はすべて「行ベクトル × 行列」の並び（DirectXMath・System.Numerics と同じ）で、16 個の float を行ごとに並べる。
 // 座標は左手系・Y が上。
 typedef struct TtFrameParams {
@@ -269,6 +292,10 @@ typedef struct TtFrameParams {
     float paper_strength;        // 紙の質感の強さ（0〜1）
     float paper_grain;           // 紙の粒の大きさ（画素。0.5〜64）
     uint32_t reserved6;
+    // ここから API 0.14（足す照明。最大 TT_MAX_LIGHTS 個。それより多い分は使わない）
+    const TtLight* lights;  // light_count が 0 なら NULL でよい
+    uint32_t light_count;
+    uint32_t reserved7;
 } TtFrameParams;
 
 TT_API uint32_t TT_CALL tt_get_api_version(void);

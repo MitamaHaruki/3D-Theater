@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Numerics;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -608,11 +609,58 @@ public partial class MainWindow : Window
     }
 
     /// <summary>選んだモデル（ボーン・モーフを選んでいればその持ち主）か音声を、シーンから外す（Ctrl+Z で戻せる）。</summary>
+    private void OnAddLightClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuItem { Tag: string tag } || !Enum.TryParse(tag, out Domain.LightType type))
+        {
+            return;
+        }
+        // 最初のモデルの真ん中あたり（無ければ人の大きさのモデルの胸の高さ）を照らすように置く
+        Vector3 target = new(0f, 10f, 0f);
+        if (_context.Scene.ModelsGroup.Children.OfType<Domain.ModelNode>().FirstOrDefault() is { } model)
+        {
+            target = Vector3.Transform((model.BoundsMin + model.BoundsMax) * 0.5f, model.GetLocalMatrix());
+        }
+        Domain.LightNode light = LightPresenceAction.Create(_context.Scene, type, target);
+        LightPresenceAction.Add(_context.Scene, _context.Undo, light);
+        _context.Selection.Select(light, SelectMode.Replace, null);
+        SetStatus($"照明「{light.Name}」を足しました（色・明るさ・届く距離はプロパティ欄で変えられます。Ctrl+Z で戻せます）", isError: false);
+    }
+
+    private void OnRemoveLightClick(object sender, RoutedEventArgs e) => RemoveSelectedLights(reportNone: true);
+
+    /// <summary>選んでいる足した照明を外す。外したら true。</summary>
+    private bool RemoveSelectedLights(bool reportNone)
+    {
+        Domain.LightNode[] lights = [.. _context.Selection.Items.OfType<Domain.LightNode>()];
+        if (lights.Length == 0)
+        {
+            if (reportNone)
+            {
+                SetStatus("外す照明を、シーン一覧で選んでください", isError: false);
+            }
+            return false;
+        }
+        int removed = lights.Count(l => LightPresenceAction.Remove(_context.Scene, _context.Undo, l));
+        if (removed == 0)
+        {
+            SetStatus("MMD の照明とロックした照明は外せません", isError: false);
+            return true;
+        }
+        _context.Selection.Clear();
+        SetStatus($"照明を {removed} つ外しました（Ctrl+Z で戻せます）", isError: false);
+        return true;
+    }
+
     private void RemoveSelectedModels()
     {
         if (_context.Selection.Items.OfType<Domain.AudioNode>().Any())
         {
             OnRemoveAudioClick(this, new RoutedEventArgs());
+            return;
+        }
+        if (RemoveSelectedLights(reportNone: false))
+        {
             return;
         }
         Domain.ModelNode[] models = [.. _context.Selection.Items

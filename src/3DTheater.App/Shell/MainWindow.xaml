@@ -83,7 +83,16 @@
           </MenuItem>
           <MenuItem Header="シーン(_S)">
             <MenuItem Header="アクセサリを追加..." Style="{StaticResource PlannedItemStyle}" ToolTip="Phase 2 以降で対応します" />
-            <MenuItem Header="照明を追加" Style="{StaticResource PlannedItemStyle}" ToolTip="Phase 4 で対応します" />
+            <MenuItem Header="照明を追加">
+              <MenuItem Header="点光源" Tag="Point" Click="OnAddLightClick"
+                        ToolTip="電球のように全方向を照らす照明を足します（届く距離で 0 になります）" />
+              <MenuItem Header="スポットライト" Tag="Spot" Click="OnAddLightClick"
+                        ToolTip="回転の向きへ円すいの形に照らす照明を足します" />
+              <MenuItem Header="平行光" Tag="Directional" Click="OnAddLightClick"
+                        ToolTip="太陽のように、どこでも同じ向きから照らす照明を足します（縁を明るくする光などに）" />
+            </MenuItem>
+            <MenuItem Header="選んだ照明を外す" Click="OnRemoveLightClick"
+                      ToolTip="足した照明をシーンから外します（MMD の照明は外せません。Ctrl+Z で戻せます）" />
             <MenuItem Header="カメラを追加" Style="{StaticResource PlannedItemStyle}" ToolTip="Phase 2 以降で対応します" />
           </MenuItem>
           <MenuItem Header="モデル(_M)">

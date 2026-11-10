@@ -276,6 +276,7 @@ public partial class ViewportControl : UserControl, IDisposable
         {
             BoneOverlay.AppendTo(_lines, _context);
         }
+        LightOverlay.AppendTo(_lines, _context);
         _gizmo.Append(_lines, new GizmoController.ViewInfo(matrices.View, matrices.Projection, new Vector2(pixelWidth, pixelHeight) / DpiScale()));
         // 照明はシーンの照明の項目から、輪郭線の太さは画面の高さから決める（どちらもトゥーン描画で使う）
         var (lightDirection, lightColor) = SceneLighting.From(_context.MainLight);
@@ -290,7 +291,8 @@ public partial class ViewportControl : UserControl, IDisposable
         }
         return new FrameParameters(flags, matrices.View, matrices.Projection, gridWorld, testWorld, _drawItems, _lines.Memory,
             lightDirection, lightColor, SceneLighting.EdgePixelScale(pixelHeight), RenderSettings.GroundShadowColor,
-            ShadowMapSize: _context.PreviewQuality.Profile.ShadowMapSize, Effects: _context.Rendering.ToNative(pixelHeight));
+            ShadowMapSize: _context.PreviewQuality.Profile.ShadowMapSize, Effects: _context.Rendering.ToNative(pixelHeight),
+            Lights: EffectsMapping.LightsOf(_context.Scene));
     }
 
     private static float MaxScale(SceneNode node) => Math.Max(Math.Abs(node.Scale.X), Math.Max(Math.Abs(node.Scale.Y), Math.Abs(node.Scale.Z)));

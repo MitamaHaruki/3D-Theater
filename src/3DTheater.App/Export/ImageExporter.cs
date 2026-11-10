@@ -133,7 +133,7 @@ internal static class ImageExporter
         Vector4 clear = options.UsesTransparency ? Vector4.Zero : new Vector4(options.Background, 1f);
         var parameters = new FrameParameters(flags, matrices.View, matrices.Projection, Matrix4x4.Identity, Matrix4x4.Identity, items, default,
             lightDirection, lightColor, SceneLighting.EdgePixelScale(height), RenderSettings.GroundShadowColor,
-            RenderQuality.Export.ShadowMapSize, clear, context.Rendering.ToNative(height));
+            RenderQuality.Export.ShadowMapSize, clear, context.Rendering.ToNative(height), EffectsMapping.LightsOf(context.Scene));
         view.Render(parameters);
 
         int bytes = width * height * 4;

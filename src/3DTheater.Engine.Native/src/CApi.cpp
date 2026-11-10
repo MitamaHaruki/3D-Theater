@@ -317,6 +317,7 @@ TT_API TtResult TT_CALL tt_view_render(TtView* view, const TtFrameParams* params
         Require(params->struct_size == sizeof(TtFrameParams), L"TtFrameParams の struct_size が合いません");
         Require(params->item_count == 0 || params->items != nullptr, L"描くモデルの一覧が NULL です");
         Require(params->overlay_vertex_count == 0 || params->overlay_lines != nullptr, L"重ね描きの線が NULL です");
+        Require(params->light_count == 0 || params->lights != nullptr, L"足す照明の一覧が NULL です");
         for (uint32_t i = 0; i < params->item_count; ++i) {
             tt::Mesh& mesh = ToMesh(params->items[i].mesh);
             Require(&mesh.OwnerEngine() == &v.OwnerEngine(), L"別のエンジンで作ったメッシュは描けません");

@@ -60,6 +60,17 @@ struct ObjectConstants {
     DirectX::XMFLOAT4 groundShadowColor;
 };
 
+// 足す照明（シェーダーの LightConstants と同じ並び）
+struct LightConstants {
+    uint32_t count[4];
+    struct Entry {
+        DirectX::XMFLOAT4 position;  // w = 種類
+        DirectX::XMFLOAT4 direction; // w = 届く距離
+        DirectX::XMFLOAT4 color;     // w = スポットの外側の cos
+        DirectX::XMFLOAT4 spot;      // x = スポットの内側の cos
+    } lights[TT_MAX_LIGHTS];
+};
+
 struct PostConstants {
     DirectX::XMFLOAT4 sourceTexel;
     DirectX::XMFLOAT4 bloomParams;
@@ -234,6 +245,7 @@ void Engine::ReleaseDevice() noexcept
     cullNoneState_.Reset();
     cullBackState_.Reset();
     materialConstantBuffer_.Reset();
+    lightConstantBuffer_.Reset();
     objectConstantBuffer_.Reset();
     modelInputLayout_.Reset();
     edgePixelShader_.Reset();
@@ -541,6 +553,9 @@ void Engine::DrawScene(ID3D11RenderTargetView* rtv, ID3D11DepthStencilView* dsv,
     XMStoreFloat4x4(&frame.lightViewProj, XMMatrixIdentity());
     frame.groundShadowColor = {params.ground_shadow_color[0], params.ground_shadow_color[1], params.ground_shadow_color[2],
         params.ground_shadow_color[3]};
+    if (drawScene) {
+        WriteLightConstants(params);
+    }
     if (drawScene && (params.flags & TT_FRAME_SELF_SHADOW) && params.item_count > 0) {
         RenderShadowMap(params, frame); // 影を落とすものが無ければ、セルフシャドウなしのまま
     }
@@ -862,6 +877,40 @@ void Engine::WriteObjectConstants(DirectX::FXMMATRIX world, DirectX::CXMMATRIX w
     ctx->Unmap(objectConstantBuffer_.Get(), 0);
 }
 
+void Engine::WriteLightConstants(const TtFrameParams& params)
+{
+    using namespace DirectX;
+    LightConstants constants{};
+    uint32_t count = 0;
+    for (uint32_t i = 0; i < params.light_count && count < TT_MAX_LIGHTS; ++i) {
+        const TtLight& light = params.lights[i];
+        if (light.type > TT_LIGHT_SPOT || !IsFinite3(light.position) || !IsFinite3(light.direction) || !IsFinite3(light.color)
+            || !std::isfinite(light.range) || !std::isfinite(light.spot_angle) || !std::isfinite(light.spot_softness)) {
+            continue; // 使えない照明は飛ばす
+        }
+        XMVECTOR direction = XMVectorSet(light.direction[0], light.direction[1], light.direction[2], 0.0f);
+        if (light.type != TT_LIGHT_POINT) {
+            if (XMVectorGetX(XMVector3LengthSq(direction)) < 1e-12f) {
+                continue;
+            }
+            direction = XMVector3Normalize(direction);
+        }
+        LightConstants::Entry& entry = constants.lights[count++];
+        entry.position = {light.position[0], light.position[1], light.position[2], static_cast<float>(light.type)};
+        XMStoreFloat4(&entry.direction, XMVectorSetW(direction, std::max(light.range, 0.01f)));
+        const float half = XMConvertToRadians(std::clamp(light.spot_angle, 1.0f, 179.0f) * 0.5f);
+        const float softness = std::clamp(light.spot_softness, 0.0f, 1.0f);
+        entry.color = {std::max(light.color[0], 0.0f), std::max(light.color[1], 0.0f), std::max(light.color[2], 0.0f), std::cos(half)};
+        // 内側の角度で 1、外側の角度で 0。ぼかしが 0 でも境目に少しだけ幅を残す（ギザギザにならないように）
+        entry.spot = {std::cos(half * (1.0f - std::max(softness, 0.02f))), 0.0f, 0.0f, 0.0f};
+    }
+    constants.count[0] = count;
+    D3D11_MAPPED_SUBRESOURCE mapped{};
+    CheckHr(context_->Map(lightConstantBuffer_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped), L"足す照明の定数バッファーの更新");
+    std::memcpy(mapped.pData, &constants, sizeof(constants));
+    context_->Unmap(lightConstantBuffer_.Get(), 0);
+}
+
 void Engine::BindMesh(const Mesh& mesh)
 {
     ID3D11DeviceContext* ctx = context_.Get();
@@ -872,9 +921,9 @@ void Engine::BindMesh(const Mesh& mesh)
     ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     ctx->IASetVertexBuffers(0, 2, vertexBuffers, strides, offsets);
     ctx->IASetIndexBuffer(mesh.IndexBuffer(), DXGI_FORMAT_R32_UINT, 0);
-    ID3D11Buffer* constantBuffers[] = {objectConstantBuffer_.Get(), materialConstantBuffer_.Get()};
-    ctx->VSSetConstantBuffers(0, 2, constantBuffers);
-    ctx->PSSetConstantBuffers(0, 2, constantBuffers);
+    ID3D11Buffer* constantBuffers[] = {objectConstantBuffer_.Get(), materialConstantBuffer_.Get(), lightConstantBuffer_.Get()};
+    ctx->VSSetConstantBuffers(0, 3, constantBuffers);
+    ctx->PSSetConstantBuffers(0, 3, constantBuffers);
 }
 
 void Engine::DrawMesh(const Mesh& mesh, DirectX::FXMMATRIX world, const ModelFrame& frame)
@@ -1199,6 +1248,7 @@ void Engine::CreateModelResources()
     };
     dynamicBuffer(sizeof(ObjectConstants), objectConstantBuffer_, L"モデルの定数バッファーの作成");
     dynamicBuffer(sizeof(MaterialConstants), materialConstantBuffer_, L"材質の定数バッファーの作成");
+    dynamicBuffer(sizeof(LightConstants), lightConstantBuffer_, L"足す照明の定数バッファーの作成");
 
     D3D11_RASTERIZER_DESC rs{};
     rs.FillMode = D3D11_FILL_SOLID;

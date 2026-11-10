@@ -3,9 +3,20 @@ using Theater3D.Engine.Interop;
 
 namespace Theater3D.App.Rendering;
 
-/// <summary>映像効果とイラスト風の表現の設定（プロジェクトの値）を、描画エンジンへ渡す形にする。</summary>
+/// <summary>映像効果とイラスト風の表現の設定（プロジェクトの値）と足した照明を、描画エンジンへ渡す形にする。</summary>
 public static class EffectsMapping
 {
+    /// <summary>シーンの足した照明（見えているもの）。</summary>
+    public static LightSource[] LightsOf(Domain.SceneDocument scene) =>
+        [.. SceneLighting.AddedLights(scene).Select(l => new LightSource(
+            l.Type switch
+            {
+                Domain.LightType.Point => LightSourceKind.Point,
+                Domain.LightType.Spot => LightSourceKind.Spot,
+                _ => LightSourceKind.Directional,
+            },
+            l.Position, l.Direction, l.Range, l.Color, l.SpotAngle, l.SpotSoftness))];
+
     /// <summary>
     /// 高さ <paramref name="pixelHeight"/> の画像を描くときの値。線画の太さは輪郭線と同じく高さ 1080 までは指定の画素のまま、
     /// それより大きい画像では比例して太くする。紙の粒は高さに比例させる（小さなプレビューでも書き出しと同じ見え方に）。

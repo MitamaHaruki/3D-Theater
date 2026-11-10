@@ -303,11 +303,38 @@
               <ColumnDefinition Width="*" />
               <ColumnDefinition Width="84" />
             </Grid.ColumnDefinitions>
-            <TextBlock Text="明るさ" Style="{StaticResource RowLabelStyle}" />
-            <c:NumberBox Grid.Column="2" Value="{Binding Intensity}" Step="0.1" Format="0.00" />
+            <Grid.RowDefinitions>
+              <RowDefinition Height="Auto" />
+              <RowDefinition Height="Auto" />
+              <RowDefinition Height="Auto" />
+              <RowDefinition Height="Auto" />
+              <RowDefinition Height="Auto" />
+              <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+            <TextBlock Text="種類" Style="{StaticResource RowLabelStyle}" />
+            <TextBlock Grid.Column="1" Grid.ColumnSpan="2" VerticalAlignment="Center" TextWrapping="Wrap" Text="{Binding LightTypeText}" />
+            <TextBlock Grid.Row="1" Text="色" Style="{StaticResource RowLabelStyle}" ToolTip="#RRGGBB（白 = #FFFFFF）" />
+            <TextBox Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Margin="0,2" MinHeight="0" Height="24" Padding="4,1"
+                     VerticalContentAlignment="Center" IsEnabled="{Binding IsEditable}"
+                     Text="{Binding LightColor, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="照明の色" />
+            <TextBlock Grid.Row="2" Text="明るさ" Style="{StaticResource RowLabelStyle}" />
+            <c:NumberBox Grid.Row="2" Grid.Column="2" Value="{Binding Intensity}" Step="0.1" Format="0.00" />
+            <TextBlock Grid.Row="3" Text="届く距離" Style="{StaticResource RowLabelStyle}"
+                       Visibility="{Binding IsRangedLight, Converter={StaticResource BoolToVisibility}}"
+                       ToolTip="光が届く距離。照明から離れるほど弱くなり、この距離で 0 になります" />
+            <c:NumberBox Grid.Row="3" Grid.Column="2" Value="{Binding LightRange}" Step="1" Format="0.0"
+                         Visibility="{Binding IsRangedLight, Converter={StaticResource BoolToVisibility}}" />
+            <TextBlock Grid.Row="4" Text="広がり（度）" Style="{StaticResource RowLabelStyle}"
+                       Visibility="{Binding IsSpotLight, Converter={StaticResource BoolToVisibility}}" ToolTip="円すいの全体の角度" />
+            <c:NumberBox Grid.Row="4" Grid.Column="2" Value="{Binding SpotAngle}" Step="1" Format="0.0"
+                         Visibility="{Binding IsSpotLight, Converter={StaticResource BoolToVisibility}}" />
+            <TextBlock Grid.Row="5" Text="縁のぼかし" Style="{StaticResource RowLabelStyle}"
+                       Visibility="{Binding IsSpotLight, Converter={StaticResource BoolToVisibility}}" ToolTip="0 でくっきり、1 でなめらか" />
+            <c:NumberBox Grid.Row="5" Grid.Column="2" Value="{Binding SpotSoftness}" Step="0.05" Format="0.00"
+                         Visibility="{Binding IsSpotLight, Converter={StaticResource BoolToVisibility}}" />
           </Grid>
           <TextBlock Margin="0,6,0,0" Style="{StaticResource PlannedNoteStyle}"
-                     Text="照明の向き（回転）と明るさで、モデルの陰影と影を描きます。シーン一覧の目の印で照明を隠すと、照明なし（材質の環境色だけ）で描きます。" />
+                     Text="MMD の照明は、向き（回転）・色・明るさで、モデルの陰影と影を描きます（隠すと、材質の環境色だけ）。足した照明（シーンのメニュー「照明を追加」）は、位置・向きと色でモデルを明るくします（影は落としません。プレビューに目印の線が出ます）。" />
         </StackPanel>
 
         <!-- 確認用の立方体 -->

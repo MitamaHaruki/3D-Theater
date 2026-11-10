@@ -1160,6 +1160,101 @@ public:
         Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
     }
 
+    TEST_METHOD(ExtraLightsBrightenModels)
+    {
+        // メインの照明を消し、環境色 0 の白い四角形（画面いっぱい）を、足す照明だけで照らす
+        TtEngine* engine = CreateWarpEngine();
+        constexpr int width = 64;
+        constexpr int height = 48;
+        TtView* view = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_view_create_offscreen(engine, width, height, 0, &view));
+        TtTexture* texture = CreateSolidTexture(engine, 255, 255, 255);
+        TtMeshMaterial material = QuadMaterial(texture);
+        material.ambient[0] = material.ambient[1] = material.ambient[2] = 0.0f;
+        const TtMeshDesc desc = QuadDesc(kClockwise, &material);
+        TtMesh* mesh = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_mesh_create(engine, &desc, &mesh));
+        Assert::AreEqual<int>(TT_OK, tt_texture_destroy(texture));
+
+        auto render = [&](const TtLight* lights, uint32_t count) {
+            TtFrameParams params = MakeFrontParams();
+            params.flags = TT_FRAME_USE_LIGHT;
+            params.light_direction[2] = 1.0f;
+            TtDrawItem item = DrawItem(mesh);
+            DirectX::XMStoreFloat4x4(reinterpret_cast<DirectX::XMFLOAT4X4*>(item.world), DirectX::XMMatrixScaling(4.0f, 4.0f, 1.0f));
+            params.items = &item;
+            params.item_count = 1;
+            params.lights = lights;
+            params.light_count = count;
+            return RenderAndRead(engine, view, params, width, height);
+        };
+        auto light = [](uint32_t type, float x, float y, float z, float r, float g, float b, float range) {
+            TtLight l{};
+            l.type = type;
+            l.position[0] = x;
+            l.position[1] = y;
+            l.position[2] = z;
+            l.direction[2] = 1.0f; // 四角形へ向かう
+            l.range = range;
+            l.color[0] = r;
+            l.color[1] = g;
+            l.color[2] = b;
+            l.spot_angle = 20.0f;
+            l.spot_softness = 0.0f;
+            return l;
+        };
+        const size_t center = (static_cast<size_t>(height / 2) * width + width / 2) * 4;
+        const size_t corner = 0;
+        const size_t side = (static_cast<size_t>(height / 2) * width + width / 2 + 12) * 4;
+
+        std::vector<uint8_t> dark = render(nullptr, 0);
+        Assert::IsTrue(dark[center + 2] <= 2, L"照明なし・環境色 0 なら黒");
+
+        // 赤い点光源（手前 1、届く距離 3）: 近い真ん中は赤く、遠い隅は届かない
+        const TtLight red = light(TT_LIGHT_POINT, 0.0f, 0.0f, -1.0f, 1.0f, 0.0f, 0.0f, 3.0f);
+        std::vector<uint8_t> point = render(&red, 1);
+        Assert::IsTrue(point[center + 2] > 80 && point[center + 1] < 5, L"点光源の色で明るくなる");
+        Assert::IsTrue(point[corner + 2] < 5, L"届く距離の外は暗いまま");
+
+        // 緑の平行光: どこも同じように明るい
+        const TtLight green = light(TT_LIGHT_DIRECTIONAL, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 1.0f);
+        std::vector<uint8_t> directional = render(&green, 1);
+        Assert::IsTrue(directional[center + 1] > 250 && directional[corner + 1] > 250, L"平行光は距離に関係なく届く");
+
+        // スポットライト（手前 2、全体 20°）: 円すいの中だけ明るい
+        const TtLight spot = light(TT_LIGHT_SPOT, 0.0f, 0.0f, -2.0f, 1.0f, 1.0f, 1.0f, 10.0f);
+        std::vector<uint8_t> spotted = render(&spot, 1);
+        Assert::IsTrue(spotted[center + 1] > 100, L"円すいの中は明るい");
+        Assert::IsTrue(spotted[side + 1] < 5, L"円すいの外は暗い");
+
+        // 数でない値の照明は飛ばし、ほかの照明は使う。一覧が NULL なのに数があるのは誤り
+        TtLight broken = red;
+        broken.position[0] = std::numeric_limits<float>::quiet_NaN();
+        const TtLight both[] = {broken, green};
+        std::vector<uint8_t> mixed = render(both, 2);
+        Assert::IsTrue(mixed[center + 1] > 250 && mixed[center + 2] < 5, L"使えない照明だけを飛ばす");
+        TtFrameParams bad = MakeFrontParams();
+        bad.light_count = 1;
+        Assert::AreEqual<int>(TT_E_INVALID_ARG, tt_view_render(view, &bad));
+
+        // PBR の材質も照らす
+        TtMaterialState pbr{};
+        pbr.diffuse[0] = pbr.diffuse[1] = pbr.diffuse[2] = pbr.diffuse[3] = 1.0f;
+        for (float* v : {pbr.texture_multiply, pbr.sphere_multiply, pbr.toon_multiply, pbr.base_tint}) {
+            v[0] = v[1] = v[2] = v[3] = 1.0f;
+        }
+        pbr.edge_color[3] = 1.0f;
+        pbr.shading = TT_SHADING_PBR;
+        pbr.roughness = 0.6f;
+        Assert::AreEqual<int>(TT_OK, tt_mesh_update_materials(mesh, &pbr, 1));
+        std::vector<uint8_t> pbrPoint = render(&red, 1);
+        Assert::IsTrue(pbrPoint[center + 2] > 60 && pbrPoint[center + 1] < 10, L"PBR の材質も点光源の色で明るくなる");
+
+        Assert::AreEqual<int>(TT_OK, tt_mesh_destroy(mesh));
+        Assert::AreEqual<int>(TT_OK, tt_view_destroy(view));
+        Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
+    }
+
     TEST_METHOD(GridCanBeDrawnBehindModels)
     {
         // 正面の視点と同じく、格子を画面に平行な面（Z = 0）に置き、その奥（Z = 0.5）に赤い四角形を置く。
