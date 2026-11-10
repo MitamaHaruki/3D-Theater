@@ -20,6 +20,7 @@
 #include "PostVS.h"
 #include "EdgePS.h"
 #include "EdgeVS.h"
+#include "DofPS.h"
 #include "GroundShadowPS.h"
 #include "LinearDepthMsPS.h"
 #include "LinearDepthPS.h"
@@ -84,10 +85,11 @@ struct PostConstants {
     DirectX::XMFLOAT4 paintParams;
     DirectX::XMFLOAT4 shadowTint;
     DirectX::XMFLOAT4 projectionParams;
+    DirectX::XMFLOAT4 dofParams;
 };
 
-constexpr uint32_t kKnownPostFlags =
-    TT_POST_COLOR | TT_POST_BLOOM | TT_POST_VIGNETTE | TT_POST_LINES | TT_POST_POSTERIZE | TT_POST_SHADOW_TINT | TT_POST_PAPER;
+constexpr uint32_t kKnownPostFlags = TT_POST_COLOR | TT_POST_BLOOM | TT_POST_VIGNETTE | TT_POST_LINES | TT_POST_POSTERIZE
+    | TT_POST_SHADOW_TINT | TT_POST_PAPER | TT_POST_DOF;
 
 // 数でない値は fallback に、範囲の外は範囲に収める
 float Sanitize(float value, float fallback, float minimum, float maximum) noexcept
@@ -219,6 +221,7 @@ void Engine::ReleaseDevice() noexcept
         context_->Flush();
     }
     gpuDoneQuery_.Reset();
+    dofShader_.Reset();
     linearDepthMsShader_.Reset();
     linearDepthShader_.Reset();
     postConstantBuffer_.Reset();
@@ -755,6 +758,12 @@ void Engine::ApplyPostEffects(const TtFrameParams& params, const PostInputs& inp
     XMStoreFloat4(&constants.shadowTint, tint);
     // 奥行きを距離に直すための投影の値（行ベクトル × 行列の並び。(3,4) が 0 なら平行投影）
     constants.projectionParams = {params.projection[10], params.projection[14], params.projection[11] == 0.0f ? 1.0f : 0.0f, 0.0f};
+    const float maxBlur = Sanitize(params.dof_max_blur, 0.0f, 0.0f, 64.0f);
+    constants.dofParams = {Sanitize(params.dof_focus_distance, 45.0f, 0.0f, 1e6f), Sanitize(params.dof_focus_range, 0.0f, 0.0f, 1e6f) * 0.5f,
+        maxBlur, Sanitize(params.dof_transition, 10.0f, 0.01f, 1e6f)};
+    if (maxBlur < 0.5f) {
+        flags &= ~static_cast<uint32_t>(TT_POST_DOF); // ぼけが無ければ何もしない
+    }
 
     ctx->OMSetBlendState(nullptr, nullptr, 0xFFFFFFFF);
     ctx->OMSetDepthStencilState(overlayDepthState_.Get(), 0);
@@ -787,15 +796,22 @@ void Engine::ApplyPostEffects(const TtFrameParams& params, const PostInputs& inp
         ctx->Draw(3, 0);
     };
 
-    // 線画の準備: 奥行きを見る向きの距離に直す
-    if ((flags & TT_POST_LINES) && inputs.depth && inputs.linearDepth && inputs.linearDepth->rtv) {
+    // 線画・被写界深度の準備: 奥行きを見る向きの距離に直す
+    if ((flags & (TT_POST_LINES | TT_POST_DOF)) && inputs.depth && inputs.linearDepth && inputs.linearDepth->rtv) {
         fourth = inputs.depth;
         pass(inputs.depthMultisampled ? linearDepthMsShader_.Get() : linearDepthShader_.Get(), inputs.linearDepth->rtv.Get(),
             static_cast<UINT>(width), static_cast<UINT>(height), nullptr, nullptr, static_cast<UINT>(width), static_cast<UINT>(height));
         fourth = nullptr;
         third = inputs.linearDepth->srv.Get();
     } else {
-        flags &= ~static_cast<uint32_t>(TT_POST_LINES);
+        flags &= ~static_cast<uint32_t>(TT_POST_LINES | TT_POST_DOF);
+    }
+
+    // 被写界深度: 場面をぼかしてから、そのあとの効果（ブルーム・仕上げ）にかける
+    if ((flags & TT_POST_DOF) && inputs.dof && inputs.dof->rtv) {
+        pass(dofShader_.Get(), inputs.dof->rtv.Get(), static_cast<UINT>(width), static_cast<UINT>(height), scene, nullptr,
+            static_cast<UINT>(width), static_cast<UINT>(height));
+        scene = inputs.dof->srv.Get();
     }
 
     ID3D11ShaderResourceView* bloom = nullptr;
@@ -843,6 +859,7 @@ void Engine::CreatePostResources()
         L"線画の準備のシェーダーの作成");
     CheckHr(device_->CreatePixelShader(g_LinearDepthMsPS, sizeof(g_LinearDepthMsPS), nullptr, &linearDepthMsShader_),
         L"線画の準備（MSAA）のシェーダーの作成");
+    CheckHr(device_->CreatePixelShader(g_DofPS, sizeof(g_DofPS), nullptr, &dofShader_), L"被写界深度のシェーダーの作成");
 
     D3D11_BUFFER_DESC desc{};
     desc.ByteWidth = sizeof(PostConstants);

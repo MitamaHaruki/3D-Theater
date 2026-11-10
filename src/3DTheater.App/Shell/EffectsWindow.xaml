@@ -30,7 +30,14 @@
     </Style>
   </Window.Resources>
 
-  <StackPanel Margin="18,4,18,16">
+  <DockPanel Margin="18,4,18,16">
+    <DockPanel DockPanel.Dock="Bottom" Margin="0,16,0,0" LastChildFill="False">
+      <Button DockPanel.Dock="Left" MinWidth="110" Content="初期値に戻す" Click="OnResetClick"
+              ToolTip="映像効果をすべて OFF にし、値を初期値に戻します" />
+      <Button DockPanel.Dock="Right" MinWidth="88" Content="閉じる" IsCancel="True" IsDefault="True" Click="OnCloseClick" />
+    </DockPanel>
+    <ScrollViewer MaxHeight="640" VerticalScrollBarVisibility="Auto" Padding="0,0,6,0">
+    <StackPanel>
     <!-- 色調補正 -->
     <CheckBox x:Name="ColorCheck" Style="{StaticResource GroupCheckStyle}" Content="色調補正" Checked="OnCheckChanged" Unchecked="OnCheckChanged" />
     <Grid IsEnabled="{Binding IsChecked, ElementName=ColorCheck}">
@@ -106,13 +113,40 @@
       <TextBlock x:Name="VignetteText" Grid.Column="2" Style="{StaticResource ValueStyle}" />
     </Grid>
 
-    <TextBlock Margin="0,14,0,0" TextWrapping="Wrap" Foreground="{StaticResource SubTextBrush}" FontSize="11.5"
-               Text="変えるとすぐにプレビューへ反映し、書き出し（PNG・動画）にもかかります。背景・格子・ボーン・ギズモには、色調補正とブルームはかかりません。設定はプロジェクトに保存します（元に戻す・やり直しの対象ではありません）。" />
+    <!-- 被写界深度 -->
+    <CheckBox x:Name="DofCheck" Style="{StaticResource GroupCheckStyle}" Content="被写界深度（ピントの前後をぼかす。カメラ視点と書き出しだけ）"
+              Checked="OnCheckChanged" Unchecked="OnCheckChanged" />
+    <Grid IsEnabled="{Binding IsChecked, ElementName=DofCheck}">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="140" />
+        <ColumnDefinition Width="*" />
+        <ColumnDefinition Width="60" />
+      </Grid.ColumnDefinitions>
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="Auto" />
+      </Grid.RowDefinitions>
+      <CheckBox x:Name="FocusOnTargetCheck" Grid.ColumnSpan="3" Margin="22,4,0,4" Content="カメラの注視点にピントを合わせる（カメラのモーションの距離について行く）"
+                Checked="OnCheckChanged" Unchecked="OnCheckChanged" />
+      <TextBlock Grid.Row="1" Style="{StaticResource RowLabelStyle}" Text="ピントの距離" ToolTip="カメラからの距離（注視点に合わせないとき）" />
+      <Slider x:Name="FocusDistanceSlider" Grid.Row="1" Grid.Column="1" Style="{StaticResource EffectSliderStyle}" Minimum="1" Maximum="150"
+              SmallChange="0.5" LargeChange="5" AutomationProperties.Name="ピントの距離" ValueChanged="OnSliderChanged" />
+      <TextBlock x:Name="FocusDistanceText" Grid.Row="1" Grid.Column="2" Style="{StaticResource ValueStyle}" />
+      <TextBlock Grid.Row="2" Style="{StaticResource RowLabelStyle}" Text="ピントの合う幅" ToolTip="ピントの距離の前後で、くっきり見える幅（前後の合計）" />
+      <Slider x:Name="FocusRangeSlider" Grid.Row="2" Grid.Column="1" Style="{StaticResource EffectSliderStyle}" Minimum="0" Maximum="40"
+              SmallChange="0.5" LargeChange="2" AutomationProperties.Name="ピントの合う幅" ValueChanged="OnSliderChanged" />
+      <TextBlock x:Name="FocusRangeText" Grid.Row="2" Grid.Column="2" Style="{StaticResource ValueStyle}" />
+      <TextBlock Grid.Row="3" Style="{StaticResource RowLabelStyle}" Text="ぼけの大きさ" ToolTip="ぼけの円の半径（高さ 1080 の画像での画素）" />
+      <Slider x:Name="DofBlurSlider" Grid.Row="3" Grid.Column="1" Style="{StaticResource EffectSliderStyle}" Minimum="0" Maximum="32"
+              SmallChange="0.5" LargeChange="2" AutomationProperties.Name="ぼけの大きさ" ValueChanged="OnSliderChanged" />
+      <TextBlock x:Name="DofBlurText" Grid.Row="3" Grid.Column="2" Style="{StaticResource ValueStyle}" />
+    </Grid>
 
-    <DockPanel Margin="0,16,0,0" LastChildFill="False">
-      <Button DockPanel.Dock="Left" MinWidth="110" Content="初期値に戻す" Click="OnResetClick"
-              ToolTip="映像効果をすべて OFF にし、値を初期値に戻します" />
-      <Button DockPanel.Dock="Right" MinWidth="88" Content="閉じる" IsCancel="True" IsDefault="True" Click="OnCloseClick" />
-    </DockPanel>
-  </StackPanel>
+    <TextBlock Margin="0,14,0,0" TextWrapping="Wrap" Foreground="{StaticResource SubTextBrush}" FontSize="11.5"
+               Text="変えるとすぐにプレビューへ反映し、書き出し（PNG・動画）にもかかります。背景・格子・ボーン・ギズモには、色調補正とブルームはかかりません（被写界深度は背景もぼかします）。設定はプロジェクトに保存します（元に戻す・やり直しの対象ではありません）。" />
+    </StackPanel>
+    </ScrollViewer>
+  </DockPanel>
 </Window>

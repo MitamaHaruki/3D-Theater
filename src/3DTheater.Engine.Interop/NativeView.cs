@@ -141,6 +141,10 @@ public sealed unsafe class NativeView : IDisposable
                 LightCount = (uint)lightCount,
                 ReflectionStrength = frame.ReflectionStrength,
                 ReflectionFade = frame.ReflectionFade,
+                DofFocusDistance = frame.Effects.DofFocusDistance,
+                DofFocusRange = frame.Effects.DofFocusRange,
+                DofMaxBlur = frame.Effects.DofMaxBlur,
+                DofTransition = frame.Effects.DofTransition,
             };
             return NativeError.Check(NativeMethods.ViewRender(Handle, &parameters)) == NativeResult.Ok;
         }

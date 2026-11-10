@@ -266,13 +266,16 @@ uint32_t View::SetSampleCount(uint32_t requested)
     return actual;
 }
 
-void View::EnsurePostResources(bool bloom, bool lines)
+void View::EnsurePostResources(bool bloom, bool depth, bool dof)
 {
     if (!scene_.texture) {
         engine_.CreatePostSurface(scene_, static_cast<UINT>(width_), static_cast<UINT>(height_), Engine::kColorFormat);
     }
-    if (lines && !linearDepth_.texture) {
+    if (depth && !linearDepth_.texture) {
         engine_.CreatePostSurface(linearDepth_, static_cast<UINT>(width_), static_cast<UINT>(height_), DXGI_FORMAT_R32G32_FLOAT);
+    }
+    if (dof && !dof_.texture) {
+        engine_.CreatePostSurface(dof_, static_cast<UINT>(width_), static_cast<UINT>(height_), Engine::kColorFormat);
     }
     if (!bloom || !bloomDown_.empty()) {
         return;
@@ -302,6 +305,7 @@ void View::ReleaseSizeDependentResources() noexcept
 {
     scene_ = PostSurface{};
     linearDepth_ = PostSurface{};
+    dof_ = PostSurface{};
     bloomDown_.clear();
     bloomUp_.clear();
     ReleaseSampleResources();
@@ -351,8 +355,9 @@ bool View::Render(const TtFrameParams& params)
     } else {
         // 場面を背景なしで描き（MSAA ならまとめてから）、映像効果をかけて描画先へ書き、その上に格子や選択の枠を重ねる。
         // MSAA の描画先へ書いた効果の結果は、どの点も同じ色なので、重ね描きの線だけがなめらかに混ざる
-        const bool lines = (params.post_flags & TT_POST_LINES) != 0;
-        EnsurePostResources((params.post_flags & TT_POST_BLOOM) != 0, lines);
+        const bool dof = (params.post_flags & TT_POST_DOF) != 0;
+        const bool lines = (params.post_flags & TT_POST_LINES) != 0 || dof;
+        EnsurePostResources((params.post_flags & TT_POST_BLOOM) != 0, lines, dof);
         engine_.DrawScene(multisampled ? msaaRtv_.Get() : scene_.rtv.Get(), dsv_.Get(), width_, height_, params, multisampled,
             Engine::ScenePart::Scene);
         if (multisampled) {
@@ -365,6 +370,7 @@ bool View::Render(const TtFrameParams& params)
         inputs.depth = lines ? depthSrv_.Get() : nullptr;
         inputs.depthMultisampled = multisampled;
         inputs.linearDepth = lines ? &linearDepth_ : nullptr;
+        inputs.dof = dof ? &dof_ : nullptr;
         engine_.ApplyPostEffects(params, inputs, target, width_, height_);
         engine_.DrawScene(target, dsv_.Get(), width_, height_, params, multisampled, Engine::ScenePart::Overlays);
     }

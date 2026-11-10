@@ -1318,6 +1318,90 @@ public:
         Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
     }
 
+    TEST_METHOD(DepthOfFieldBlursOutsideTheFocus)
+    {
+        // 手前（距離 3）に小さな赤い四角形、奥（距離 8）に大きな緑の四角形。ピントの合っていないほうの縁がぼける
+        TtEngine* engine = CreateWarpEngine();
+        constexpr int width = 64;
+        constexpr int height = 48;
+        TtView* view = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_view_create_offscreen(engine, width, height, 0, &view));
+        auto makeQuad = [&](uint8_t b, uint8_t g, uint8_t r) {
+            TtTexture* texture = CreateSolidTexture(engine, b, g, r);
+            const TtMeshMaterial material = QuadMaterial(texture);
+            const TtMeshDesc desc = QuadDesc(kClockwise, &material);
+            TtMesh* mesh = nullptr;
+            Assert::AreEqual<int>(TT_OK, tt_mesh_create(engine, &desc, &mesh));
+            Assert::AreEqual<int>(TT_OK, tt_texture_destroy(texture));
+            return mesh;
+        };
+        TtMesh* nearMesh = makeQuad(0, 0, 255);
+        TtMesh* farMesh = makeQuad(0, 255, 0);
+
+        auto render = [&](uint32_t flags, float focus, float blur) {
+            TtFrameParams params = MakeFrontParams();
+            params.flags = TT_FRAME_CLEAR_COLOR;
+            params.clear_color[3] = 1.0f;
+            TtDrawItem items[2] = {DrawItem(farMesh), DrawItem(nearMesh)};
+            DirectX::XMStoreFloat4x4(reinterpret_cast<DirectX::XMFLOAT4X4*>(items[0].world),
+                DirectX::XMMatrixScaling(1.2f, 1.2f, 1.0f) * DirectX::XMMatrixTranslation(0.0f, 0.0f, 3.0f));
+            DirectX::XMStoreFloat4x4(reinterpret_cast<DirectX::XMFLOAT4X4*>(items[1].world),
+                DirectX::XMMatrixScaling(0.3f, 0.3f, 1.0f) * DirectX::XMMatrixTranslation(0.0f, 0.0f, -2.0f));
+            params.items = items;
+            params.item_count = 2;
+            params.post_flags = flags;
+            params.contrast = 1.0f;
+            params.saturation = 1.0f;
+            params.dof_focus_distance = focus;
+            params.dof_focus_range = 0.5f;
+            params.dof_max_blur = blur;
+            params.dof_transition = 1.0f;
+            return RenderAndRead(engine, view, params, width, height);
+        };
+        // 奥の四角形の右の縁（中央から 6〜14 画素。手前の四角形より外）で、緑が中間の明るさの画素の数
+        auto farEdgeBlur = [&](const std::vector<uint8_t>& pixels) {
+            int count = 0;
+            for (int y = height / 2 - 3; y <= height / 2 + 3; ++y) {
+                for (int x = width / 2 + 6; x <= width / 2 + 14; ++x) {
+                    const int g = pixels[(static_cast<size_t>(y) * width + x) * 4 + 1];
+                    count += (g > 30 && g < 200) ? 1 : 0;
+                }
+            }
+            return count;
+        };
+        // 手前の四角形の右の縁（中央から 3〜8 画素）で、赤が中間の明るさの画素の数
+        auto nearEdgeBlur = [&](const std::vector<uint8_t>& pixels) {
+            int count = 0;
+            for (int y = height / 2 - 2; y <= height / 2 + 2; ++y) {
+                for (int x = width / 2 + 3; x <= width / 2 + 8; ++x) {
+                    const int r = pixels[(static_cast<size_t>(y) * width + x) * 4 + 2];
+                    count += (r > 30 && r < 200) ? 1 : 0;
+                }
+            }
+            return count;
+        };
+
+        std::vector<uint8_t> sharp = render(0, 3.0f, 6.0f);
+        Assert::AreEqual(0, farEdgeBlur(sharp), L"被写界深度なしなら、縁はくっきり");
+        Assert::AreEqual(0, nearEdgeBlur(sharp));
+
+        std::vector<uint8_t> focusNear = render(TT_POST_DOF, 3.0f, 6.0f);
+        Assert::IsTrue(farEdgeBlur(focusNear) > 3, L"手前にピントを合わせると、奥の縁がぼける");
+        Assert::AreEqual(0, nearEdgeBlur(focusNear), L"ピントの合った手前の縁は、くっきりのまま");
+
+        std::vector<uint8_t> focusFar = render(TT_POST_DOF, 8.0f, 6.0f);
+        Assert::AreEqual(0, farEdgeBlur(focusFar), L"奥にピントを合わせると、奥の縁はくっきり");
+        Assert::IsTrue(nearEdgeBlur(focusFar) > 3, L"手前の縁がぼける");
+
+        std::vector<uint8_t> noBlur = render(TT_POST_DOF, 3.0f, 0.0f);
+        Assert::AreEqual(0, farEdgeBlur(noBlur), L"ぼけの大きさ 0 なら何もしない");
+
+        Assert::AreEqual<int>(TT_OK, tt_mesh_destroy(nearMesh));
+        Assert::AreEqual<int>(TT_OK, tt_mesh_destroy(farMesh));
+        Assert::AreEqual<int>(TT_OK, tt_view_destroy(view));
+        Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
+    }
+
     TEST_METHOD(GridCanBeDrawnBehindModels)
     {
         // 正面の視点と同じく、格子を画面に平行な面（Z = 0）に置き、その奥（Z = 0.5）に赤い四角形を置く。

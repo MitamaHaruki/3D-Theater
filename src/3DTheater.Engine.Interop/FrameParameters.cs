@@ -89,6 +89,9 @@ public enum PostEffectFlags : uint
 
     /// <summary>紙の質感（細かいむらを重ねる。背景にもかかる）。</summary>
     Paper = 1u << 6,
+
+    /// <summary>被写界深度（ピントの距離の前後をぼかす）。</summary>
+    DepthOfField = 1u << 7,
 }
 
 /// <summary>
@@ -98,6 +101,7 @@ public enum PostEffectFlags : uint
 /// <see cref="Vignette"/> は四隅の暗さ（0〜1）。背景・格子・選択の枠・重ね描きの線には、色調補正とブルームはかからない。
 /// イラスト風: 線画は色・太さ（画素）・濃さ（0〜1）・細かさ（0〜1）、塗りは段数（2〜16）、影の色は色と強さ（0〜1）、
 /// 紙の質感は強さ（0〜1）と粒の大きさ（画素）。線画・塗り・影の色は背景にかからない。
+/// 被写界深度は、ピントの距離・ピントの合う幅（前後の合計）・ぼけの最大（画素）・最大になるまでの距離（カメラから見る向きの距離）。
 /// </summary>
 public readonly record struct PostEffects(
     PostEffectFlags Flags,
@@ -117,7 +121,11 @@ public readonly record struct PostEffects(
     Vector3 ShadowTint = default,
     float ShadowTintStrength = 0f,
     float PaperStrength = 0f,
-    float PaperGrain = 2f)
+    float PaperGrain = 2f,
+    float DofFocusDistance = 45f,
+    float DofFocusRange = 4f,
+    float DofMaxBlur = 0f,
+    float DofTransition = 20f)
 {
     /// <summary>映像効果なし。</summary>
     public static PostEffects None => new(PostEffectFlags.None);

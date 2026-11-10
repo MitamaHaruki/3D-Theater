@@ -14,6 +14,7 @@ cbuffer PostConstants : register(b0)
     float4 PaintParams;      // x = 塗りの段数、y = 影の色の強さ、z = 紙の質感の強さ、w = 紙の粒の大きさ（画素）
     float4 ShadowTint;       // rgb = 影の色（明るさを 1 にそろえたもの）
     float4 ProjectionParams; // x = 投影の (3,3)、y = 投影の (4,3)、z = 1 なら平行投影
+    float4 DofParams;        // 被写界深度: x = ピントの距離、y = ピントの合う幅の半分、z = ぼけの最大（画素）、w = 最大になるまでの距離
 };
 
 Texture2D Source : register(t0);
@@ -34,6 +35,7 @@ static const uint kPostLines = 8;
 static const uint kPostPosterize = 16;
 static const uint kPostShadowTint = 32;
 static const uint kPostPaper = 64;
+static const uint kPostDof = 128;
 
 // 何も描かれていない所の距離
 static const float kNothing = 1e30;

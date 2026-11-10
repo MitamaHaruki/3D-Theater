@@ -74,6 +74,32 @@ public sealed class VisualEffectsTests
     }
 
     [TestMethod]
+    public void DepthOfFieldFocusesOnTheTargetByDefault()
+    {
+        VisualEffects dof = VisualEffects.None with { DofEnabled = true };
+        Assert.IsTrue(dof.Any);
+        Assert.AreEqual(30f, dof.FocusDistanceFor(30f), "初期値はカメラの注視点にピントを合わせる");
+        Assert.AreEqual(12f, (dof with { DofFocusOnTarget = false, DofFocusDistance = 12f }).FocusDistanceFor(30f), "距離を指定するとき");
+        Assert.AreEqual(15f, VisualEffects.DofTransitionFor(30f), "ぼけが最大になるまでの距離はピントの距離の半分");
+        Assert.AreEqual(1f, VisualEffects.DofTransitionFor(0.5f), "近すぎるときも 1 より短くしない");
+
+        VisualEffects wild = (dof with { DofFocusDistance = 0f, DofFocusRange = -3f, DofBlur = 500f }).Normalized();
+        Assert.AreEqual(0.5f, wild.DofFocusDistance);
+        Assert.AreEqual(0f, wild.DofFocusRange);
+        Assert.AreEqual(VisualEffects.MaxDofBlur, wild.DofBlur);
+
+        var settings = new RenderSettings
+        {
+            Effects = dof with { DofFocusOnTarget = false, DofFocusDistance = 12.5f, DofFocusRange = 2f, DofBlur = 9f },
+        };
+        ProjectFile read = ProjectSerializer.Deserialize(
+            ProjectSerializer.Serialize(new ProjectFile { Rendering = RenderingEntry.From(settings) }), new Formats.LoadReport())!;
+        var restored = new RenderSettings();
+        read.Rendering.ApplyTo(restored);
+        Assert.AreEqual(settings.Effects, restored.Effects, "被写界深度の値も保存して戻る");
+    }
+
+    [TestMethod]
     public void FloorReflectionIsKeptInRangeAndSaved()
     {
         Assert.IsFalse(FloorReflection.Off.Enabled);

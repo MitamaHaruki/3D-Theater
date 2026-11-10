@@ -19,9 +19,10 @@ public static class EffectsMapping
 
     /// <summary>
     /// 高さ <paramref name="pixelHeight"/> の画像を描くときの値。線画の太さは輪郭線と同じく高さ 1080 までは指定の画素のまま、
-    /// それより大きい画像では比例して太くする。紙の粒は高さに比例させる（小さなプレビューでも書き出しと同じ見え方に）。
+    /// それより大きい画像では比例して太くする。紙の粒と被写界深度のぼけは高さに比例させる（小さなプレビューでも書き出しと同じ見え方に）。
+    /// 被写界深度は、シーンのカメラから描くとき（<paramref name="sceneCamera"/> が null でない）だけかける。
     /// </summary>
-    public static PostEffects ToNative(this RenderSettings settings, int pixelHeight)
+    public static PostEffects ToNative(this RenderSettings settings, int pixelHeight, Domain.CameraNode? sceneCamera = null)
     {
         VisualEffects effects = settings.Effects;
         IllustrationStyle style = settings.Illustration;
@@ -33,8 +34,10 @@ public static class EffectsMapping
         Add(style.PaintEnabled, PostEffectFlags.Posterize);
         Add(style.ShadowTintEnabled, PostEffectFlags.ShadowTint);
         Add(style.PaperEnabled, PostEffectFlags.Paper);
+        Add(effects.DofEnabled && sceneCamera is not null, PostEffectFlags.DepthOfField);
 
         float heightScale = Math.Max(1, pixelHeight) / 1080f;
+        float focus = effects.FocusDistanceFor(sceneCamera?.TargetDistance ?? effects.DofFocusDistance);
         return new PostEffects(flags, effects.Exposure, effects.Contrast, effects.Saturation, effects.Temperature,
             effects.BloomIntensity, effects.BloomThreshold, effects.BloomSpread, effects.Vignette,
             LineColor: IllustrationStyle.ColorOf(style.LineColor),
@@ -45,7 +48,11 @@ public static class EffectsMapping
             ShadowTint: IllustrationStyle.ColorOf(style.ShadowColor),
             ShadowTintStrength: style.ShadowTintStrength,
             PaperStrength: style.PaperStrength,
-            PaperGrain: Math.Max(0.5f, style.PaperGrain * heightScale));
+            PaperGrain: Math.Max(0.5f, style.PaperGrain * heightScale),
+            DofFocusDistance: focus,
+            DofFocusRange: effects.DofFocusRange,
+            DofMaxBlur: effects.DofBlur * heightScale,
+            DofTransition: VisualEffects.DofTransitionFor(focus));
 
         void Add(bool enabled, PostEffectFlags flag)
         {

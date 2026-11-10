@@ -83,6 +83,10 @@ internal unsafe struct TtFrameParams
     public float ReflectionFade;
     public uint Reserved8;
     public uint Reserved9;
+    public float DofFocusDistance;
+    public float DofFocusRange;
+    public float DofMaxBlur;
+    public float DofTransition;
 }
 
 [StructLayout(LayoutKind.Sequential)]

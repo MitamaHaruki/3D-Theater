@@ -77,7 +77,8 @@ public:
         const std::vector<PostSurface>* bloomUp = nullptr;   // 広げ直す段（bloomDown より 1 つ少なく、同じ大きさ）
         ID3D11ShaderResourceView* depth = nullptr;         // 場面の奥行き（線画に使う）
         bool depthMultisampled = false;                    // 奥行きが MSAA か
-        const PostSurface* linearDepth = nullptr;          // 線画の準備（見る向きの距離）を書く画像
+        const PostSurface* linearDepth = nullptr;          // 線画・被写界深度の準備（見る向きの距離）を書く画像
+        const PostSurface* dof = nullptr;                  // 被写界深度でぼかした場面を書く画像
     };
     // 映像効果をかける: 場面から output（width x height）へ。背景も置く
     void ApplyPostEffects(const TtFrameParams& params, const PostInputs& inputs, ID3D11RenderTargetView* output, int width, int height);
@@ -202,6 +203,7 @@ private:
     ComPtr<ID3D11PixelShader> postCompositeShader_;
     ComPtr<ID3D11PixelShader> linearDepthShader_;
     ComPtr<ID3D11PixelShader> linearDepthMsShader_;
+    ComPtr<ID3D11PixelShader> dofShader_;
     ComPtr<ID3D11Buffer> postConstantBuffer_;
 
     // モデル（MMD と同じトゥーンの色の計算と輪郭線）

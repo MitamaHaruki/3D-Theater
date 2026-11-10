@@ -1,9 +1,10 @@
 namespace Theater3D.Editor;
 
 /// <summary>
-/// 映像効果（色調補正・ブルーム・周辺減光）。作品の描き方としてプロジェクトに保存し、プレビューと書き出しの両方にかける。
-/// 3 つはそれぞれ ON / OFF でき、OFF の間も値は覚えておく。値は <see cref="Normalized"/> で範囲に収める。
+/// 映像効果（色調補正・ブルーム・周辺減光・被写界深度）。作品の描き方としてプロジェクトに保存し、プレビューと書き出しの両方にかける。
+/// それぞれ ON / OFF でき、OFF の間も値は覚えておく。値は <see cref="Normalized"/> で範囲に収める。
 /// 背景・格子・選択の枠・ボーン・ギズモには、色調補正とブルームはかからない（周辺減光は背景にもかかる）。
+/// 被写界深度はシーンのカメラの効果なので、カメラ視点の区画と書き出しにだけかける（ほかの視点では、ピントの距離に意味が無いため）。
 /// </summary>
 public sealed record VisualEffects
 {
@@ -12,6 +13,9 @@ public sealed record VisualEffects
     public const float MaxContrast = 2f;
     public const float MaxSaturation = 2f;
     public const float MaxBloomIntensity = 3f;
+    public const float MaxFocusDistance = 1000f;
+    public const float MaxFocusRange = 200f;
+    public const float MaxDofBlur = 32f;
 
     /// <summary>映像効果なし（新しいプロジェクト・前の版のファイル）。</summary>
     public static VisualEffects None { get; } = new();
@@ -49,8 +53,29 @@ public sealed record VisualEffects
     /// <summary>周辺減光の強さ（0〜1。四隅の暗さ）。</summary>
     public float Vignette { get; init; } = 0.35f;
 
+    /// <summary>被写界深度（ピントの距離の前後をぼかす）を使う。</summary>
+    public bool DofEnabled { get; init; }
+
+    /// <summary>ピントをカメラの注視点（注視点までの距離）に合わせる。false なら <see cref="DofFocusDistance"/>。</summary>
+    public bool DofFocusOnTarget { get; init; } = true;
+
+    /// <summary>ピントの距離（カメラから。注視点に合わせないとき）。</summary>
+    public float DofFocusDistance { get; init; } = 45f;
+
+    /// <summary>ピントの合う幅（前後の合計）。</summary>
+    public float DofFocusRange { get; init; } = 4f;
+
+    /// <summary>ぼけの大きさ（高さ 1080 の画像での、ぼけの円の半径の画素。大きな画像では比例して大きくする）。</summary>
+    public float DofBlur { get; init; } = 6f;
+
     /// <summary>どれかの効果を使うか。</summary>
-    public bool Any => ColorEnabled || BloomEnabled || VignetteEnabled;
+    public bool Any => ColorEnabled || BloomEnabled || VignetteEnabled || DofEnabled;
+
+    /// <summary>ピントの距離（注視点に合わせるときは、カメラの注視点までの距離）。</summary>
+    public float FocusDistanceFor(float cameraTargetDistance) => DofFocusOnTarget ? cameraTargetDistance : DofFocusDistance;
+
+    /// <summary>ピントの合う幅の外で、ぼけが最大になるまでの距離（ピントの距離の半分。近くほど急にぼける）。</summary>
+    public static float DofTransitionFor(float focusDistance) => Math.Max(1f, focusDistance * 0.5f);
 
     /// <summary>値を範囲に収めたもの（数でない値は初期値にする。壊れたファイル・入力の誤りに備える）。</summary>
     public VisualEffects Normalized()
@@ -66,6 +91,9 @@ public sealed record VisualEffects
             BloomThreshold = Fit(BloomThreshold, 0f, 1f, d.BloomThreshold),
             BloomSpread = Fit(BloomSpread, 0f, 1f, d.BloomSpread),
             Vignette = Fit(Vignette, 0f, 1f, d.Vignette),
+            DofFocusDistance = Fit(DofFocusDistance, 0.5f, MaxFocusDistance, d.DofFocusDistance),
+            DofFocusRange = Fit(DofFocusRange, 0f, MaxFocusRange, d.DofFocusRange),
+            DofBlur = Fit(DofBlur, 0f, MaxDofBlur, d.DofBlur),
         };
     }
 
