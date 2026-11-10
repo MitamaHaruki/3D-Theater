@@ -27,6 +27,9 @@ cbuffer MaterialConstants : register(b1)
     float4 ToonAdd;
     float4 EdgeColor;
     float4 Options;           // x = スフィア（0 なし・1 掛ける・2 足す）、y = 1 ならトゥーンあり、z = 輪郭線の太さ、w = 1 ならセルフシャドウを受ける
+    float4 Pbr;               // 拡張材質: x = 1 なら PBR の色の計算、y = 金属らしさ、z = 粗さ
+    float4 BaseTint;          // 拡張材質: PBR のベースカラーに掛ける色合い
+    float4 Emissive;          // 拡張材質: 発光（色 × 強さ。どちらの色の計算にも足す）
 };
 
 Texture2D DiffuseTexture : register(t0);

@@ -163,7 +163,7 @@ public sealed class NativeEngineTests
     public void ToonLightAndEdgeSettingsReachTheEngine()
     {
         // 構造体の並びが tt_engine.h と合っていること（合わなければ値が化けて、色や輪郭線が期待と違う）
-        Assert.AreEqual(176, System.Runtime.CompilerServices.Unsafe.SizeOf<MaterialState>());
+        Assert.AreEqual(208, System.Runtime.CompilerServices.Unsafe.SizeOf<MaterialState>());
         using var engine = NativeEngine.Create(NativeEngineOptions.UseWarp);
         const int width = 32;
         const int height = 32;

@@ -218,6 +218,13 @@ void Mesh::UpdateMaterials(const TtMaterialState* states, uint32_t count)
         m.toonAdd = load4(s.toon_add);
         m.edgeColor = load4(s.edge_color);
         m.edgeSize = std::isfinite(s.edge_size) ? std::max(0.0f, s.edge_size) : 0.0f;
+        // 拡張材質: 範囲の外は収め、数でない値は初期値にする
+        auto fit = [](float v, float lo, float hi, float fallback) { return std::isfinite(v) ? std::clamp(v, lo, hi) : fallback; };
+        m.shading = s.shading == TT_SHADING_PBR ? TT_SHADING_PBR : TT_SHADING_TOON;
+        m.metallic = fit(s.metallic, 0.0f, 1.0f, 0.0f);
+        m.roughness = fit(s.roughness, 0.04f, 1.0f, 0.5f);
+        m.baseTint = {fit(s.base_tint[0], 0.0f, 4.0f, 1.0f), fit(s.base_tint[1], 0.0f, 4.0f, 1.0f), fit(s.base_tint[2], 0.0f, 4.0f, 1.0f), 1.0f};
+        m.emissive = {fit(s.emissive[0], 0.0f, 64.0f, 0.0f), fit(s.emissive[1], 0.0f, 64.0f, 0.0f), fit(s.emissive[2], 0.0f, 64.0f, 0.0f), 0.0f};
     }
 }
 

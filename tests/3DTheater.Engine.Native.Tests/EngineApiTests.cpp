@@ -1080,6 +1080,86 @@ public:
         Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
     }
 
+    TEST_METHOD(PbrMaterialsReflectLightAndEmissiveGlows)
+    {
+        // 正面を向いた灰色の四角形を、カメラの後ろから照らす。拡張材質（PBR）と発光を、材質の今の値で切り替える
+        TtEngine* engine = CreateWarpEngine();
+        constexpr int width = 64;
+        constexpr int height = 48;
+        TtView* view = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_view_create_offscreen(engine, width, height, 0, &view));
+        TtTexture* texture = CreateSolidTexture(engine, 128, 128, 128);
+        const TtMeshMaterial material = QuadMaterial(texture);
+        const TtMeshDesc desc = QuadDesc(kClockwise, &material);
+        TtMesh* mesh = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_mesh_create(engine, &desc, &mesh));
+        Assert::AreEqual<int>(TT_OK, tt_texture_destroy(texture));
+        Assert::AreEqual<size_t>(208, sizeof(TtMaterialState), L"C# 側と同じ大きさ（API 0.13）");
+
+        auto state = [](uint32_t shading, float metallic, float roughness) {
+            TtMaterialState s{};
+            s.diffuse[0] = s.diffuse[1] = s.diffuse[2] = s.diffuse[3] = 1.0f;
+            s.ambient[0] = s.ambient[1] = s.ambient[2] = 1.0f;
+            for (float* v : {s.texture_multiply, s.sphere_multiply, s.toon_multiply, s.base_tint}) {
+                v[0] = v[1] = v[2] = v[3] = 1.0f;
+            }
+            s.edge_color[3] = 1.0f;
+            s.shading = shading;
+            s.metallic = metallic;
+            s.roughness = roughness;
+            return s;
+        };
+        auto render = [&](const TtMaterialState& s, float light, float scale = 1.0f) {
+            Assert::AreEqual<int>(TT_OK, tt_mesh_update_materials(mesh, &s, 1));
+            TtFrameParams params = MakeFrontParams();
+            params.flags = TT_FRAME_USE_LIGHT;
+            params.light_direction[2] = 1.0f; // カメラの後ろから、四角形へ向かう光
+            params.light_color[0] = params.light_color[1] = params.light_color[2] = light;
+            TtDrawItem item = DrawItem(mesh);
+            DirectX::XMStoreFloat4x4(reinterpret_cast<DirectX::XMFLOAT4X4*>(item.world), DirectX::XMMatrixScaling(scale, scale, 1.0f));
+            params.items = &item;
+            params.item_count = 1;
+            return RenderAndRead(engine, view, params, width, height);
+        };
+        const size_t center = (static_cast<size_t>(height / 2) * width + width / 2) * 4;
+
+        // 照明を消すと、トゥーンの材質は環境色で明るいままだが、PBR の材質は暗くなる（光を返すだけなので）
+        std::vector<uint8_t> toonDark = render(state(TT_SHADING_TOON, 0.0f, 0.5f), 0.0f);
+        std::vector<uint8_t> pbrDark = render(state(TT_SHADING_PBR, 0.0f, 0.5f), 0.0f);
+        Assert::IsTrue(toonDark[center + 1] > 100, L"トゥーンは照明なしでも環境色で見える");
+        Assert::IsTrue(pbrDark[center + 1] < 5, L"PBR は照明なしなら暗い");
+        std::vector<uint8_t> pbrLit = render(state(TT_SHADING_PBR, 0.0f, 0.5f), 0.6f);
+        Assert::IsTrue(pbrLit[center + 1] > 60 && pbrLit[center + 1] < 250, L"PBR は照らすと、ベースカラーに応じた明るさになる");
+
+        // 知らない色の計算の値はトゥーンとして描く
+        std::vector<uint8_t> unknown = render(state(7, 0.0f, 0.5f), 0.0f);
+        Assert::IsTrue(IsNear(unknown[center + 1], toonDark[center + 1], 2), L"知らない値はトゥーン");
+
+        // 金属で滑らか（粗さ 0.2）なほど、正面の照り返しが強い
+        std::vector<uint8_t> smooth = render(state(TT_SHADING_PBR, 1.0f, 0.2f), 0.6f);
+        std::vector<uint8_t> rough = render(state(TT_SHADING_PBR, 1.0f, 0.9f), 0.6f);
+        Assert::IsTrue(smooth[center + 1] > rough[center + 1] + 20, L"滑らかな金属は、正面の照り返しが強い");
+        // 画面いっぱいに広げると、見る向きが光から大きくずれる画面の端では、照り返しがほとんど無い
+        std::vector<uint8_t> wide = render(state(TT_SHADING_PBR, 1.0f, 0.2f), 0.6f, 4.0f);
+        const size_t side = (static_cast<size_t>(height / 2) * width + 2) * 4;
+        Assert::IsTrue(wide[center + 1] > 250 && wide[side + 1] < 150, L"照り返しは正面がいちばん強い");
+
+        // 発光は照明に関係なく足す（どちらの色の計算にも）
+        TtMaterialState glowing = state(TT_SHADING_PBR, 0.0f, 0.5f);
+        glowing.emissive[0] = 0.5f;
+        std::vector<uint8_t> emissive = render(glowing, 0.0f);
+        Assert::IsTrue(IsNear(emissive[center + 2], 128, 3) && emissive[center + 1] < 5, L"照明なしでも、発光の赤が出る");
+        TtMaterialState toonGlow = state(TT_SHADING_TOON, 0.0f, 0.5f);
+        toonGlow.emissive[1] = 1.0f;
+        toonGlow.ambient[0] = toonGlow.ambient[1] = toonGlow.ambient[2] = 0.0f;
+        std::vector<uint8_t> toonEmissive = render(toonGlow, 0.0f);
+        Assert::IsTrue(toonEmissive[center + 1] > 250 && toonEmissive[center + 2] < 5, L"トゥーンの材質にも発光を足す");
+
+        Assert::AreEqual<int>(TT_OK, tt_mesh_destroy(mesh));
+        Assert::AreEqual<int>(TT_OK, tt_view_destroy(view));
+        Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
+    }
+
     TEST_METHOD(GridCanBeDrawnBehindModels)
     {
         // 正面の視点と同じく、格子を画面に平行な面（Z = 0）に置き、その奥（Z = 0.5）に赤い四角形を置く。

@@ -96,6 +96,9 @@
                       ToolTip="剛体とジョイントで、髪・スカートなどを揺らします（初期値は ON。プロジェクトに保存します）" />
             <MenuItem Header="物理をリセット" Click="OnResetPhysicsClick"
                       ToolTip="剛体を今の姿勢に置き直して、落ち着かせます（揺れが暴れたときなど）" />
+            <Separator />
+            <MenuItem Header="材質の設定..." Click="OnMaterialsClick"
+                      ToolTip="選んだモデルの材質を、PBR（金属らしさ・粗さ）や発光で上書きします。PMX の材質は書き換えません（プロジェクトに保存し、元に戻せます）" />
           </MenuItem>
           <MenuItem Header="モーション(_A)" SubmenuOpened="OnMotionMenuOpened">
             <MenuItem Header="モーション・ポーズを読み込む（VMD / VPD）..." Click="OnImportMotionClick" />

@@ -9,11 +9,14 @@ internal static class AnimationFixtures
 {
     public static readonly BoneTraits Movable = new(true, true, false, false, false, false, false, true, string.Empty);
 
-    /// <summary>ボーン「センター」「左ひじ」、モーフ「まばたき」「あ」を持つモデルをシーンに置く。</summary>
+    /// <summary>ボーン「センター」「左ひじ」、モーフ「まばたき」「あ」、材質「肌」「髪」「服」を持つモデルをシーンに置く。</summary>
     public static (SceneDocument Scene, PlaybackService Playback, AnimationService Animation, ModelNode Model) Create()
     {
         SceneDocument scene = SceneDocument.CreateDefault();
-        var model = new ModelNode("人形", "人形.pmx", new ModelSummary("PMX 2.0", 0, 0, 0, 0, 2, 2, 0, 0), string.Empty, Vector3.Zero, Vector3.One);
+        var model = new ModelNode("人形", "人形.pmx", new ModelSummary("PMX 2.0", 0, 0, 0, 0, 2, 2, 0, 0), string.Empty, Vector3.Zero, Vector3.One)
+        {
+            MaterialNames = ["肌", "髪", "服"],
+        };
         BoneNode[] bones = [new BoneNode("センター", 0, Movable), new BoneNode("左ひじ", 1, Movable)];
         MorphNode[] morphs = [new MorphNode("まばたき", 0, MorphCategory.Eye, "頂点"), new MorphNode("あ", 1, MorphCategory.Mouth, "頂点")];
         var boneGroup = new SceneNode(SceneNodeKind.Group, "ボーン", canRename: false, hasTransform: false);

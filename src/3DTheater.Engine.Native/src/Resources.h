@@ -80,6 +80,12 @@ public:
         DirectX::XMFLOAT4 sphereAdd{0.0f, 0.0f, 0.0f, 0.0f};
         DirectX::XMFLOAT4 toonMultiply{1.0f, 1.0f, 1.0f, 1.0f};
         DirectX::XMFLOAT4 toonAdd{0.0f, 0.0f, 0.0f, 0.0f};
+        // 拡張材質（作ったときは MMD と同じトゥーン・発光なし）
+        uint32_t shading = TT_SHADING_TOON;
+        float metallic = 0.0f;
+        float roughness = 0.5f;
+        DirectX::XMFLOAT4 baseTint{1.0f, 1.0f, 1.0f, 1.0f};
+        DirectX::XMFLOAT4 emissive{0.0f, 0.0f, 0.0f, 0.0f};
     };
 
     Mesh(Engine& engine, const TtMeshDesc& desc);

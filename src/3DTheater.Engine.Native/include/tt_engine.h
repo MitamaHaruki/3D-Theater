@@ -27,7 +27,7 @@ extern "C" {
 
 // 上位 16 ビットが大きな版、下位 16 ビットが小さな版。大きな版が違う DLL とは組み合わせない。
 #define TT_API_VERSION_MAJOR 0
-#define TT_API_VERSION_MINOR 12
+#define TT_API_VERSION_MINOR 13
 #define TT_API_VERSION ((TT_API_VERSION_MAJOR << 16) | TT_API_VERSION_MINOR)
 
 // 0 以上は成功、負の値は失敗。
@@ -173,6 +173,13 @@ typedef struct TtMeshDesc {
 } TtMeshDesc;
 
 // 材質の今の値（材質モーフで変わった後の値）。テクスチャ・スフィア・トゥーンの色は「元の色 × multiply + add」で使う
+// 材質の色の計算（TtMaterialState.shading。API 0.13）
+enum {
+    TT_SHADING_TOON = 0, // MMD と同じトゥーンの色の計算（作ったときはこれ）
+    TT_SHADING_PBR = 1,  // 拡張材質: 金属らしさ・粗さで光を返す。ベースカラー = 拡散色 × テクスチャ × base_tint。スフィア・トゥーンは使わない
+};
+
+// 材質の今の値（材質モーフ・拡張材質の結果）。API 0.13 で後ろに拡張材質の値を足したので、大きさが変わった
 typedef struct TtMaterialState {
     float diffuse[4];
     float specular[3];
@@ -187,7 +194,12 @@ typedef struct TtMaterialState {
     float toon_add[4];
     float edge_color[4];
     float edge_size;
-    uint32_t reserved2[3];
+    // ここから API 0.13（拡張材質）
+    uint32_t shading;   // TT_SHADING_*（知らない値はトゥーン）
+    float metallic;     // 金属らしさ（0〜1。PBR のとき）
+    float roughness;    // 粗さ（0.04〜1 に収める。PBR のとき）
+    float base_tint[4]; // ベースカラーに掛ける色合い（PBR のとき。a は使わない）
+    float emissive[4];  // 発光（rgb = 色 × 強さ。0 以上。どちらの色の計算にも足す。a は使わない）
 } TtMaterialState;
 
 // 重ね描きする線の頂点（2 つで 1 本）。座標はワールド

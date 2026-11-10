@@ -21,6 +21,14 @@ public partial class PropertiesPanel : UserControl
 
     private void OnResetPoseClick(object sender, RoutedEventArgs e) => _viewModel.ResetModelPose();
 
+    private void OnMaterialsClick(object sender, RoutedEventArgs e)
+    {
+        if (Window.GetWindow(this) is { } owner)
+        {
+            Shell.MainWindow.OpenMaterials(owner, _context);
+        }
+    }
+
     private void OnShowReportClick(object sender, RoutedEventArgs e)
     {
         if (_viewModel.Model is { } model && _context.Models.TryGetValue(model.Id, out LoadedModel? loaded))

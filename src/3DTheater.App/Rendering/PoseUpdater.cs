@@ -57,6 +57,7 @@ public sealed class PoseUpdater
         {
             BoneNode bone when e.PropertyName is nameof(SceneNode.Position) or nameof(SceneNode.Rotation) => bone.Model,
             MorphNode morph when e.PropertyName == nameof(MorphNode.Weight) => morph.Model,
+            ModelNode overridden when e.PropertyName == nameof(ModelNode.MaterialOverrides) => overridden,
             _ => null,
         };
         if (_context.GetLoaded(owner) is { } model)
@@ -120,11 +121,14 @@ public sealed class PoseUpdater
         {
             // エンジンの箱は選択の枠を描くだけなので、見た目の箱を渡す
             mesh.UpdateVertices(MemoryMarshal.Cast<SkinnedVertex, MeshVertex>(model.Vertices), model.DisplayBoundsMin, model.DisplayBoundsMax);
-            if (model.HasMaterialMorphs)
+            // 材質の値は、材質モーフがあるとき（毎回）と、材質の上書きが変わったときに送る
+            MaterialOverrideSet overrides = node.MaterialOverrides;
+            if (model.HasMaterialMorphs || !ReferenceEquals(overrides, model.AppliedMaterialOverrides))
             {
                 for (int i = 0; i < model.MaterialStates.Length; i++)
                 {
                     MaterialValues v = model.State.Materials[i];
+                    MaterialOverride o = overrides[i];
                     model.MaterialStates[i] = new MaterialState
                     {
                         Diffuse = v.Diffuse,
@@ -139,9 +143,15 @@ public sealed class PoseUpdater
                         ToonAdd = v.ToonAdd,
                         EdgeColor = v.EdgeColor,
                         EdgeSize = v.EdgeSize,
+                        Shading = o.Shading == MaterialShading.Pbr ? MaterialShadingKind.Pbr : MaterialShadingKind.Toon,
+                        Metallic = o.Metallic,
+                        Roughness = o.Roughness,
+                        BaseTint = new Vector4(o.Tint, 1f),
+                        Emissive = new Vector4(o.EmissiveColor * o.EmissiveStrength, 0f),
                     };
                 }
                 mesh.UpdateMaterials(model.MaterialStates);
+                model.AppliedMaterialOverrides = overrides;
             }
         }
         _timer.Add(Stopwatch.GetElapsedTime(start));

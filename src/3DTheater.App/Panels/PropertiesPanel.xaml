@@ -215,6 +215,8 @@
             <Button Content="読み込みレポートを見る" Click="OnShowReportClick" />
             <Button Margin="8,0,0,0" Content="ポーズを初期化" Click="OnResetPoseClick" IsEnabled="{Binding IsEditable}"
                     ToolTip="すべてのボーンを初期の姿勢に、モーフを 0 に戻します（ロックした項目は変えません）" />
+            <Button Margin="8,0,0,0" Content="材質..." Click="OnMaterialsClick"
+                    ToolTip="材質を PBR（金属らしさ・粗さ）や発光で上書きします（モデルのメニューの「材質の設定」と同じ）" />
           </StackPanel>
           <StackPanel Visibility="{Binding HasModelComment, Converter={StaticResource BoolToVisibility}}">
             <TextBlock Text="モデルのコメント（作者・利用条件など）" Style="{StaticResource SectionHeaderStyle}" Margin="0,12,0,4" />

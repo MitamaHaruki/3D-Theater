@@ -89,7 +89,10 @@ internal static class ModelImporter
             d.Morphs.Length,
             d.RigidBodies.Length,
             d.Joints.Length);
-        var node = new ModelNode(name, Path.GetFullPath(path), summary, d.Comment, prepared!.DisplayBoundsMin, prepared.DisplayBoundsMax);
+        var node = new ModelNode(name, Path.GetFullPath(path), summary, d.Comment, prepared!.DisplayBoundsMin, prepared.DisplayBoundsMax)
+        {
+            MaterialNames = [.. d.Materials.Select(m => m.Name)],
+        };
         ModelPartsBuilder.Attach(node, d, rig!);
 
         context.Models[node.Id] = new LoadedModel(d, result.Report, mesh, rig!, prepared, physics);

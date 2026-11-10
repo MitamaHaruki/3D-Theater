@@ -87,6 +87,9 @@ public sealed class LoadedModel : IDisposable
 
     public bool HasMaterialMorphs { get; }
 
+    /// <summary>描画エンジンへ送った材質の上書き（モデルの項目の値と違えば、次の変形で送り直す）。</summary>
+    public MaterialOverrideSet AppliedMaterialOverrides { get; set; } = MaterialOverrideSet.Empty;
+
     /// <summary>描画に使っている（壊れた番号を無害にした後の）面の頂点番号。</summary>
     public uint[] Indices { get; }
 

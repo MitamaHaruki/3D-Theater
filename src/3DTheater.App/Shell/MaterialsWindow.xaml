@@ -1,0 +1,126 @@
+<Window x:Class="Theater3D.App.Shell.MaterialsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="材質の設定"
+        Width="720" Height="560" MinWidth="620" MinHeight="460"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        Background="{StaticResource PanelBrush}" Foreground="{StaticResource TextBrush}"
+        FontFamily="Yu Gothic UI" FontSize="12" UseLayoutRounding="True">
+  <Window.Resources>
+    <Style x:Key="RowLabelStyle" TargetType="TextBlock">
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Margin" Value="18,0,12,0" />
+      <Setter Property="Foreground" Value="{StaticResource SubTextBrush}" />
+    </Style>
+    <Style x:Key="ValueStyle" TargetType="TextBlock">
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="TextAlignment" Value="Right" />
+      <Setter Property="Margin" Value="8,0,0,0" />
+    </Style>
+    <Style x:Key="MaterialSliderStyle" TargetType="Slider" BasedOn="{StaticResource {x:Type Slider}}">
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Margin" Value="0,5" />
+      <Setter Property="IsMoveToPointEnabled" Value="True" />
+      <Setter Property="SmallChange" Value="0.02" />
+      <Setter Property="LargeChange" Value="0.1" />
+    </Style>
+    <Style x:Key="ColorBoxStyle" TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+      <Setter Property="Width" Value="118" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="Height" Value="28" />
+      <Setter Property="Padding" Value="6,2" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+      <Setter Property="Margin" Value="0,5" />
+    </Style>
+    <Style x:Key="SwatchStyle" TargetType="Border">
+      <Setter Property="Width" Value="28" />
+      <Setter Property="Height" Value="20" />
+      <Setter Property="Margin" Value="8,0,0,0" />
+      <Setter Property="CornerRadius" Value="3" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+    </Style>
+  </Window.Resources>
+
+  <DockPanel Margin="16,12,16,14">
+    <TextBlock x:Name="HeaderText" DockPanel.Dock="Top" Margin="0,0,0,8" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+    <DockPanel DockPanel.Dock="Bottom" Margin="0,12,0,0" LastChildFill="False">
+      <TextBlock DockPanel.Dock="Left" MaxWidth="520" VerticalAlignment="Center" TextWrapping="Wrap" Foreground="{StaticResource SubTextBrush}"
+                 FontSize="11.5"
+                 Text="PMX の材質とテクスチャは書き換えず、上書きとしてプロジェクトに保存します。変えるとすぐにプレビューへ反映し、元に戻す（Ctrl+Z）で戻せます（この画面を閉じてから）。" />
+      <Button DockPanel.Dock="Right" MinWidth="88" Content="閉じる" IsCancel="True" IsDefault="True" Click="OnCloseClick" />
+    </DockPanel>
+    <Grid>
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="220" />
+        <ColumnDefinition Width="*" />
+      </Grid.ColumnDefinitions>
+      <ListBox x:Name="MaterialList" AutomationProperties.Name="材質の一覧" SelectionChanged="OnMaterialSelected"
+               ToolTip="● は上書きのある材質" />
+      <StackPanel x:Name="EditorPanel" Grid.Column="1" Margin="14,0,0,0">
+        <TextBlock x:Name="MaterialNameText" FontWeight="SemiBold" Margin="0,2,0,6" TextTrimming="CharacterEllipsis" />
+        <TextBlock Text="色の計算" Style="{StaticResource SectionHeaderStyle}" />
+        <RadioButton x:Name="ToonRadio" Margin="18,3" GroupName="Shading" Content="MMD と同じ（トゥーン。PMX の材質のまま）"
+                     Checked="OnControlChanged" />
+        <RadioButton x:Name="PbrRadio" Margin="18,3" GroupName="Shading" Content="PBR（金属らしさ・粗さで光を返す）" Checked="OnControlChanged" />
+
+        <Grid x:Name="PbrRows" Margin="0,4,0,0" IsEnabled="{Binding IsChecked, ElementName=PbrRadio}">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="130" />
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="52" />
+          </Grid.ColumnDefinitions>
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+          </Grid.RowDefinitions>
+          <TextBlock Style="{StaticResource RowLabelStyle}" Text="色合い" ToolTip="ベースカラー（PMX の拡散色 × テクスチャ）に掛ける色" />
+          <StackPanel Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal">
+            <TextBox x:Name="TintBox" Style="{StaticResource ColorBoxStyle}" AutomationProperties.Name="色合い" ToolTip="#RRGGBB（白 = #FFFFFF は変えない）"
+                     TextChanged="OnTextChanged" />
+            <Border x:Name="TintSwatch" Style="{StaticResource SwatchStyle}" />
+          </StackPanel>
+          <TextBlock Grid.Row="1" Style="{StaticResource RowLabelStyle}" Text="金属らしさ" ToolTip="1 に近いほど金属（色の付いた照り返し・拡散なし）" />
+          <Slider x:Name="MetallicSlider" Grid.Row="1" Grid.Column="1" Style="{StaticResource MaterialSliderStyle}" Minimum="0" Maximum="1"
+                  AutomationProperties.Name="金属らしさ" ValueChanged="OnSliderChanged" />
+          <TextBlock x:Name="MetallicText" Grid.Row="1" Grid.Column="2" Style="{StaticResource ValueStyle}" />
+          <TextBlock Grid.Row="2" Style="{StaticResource RowLabelStyle}" Text="粗さ" ToolTip="小さいほど照り返しが鋭く、映り込みがはっきりします" />
+          <Slider x:Name="RoughnessSlider" Grid.Row="2" Grid.Column="1" Style="{StaticResource MaterialSliderStyle}" Minimum="0.04" Maximum="1"
+                  AutomationProperties.Name="粗さ" ValueChanged="OnSliderChanged" />
+          <TextBlock x:Name="RoughnessText" Grid.Row="2" Grid.Column="2" Style="{StaticResource ValueStyle}" />
+        </Grid>
+
+        <TextBlock Text="発光（どちらの色の計算でも。ブルームで光らせられます）" Style="{StaticResource SectionHeaderStyle}" Margin="0,14,0,4" />
+        <Grid>
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="130" />
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="52" />
+          </Grid.ColumnDefinitions>
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+          </Grid.RowDefinitions>
+          <TextBlock Style="{StaticResource RowLabelStyle}" Text="色" />
+          <StackPanel Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal">
+            <TextBox x:Name="EmissiveBox" Style="{StaticResource ColorBoxStyle}" AutomationProperties.Name="発光の色" ToolTip="#RRGGBB"
+                     TextChanged="OnTextChanged" />
+            <Border x:Name="EmissiveSwatch" Style="{StaticResource SwatchStyle}" />
+          </StackPanel>
+          <TextBlock Grid.Row="1" Style="{StaticResource RowLabelStyle}" Text="強さ" ToolTip="0 なら光らない。1 より大きくすると、ブルームで周りへにじみます" />
+          <Slider x:Name="EmissiveSlider" Grid.Row="1" Grid.Column="1" Style="{StaticResource MaterialSliderStyle}" Minimum="0" Maximum="10"
+                  SmallChange="0.1" LargeChange="0.5" AutomationProperties.Name="発光の強さ" ValueChanged="OnSliderChanged" />
+          <TextBlock x:Name="EmissiveText" Grid.Row="1" Grid.Column="2" Style="{StaticResource ValueStyle}" />
+        </Grid>
+
+        <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
+          <Button x:Name="ResetButton" MinWidth="150" Content="この材質を PMX のままに戻す" Click="OnResetClick"
+                  ToolTip="この材質の上書きを消します（元に戻すで戻せます）" />
+        </StackPanel>
+        <TextBlock x:Name="LockedNote" Margin="0,10,0,0" Foreground="OrangeRed" TextWrapping="Wrap" Visibility="Collapsed"
+                   Text="このモデルはロックされているため、変えられません（シーン一覧の鍵の印で外せます）。" />
+      </StackPanel>
+    </Grid>
+  </DockPanel>
+</Window>

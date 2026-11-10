@@ -168,6 +168,52 @@ public sealed class ModelEntry
     public List<BoneEntry>? Bones { get; set; }
 
     public List<MorphEntry>? Morphs { get; set; }
+
+    /// <summary>材質の上書き（拡張材質）。上書きのある材質だけ。無ければ書かない。</summary>
+    public List<MaterialEntry>? Materials { get; set; }
+}
+
+/// <summary>材質の上書き 1 つ。色は #RRGGBB。</summary>
+public sealed class MaterialEntry
+{
+    public int Index { get; set; }
+
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>「toon」か「pbr」。</summary>
+    public string Shading { get; set; } = "toon";
+
+    public string Tint { get; set; } = "#FFFFFF";
+
+    public float Metallic { get; set; }
+
+    public float Roughness { get; set; } = 0.5f;
+
+    public string Emissive { get; set; } = "#FFFFFF";
+
+    public float EmissiveStrength { get; set; }
+
+    public static MaterialEntry From(int index, string name, MaterialOverride value) => new()
+    {
+        Index = index,
+        Name = name,
+        Shading = value.Shading == MaterialShading.Pbr ? "pbr" : "toon",
+        Tint = ImageExport.FormatColor(value.Tint),
+        Metallic = value.Metallic,
+        Roughness = value.Roughness,
+        Emissive = ImageExport.FormatColor(value.EmissiveColor),
+        EmissiveStrength = value.EmissiveStrength,
+    };
+
+    public MaterialOverride ToOverride() => new MaterialOverride
+    {
+        Shading = string.Equals(Shading, "pbr", StringComparison.OrdinalIgnoreCase) ? MaterialShading.Pbr : MaterialShading.Toon,
+        Tint = ImageExport.TryParseColor(Tint, out Vector3 tint) ? tint : Vector3.One,
+        Metallic = Metallic,
+        Roughness = Roughness,
+        EmissiveColor = ImageExport.TryParseColor(Emissive, out Vector3 emissive) ? emissive : Vector3.One,
+        EmissiveStrength = EmissiveStrength,
+    }.Normalized();
 }
 
 public sealed class GroupEntry
@@ -398,6 +444,12 @@ public static class ProjectCapture
             });
         }
         entry.Morphs = morphs.Count > 0 ? morphs : null;
+
+        var materials = model.MaterialOverrides.Items
+            .Select(pair => MaterialEntry.From(pair.Key, pair.Key < model.MaterialNames.Count ? model.MaterialNames[pair.Key] : string.Empty,
+                pair.Value))
+            .ToList();
+        entry.Materials = materials.Count > 0 ? materials : null;
         return entry;
     }
 
@@ -519,6 +571,7 @@ public static class ProjectApply
     {
         var missingBones = new List<string>();
         var missingMorphs = new List<string>();
+        var missingMaterials = new List<string>();
         using (animation.SuspendTracking())
         {
             if (!string.IsNullOrWhiteSpace(entry.Name))
@@ -569,12 +622,41 @@ public static class ProjectApply
                 morph.HasUnregisteredChange = m.Unregistered;
                 morph.IsLocked = m.Locked;
             }
+            // 材質の上書き: 番号と名前が合えばその材質、合わなければ名前で探す
+            var overrides = new List<KeyValuePair<int, MaterialOverride>>();
+            foreach (MaterialEntry m in entry.Materials ?? [])
+            {
+                int index = (uint)m.Index < (uint)model.MaterialNames.Count && model.MaterialNames[m.Index] == m.Name
+                    ? m.Index
+                    : IndexOfName(model.MaterialNames, m.Name);
+                if (index < 0)
+                {
+                    missingMaterials.Add(m.Name);
+                    continue;
+                }
+                overrides.Add(new(index, m.ToOverride()));
+            }
+            model.MaterialOverrides = MaterialOverrideSet.From(overrides);
             model.IsLocked = entry.Locked;
         }
         report.AddAggregated(LoadSeverity.Warning, LoadIssueCategory.InvalidReference,
             $"モデル「{model.Name}」に無いため戻せなかったボーン（モデルのファイルが保存したときと変わった可能性があります）", missingBones, missingBones.Count);
         report.AddAggregated(LoadSeverity.Warning, LoadIssueCategory.InvalidReference,
+            $"モデル「{model.Name}」に無いため戻せなかった材質の上書き", missingMaterials, missingMaterials.Count);
+        report.AddAggregated(LoadSeverity.Warning, LoadIssueCategory.InvalidReference,
             $"モデル「{model.Name}」に無いため戻せなかったモーフ", missingMorphs, missingMorphs.Count);
+    }
+
+    private static int IndexOfName(IReadOnlyList<string> names, string name)
+    {
+        for (int i = 0; i < names.Count; i++)
+        {
+            if (names[i] == name)
+            {
+                return i;
+            }
+        }
+        return -1;
     }
 
     private static T? Find<T>(IReadOnlyList<T> items, int index, string name, Func<T, string> nameOf) where T : class

@@ -112,9 +112,31 @@ public struct MaterialState
     public Vector4 ToonAdd;
     public Vector4 EdgeColor;
     public float EdgeSize;
-    private uint _reserved2;
-    private uint _reserved3;
-    private uint _reserved4;
+
+    /// <summary>色の計算（拡張材質。API 0.13）。</summary>
+    public MaterialShadingKind Shading;
+
+    /// <summary>金属らしさ（0〜1。PBR のとき）。</summary>
+    public float Metallic;
+
+    /// <summary>粗さ（0.04〜1。PBR のとき）。</summary>
+    public float Roughness;
+
+    /// <summary>ベースカラーに掛ける色合い（PBR のとき）。</summary>
+    public Vector4 BaseTint;
+
+    /// <summary>発光（色 × 強さ。どちらの色の計算にも足す）。</summary>
+    public Vector4 Emissive;
+}
+
+/// <summary>tt_engine.h の TT_SHADING_* と同じ値。</summary>
+public enum MaterialShadingKind : uint
+{
+    /// <summary>MMD と同じトゥーンの色の計算。</summary>
+    Toon = 0,
+
+    /// <summary>拡張材質: 金属らしさ・粗さで光を返す。</summary>
+    Pbr = 1,
 }
 
 /// <summary>重ね描きの線の頂点（2 つで 1 本、座標はワールド）。</summary>

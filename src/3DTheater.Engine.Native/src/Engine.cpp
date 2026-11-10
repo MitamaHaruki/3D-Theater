@@ -95,6 +95,9 @@ struct MaterialConstants {
     DirectX::XMFLOAT4 toonAdd;
     DirectX::XMFLOAT4 edgeColor;
     DirectX::XMFLOAT4 options; // x = スフィアの使い方、y = トゥーンあり、z = 輪郭線の太さ、w = セルフシャドウを受ける
+    DirectX::XMFLOAT4 pbr;     // x = 1 なら PBR、y = 金属らしさ、z = 粗さ
+    DirectX::XMFLOAT4 baseTint;
+    DirectX::XMFLOAT4 emissive;
 };
 
 bool IsFinite3(const float (&v)[3]) noexcept
@@ -915,6 +918,9 @@ void Engine::DrawMesh(const Mesh& mesh, DirectX::FXMMATRIX world, const ModelFra
         constants->edgeColor = material.edgeColor;
         constants->options = {static_cast<float>(material.sphere ? material.sphereMode : TT_SPHERE_NONE),
             material.toon ? 1.0f : 0.0f, material.edgeSize, selfShadow && material.receiveShadow ? 1.0f : 0.0f};
+        constants->pbr = {material.shading == TT_SHADING_PBR ? 1.0f : 0.0f, material.metallic, material.roughness, 0.0f};
+        constants->baseTint = material.baseTint;
+        constants->emissive = material.emissive;
         ctx->Unmap(materialConstantBuffer_.Get(), 0);
 
         ID3D11ShaderResourceView* textures[] = {view(material.texture), view(material.toon), view(material.sphere)};

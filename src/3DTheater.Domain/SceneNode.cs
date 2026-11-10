@@ -422,6 +422,28 @@ public sealed class ModelNode(string name, string filePath, ModelSummary summary
 
     public Vector3 BoundsMax { get; } = boundsMax;
 
+    /// <summary>材質の名前（モデルのファイルの番号順）。材質の上書きの画面と保存に使う。</summary>
+    public IReadOnlyList<string> MaterialNames { get; init; } = [];
+
+    private MaterialOverrideSet _materialOverrides = MaterialOverrideSet.Empty;
+
+    /// <summary>材質の上書き（拡張材質。PMX の材質は書き換えない）。元に戻す・やり直しの対象。</summary>
+    public MaterialOverrideSet MaterialOverrides
+    {
+        get => _materialOverrides;
+        set => SetProperty(ref _materialOverrides, value ?? MaterialOverrideSet.Empty);
+    }
+
+    protected override object? CaptureExtra(bool includeKeys) => new ModelState(MaterialOverrides);
+
+    protected override void RestoreExtra(object? extra)
+    {
+        if (extra is ModelState s)
+        {
+            MaterialOverrides = s.MaterialOverrides;
+        }
+    }
+
     /// <summary>ボーン（モデルのファイルの番号順）。一覧では表示枠ごとのまとまりの下に並ぶ。</summary>
     public IReadOnlyList<BoneNode> Bones { get; private set; } = [];
 

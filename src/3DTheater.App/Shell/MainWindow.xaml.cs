@@ -563,6 +563,21 @@ public partial class MainWindow : Window
         window.ShowDialog();
     }
 
+    private void OnMaterialsClick(object sender, RoutedEventArgs e) => OpenMaterials(this, _context);
+
+    /// <summary>操作中のモデルの材質の設定を開く（モデルを選んでいなければ知らせる）。</summary>
+    internal static void OpenMaterials(Window owner, EditorContext context)
+    {
+        if (context.ActiveModel is not { } model)
+        {
+            MessageBox.Show(owner, "材質を設定するモデルを、シーン一覧かプレビューで選んでください。", "材質の設定",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        var window = new MaterialsWindow(context.Edits, model) { Owner = owner };
+        window.ShowDialog();
+    }
+
     private void OnIllustrationClick(object sender, RoutedEventArgs e)
     {
         var window = new IllustrationWindow(_context.Rendering) { Owner = this };

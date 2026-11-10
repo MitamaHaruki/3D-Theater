@@ -14,6 +14,9 @@ public sealed record LightState(float Intensity);
 
 public sealed record TestObjectState(bool SpinWithFrame);
 
+/// <summary>モデルの値（材質の上書き）。</summary>
+public sealed record ModelState(MaterialOverrideSet MaterialOverrides);
+
 public sealed record AudioState(int StartFrame, float Volume);
 
 /// <summary>ボーンの値。<see cref="Keys"/> はキーも写したときだけ入る（値だけの編集ではキーを写さない）。</summary>
