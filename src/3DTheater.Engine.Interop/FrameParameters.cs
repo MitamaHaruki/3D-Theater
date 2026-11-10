@@ -28,6 +28,9 @@ public enum FrameFlags : uint
 
     /// <summary>背景を <see cref="FrameParameters.ClearColor"/> で消す（a = 0 で透明。書き出し用）。</summary>
     ClearColor = 1u << 10,
+
+    /// <summary>床の映り込み（<see cref="FrameParameters.ReflectionStrength"/>・<see cref="FrameParameters.ReflectionFade"/>）。</summary>
+    FloorReflection = 1u << 11,
 }
 
 /// <summary>tt_engine.h の TT_LIGHT_* と同じ値（足す照明の種類）。</summary>
@@ -143,4 +146,6 @@ public readonly record struct FrameParameters(
     int ShadowMapSize = 0,
     Vector4 ClearColor = default,
     PostEffects Effects = default,
-    IReadOnlyList<LightSource>? Lights = null);
+    IReadOnlyList<LightSource>? Lights = null,
+    float ReflectionStrength = 0f,
+    float ReflectionFade = 10f);

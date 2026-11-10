@@ -130,10 +130,16 @@ internal static class ImageExporter
         {
             flags |= FrameFlags.GroundShadow;
         }
+        FloorReflection reflection = context.Rendering.Reflection;
+        if (reflection.Enabled)
+        {
+            flags |= FrameFlags.FloorReflection;
+        }
         Vector4 clear = options.UsesTransparency ? Vector4.Zero : new Vector4(options.Background, 1f);
         var parameters = new FrameParameters(flags, matrices.View, matrices.Projection, Matrix4x4.Identity, Matrix4x4.Identity, items, default,
             lightDirection, lightColor, SceneLighting.EdgePixelScale(height), RenderSettings.GroundShadowColor,
-            RenderQuality.Export.ShadowMapSize, clear, context.Rendering.ToNative(height), EffectsMapping.LightsOf(context.Scene));
+            RenderQuality.Export.ShadowMapSize, clear, context.Rendering.ToNative(height), EffectsMapping.LightsOf(context.Scene),
+            reflection.Strength, reflection.Fade);
         view.Render(parameters);
 
         int bytes = width * height * 4;

@@ -74,6 +74,34 @@ public sealed class VisualEffectsTests
     }
 
     [TestMethod]
+    public void FloorReflectionIsKeptInRangeAndSaved()
+    {
+        Assert.IsFalse(FloorReflection.Off.Enabled);
+        FloorReflection wild = new FloorReflection { Enabled = true, Strength = 3f, Fade = float.NaN }.Normalized();
+        Assert.AreEqual(1f, wild.Strength);
+        Assert.AreEqual(FloorReflection.Off.Fade, wild.Fade, "数でない値は初期値");
+        Assert.AreEqual(FloorReflection.MinFade, (FloorReflection.Off with { Fade = 0f }).Normalized().Fade);
+
+        var settings = new RenderSettings();
+        int changes = 0;
+        settings.Changed += (_, _) => changes++;
+        settings.Reflection = FloorReflection.Off with { Enabled = true, Strength = 0.5f };
+        settings.Reflection = FloorReflection.Off with { Enabled = true, Strength = 0.5f };
+        Assert.AreEqual(1, changes, "同じ値では知らせない");
+
+        string plain = ProjectSerializer.Serialize(new ProjectFile { Rendering = RenderingEntry.From(new RenderSettings()) });
+        Assert.IsFalse(plain.Contains("reflection", StringComparison.OrdinalIgnoreCase), "使っていなければ書かない");
+        ProjectFile read = ProjectSerializer.Deserialize(
+            ProjectSerializer.Serialize(new ProjectFile { Rendering = RenderingEntry.From(settings) }), new Formats.LoadReport())!;
+        var restored = new RenderSettings();
+        read.Rendering.ApplyTo(restored);
+        Assert.AreEqual(settings.Reflection, restored.Reflection);
+
+        restored.Reset();
+        Assert.AreEqual(FloorReflection.Off, restored.Reflection, "新しいプロジェクトは映り込みなし");
+    }
+
+    [TestMethod]
     public void RenderSettingsNotifyOnlyWhenEffectsChange()
     {
         var settings = new RenderSettings();

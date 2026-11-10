@@ -79,6 +79,10 @@ internal unsafe struct TtFrameParams
     public TtLight* Lights;
     public uint LightCount;
     public uint Reserved7;
+    public float ReflectionStrength;
+    public float ReflectionFade;
+    public uint Reserved8;
+    public uint Reserved9;
 }
 
 [StructLayout(LayoutKind.Sequential)]

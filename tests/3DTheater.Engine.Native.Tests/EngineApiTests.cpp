@@ -1255,6 +1255,69 @@ public:
         Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
     }
 
+    TEST_METHOD(FloorReflectionMirrorsModelsBelowTheFloor)
+    {
+        // 高さ 0.5〜1.5 に立てた赤い四角形を、斜め上から見る。床の映り込みを使うと、床の下（高さ -0.5〜-1.5）に赤く映る
+        TtEngine* engine = CreateWarpEngine();
+        constexpr int width = 64;
+        constexpr int height = 48;
+        TtView* view = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_view_create_offscreen(engine, width, height, 0, &view));
+        TtTexture* red = CreateSolidTexture(engine, 0, 0, 255);
+        TtMeshMaterial material = QuadMaterial(red, TT_MATERIAL_DOUBLE_SIDED);
+        const TtMeshDesc desc = QuadDesc(kClockwise, &material);
+        TtMesh* mesh = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_mesh_create(engine, &desc, &mesh));
+        Assert::AreEqual<int>(TT_OK, tt_texture_destroy(red));
+
+        using namespace DirectX;
+        auto render = [&](uint32_t flags, float strength, float fade, float eyeY) {
+            TtFrameParams params = MakeParams(flags);
+            XMStoreFloat4x4(reinterpret_cast<XMFLOAT4X4*>(params.view),
+                XMMatrixLookAtLH(XMVectorSet(0.0f, eyeY, -6.0f, 1.0f), XMVectorSet(0.0f, 0.0f, 0.0f, 1.0f), XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f)));
+            TtDrawItem item = DrawItem(mesh);
+            XMStoreFloat4x4(reinterpret_cast<XMFLOAT4X4*>(item.world), XMMatrixScaling(0.5f, 0.5f, 1.0f) * XMMatrixTranslation(0.0f, 1.0f, 0.0f));
+            params.items = &item;
+            params.item_count = 1;
+            params.reflection_strength = strength;
+            params.reflection_fade = fade;
+            return std::make_pair(RenderAndRead(engine, view, params, width, height), params);
+        };
+        // ワールドの点が映る画素
+        auto pixelOf = [&](const TtFrameParams& params, float x, float y, float z) {
+            const XMMATRIX viewProj = XMLoadFloat4x4(reinterpret_cast<const XMFLOAT4X4*>(params.view))
+                * XMLoadFloat4x4(reinterpret_cast<const XMFLOAT4X4*>(params.projection));
+            XMVECTOR p = XMVector3TransformCoord(XMVectorSet(x, y, z, 1.0f), viewProj);
+            const int px = static_cast<int>((XMVectorGetX(p) * 0.5f + 0.5f) * width);
+            const int py = static_cast<int>((-XMVectorGetY(p) * 0.5f + 0.5f) * height);
+            return (static_cast<size_t>(py) * width + px) * 4;
+        };
+
+        auto [plain, plainParams] = render(0, 1.0f, 10.0f, 2.0f);
+        const size_t above = pixelOf(plainParams, 0.0f, 1.0f, 0.0f);
+        const size_t below = pixelOf(plainParams, 0.0f, -0.8f, 0.0f);
+        Assert::IsTrue(plain[above + 2] > 150, L"四角形は赤");
+        Assert::IsTrue(IsBackground(&plain[below], 1), L"映り込みなしなら、床の下は背景");
+
+        auto [mirrored, mirroredParams] = render(TT_FRAME_FLOOR_REFLECTION, 0.8f, 10.0f, 2.0f);
+        Assert::IsTrue(mirrored[below + 2] > 120 && mirrored[below + 1] < 60, L"床の下に赤く映る");
+        Assert::IsTrue(IsNear(mirrored[above + 2], plain[above + 2], 2), L"もとの四角形は変わらない");
+
+        auto [faded, fadedParams] = render(TT_FRAME_FLOOR_REFLECTION, 0.8f, 0.3f, 2.0f);
+        Assert::IsTrue(IsBackground(&faded[below], 2), L"消えるまでの距離より深い所は映らない");
+        auto [none, noneParams] = render(TT_FRAME_FLOOR_REFLECTION, 0.0f, 10.0f, 2.0f);
+        Assert::IsTrue(IsBackground(&none[below], 1), L"濃さ 0 なら映らない");
+
+        // 床の下から見るときは映さない（床の裏）
+        auto [under, underParams] = render(0, 1.0f, 10.0f, -2.0f);
+        auto [underMirrored, underMirroredParams] = render(TT_FRAME_FLOOR_REFLECTION, 1.0f, 10.0f, -2.0f);
+        Assert::IsTrue(under == underMirrored, L"床の下から見ると、映り込みは描かない");
+
+        Assert::AreEqual<int>(TT_OK, tt_mesh_destroy(mesh));
+        Assert::AreEqual<int>(TT_OK, tt_view_destroy(view));
+        Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
+    }
+
     TEST_METHOD(GridCanBeDrawnBehindModels)
     {
         // 正面の視点と同じく、格子を画面に平行な面（Z = 0）に置き、その奥（Z = 0.5）に赤い四角形を置く。

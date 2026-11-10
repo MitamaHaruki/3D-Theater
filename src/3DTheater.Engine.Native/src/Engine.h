@@ -131,10 +131,13 @@ private:
         DirectX::XMFLOAT4X4 lightViewProj; // セルフシャドウ（shadowParams.z が 1 のときだけ使う）
         DirectX::XMFLOAT4 shadowParams;
         DirectX::XMFLOAT4 groundShadowColor;
+        DirectX::XMFLOAT4 reflectionParams; // x = 1 なら床の映り込みを描いている、y = 濃さ、z = 消えるまでの距離
     };
     void WriteObjectConstants(DirectX::FXMMATRIX world, DirectX::CXMMATRIX worldViewProj, const ModelFrame& frame);
-    // 足す照明を定数バッファーへ書く（1 枚の描画で 1 回）
-    void WriteLightConstants(const TtFrameParams& params);
+    // 足す照明を定数バッファーへ書く（1 枚の描画で 1 回。床の映り込みを描く間は、床で上下に映した照明を書く）
+    void WriteLightConstants(const TtFrameParams& params, bool mirrored = false);
+    // 床の映り込み: モデルを高さ 0 の床で上下に映して、床より下に描く
+    void DrawFloorReflections(const TtFrameParams& params, const ModelFrame& frame);
     void BindMesh(const Mesh& mesh);
     void DrawMesh(const Mesh& mesh, DirectX::FXMMATRIX world, const ModelFrame& frame);
     void DrawEdges(const Mesh& mesh);
@@ -213,6 +216,8 @@ private:
     ComPtr<ID3D11RasterizerState> cullBackState_;
     ComPtr<ID3D11RasterizerState> cullNoneState_;
     ComPtr<ID3D11RasterizerState> cullFrontState_; // 輪郭線（裏側の面だけ描く）
+    ComPtr<ID3D11RasterizerState> mirrorCullState_; // 床の映り込み（上下に映すと面の表裏が入れ替わるので、表の判定を逆にする）
+    bool drawingReflection_ = false;
     ComPtr<ID3D11DepthStencilState> modelDepthState_;
     ComPtr<ID3D11BlendState> alphaBlendState_;
     ComPtr<ID3D11SamplerState> textureSampler_;

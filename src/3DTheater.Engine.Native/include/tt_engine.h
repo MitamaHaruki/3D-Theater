@@ -27,7 +27,7 @@ extern "C" {
 
 // 上位 16 ビットが大きな版、下位 16 ビットが小さな版。大きな版が違う DLL とは組み合わせない。
 #define TT_API_VERSION_MAJOR 0
-#define TT_API_VERSION_MINOR 14
+#define TT_API_VERSION_MINOR 15
 #define TT_API_VERSION ((TT_API_VERSION_MAJOR << 16) | TT_API_VERSION_MINOR)
 
 // 0 以上は成功、負の値は失敗。
@@ -104,6 +104,7 @@ enum {
     TT_FRAME_GROUND_SHADOW = 1u << 8,        // 地面の影（高さ 0 の床へ照明の向きに押しつぶして描く。API 0.7）
     TT_FRAME_GRID_BEHIND = 1u << 9,          // 格子と座標軸を、奥行きに関係なくいちばん奥に描く（モデルの後ろ。固定視点用。API 0.8）
     TT_FRAME_CLEAR_COLOR = 1u << 10,         // 背景を clear_color で消す（a = 0 で透明。書き出し用。API 0.9）。無ければ編集画面の背景色
+    TT_FRAME_FLOOR_REFLECTION = 1u << 11,    // 床の映り込み（高さ 0 の床に、モデルを鏡のように映す。reflection_*。API 0.15）
 };
 
 // 映像効果（TtFrameParams.post_flags。API 0.11）。どれかを使うと、場面を背景なしで描いてから効果をかけ、背景を後ろに置く。
@@ -296,6 +297,11 @@ typedef struct TtFrameParams {
     const TtLight* lights;  // light_count が 0 なら NULL でよい
     uint32_t light_count;
     uint32_t reserved7;
+    // ここから API 0.15（床の映り込み。TT_FRAME_FLOOR_REFLECTION のとき）。モデルを高さ 0 の床で上下に映した姿を、
+    // 床より下に半透明で描く（照明・影も映した向きで当てるので、鏡に映ったのと同じ見え方）。カメラが床より下なら描かない
+    float reflection_strength; // 濃さ（0〜1。床のすぐ下での不透明度）
+    float reflection_fade;     // 消えるまでの距離（床からの深さ。0.01 以上。ここで 0 になる）
+    uint32_t reserved8[2];
 } TtFrameParams;
 
 TT_API uint32_t TT_CALL tt_get_api_version(void);

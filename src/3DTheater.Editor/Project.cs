@@ -102,12 +102,16 @@ public sealed class RenderingEntry
     /// <summary>イラスト風の表現（映像効果と同じく、初期のままなら書かない）。</summary>
     public IllustrationStyle? Illustration { get; set; }
 
+    /// <summary>床の映り込み（初期のままなら書かない）。</summary>
+    public FloorReflection? Reflection { get; set; }
+
     public static RenderingEntry From(RenderSettings settings) => new()
     {
         SelfShadow = settings.SelfShadow,
         GroundShadow = settings.GroundShadow,
         Effects = settings.Effects == VisualEffects.None ? null : settings.Effects,
         Illustration = settings.Illustration == IllustrationStyle.None ? null : settings.Illustration,
+        Reflection = settings.Reflection == FloorReflection.Off ? null : settings.Reflection,
     };
 
     public void ApplyTo(RenderSettings settings)
@@ -116,6 +120,7 @@ public sealed class RenderingEntry
         settings.GroundShadow = GroundShadow;
         settings.Effects = Effects ?? VisualEffects.None;
         settings.Illustration = Illustration ?? IllustrationStyle.None;
+        settings.Reflection = Reflection ?? FloorReflection.Off;
     }
 }
 

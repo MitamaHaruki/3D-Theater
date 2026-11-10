@@ -289,10 +289,15 @@ public partial class ViewportControl : UserControl, IDisposable
         {
             flags |= FrameFlags.GroundShadow;
         }
+        FloorReflection reflection = _context.Rendering.Reflection;
+        if (reflection.Enabled)
+        {
+            flags |= FrameFlags.FloorReflection;
+        }
         return new FrameParameters(flags, matrices.View, matrices.Projection, gridWorld, testWorld, _drawItems, _lines.Memory,
             lightDirection, lightColor, SceneLighting.EdgePixelScale(pixelHeight), RenderSettings.GroundShadowColor,
             ShadowMapSize: _context.PreviewQuality.Profile.ShadowMapSize, Effects: _context.Rendering.ToNative(pixelHeight),
-            Lights: EffectsMapping.LightsOf(_context.Scene));
+            Lights: EffectsMapping.LightsOf(_context.Scene), ReflectionStrength: reflection.Strength, ReflectionFade: reflection.Fade);
     }
 
     private static float MaxScale(SceneNode node) => Math.Max(Math.Abs(node.Scale.X), Math.Max(Math.Abs(node.Scale.Y), Math.Abs(node.Scale.Z)));

@@ -558,6 +558,12 @@ public partial class MainWindow : Window
         window.ShowDialog();
     }
 
+    private void OnReflectionClick(object sender, RoutedEventArgs e)
+    {
+        var window = new ReflectionWindow(_context.Rendering) { Owner = this };
+        window.ShowDialog();
+    }
+
     private void OnEffectsClick(object sender, RoutedEventArgs e)
     {
         var window = new EffectsWindow(_context.Rendering) { Owner = this };

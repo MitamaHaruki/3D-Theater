@@ -200,5 +200,12 @@ float4 main(ModelPSInput input) : SV_Target
     float3 n = normalize(input.normal);
     float4 color = Pbr.x > 0.5 ? PbrColor(input, n) : ToonColor(input, n);
     color.rgb += Emissive.rgb;
+    if (ReflectionParams.x > 0.5)
+    {
+        // 床の映り込み: 映した点（床より下）を描き、床から深いほど薄くする。床より上へ出た所（もとの物の、床より下の部分）は描かない
+        float depth = -(CameraPosition.y - input.eye.y);
+        clip(depth);
+        color.a *= ReflectionParams.y * saturate(1.0 - depth / max(ReflectionParams.z, 1e-3));
+    }
     return color;
 }

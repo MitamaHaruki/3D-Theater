@@ -58,6 +58,7 @@ struct ObjectConstants {
     DirectX::XMFLOAT4X4 lightViewProj;
     DirectX::XMFLOAT4 shadowParams;
     DirectX::XMFLOAT4 groundShadowColor;
+    DirectX::XMFLOAT4 reflectionParams;
 };
 
 // 足す照明（シェーダーの LightConstants と同じ並び）
@@ -242,6 +243,7 @@ void Engine::ReleaseDevice() noexcept
     alphaBlendState_.Reset();
     modelDepthState_.Reset();
     cullFrontState_.Reset();
+    mirrorCullState_.Reset();
     cullNoneState_.Reset();
     cullBackState_.Reset();
     materialConstantBuffer_.Reset();
@@ -599,6 +601,11 @@ void Engine::DrawScene(ID3D11RenderTargetView* rtv, ID3D11DepthStencilView* dsv,
         ctx->DrawIndexed(cubeIndexCount_, 0, 0);
     }
 
+    // 床の映り込みは、床より下に描く（地面の影とモデルは、その上に重なる）
+    if (drawScene && (params.flags & TT_FRAME_FLOOR_REFLECTION) && params.item_count > 0) {
+        DrawFloorReflections(params, frame);
+    }
+
     // 地面の影は、モデルより先に床へ描く（モデルの奥行きで隠れる所は、後から描くモデルが上書きする）
     if (drawScene && (params.flags & TT_FRAME_GROUND_SHADOW) && params.item_count > 0) {
         DrawGroundShadows(params, frame);
@@ -874,10 +881,38 @@ void Engine::WriteObjectConstants(DirectX::FXMMATRIX world, DirectX::CXMMATRIX w
     object->lightViewProj = frame.lightViewProj;
     object->shadowParams = frame.shadowParams;
     object->groundShadowColor = frame.groundShadowColor;
+    object->reflectionParams = frame.reflectionParams;
     ctx->Unmap(objectConstantBuffer_.Get(), 0);
 }
 
-void Engine::WriteLightConstants(const TtFrameParams& params)
+void Engine::DrawFloorReflections(const TtFrameParams& params, const ModelFrame& frame)
+{
+    using namespace DirectX;
+    const float strength = std::isfinite(params.reflection_strength) ? std::clamp(params.reflection_strength, 0.0f, 1.0f) : 0.0f;
+    const float fade = std::isfinite(params.reflection_fade) ? std::max(params.reflection_fade, 0.01f) : 10.0f;
+    if (strength <= 0.0f || frame.cameraPosition.y <= 0.0f) {
+        return; // 床より下から見るときは、床の裏なので映さない
+    }
+    // 照明・カメラの位置・セルフシャドウも床で上下に映す。映した点を、映した照明で照らせば、もとの点と同じ見え方になる
+    const XMMATRIX mirror = XMMatrixScaling(1.0f, -1.0f, 1.0f);
+    ModelFrame mirrored = frame;
+    mirrored.lightDirection.y = -frame.lightDirection.y;
+    mirrored.cameraPosition.y = -frame.cameraPosition.y;
+    XMStoreFloat4x4(&mirrored.lightViewProj, mirror * XMLoadFloat4x4(&frame.lightViewProj));
+    mirrored.reflectionParams = {1.0f, strength, fade, 0.0f};
+
+    WriteLightConstants(params, true);
+    drawingReflection_ = true;
+    auto load = [](const float (&m)[16]) { return XMLoadFloat4x4(reinterpret_cast<const XMFLOAT4X4*>(m)); };
+    for (uint32_t i = 0; i < params.item_count; ++i) {
+        const auto& mesh = *reinterpret_cast<const Mesh*>(params.items[i].mesh);
+        DrawMesh(mesh, load(params.items[i].world) * mirror, mirrored);
+    }
+    drawingReflection_ = false;
+    WriteLightConstants(params, false);
+}
+
+void Engine::WriteLightConstants(const TtFrameParams& params, bool mirrored)
 {
     using namespace DirectX;
     LightConstants constants{};
@@ -895,8 +930,12 @@ void Engine::WriteLightConstants(const TtFrameParams& params)
             }
             direction = XMVector3Normalize(direction);
         }
+        if (mirrored) {
+            direction = XMVectorMultiply(direction, XMVectorSet(1.0f, -1.0f, 1.0f, 1.0f));
+        }
         LightConstants::Entry& entry = constants.lights[count++];
-        entry.position = {light.position[0], light.position[1], light.position[2], static_cast<float>(light.type)};
+        entry.position = {light.position[0], mirrored ? -light.position[1] : light.position[1], light.position[2],
+            static_cast<float>(light.type)};
         XMStoreFloat4(&entry.direction, XMVectorSetW(direction, std::max(light.range, 0.01f)));
         const float half = XMConvertToRadians(std::clamp(light.spot_angle, 1.0f, 179.0f) * 0.5f);
         const float softness = std::clamp(light.spot_softness, 0.0f, 1.0f);
@@ -974,7 +1013,7 @@ void Engine::DrawMesh(const Mesh& mesh, DirectX::FXMMATRIX world, const ModelFra
 
         ID3D11ShaderResourceView* textures[] = {view(material.texture), view(material.toon), view(material.sphere)};
         ctx->PSSetShaderResources(0, 3, textures);
-        ctx->RSSetState(material.doubleSided ? cullNoneState_.Get() : cullBackState_.Get());
+        ctx->RSSetState(material.doubleSided ? cullNoneState_.Get() : drawingReflection_ ? mirrorCullState_.Get() : cullBackState_.Get());
         ctx->DrawIndexed(material.indexCount, material.indexStart, 0);
     }
 
@@ -1257,6 +1296,8 @@ void Engine::CreateModelResources()
     CheckHr(device_->CreateRasterizerState(&rs, &cullBackState_), L"裏面を描かない設定の作成");
     rs.CullMode = D3D11_CULL_NONE;
     CheckHr(device_->CreateRasterizerState(&rs, &cullNoneState_), L"両面を描く設定の作成");
+    rs.CullMode = D3D11_CULL_FRONT;
+    CheckHr(device_->CreateRasterizerState(&rs, &mirrorCullState_), L"床の映り込みの面の設定の作成");
     // 輪郭線は裏側の面だけを描き、奥行きを少し奥へずらす（両面の材質を裏から見たとき、同じ奥行きの面を線の色で
     // 塗りつぶさないように。線は面の外へはみ出した所だけに残る）
     rs.CullMode = D3D11_CULL_FRONT;

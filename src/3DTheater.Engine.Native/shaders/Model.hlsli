@@ -12,6 +12,7 @@ cbuffer ObjectConstants : register(b0)
     row_major float4x4 LightViewProj; // セルフシャドウ: ワールド → 照明から見た奥行きの画像の座標
     float4 ShadowParams;              // x = 1 / 奥行きの画像の 1 辺、y = 比べるときに奥へずらす量、z = 1 ならセルフシャドウあり
     float4 GroundShadowColor;
+    float4 ReflectionParams;          // 床の映り込み: x = 1 なら映り込みを描いている、y = 濃さ、z = 消えるまでの距離
 };
 
 cbuffer MaterialConstants : register(b1)

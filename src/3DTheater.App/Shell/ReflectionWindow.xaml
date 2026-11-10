@@ -1,0 +1,59 @@
+<Window x:Class="Theater3D.App.Shell.ReflectionWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="床の映り込み"
+        Width="460" SizeToContent="Height" ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        Background="{StaticResource PanelBrush}" Foreground="{StaticResource TextBrush}"
+        FontFamily="Yu Gothic UI" FontSize="12" UseLayoutRounding="True">
+  <Window.Resources>
+    <Style x:Key="RowLabelStyle" TargetType="TextBlock">
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Margin" Value="22,0,12,0" />
+      <Setter Property="Foreground" Value="{StaticResource SubTextBrush}" />
+    </Style>
+    <Style x:Key="ValueStyle" TargetType="TextBlock">
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="TextAlignment" Value="Right" />
+      <Setter Property="Margin" Value="8,0,0,0" />
+    </Style>
+    <Style x:Key="ReflectionSliderStyle" TargetType="Slider" BasedOn="{StaticResource {x:Type Slider}}">
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Margin" Value="0,5" />
+      <Setter Property="IsMoveToPointEnabled" Value="True" />
+    </Style>
+  </Window.Resources>
+
+  <StackPanel Margin="18,6,18,16">
+    <CheckBox x:Name="EnabledCheck" Margin="0,10,0,4" FontWeight="SemiBold" Content="床に映す（高さ 0 の床を鏡のようにする）"
+              Checked="OnCheckChanged" Unchecked="OnCheckChanged" />
+    <Grid IsEnabled="{Binding IsChecked, ElementName=EnabledCheck}">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="150" />
+        <ColumnDefinition Width="*" />
+        <ColumnDefinition Width="56" />
+      </Grid.ColumnDefinitions>
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="Auto" />
+      </Grid.RowDefinitions>
+      <TextBlock Style="{StaticResource RowLabelStyle}" Text="濃さ" ToolTip="床のすぐ下での映り込みの濃さ" />
+      <Slider x:Name="StrengthSlider" Grid.Column="1" Style="{StaticResource ReflectionSliderStyle}" Minimum="0" Maximum="1"
+              SmallChange="0.02" LargeChange="0.1" AutomationProperties.Name="映り込みの濃さ" ValueChanged="OnSliderChanged" />
+      <TextBlock x:Name="StrengthText" Grid.Column="2" Style="{StaticResource ValueStyle}" />
+      <TextBlock Grid.Row="1" Style="{StaticResource RowLabelStyle}" Text="消えるまでの距離"
+                 ToolTip="床から深い所ほど薄くし、この距離で消します（人の大きさのモデルの背丈は 20 ほど）" />
+      <Slider x:Name="FadeSlider" Grid.Row="1" Grid.Column="1" Style="{StaticResource ReflectionSliderStyle}" Minimum="0.5" Maximum="40"
+              SmallChange="0.5" LargeChange="2" AutomationProperties.Name="映り込みが消えるまでの距離" ValueChanged="OnSliderChanged" />
+      <TextBlock x:Name="FadeText" Grid.Row="1" Grid.Column="2" Style="{StaticResource ValueStyle}" />
+    </Grid>
+
+    <TextBlock Margin="0,14,0,0" TextWrapping="Wrap" Foreground="{StaticResource SubTextBrush}" FontSize="11.5"
+               Text="モデルを床で上下に映した姿を、床より下に半透明で描きます。照明と影も映した向きで当てるので、鏡に映ったのと同じ見え方です（輪郭線は映しません）。床より下から見るときは映しません。変えるとすぐにプレビューへ反映し、書き出しにもかかります。設定はプロジェクトに保存します（元に戻す・やり直しの対象ではありません）。" />
+
+    <DockPanel Margin="0,16,0,0" LastChildFill="False">
+      <Button DockPanel.Dock="Left" MinWidth="110" Content="初期値に戻す" Click="OnResetClick" ToolTip="映り込みを OFF にし、値を初期値に戻します" />
+      <Button DockPanel.Dock="Right" MinWidth="88" Content="閉じる" IsCancel="True" IsDefault="True" Click="OnCloseClick" />
+    </DockPanel>
+  </StackPanel>
+</Window>

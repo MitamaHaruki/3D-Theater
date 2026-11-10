@@ -139,6 +139,8 @@ public sealed unsafe class NativeView : IDisposable
                 PaperGrain = frame.Effects.PaperGrain,
                 Lights = lightCount > 0 ? lightPointer : null,
                 LightCount = (uint)lightCount,
+                ReflectionStrength = frame.ReflectionStrength,
+                ReflectionFade = frame.ReflectionFade,
             };
             return NativeError.Check(NativeMethods.ViewRender(Handle, &parameters)) == NativeResult.Ok;
         }

@@ -4,7 +4,7 @@ namespace Theater3D.Editor;
 
 /// <summary>
 /// 作品の描き方の設定（プロジェクトに保存する）。セルフシャドウと地面の影の ON / OFF（初期値はどちらも ON。MMD と同じ）と、
-/// 映像効果とイラスト風の表現（初期値はどちらもなし）。
+/// 映像効果・イラスト風の表現・床の映り込み（初期値はどれもなし）。
 /// </summary>
 public sealed class RenderSettings
 {
@@ -15,6 +15,7 @@ public sealed class RenderSettings
     private bool _groundShadow = true;
     private VisualEffects _effects = VisualEffects.None;
     private IllustrationStyle _illustration = IllustrationStyle.None;
+    private FloorReflection _reflection = FloorReflection.Off;
 
     /// <summary>どれかの設定が変わった。</summary>
     public event EventHandler? Changed;
@@ -65,6 +66,22 @@ public sealed class RenderSettings
         }
     }
 
+    /// <summary>床の映り込み。値は範囲に収めて持つ。</summary>
+    public FloorReflection Reflection
+    {
+        get => _reflection;
+        set
+        {
+            FloorReflection normalized = (value ?? FloorReflection.Off).Normalized();
+            if (normalized == _reflection)
+            {
+                return;
+            }
+            _reflection = normalized;
+            Changed?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
     /// <summary>初期の設定に戻す（新しいプロジェクト）。</summary>
     public void Reset()
     {
@@ -72,6 +89,7 @@ public sealed class RenderSettings
         GroundShadow = true;
         Effects = VisualEffects.None;
         Illustration = IllustrationStyle.None;
+        Reflection = FloorReflection.Off;
     }
 
     private void Set(ref bool field, bool value)
