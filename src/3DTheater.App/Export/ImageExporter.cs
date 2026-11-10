@@ -24,16 +24,15 @@ internal sealed record ExportAudio(string Path, double StartSeconds, float Volum
 /// PNG に保存するか、動画（MP4）に書く。
 /// - 映すのはモデルだけ（格子・座標軸・ギズモ・ボーン・選択の枠・確認用の立方体は映さない）。照明・影・輪郭線はプレビューと同じ
 /// - 物理は必ず焼き込みの結果を使い、足りなければその場で計算する（プレビューと同じ姿勢になるように）
-/// - なめらかにするときは 2 倍の大きさで描いて縮める。透明にするときは、透明度をかけ合わせた色を割り戻してから保存する
+/// - 品質はプレビューに関係なく <see cref="RenderQuality.Export"/>（4 倍のなめらかさ・細かい影）。
+///   なめらかにするときは、さらに 2 倍の大きさで描いて縮める。透明にするときは、透明度をかけ合わせた色を割り戻してから保存する
+/// - 書き出しの間はプレビューを描かない（フレームごとにプレビューまで描き直さないように）
 /// - 描画と読み出しは UI スレッドで、縮小と保存（動画は符号化）は別のスレッドで行い、少し先まで並べて進める
 /// 終わったら（やめた・失敗したときも）、元のフレームに戻す。動画は別の名前で書いてから置き換えるので、
 /// やめた・失敗したときは書きかけを消し、同じ名前の元のファイルはそのまま残る。
 /// </summary>
 internal static class ImageExporter
 {
-    /// <summary>書き出しのセルフシャドウの奥行きの画像（プレビューより細かくする）。</summary>
-    private const int ShadowMapSize = 4096;
-
     /// <summary>書き出して、保存できた枚数（動画はフレームの数）を返す。やめたときは <see cref="OperationCanceledException"/>。</summary>
     public static async Task<int> RunAsync(EditorContext context, ExportOptions options, ExportAudio? audio, IProgress<ExportProgress>? progress,
         CancellationToken token)
@@ -47,10 +46,20 @@ internal static class ImageExporter
 
         context.Playback.Pause();
         context.Physics.ForceBaked = true;
+        context.RenderLoop.IsSuspended = true;
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(options.Paths[0]))!);
             view = engine.CreateOffscreenView(options.RenderWidth, options.RenderHeight);
+            int samples = RenderQuality.FitSampleCount(RenderQuality.Export.SampleCount, options.RenderWidth, options.RenderHeight);
+            try
+            {
+                view.SetSampleCount(samples);
+            }
+            catch (NativeEngineException ex) when (ex.Result == NativeResult.OutOfMemory)
+            {
+                Logging.AppLog.Warning("書き出しをなめらかに描くための描画先を作れなかったため、なめらかさなし（MSAA なし）で描きます", ex);
+            }
             sink = options.IsVideo ? new VideoSink(options, context.Playback.FrameRate, audio) : new PngSink(options);
             for (int i = 0; i < frames.Count; i++)
             {
@@ -82,6 +91,7 @@ internal static class ImageExporter
                 await sink.AbortAsync(); // やめた・失敗した: 書きかけの保存を待って片付ける（書きかけの動画は消す）
             }
             view?.Dispose();
+            context.RenderLoop.IsSuspended = false;
             context.Physics.ForceBaked = false;
             context.Playback.Seek(originalFrame);
             foreach (LoadedModel model in context.Models.Values)
@@ -119,7 +129,8 @@ internal static class ImageExporter
         }
         Vector4 clear = options.UsesTransparency ? Vector4.Zero : new Vector4(options.Background, 1f);
         var parameters = new FrameParameters(flags, matrices.View, matrices.Projection, Matrix4x4.Identity, Matrix4x4.Identity, items, default,
-            lightDirection, lightColor, SceneLighting.EdgePixelScale(height), RenderSettings.GroundShadowColor, ShadowMapSize, clear);
+            lightDirection, lightColor, SceneLighting.EdgePixelScale(height), RenderSettings.GroundShadowColor,
+            RenderQuality.Export.ShadowMapSize, clear);
         view.Render(parameters);
 
         int bytes = width * height * 4;

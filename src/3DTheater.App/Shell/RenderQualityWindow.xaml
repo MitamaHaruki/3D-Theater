@@ -1,0 +1,52 @@
+<Window x:Class="Theater3D.App.Shell.RenderQualityWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="描画品質の設定"
+        Width="500" SizeToContent="Height" ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        Background="{StaticResource PanelBrush}" Foreground="{StaticResource TextBrush}"
+        FontFamily="Yu Gothic UI" FontSize="12" UseLayoutRounding="True">
+  <Window.Resources>
+    <Style x:Key="ChoiceStyle" TargetType="RadioButton" BasedOn="{StaticResource {x:Type RadioButton}}">
+      <Setter Property="Margin" Value="0,5" />
+      <Setter Property="VerticalContentAlignment" Value="Top" />
+    </Style>
+    <Style x:Key="ChoiceNoteStyle" TargetType="TextBlock">
+      <Setter Property="Foreground" Value="{StaticResource SubTextBrush}" />
+      <Setter Property="FontSize" Value="11.5" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+      <Setter Property="Margin" Value="0,2,0,0" />
+    </Style>
+  </Window.Resources>
+
+  <StackPanel Margin="18,10,18,16">
+    <TextBlock Style="{StaticResource SectionHeaderStyle}" Text="プレビューの品質（編集中の表示）" />
+    <RadioButton x:Name="LightRadio" AutomationProperties.Name="軽い" Style="{StaticResource ChoiceStyle}" GroupName="Quality" Checked="OnQualityChanged">
+      <StackPanel>
+        <TextBlock Text="軽い" />
+        <TextBlock Style="{StaticResource ChoiceNoteStyle}" Text="なめらかにしない・影は粗め（1024）。GPU が弱いときや、再生がかくつくときに" />
+      </StackPanel>
+    </RadioButton>
+    <RadioButton x:Name="StandardRadio" AutomationProperties.Name="ふつう" Style="{StaticResource ChoiceStyle}" GroupName="Quality" Checked="OnQualityChanged">
+      <StackPanel>
+        <TextBlock Text="ふつう（初期値）" />
+        <TextBlock Style="{StaticResource ChoiceNoteStyle}" Text="4 倍のなめらかさ（MSAA。線や輪郭のギザギザを減らす）・ふつうの影（2048）" />
+      </StackPanel>
+    </RadioButton>
+    <RadioButton x:Name="HighRadio" AutomationProperties.Name="きれい" Style="{StaticResource ChoiceStyle}" GroupName="Quality" Checked="OnQualityChanged">
+      <StackPanel>
+        <TextBlock Text="きれい" />
+        <TextBlock Style="{StaticResource ChoiceNoteStyle}" Text="8 倍のなめらかさ・細かい影（4096）。GPU に余裕があるときに" />
+      </StackPanel>
+    </RadioButton>
+    <TextBlock x:Name="NoteText" Margin="0,8,0,0" Style="{StaticResource ChoiceNoteStyle}" />
+
+    <TextBlock Style="{StaticResource SectionHeaderStyle}" Margin="0,16,0,4" Text="書き出しの品質" />
+    <TextBlock Style="{StaticResource ChoiceNoteStyle}"
+               Text="書き出し（PNG・動画）は、プレビューの品質に関係なく、いつも 4 倍のなめらかさと細かい影（4096）で描きます。書き出しの画面で「なめらかにする」を選ぶと、さらに 2 倍の大きさで描いて縮めます。" />
+
+    <DockPanel Margin="0,18,0,0" LastChildFill="False">
+      <Button x:Name="CloseButton" DockPanel.Dock="Right" MinWidth="88" Content="閉じる" IsCancel="True" IsDefault="True" Click="OnCloseClick" />
+    </DockPanel>
+  </StackPanel>
+</Window>

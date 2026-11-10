@@ -27,7 +27,7 @@ extern "C" {
 
 // 上位 16 ビットが大きな版、下位 16 ビットが小さな版。大きな版が違う DLL とは組み合わせない。
 #define TT_API_VERSION_MAJOR 0
-#define TT_API_VERSION_MINOR 9
+#define TT_API_VERSION_MINOR 10
 #define TT_API_VERSION ((TT_API_VERSION_MAJOR << 16) | TT_API_VERSION_MINOR)
 
 // 0 以上は成功、負の値は失敗。
@@ -274,6 +274,11 @@ TT_API TtResult TT_CALL tt_view_get_d3d9_surface(TtView* view, void** out_surfac
 
 // 幅か高さが 0 のときは描画を止める（最小化など）。tt_view_render は何もせず TT_OK
 TT_API TtResult TT_CALL tt_view_resize(TtView* view, int32_t width, int32_t height);
+// ここから API 0.10
+// なめらかさ（MSAA。1 画素あたりの点の数）を 1・2・4・8 から選ぶ（作ったときは 1）。GPU が使えない数のときは、使える中で
+// いちばん近い少ない数にする（out_actual に実際の数。NULL でよい）。中の描画先（色・奥行き）を作り直すが、
+// tt_view_get_d3d9_surface の面とスワップチェーンは変わらない。GPU が使えない間は覚えておき、作り直すときに使う
+TT_API TtResult TT_CALL tt_view_set_sample_count(TtView* view, uint32_t sample_count, uint32_t* out_actual);
 // ウィンドウ用ビューは、前の表示が終わっていなければ待たずに TT_S_NOT_READY を返す（UI を止めないため）。
 // 画面外ビューは描画を頼むだけで、GPU の完了は待たない（tt_engine_wait_for_gpu か tt_view_read_pixels で待つ）
 TT_API TtResult TT_CALL tt_view_render(TtView* view, const TtFrameParams* params);

@@ -55,6 +55,27 @@ public sealed class NativeEngineTests
     }
 
     [TestMethod]
+    public void SampleCountCanBeChangedFromCSharp()
+    {
+        using var engine = NativeEngine.Create(NativeEngineOptions.UseWarp);
+        const int width = 64;
+        const int height = 48;
+        using var view = engine.CreateOffscreenView(width, height);
+        Assert.AreEqual(4, view.SetSampleCount(4), "WARP は 4 点を使える");
+        Assert.IsTrue(view.Render(DefaultFrame));
+        engine.WaitForGpu();
+        var pixels = new byte[width * height * 4];
+        view.ReadPixels(pixels, width * 4);
+        CollectionAssert.AreEqual(BackgroundBgra, pixels[..4], "なめらかに描いても、まとめた面から読み出せる");
+
+        int eight = view.SetSampleCount(8);
+        Assert.IsTrue(eight is 4 or 8, $"使えなければ少ない数にする（{eight}）");
+        var ex = Assert.ThrowsExactly<NativeEngineException>(() => view.SetSampleCount(3));
+        Assert.AreEqual(NativeResult.InvalidArgument, ex.Result);
+        Assert.AreEqual(1, view.SetSampleCount(1));
+    }
+
+    [TestMethod]
     public void TexturedMeshIsDrawnFromCSharp()
     {
         using var engine = NativeEngine.Create(NativeEngineOptions.UseWarp);

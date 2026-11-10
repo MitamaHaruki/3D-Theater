@@ -67,6 +67,7 @@ public partial class MainWindow : Window
         context.Playback.FrameChanged += (_, _) => UpdateFrameText();
         context.Undo.Changed += (_, _) => UpdateUndoButtons();
         UpdateUndoButtons();
+        context.PreviewQuality.Quality = _settings.Rendering.PreviewQuality;
         context.Gizmo.Style = _settings.Gizmo.Style;
         context.Gizmo.Tool = _settings.Gizmo.Tool;
         context.Gizmo.LocalSpace = _settings.Gizmo.LocalSpace;
@@ -110,6 +111,7 @@ public partial class MainWindow : Window
             WindowState == WindowState.Maximized);
         _layout.Save(_settings);
         _settings.Gizmo = new GizmoPreferences { Style = _context.Gizmo.Style, Tool = _context.Gizmo.Tool, LocalSpace = _context.Gizmo.LocalSpace };
+        _settings.Rendering = new RenderingPreferences { PreviewQuality = _context.PreviewQuality.Quality };
         UserSettingsStore.Save(_settings);
         AppLog.Info("レイアウトと画面の設定を保存しました");
 
@@ -552,6 +554,12 @@ public partial class MainWindow : Window
         }
         _context.Playback.Pause();
         var window = new Export.ExportWindow(_context, _settings.Export, kind, _project.CurrentPath) { Owner = this };
+        window.ShowDialog();
+    }
+
+    private void OnRenderQualityClick(object sender, RoutedEventArgs e)
+    {
+        var window = new RenderQualityWindow(_context) { Owner = this };
         window.ShowDialog();
     }
 

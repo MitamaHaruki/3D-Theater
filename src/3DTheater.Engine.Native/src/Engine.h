@@ -46,7 +46,16 @@ public:
 
     // 1 つのビューの場面を描く（GPU へ頼むだけで完了は待たない）。描き終えたら描画先の割り当てを外す。
     // params.items の中身は呼び出し側（C API の入口）で確かめ済みであること。
-    void DrawScene(ID3D11RenderTargetView* rtv, ID3D11DepthStencilView* dsv, int width, int height, const TtFrameParams& params);
+    // multisampled は描画先が MSAA（1 画素に複数の点）か。線を、点の数に合わせてなめらかに描く
+    void DrawScene(ID3D11RenderTargetView* rtv, ID3D11DepthStencilView* dsv, int width, int height, const TtFrameParams& params,
+        bool multisampled);
+
+    // ビューの描画先の色の形式（スワップチェーンとも同じ）
+    static constexpr DXGI_FORMAT kColorFormat = DXGI_FORMAT_B8G8R8A8_UNORM;
+    static constexpr DXGI_FORMAT kDepthFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
+
+    // MSAA の点の数のうち、この GPU が色と奥行きの両方で使える、requested 以下でいちばん多い数（1・2・4・8）
+    uint32_t SupportedSampleCount(uint32_t requested) const;
 
     // それまでに頼んだ描画を GPU が終えるまで待つ。
     void WaitForGpu();
@@ -125,6 +134,8 @@ private:
     ComPtr<ID3D11InputLayout> inputLayout_;
     ComPtr<ID3D11Buffer> constantBuffer_;
     ComPtr<ID3D11RasterizerState> rasterizerState_;
+    ComPtr<ID3D11RasterizerState> multisampleLineState_; // MSAA の描画先では、線を四角形として描いてなめらかにする
+    ID3D11RasterizerState* basicState_ = nullptr;         // 今の 1 枚で使う方（上の 2 つのどちらか）
     ComPtr<ID3D11DepthStencilState> depthState_;
 
     ComPtr<ID3D11Buffer> gridVertexBuffer_;

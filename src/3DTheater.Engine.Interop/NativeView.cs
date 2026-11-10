@@ -53,6 +53,17 @@ public sealed unsafe class NativeView : IDisposable
     public void Resize(int width, int height) => NativeError.Check(NativeMethods.ViewResize(Handle, width, height));
 
     /// <summary>
+    /// なめらかさ（MSAA。1 画素あたりの点の数 1・2・4・8）を選び、実際に使う数を返す（GPU が使えない数なら少なくする）。
+    /// 中の描画先を作り直すが、<see cref="D3D9Surface"/> は変わらない。
+    /// </summary>
+    public int SetSampleCount(int sampleCount)
+    {
+        uint actual;
+        NativeError.Check(NativeMethods.ViewSetSampleCount(Handle, (uint)sampleCount, &actual));
+        return (int)actual;
+    }
+
+    /// <summary>
     /// 1 枚描く。ウィンドウ用ビューで前の表示がまだ終わっていないときは、待たずに false を返す
     /// （UI スレッドを止めないため。次のフレームで呼び直す）。
     /// 画面外ビューは描画を頼むだけなので、WPF へ渡す前に <see cref="NativeEngine.WaitForGpu"/> を呼ぶこと。

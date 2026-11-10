@@ -333,6 +333,9 @@ public:
         Assert::IsTrue(first == TT_OK || first == TT_S_NOT_READY);
         Assert::AreEqual<int>(TT_OK, tt_view_resize(view, 80, 60));
         Assert::IsTrue(tt_view_render(view, &params) >= 0);
+        // なめらかに描いて（MSAA）、スワップチェーンの面へまとめられる
+        Assert::AreEqual<int>(TT_OK, tt_view_set_sample_count(view, 4, nullptr));
+        Assert::IsTrue(tt_view_render(view, &params) >= 0);
 
         Assert::AreEqual<int>(TT_OK, tt_view_destroy(view));
         Assert::IsFalse(IsWindow(static_cast<HWND>(child)) != FALSE, L"ビューを消すと子ウィンドウも消えること");
@@ -627,6 +630,86 @@ public:
         const uint8_t* p = &transparent[center];
         Assert::IsTrue(IsNear(p[0], 128, 2) && IsNear(p[1], 128, 2) && IsNear(p[2], 128, 2) && IsNear(p[3], 128, 2),
             L"半透明の白は、透明度をかけ合わせた灰色・透明度 0.5 で残る");
+
+        Assert::AreEqual<int>(TT_OK, tt_mesh_destroy(mesh));
+        Assert::AreEqual<int>(TT_OK, tt_view_destroy(view));
+        Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
+    }
+
+    TEST_METHOD(MultisamplingSmoothsEdges)
+    {
+        // 斜めに置いた白い四角形を黒い背景に描く。1 点のときは縁の画素も白か黒のどちらかだが、
+        // なめらかに描く（MSAA）と、縁に中間の灰色ができる
+        TtEngine* engine = CreateWarpEngine();
+        constexpr int width = 64;
+        constexpr int height = 48;
+        TtView* view = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_view_create_offscreen(engine, width, height, 0, &view));
+        const TtMeshMaterial material = QuadMaterial(nullptr);
+        const TtMeshDesc desc = QuadDesc(kClockwise, &material);
+        TtMesh* mesh = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_mesh_create(engine, &desc, &mesh));
+
+        auto render = [&](int w, int h) {
+            TtFrameParams params = MakeFrontParams();
+            DirectX::XMStoreFloat4x4(reinterpret_cast<DirectX::XMFLOAT4X4*>(params.projection),
+                DirectX::XMMatrixPerspectiveFovLH(DirectX::XMConvertToRadians(45.0f), static_cast<float>(w) / h, 0.1f, 1000.0f));
+            params.flags = TT_FRAME_CLEAR_COLOR;
+            params.clear_color[3] = 1.0f; // 黒
+            TtDrawItem item = DrawItem(mesh);
+            DirectX::XMStoreFloat4x4(reinterpret_cast<DirectX::XMFLOAT4X4*>(item.world),
+                DirectX::XMMatrixScaling(0.8f, 0.8f, 1.0f) * DirectX::XMMatrixRotationZ(DirectX::XMConvertToRadians(30.0f)));
+            params.items = &item;
+            params.item_count = 1;
+            return RenderAndRead(engine, view, params, w, h);
+        };
+        // 白でも黒でもない画素の数と、白い画素の数
+        auto count = [](const std::vector<uint8_t>& pixels, int& white) {
+            int partial = 0;
+            white = 0;
+            for (size_t i = 0; i < pixels.size(); i += 4) {
+                const int g = pixels[i + 1];
+                partial += (g > 40 && g < 200) ? 1 : 0;
+                white += g >= 200 ? 1 : 0;
+            }
+            return partial;
+        };
+
+        int white1 = 0;
+        Assert::AreEqual(0, count(render(width, height), white1), L"1 点のときは中間の色が無い");
+        Assert::IsTrue(white1 > 200, L"四角形が描かれている");
+
+        uint32_t actual = 0;
+        Assert::AreEqual<int>(TT_OK, tt_view_set_sample_count(view, 4, &actual));
+        Assert::AreEqual<uint32_t>(4, actual, L"WARP は 4 点を使える");
+        int white4 = 0;
+        const int partial4 = count(render(width, height), white4);
+        Assert::IsTrue(partial4 > 20, L"縁に中間の色ができる");
+        Assert::IsTrue(std::abs(white4 - white1) < partial4, L"形は同じ（縁がなめらかになるだけ）");
+
+        Assert::AreEqual<int>(TT_OK, tt_view_set_sample_count(view, 8, &actual));
+        Assert::IsTrue(actual >= 4 && actual <= 8, L"使えなければ少ない数にする");
+        Assert::AreEqual<int>(TT_E_INVALID_ARG, tt_view_set_sample_count(view, 3, nullptr));
+        Assert::AreEqual<int>(TT_E_INVALID_ARG, tt_view_set_sample_count(view, 0, nullptr));
+
+        // 大きさを変えても、なめらかなまま描ける。0 の大きさの間に変えてもよい
+        Assert::AreEqual<int>(TT_OK, tt_view_resize(view, 32, 24));
+        int white = 0;
+        Assert::IsTrue(count(render(32, 24), white) > 0);
+        Assert::AreEqual<int>(TT_OK, tt_view_resize(view, 0, 0));
+        Assert::AreEqual<int>(TT_OK, tt_view_set_sample_count(view, 2, &actual));
+        Assert::AreEqual<int>(TT_OK, tt_view_resize(view, width, height));
+        Assert::IsTrue(count(render(width, height), white) > 0);
+
+        Assert::AreEqual<int>(TT_OK, tt_view_set_sample_count(view, 1, &actual));
+        Assert::AreEqual<uint32_t>(1, actual);
+        Assert::AreEqual(0, count(render(width, height), white), L"1 点に戻すと中間の色は無くなる");
+
+        // GPU を作り直しても、なめらかさは保たれる
+        Assert::AreEqual<int>(TT_OK, tt_view_set_sample_count(view, 4, nullptr));
+        Assert::AreEqual<int>(TT_OK, tt_engine_simulate_device_lost(engine));
+        Assert::AreEqual<int>(TT_OK, tt_engine_recover(engine));
+        Assert::IsTrue(count(render(width, height), white) > 20);
 
         Assert::AreEqual<int>(TT_OK, tt_mesh_destroy(mesh));
         Assert::AreEqual<int>(TT_OK, tt_view_destroy(view));

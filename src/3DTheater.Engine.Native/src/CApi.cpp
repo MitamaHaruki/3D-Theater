@@ -295,6 +295,19 @@ TT_API TtResult TT_CALL tt_view_resize(TtView* view, int32_t width, int32_t heig
     });
 }
 
+TT_API TtResult TT_CALL tt_view_set_sample_count(TtView* view, uint32_t sample_count, uint32_t* out_actual)
+{
+    return Guard([&] {
+        tt::View& v = ToView(view);
+        Require(sample_count == 1 || sample_count == 2 || sample_count == 4 || sample_count == 8,
+            L"なめらかさ（sample_count）は 1・2・4・8 のどれかにしてください");
+        const uint32_t actual = v.SetSampleCount(sample_count);
+        if (out_actual) {
+            *out_actual = actual;
+        }
+    });
+}
+
 TT_API TtResult TT_CALL tt_view_render(TtView* view, const TtFrameParams* params)
 {
     bool rendered = true;

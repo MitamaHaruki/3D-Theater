@@ -30,9 +30,18 @@ public sealed class UserSettings
 
     /// <summary>前回の書き出しの設定（次に開いたときの初期値）。</summary>
     public ExportPreferences Export { get; set; } = new();
+
+    /// <summary>描画品質（プレビューの品質）。</summary>
+    public RenderingPreferences Rendering { get; set; } = new();
 }
 
-/// <summary>前回の PNG の書き出しの設定。</summary>
+/// <summary>描画品質の設定。</summary>
+public sealed class RenderingPreferences
+{
+    public Theater3D.Editor.PreviewQuality PreviewQuality { get; set; } = Theater3D.Editor.PreviewQuality.Standard;
+}
+
+/// <summary>前回の書き出し（PNG・動画）の設定。</summary>
 public sealed class ExportPreferences
 {
     public int Width { get; set; } = 1920;

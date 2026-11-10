@@ -23,6 +23,8 @@ public:
     IDirect3DSurface9* D3D9Surface() const noexcept { return d3d9Surface_.Get(); }
 
     void Resize(int width, int height);
+    // なめらかさ（MSAA の点の数 1・2・4・8）。使えない数なら少なくする。実際の数を返す
+    uint32_t SetSampleCount(uint32_t requested);
     // 表示側の準備ができておらず描かなかったときは false
     bool Render(const TtFrameParams& params);
     void ReadPixels(void* buffer, int stride, int bufferSize);
@@ -41,6 +43,9 @@ private:
     void CreateSwapChain();
     void CreateSizeDependentResources();
     void ReleaseSizeDependentResources() noexcept;
+    // MSAA の描画先と奥行き（点の数で変わる物）
+    void CreateSampleResources();
+    void ReleaseSampleResources() noexcept;
     void ReleaseSwapChain() noexcept;
 
     uint32_t magic_ = kMagic;
@@ -49,13 +54,17 @@ private:
     uint32_t flags_;
     int width_ = 0;
     int height_ = 0;
+    uint32_t requestedSampleCount_ = 1;
+    uint32_t sampleCount_ = 1;
 
     HWND hwnd_ = nullptr;
     ComPtr<IDXGISwapChain2> swapChain_;
     HANDLE frameLatencyWaitable_ = nullptr; // 前の表示が終わると合図が来る
 
-    ComPtr<ID3D11Texture2D> colorTexture_;
+    ComPtr<ID3D11Texture2D> colorTexture_; // 表示・読み出しに使う面（MSAA のときは、描いた後にここへまとめる）
     ComPtr<ID3D11RenderTargetView> rtv_;
+    ComPtr<ID3D11Texture2D> msaaTexture_; // MSAA のときだけ。ここへ描いてから colorTexture_ へまとめる
+    ComPtr<ID3D11RenderTargetView> msaaRtv_;
     ComPtr<ID3D11Texture2D> depthTexture_;
     ComPtr<ID3D11DepthStencilView> dsv_;
 

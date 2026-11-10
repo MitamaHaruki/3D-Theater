@@ -142,6 +142,7 @@ public sealed class EditorContext
         Poses = new PoseUpdater(this);
         MorphPresets = Shell.MorphPresetStore.Load();
         Rendering.Changed += (_, _) => RenderLoop.InvalidateAll();
+        PreviewQuality.Changed += (_, _) => RenderLoop.InvalidateAll();
 
         Scene.NodeChanged += (_, _) => RenderLoop.InvalidateAll();
         Selection.Changed += (_, _) => RenderLoop.InvalidateAll();
@@ -153,6 +154,9 @@ public sealed class EditorContext
 
     /// <summary>作品の描き方（セルフシャドウ・地面の影。プロジェクトに保存する）。</summary>
     public RenderSettings Rendering { get; } = new();
+
+    /// <summary>プレビューの品質（なめらかさ・影の細かさ。利用者ごとの設定で、プロジェクトには入れない）。</summary>
+    public PreviewQualitySettings PreviewQuality { get; } = new();
 
     /// <summary>表情のプリセット（利用者ごと。変わるたびに保存する）。</summary>
     public MorphPresetLibrary MorphPresets { get; }
@@ -194,6 +198,9 @@ public sealed class EditorContext
 
     /// <summary>プロジェクトを開いたときに見つからなかった音声（保存し直しても消さずに、そのまま書き戻す）。</summary>
     public AudioEntry? MissingAudio { get; set; }
+
+    /// <summary>GPU が使えないなめらかさを、少ない数に減らしたことをログに残したか（1 度だけ残す）。</summary>
+    public bool SampleCountFallbackReported { get; set; }
 
     /// <summary>
     /// GPU の面を WPF と共有できない環境（ソフトウェア描画など）だと分かったら true。

@@ -161,7 +161,7 @@ void View::CreateSizeDependentResources()
         desc.Height = static_cast<UINT>(height_);
         desc.MipLevels = 1;
         desc.ArraySize = 1;
-        desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+        desc.Format = Engine::kColorFormat;
         desc.SampleDesc.Count = 1;
         desc.Usage = D3D11_USAGE_DEFAULT;
         desc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
@@ -180,28 +180,81 @@ void View::CreateSizeDependentResources()
         }
     }
     CheckHr(device->CreateRenderTargetView(colorTexture_.Get(), nullptr, &rtv_), L"描画先ビューの作成");
+    CreateSampleResources();
+}
+
+void View::CreateSampleResources()
+{
+    ID3D11Device* device = engine_.Device();
+    if (sampleCount_ > 1) {
+        D3D11_TEXTURE2D_DESC desc{};
+        desc.Width = static_cast<UINT>(width_);
+        desc.Height = static_cast<UINT>(height_);
+        desc.MipLevels = 1;
+        desc.ArraySize = 1;
+        desc.Format = Engine::kColorFormat;
+        desc.SampleDesc.Count = sampleCount_;
+        desc.Usage = D3D11_USAGE_DEFAULT;
+        desc.BindFlags = D3D11_BIND_RENDER_TARGET;
+        CheckHr(device->CreateTexture2D(&desc, nullptr, &msaaTexture_), L"なめらかに描く描画先（MSAA）の作成");
+        CheckHr(device->CreateRenderTargetView(msaaTexture_.Get(), nullptr, &msaaRtv_), L"なめらかに描く描画先ビューの作成");
+    }
 
     D3D11_TEXTURE2D_DESC depthDesc{};
     depthDesc.Width = static_cast<UINT>(width_);
     depthDesc.Height = static_cast<UINT>(height_);
     depthDesc.MipLevels = 1;
     depthDesc.ArraySize = 1;
-    depthDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
-    depthDesc.SampleDesc.Count = 1;
+    depthDesc.Format = Engine::kDepthFormat;
+    depthDesc.SampleDesc.Count = sampleCount_;
     depthDesc.Usage = D3D11_USAGE_DEFAULT;
     depthDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL;
     CheckHr(device->CreateTexture2D(&depthDesc, nullptr, &depthTexture_), L"深度バッファーの作成");
     CheckHr(device->CreateDepthStencilView(depthTexture_.Get(), nullptr, &dsv_), L"深度ビューの作成");
 }
 
-void View::ReleaseSizeDependentResources() noexcept
+void View::ReleaseSampleResources() noexcept
 {
     if (ID3D11DeviceContext* ctx = engine_.Context()) {
         ctx->OMSetRenderTargets(0, nullptr, nullptr);
     }
-    rtv_.Reset();
+    msaaRtv_.Reset();
+    msaaTexture_.Reset();
     dsv_.Reset();
     depthTexture_.Reset();
+}
+
+uint32_t View::SetSampleCount(uint32_t requested)
+{
+    requestedSampleCount_ = requested;
+    if (engine_.IsDeviceLost()) {
+        return sampleCount_; // GPU を作り直すときに、頼まれた数で作る
+    }
+    const uint32_t actual = engine_.SupportedSampleCount(requested);
+    if (actual == sampleCount_) {
+        return actual;
+    }
+    sampleCount_ = actual;
+    if (rtv_) {
+        ReleaseSampleResources();
+        try {
+            CreateSampleResources();
+        } catch (const Error&) {
+            // 作れなかった（メモリ不足など）ときは 1 点に戻して描けるようにしておき、失敗は呼び出し側へ知らせる
+            ReleaseSampleResources();
+            sampleCount_ = 1;
+            requestedSampleCount_ = 1;
+            CreateSampleResources();
+            throw;
+        }
+    }
+    return actual;
+}
+
+void View::ReleaseSizeDependentResources() noexcept
+{
+    ReleaseSampleResources();
+    rtv_.Reset();
     colorTexture_.Reset();
     d3d9Surface_.Reset();
     d3d9Texture_.Reset();
@@ -240,7 +293,12 @@ bool View::Render(const TtFrameParams& params)
         return false; // 前の表示がまだ終わっていない。待たずに次の機会に描く
     }
 
-    engine_.DrawScene(rtv_.Get(), dsv_.Get(), width_, height_, params);
+    const bool multisampled = sampleCount_ > 1;
+    engine_.DrawScene(multisampled ? msaaRtv_.Get() : rtv_.Get(), dsv_.Get(), width_, height_, params, multisampled);
+    if (multisampled) {
+        // 1 画素の点を平均して、表示・読み出しに使う面へまとめる
+        engine_.Context()->ResolveSubresource(colorTexture_.Get(), 0, msaaTexture_.Get(), 0, Engine::kColorFormat);
+    }
 
     if (kind_ == Kind::Window) {
         CheckHr(swapChain_->Present(0, 0), L"画面への表示 (Present)");
@@ -292,6 +350,7 @@ void View::ReleaseDeviceResources() noexcept
 
 void View::RestoreDeviceResources()
 {
+    sampleCount_ = engine_.SupportedSampleCount(requestedSampleCount_); // 新しい GPU で使える数にする
     if (kind_ == Kind::Window) {
         CreateSwapChain();
     }

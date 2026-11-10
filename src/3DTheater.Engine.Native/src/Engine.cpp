@@ -206,6 +206,8 @@ void Engine::ReleaseDevice() noexcept
     axisVertexBuffer_.Reset();
     gridVertexBuffer_.Reset();
     depthState_.Reset();
+    basicState_ = nullptr;
+    multisampleLineState_.Reset();
     rasterizerState_.Reset();
     constantBuffer_.Reset();
     inputLayout_.Reset();
@@ -308,6 +310,9 @@ void Engine::CreateSceneResources()
     rsDesc.CullMode = D3D11_CULL_NONE; // 確認用の形なので裏面も描く。材質ごとの設定は Phase 2 で行う
     rsDesc.DepthClipEnable = TRUE;
     CheckHr(device_->CreateRasterizerState(&rsDesc, &rasterizerState_), L"ラスタライザー設定の作成");
+    rsDesc.MultisampleEnable = TRUE;
+    CheckHr(device_->CreateRasterizerState(&rsDesc, &multisampleLineState_), L"なめらかな線の設定の作成");
+    basicState_ = rasterizerState_.Get();
 
     D3D11_DEPTH_STENCIL_DESC dsDesc{};
     dsDesc.DepthEnable = TRUE;
@@ -443,8 +448,21 @@ void Engine::SetConstants(DirectX::FXMMATRIX worldViewProj)
     context_->Unmap(constantBuffer_.Get(), 0);
 }
 
-void Engine::DrawScene(
-    ID3D11RenderTargetView* rtv, ID3D11DepthStencilView* dsv, int width, int height, const TtFrameParams& params)
+uint32_t Engine::SupportedSampleCount(uint32_t requested) const
+{
+    for (uint32_t count = requested; count > 1; count /= 2) {
+        UINT colorLevels = 0;
+        UINT depthLevels = 0;
+        if (SUCCEEDED(device_->CheckMultisampleQualityLevels(kColorFormat, count, &colorLevels)) && colorLevels > 0
+            && SUCCEEDED(device_->CheckMultisampleQualityLevels(kDepthFormat, count, &depthLevels)) && depthLevels > 0) {
+            return count;
+        }
+    }
+    return 1;
+}
+
+void Engine::DrawScene(ID3D11RenderTargetView* rtv, ID3D11DepthStencilView* dsv, int width, int height, const TtFrameParams& params,
+    bool multisampled)
 {
     using namespace DirectX;
 
@@ -452,6 +470,7 @@ void Engine::DrawScene(
 
     ID3D11DeviceContext* ctx = context_.Get();
     const XMMATRIX viewProj = load(params.view) * load(params.projection);
+    basicState_ = multisampled ? multisampleLineState_.Get() : rasterizerState_.Get();
 
     // モデルの描き方（照明・カメラの位置・輪郭線の太さ・影）は、1 枚の中で共通
     ModelFrame frame{};
@@ -574,7 +593,7 @@ void Engine::SetBasicPipeline()
     ctx->VSSetShader(vertexShader_.Get(), nullptr, 0);
     ctx->VSSetConstantBuffers(0, 1, constantBuffer_.GetAddressOf());
     ctx->PSSetShader(pixelShader_.Get(), nullptr, 0);
-    ctx->RSSetState(rasterizerState_.Get());
+    ctx->RSSetState(basicState_);
     ctx->OMSetDepthStencilState(depthState_.Get(), 0);
     ctx->OMSetBlendState(nullptr, nullptr, 0xFFFFFFFF);
 }

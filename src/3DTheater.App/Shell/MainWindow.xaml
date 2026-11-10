@@ -128,7 +128,9 @@
                       ToolTip="フレームの範囲を 1 フレーム 1 枚の PNG で書き出します（名前_0000.png …）" />
             <MenuItem Header="動画を書き出す（MP4）..." Click="OnExportVideoClick"
                       ToolTip="フレームの範囲を MP4 の動画（H.264・AAC）で書き出します。シーンの音声も入れられます" />
-            <MenuItem Header="描画品質の設定..." Style="{StaticResource PlannedItemStyle}" ToolTip="Phase 4 で対応します" />
+            <Separator />
+            <MenuItem Header="描画品質の設定..." Click="OnRenderQualityClick"
+                      ToolTip="プレビューの品質（軽い・ふつう・きれい。線や輪郭のなめらかさと影の細かさ）を選びます。書き出しはいつも高い品質で描きます" />
           </MenuItem>
           <MenuItem Header="ツール(_T)">
             <MenuItem Header="設定..." Style="{StaticResource PlannedItemStyle}" ToolTip="操作感度・ショートカットの設定は今後対応します" />

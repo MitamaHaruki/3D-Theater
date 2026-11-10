@@ -194,6 +194,10 @@ internal static unsafe partial class NativeMethods
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial int ViewResize(nint view, int width, int height);
 
+    [LibraryImport(Library, EntryPoint = "tt_view_set_sample_count")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial int ViewSetSampleCount(nint view, uint sampleCount, uint* outActual);
+
     [LibraryImport(Library, EntryPoint = "tt_view_render")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial int ViewRender(nint view, TtFrameParams* parameters);

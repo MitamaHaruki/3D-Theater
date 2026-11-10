@@ -5,6 +5,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Theater3D.App.Logging;
 using Theater3D.App.Rendering;
+using Theater3D.Editor;
 using Theater3D.Engine.Interop;
 
 namespace Theater3D.App.Preview;
@@ -14,6 +15,7 @@ namespace Theater3D.App.Preview;
 /// （方式 B。docs/設計判断記録.md 3 章）。WPF の部品を上に重ねられ、入力も普通の WPF 部品として受け取れる。
 /// 共有できない環境（ソフトウェア描画など）では、描いた絵を読み出して WriteableBitmap で出す予備の方式に切り替える。
 /// GPU を作り直すときは、古い面を D3DImage から外し、作り直した後に新しい面を渡し直す。
+/// なめらかさ（MSAA の点の数）はプレビューの品質と大きさから決める（<see cref="RenderQuality.FitSampleCount"/>）。
 /// </summary>
 public sealed class ViewportSurface : FrameworkElement, IRenderTarget, IDisposable
 {
@@ -27,6 +29,7 @@ public sealed class ViewportSurface : FrameworkElement, IRenderTarget, IDisposab
     private int _pixelHeight;
     private bool _backBufferDirty;
     private bool _locked;
+    private int _sampleCount = 1; // 描画エンジンに頼んだ点の数
     private string? _errorMessage;
     private bool _disposed;
 
@@ -52,6 +55,7 @@ public sealed class ViewportSurface : FrameworkElement, IRenderTarget, IDisposab
         {
             context.Engine.DeviceResetting += OnDeviceResetting;
             context.Engine.DeviceRestored += OnDeviceRestored;
+            context.PreviewQuality.Changed += OnPreviewQualityChanged;
             context.RenderLoop.Register(this);
         }
     }
@@ -142,6 +146,7 @@ public sealed class ViewportSurface : FrameworkElement, IRenderTarget, IDisposab
             engine.DeviceResetting -= OnDeviceResetting;
             engine.DeviceRestored -= OnDeviceRestored;
         }
+        _context.PreviewQuality.Changed -= OnPreviewQualityChanged;
         ReleaseBackBuffer();
         _view?.Dispose();
         _view = null;
@@ -204,9 +209,18 @@ public sealed class ViewportSurface : FrameworkElement, IRenderTarget, IDisposab
         if (_view is not null)
         {
             ReleaseBackBuffer();
+            bool fewer = WantedSampleCount() < _sampleCount;
+            if (fewer)
+            {
+                ApplySampleCount(); // 大きくなって点を減らすときは、大きな描画先を作る前に減らす
+            }
             try
             {
                 _view.Resize(width, height);
+                if (!fewer)
+                {
+                    ApplySampleCount();
+                }
             }
             catch (NativeEngineException ex)
             {
@@ -234,6 +248,8 @@ public sealed class ViewportSurface : FrameworkElement, IRenderTarget, IDisposab
             {
                 _view = _context.Engine.CreateOffscreenView(_pixelWidth, _pixelHeight, shareWithD3D9: true);
                 _backBufferDirty = true;
+                _sampleCount = 1;
+                ApplySampleCount();
                 return;
             }
             catch (NativeEngineException ex) when (ex.Result == NativeResult.NotSupported)
@@ -246,12 +262,49 @@ public sealed class ViewportSurface : FrameworkElement, IRenderTarget, IDisposab
         try
         {
             _view = _context.Engine.CreateOffscreenView(_pixelWidth, _pixelHeight, shareWithD3D9: false);
+            _sampleCount = 1;
+            ApplySampleCount();
         }
         catch (NativeEngineException ex) when (ex.Result != NativeResult.DeviceLost)
         {
             // GPU が使えないときは区画の失敗にせず、描画ループに作り直させる（例外をそのまま返す）
             SetError("描画先を用意できませんでした", ex);
         }
+    }
+
+    private int WantedSampleCount() =>
+        RenderQuality.FitSampleCount(_context.PreviewQuality.Profile.SampleCount, _pixelWidth, _pixelHeight);
+
+    /// <summary>プレビューの品質と大きさに合う点の数を、描画エンジンへ頼む（変わったときだけ）。</summary>
+    private void ApplySampleCount()
+    {
+        int wanted = WantedSampleCount();
+        if (_view is null || wanted == _sampleCount)
+        {
+            return;
+        }
+        _sampleCount = wanted;
+        try
+        {
+            int actual = _view.SetSampleCount(wanted);
+            if (actual < wanted && !_context.SampleCountFallbackReported)
+            {
+                _context.SampleCountFallbackReported = true;
+                AppLog.Warning($"この GPU では {wanted} 倍のなめらかさを使えないため、{actual} 倍で描きます");
+            }
+        }
+        catch (NativeEngineException ex) when (ex.Result != NativeResult.DeviceLost)
+        {
+            // 描画エンジンは 1 点に戻して描ける状態にしている。何度も試さないよう 1 点として覚える
+            _sampleCount = 1;
+            AppLog.Warning("なめらかに描くための描画先を作れなかったため、なめらかにせずに描きます", ex);
+        }
+    }
+
+    private void OnPreviewQualityChanged(object? sender, EventArgs e)
+    {
+        ApplySampleCount();
+        Invalidate();
     }
 
     private void OnDeviceResetting(object? sender, EventArgs e)

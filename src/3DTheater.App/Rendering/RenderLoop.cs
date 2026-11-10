@@ -86,6 +86,12 @@ public sealed class RenderLoop(NativeEngine? engine, PlaybackService playback)
 
     public bool IsRunning => _subscribed;
 
+    /// <summary>
+    /// true の間はプレビューを描かない（書き出しの間。書き出しのフレームごとにプレビューまで描き直すと遅くなるため）。
+    /// false に戻したら、呼び出し側で <see cref="InvalidateAll"/> すること。
+    /// </summary>
+    public bool IsSuspended { get; set; }
+
     public int LastRenderedTargetCount { get; private set; }
 
     public void Register(IRenderTarget target)
@@ -151,7 +157,7 @@ public sealed class RenderLoop(NativeEngine? engine, PlaybackService playback)
         Ticking?.Invoke(this, step > MaxStep ? MaxStep : step);
 
         // GPU を作り直している間は描かない（作り直したら全区画を描き直す）
-        int rendered = DeviceState == DeviceState.Ready ? RenderChangedTargets() : 0;
+        int rendered = DeviceState == DeviceState.Ready && !IsSuspended ? RenderChangedTargets() : 0;
         LastRenderedTargetCount = rendered;
         if (rendered > 0)
         {
@@ -160,7 +166,7 @@ public sealed class RenderLoop(NativeEngine? engine, PlaybackService playback)
         }
         UpdateFrameRate(now);
 
-        bool idle = DeviceState != DeviceState.Ready || !_targets.Any(t => t.CanRender && t.NeedsRender);
+        bool idle = IsSuspended || DeviceState != DeviceState.Ready || !_targets.Any(t => t.CanRender && t.NeedsRender);
         if (!playback.IsPlaying && idle && KeepRunning?.Invoke() != true)
         {
             Stop();
