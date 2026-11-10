@@ -262,6 +262,9 @@ public sealed class EditorContext
 
     public CameraNode? MainCamera => Scene.FindFirst<CameraNode>();
 
+    /// <summary>描画に使う照明（最初の照明の項目）。</summary>
+    public LightNode? MainLight => Scene.FindFirst<LightNode>();
+
     public TestObjectNode? TestObject => Scene.FindFirst<TestObjectNode>();
 
     public SceneNode? StageGrid => Scene.AllNodes.FirstOrDefault(n => n.Kind == SceneNodeKind.Stage);

@@ -104,6 +104,65 @@ public sealed class NativeEngineTests
     }
 
     [TestMethod]
+    public void ToonLightAndEdgeSettingsReachTheEngine()
+    {
+        // 構造体の並びが tt_engine.h と合っていること（合わなければ値が化けて、色や輪郭線が期待と違う）
+        Assert.AreEqual(176, System.Runtime.CompilerServices.Unsafe.SizeOf<MaterialState>());
+        using var engine = NativeEngine.Create(NativeEngineOptions.UseWarp);
+        const int width = 32;
+        const int height = 32;
+        using var view = engine.CreateOffscreenView(width, height);
+
+        byte[] toonPixels = [255, 255, 255, 255, 255, 255, 255, 255, 0, 0, 200, 255, 0, 0, 200, 255]; // 上が白、下が赤
+        var n = new System.Numerics.Vector3(0, 0, -1);
+        MeshVertex[] quad =
+        [
+            new(new(-1, 1, 0), n, new(0, 0)),
+            new(new(1, 1, 0), n, new(1, 0)),
+            new(new(1, -1, 0), n, new(1, 1)),
+            new(new(-1, -1, 0), n, new(0, 1)),
+        ];
+        NativeMesh mesh;
+        using (NativeTexture toon = engine.CreateTexture(2, 2, toonPixels, 8))
+        {
+            MeshMaterial[] materials =
+            [
+                new(0, 6, System.Numerics.Vector4.One, System.Numerics.Vector3.Zero, 0, System.Numerics.Vector3.One, MaterialFlags.Edge, null,
+                    ToonTexture: toon, EdgeSize: 1, EdgeColor: new(0, 1, 0, 1)),
+            ];
+            Assert.ThrowsExactly<ArgumentException>(() => engine.CreateMesh(quad, [0, 1, 2, 0, 2, 3], materials, [1f, 1f]), "輪郭線の倍率の数が頂点の数と違う");
+            mesh = engine.CreateMesh(quad, [0, 1, 2, 0, 2, 3], materials, [1f, 1f, 1f, 1f]);
+        }
+
+        using (mesh)
+        {
+            byte[] RenderCenter(System.Numerics.Vector3 lightDirection)
+            {
+                FrameParameters frame = DefaultFrame with
+                {
+                    Flags = FrameFlags.UseLight,
+                    View = System.Numerics.Matrix4x4.CreateLookAtLeftHanded(new(0, 0, -5), System.Numerics.Vector3.Zero, System.Numerics.Vector3.UnitY),
+                    Items = [new DrawItem(mesh, System.Numerics.Matrix4x4.Identity, DrawFlags.None)],
+                    LightDirection = lightDirection,
+                    LightColor = new(0.6f),
+                    EdgePixelScale = 1,
+                };
+                Assert.IsTrue(view.Render(frame));
+                var pixels = new byte[width * height * 4];
+                view.ReadPixels(pixels, width * 4);
+                int center = ((height / 2 * width) + (width / 2)) * 4;
+                return pixels[center..(center + 4)];
+            }
+
+            byte[] lit = RenderCenter(new(0, 0, 1));
+            Assert.IsGreaterThan(240, (int)lit[1], "正面から照らすとトゥーンの上（白）");
+            byte[] shadow = RenderCenter(new(0, 0, -1));
+            Assert.IsLessThan(20, (int)shadow[1], "裏から照らすとトゥーンの下（赤）");
+            Assert.IsGreaterThan(180, (int)shadow[2]);
+        }
+    }
+
+    [TestMethod]
     public void DisposingEngineBeforeViewsIsRejected()
     {
         var engine = NativeEngine.Create(NativeEngineOptions.UseWarp);

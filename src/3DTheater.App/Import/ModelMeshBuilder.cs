@@ -8,13 +8,17 @@ using Theater3D.Formats.Pmx;
 
 namespace Theater3D.App.Import;
 
+/// <summary>材質が使うテクスチャ（<see cref="PreparedModel.Textures"/> の鍵。-1 は無し）。</summary>
+internal readonly record struct MaterialTextures(int Main, int Toon, int Sphere);
+
 /// <summary>GPU に載せる前の、組み立て済みのモデルの形（別のスレッドで作る）。</summary>
 internal sealed record PreparedModel(
     MeshVertex[] Vertices,
     uint[] Indices,
     MeshMaterial[] Materials,
-    int[] MaterialTextureIndices,
+    MaterialTextures[] MaterialTextures,
     IReadOnlyDictionary<int, DecodedImage> Textures,
+    float[] EdgeScales,
     Vector3 BoundsMin,
     Vector3 BoundsMax,
     bool[] CoreVertices,
@@ -26,19 +30,25 @@ internal sealed record PreparedModel(
 /// 壊れた番号は描画で問題が起きないよう無害にする（存在しない頂点を指す面はつぶして描かない、材質の範囲は面の数で切る）。
 /// 元の <see cref="PmxDocument"/> は書き換えない。
 /// ここで作るのは初期の姿勢の形で、ボーンとモーフで変形した形は描画の前に置き換える（<see cref="Rendering.PoseUpdater"/>）。
-/// テクスチャは材質の基本のものだけを使う。
+/// テクスチャは、基本・トゥーン・スフィア（掛ける・足す）を使う。共有トゥーン（toon01〜10）は、モデルの上のフォルダに
+/// MMD があればその Data フォルダの画像を、無ければ自前の画像（<see cref="DefaultToons"/>）を使う。
 /// </summary>
 internal static class ModelMeshBuilder
 {
+    /// <summary>共有トゥーン n 番の、<see cref="PreparedModel.Textures"/> の鍵（モデルのテクスチャの番号と重ならないよう負にする）。</summary>
+    public static int SharedToonKey(int index) => -2 - index;
+
     public static PreparedModel Prepare(PmxDocument d, string? baseDirectory, LoadReport report)
     {
         var vertices = new MeshVertex[d.Vertices.Length];
+        var edgeScales = new float[d.Vertices.Length];
         Vector3 min = new(float.MaxValue), max = new(float.MinValue);
         for (int i = 0; i < vertices.Length; i++)
         {
             ref readonly PmxVertex v = ref d.Vertices[i];
             Vector3 normal = v.Normal.LengthSquared() > 1e-12f ? Vector3.Normalize(v.Normal) : Vector3.UnitY;
             vertices[i] = new MeshVertex(v.Position, normal, v.Uv);
+            edgeScales[i] = float.IsFinite(v.EdgeScale) ? Math.Max(0f, v.EdgeScale) : 1f;
             min = Vector3.Min(min, v.Position);
             max = Vector3.Max(max, v.Position);
         }
@@ -59,14 +69,55 @@ internal static class ModelMeshBuilder
             indices[i + 2] = valid ? (uint)c : 0;
         }
 
+        // テクスチャのファイル（番号ごとに 1 回だけ探す）
+        var paths = new Dictionary<int, string?>();
+        string? PathOf(int index)
+        {
+            if (!paths.TryGetValue(index, out string? path))
+            {
+                path = baseDirectory is null ? null : PmxPaths.Resolve(baseDirectory, d.Textures[index]);
+                paths[index] = path is not null && File.Exists(path) ? path : null;
+            }
+            return paths[index];
+        }
+        bool Valid(int index) => (uint)index < (uint)d.Textures.Length;
+
         var materials = new MeshMaterial[d.Materials.Length];
-        var textureIndices = new int[d.Materials.Length];
+        var materialTextures = new MaterialTextures[d.Materials.Length];
+        int subTextureSpheres = 0;
         uint start = 0;
         for (int i = 0; i < d.Materials.Length; i++)
         {
             PmxMaterial m = d.Materials[i];
             uint requested = (uint)Math.Max(0, m.IndexCount - (m.IndexCount % 3));
             uint count = start >= indices.Length ? 0 : Math.Min(requested, (uint)indices.Length - start);
+
+            ToonReference toon = PmxToon.Resolve(m, d.Textures, index => PathOf(index) is not null);
+            SphereMode sphereMode = m.SphereMode switch
+            {
+                PmxSphereMode.Multiply => SphereMode.Multiply,
+                PmxSphereMode.Add => SphereMode.Add,
+                _ => SphereMode.None,
+            };
+            if (m.SphereMode == PmxSphereMode.SubTexture && Valid(m.SphereTextureIndex))
+            {
+                subTextureSpheres++;
+            }
+            int sphere = sphereMode != SphereMode.None && Valid(m.SphereTextureIndex) ? m.SphereTextureIndex : -1;
+            materialTextures[i] = new MaterialTextures(
+                Valid(m.TextureIndex) ? m.TextureIndex : -1,
+                toon.SharedIndex >= 0 ? SharedToonKey(toon.SharedIndex) : toon.TextureIndex,
+                sphere);
+
+            MaterialFlags flags = MaterialFlags.None;
+            if ((m.Flags & PmxMaterialFlags.DoubleSided) != 0)
+            {
+                flags |= MaterialFlags.DoubleSided;
+            }
+            if ((m.Flags & PmxMaterialFlags.Edge) != 0)
+            {
+                flags |= MaterialFlags.Edge;
+            }
             materials[i] = new MeshMaterial(
                 start,
                 count,
@@ -74,32 +125,38 @@ internal static class ModelMeshBuilder
                 m.Specular,
                 m.Specularity,
                 m.Ambient,
-                (m.Flags & PmxMaterialFlags.DoubleSided) != 0 ? MaterialFlags.DoubleSided : MaterialFlags.None,
-                null);
-            textureIndices[i] = (uint)m.TextureIndex < (uint)d.Textures.Length ? m.TextureIndex : -1;
+                flags,
+                null,
+                SphereMode: sphere >= 0 ? sphereMode : SphereMode.None,
+                EdgeSize: float.IsFinite(m.EdgeSize) ? Math.Max(0f, m.EdgeSize) : 0f,
+                EdgeColor: m.EdgeColor);
             start = Math.Min(start + requested, (uint)indices.Length);
+        }
+        if (subTextureSpheres > 0)
+        {
+            report.Info(LoadIssueCategory.Unsupported,
+                $"追加 UV を使うスフィア（サブテクスチャ）の材質が {subTextureSpheres:N0} 個あります。まだ対応していないため、スフィアなしで描きます");
         }
 
         var textures = new Dictionary<int, DecodedImage>();
-        if (baseDirectory is not null)
+        foreach (int index in materialTextures.SelectMany(t => new[] { t.Main, t.Toon, t.Sphere }).Where(k => k >= 0).Distinct())
         {
-            foreach (int index in textureIndices.Where(t => t >= 0).Distinct())
+            if (PathOf(index) is not { } path)
             {
-                string relative = d.Textures[index];
-                string? path = PmxPaths.Resolve(baseDirectory, relative);
-                if (path is null || !File.Exists(path))
-                {
-                    continue; // 見つからないことは、読み込みの点検ですでにレポートに載っている
-                }
-                try
-                {
-                    textures[index] = TextureLoader.Load(path);
-                }
-                catch (Exception ex) when (ex is ModelFormatException or IOException or UnauthorizedAccessException or OutOfMemoryException)
-                {
-                    report.Warning(LoadIssueCategory.Format, $"テクスチャ「{relative}」を読めませんでした（{ex.Message}）。そのテクスチャなしで表示します");
-                }
+                continue; // 見つからないことは、読み込みの点検ですでにレポートに載っている
             }
+            try
+            {
+                textures[index] = TextureLoader.Load(path);
+            }
+            catch (Exception ex) when (ex is ModelFormatException or IOException or UnauthorizedAccessException or OutOfMemoryException)
+            {
+                report.Warning(LoadIssueCategory.Format, $"テクスチャ「{d.Textures[index]}」を読めませんでした（{ex.Message}）。そのテクスチャなしで表示します");
+            }
+        }
+        foreach (int key in materialTextures.Select(t => t.Toon).Where(k => k <= SharedToonKey(0)).Distinct())
+        {
+            textures[key] = SharedToons.Load(-2 - key, baseDirectory);
         }
 
         // 画面に収めるときの箱は、遠くに隠した部品（使わない眼鏡など）を除いて求める
@@ -113,7 +170,7 @@ internal static class ModelMeshBuilder
                 $"ほかから大きく離れた頂点が {hidden:N0} 個あります（使わない部品を遠くに隠しておく作りと思われます）。画面に収めるときと選択の枠では除いて扱います");
         }
 
-        return new PreparedModel(vertices, indices, materials, textureIndices, textures, min, max, core, displayMin, displayMax);
+        return new PreparedModel(vertices, indices, materials, materialTextures, textures, edgeScales, min, max, core, displayMin, displayMax);
     }
 
     private static int CountUnused(uint[] indices, int vertexCount)
@@ -135,25 +192,34 @@ internal static class ModelMeshBuilder
         var uploaded = new Dictionary<int, NativeTexture>();
         try
         {
-            foreach (var (index, image) in model.Textures)
+            foreach (var (key, image) in model.Textures)
             {
                 try
                 {
-                    uploaded[index] = engine.CreateTexture(image.Width, image.Height, image.Bgra, image.Stride);
+                    uploaded[key] = engine.CreateTexture(image.Width, image.Height, image.Bgra, image.Stride);
                 }
                 catch (NativeEngineException ex) when (ex.Result != NativeResult.DeviceLost)
                 {
                     // GPU そのものが使えないときは、呼び出し側が作り直してからやり直す
-                    report.Warning(LoadIssueCategory.Format, $"テクスチャ {index} 番を GPU に載せられませんでした（{ex.Message}）");
+                    string what = key >= 0 ? $"テクスチャ {key} 番" : $"共有トゥーン {PmxToon.SharedFileName(-2 - key)}";
+                    report.Warning(LoadIssueCategory.Format, $"{what}を GPU に載せられませんでした（{ex.Message}）");
                 }
             }
+            NativeTexture? Find(int key) => key == -1 ? null : uploaded.GetValueOrDefault(key);
             var materials = new MeshMaterial[model.Materials.Length];
             for (int i = 0; i < materials.Length; i++)
             {
-                int textureIndex = model.MaterialTextureIndices[i];
-                materials[i] = model.Materials[i] with { Texture = textureIndex >= 0 ? uploaded.GetValueOrDefault(textureIndex) : null };
+                MaterialTextures t = model.MaterialTextures[i];
+                NativeTexture? sphere = Find(t.Sphere);
+                materials[i] = model.Materials[i] with
+                {
+                    Texture = Find(t.Main),
+                    ToonTexture = Find(t.Toon),
+                    SphereTexture = sphere,
+                    SphereMode = sphere is null ? SphereMode.None : model.Materials[i].SphereMode,
+                };
             }
-            return engine.CreateMesh(model.Vertices, model.Indices, materials);
+            return engine.CreateMesh(model.Vertices, model.Indices, materials, model.EdgeScales);
         }
         finally
         {
@@ -163,5 +229,42 @@ internal static class ModelMeshBuilder
                 texture.Dispose();
             }
         }
+    }
+}
+
+/// <summary>
+/// 共有トゥーン（toon01.bmp〜toon10.bmp）の画像。モデルのフォルダから上へたどって MMD のフォルダ（Data\toon01.bmp がある所）が
+/// 見つかればその画像を使い（利用者の手元の MMD のもの。アプリには入れない）、無ければ自前の画像を使う。
+/// </summary>
+internal static class SharedToons
+{
+    public static DecodedImage Load(int index, string? modelDirectory)
+    {
+        if (FindMmdDataFolder(modelDirectory) is { } data)
+        {
+            try
+            {
+                return TextureLoader.Load(Path.Combine(data, PmxToon.SharedFileName(index)));
+            }
+            catch (Exception ex) when (ex is ModelFormatException or IOException or UnauthorizedAccessException)
+            {
+                Logging.AppLog.Warning($"MMD の共有トゥーン {PmxToon.SharedFileName(index)} を読めなかったため、自前の画像を使います", ex);
+            }
+        }
+        return DefaultToons.Create(index);
+    }
+
+    /// <summary>モデルのフォルダとその上のフォルダから、MMD の Data フォルダ（toon01.bmp〜toon10.bmp がある所）を探す。</summary>
+    public static string? FindMmdDataFolder(string? modelDirectory)
+    {
+        for (DirectoryInfo? dir = string.IsNullOrEmpty(modelDirectory) ? null : new DirectoryInfo(modelDirectory); dir is not null; dir = dir.Parent)
+        {
+            string data = Path.Combine(dir.FullName, "Data");
+            if (Enumerable.Range(0, PmxToon.SharedCount).All(i => File.Exists(Path.Combine(data, PmxToon.SharedFileName(i)))))
+            {
+                return data;
+            }
+        }
+        return null;
     }
 }

@@ -411,6 +411,45 @@ public sealed class PoseEvaluatorTests
     }
 
     [TestMethod]
+    public void MaterialMorphChangesEdgeSphereAndToon()
+    {
+        var b = new TestRigBuilder();
+        b.Material(Vector4.One, edgeSize: 1, edgeColor: new Vector4(0, 0, 0, 1));
+        b.Morph(new PmxMorph
+        {
+            Name = "太く", Type = PmxMorphType.Material,
+            MaterialOffsets = [new PmxMaterialOffset(0, PmxMaterialOperation.Multiply, Vector4.One, Vector3.One, 1, Vector3.One,
+                new Vector4(1, 1, 1, 0.5f), 3, Vector4.One, new Vector4(0.5f), new Vector4(0, 0, 0, 1))],
+        });
+        b.Morph(new PmxMorph
+        {
+            Name = "色", Type = PmxMorphType.Material,
+            MaterialOffsets = [new PmxMaterialOffset(0, PmxMaterialOperation.Add, Vector4.Zero, Vector3.Zero, 0, Vector3.Zero,
+                new Vector4(0.2f, 0, 0, 0), 0.5f, Vector4.Zero, new Vector4(0.1f, 0, 0, 0), new Vector4(0, 0.3f, 0, 0))],
+        });
+        ModelRig rig = b.Build();
+        var input = new PoseInput(rig);
+
+        PoseState state = Evaluate(rig, input);
+        Assert.AreEqual(1f, state.Materials[0].EdgeSize, "モーフが 0 なら材質のまま");
+        Assert.AreEqual(new Vector4(0, 0, 0, 1), state.Materials[0].EdgeColor);
+        Assert.AreEqual(Vector4.One, state.Materials[0].SphereMultiply);
+        Assert.AreEqual(Vector4.Zero, state.Materials[0].ToonAdd);
+
+        input.MorphWeights[0] = 0.5f;
+        input.MorphWeights[1] = 1f;
+        PoseEvaluator.Evaluate(rig, input, state);
+        MaterialValues v = state.Materials[0];
+        Assert.AreEqual(2.5f, v.EdgeSize, 1e-6f, "1 × (1 + (3 − 1) × 0.5) + 0.5");
+        AssertEx.AreClose(new Vector3(0.2f, 0, 0), new Vector3(v.EdgeColor.X, v.EdgeColor.Y, v.EdgeColor.Z));
+        Assert.AreEqual(0.75f, v.EdgeColor.W, 1e-6f, "不透明度も掛ける");
+        Assert.AreEqual(new Vector4(0.75f), v.SphereMultiply);
+        Assert.AreEqual(new Vector4(0.1f, 0, 0, 0), v.SphereAdd);
+        Assert.AreEqual(new Vector4(0.5f, 0.5f, 0.5f, 1), v.ToonMultiply);
+        Assert.AreEqual(new Vector4(0, 0.3f, 0, 0), v.ToonAdd);
+    }
+
+    [TestMethod]
     public void BrokenReferencesDoNotStopEvaluation()
     {
         var b = new TestRigBuilder();

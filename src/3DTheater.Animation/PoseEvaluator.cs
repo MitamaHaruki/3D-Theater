@@ -605,6 +605,10 @@ public static class PoseEvaluator
                             v.SpecularPower += o.Values.SpecularPower * w;
                             v.Ambient += o.Values.Ambient * w;
                             v.TextureAdd += o.Values.TextureAdd * w;
+                            v.SphereAdd += o.Values.SphereAdd * w;
+                            v.ToonAdd += o.Values.ToonAdd * w;
+                            v.EdgeColor += o.Values.EdgeColor * w;
+                            v.EdgeSize += o.Values.EdgeSize * w;
                         }
                         else
                         {
@@ -613,6 +617,10 @@ public static class PoseEvaluator
                             v.SpecularPower *= 1f + ((o.Values.SpecularPower - 1f) * w);
                             v.Ambient *= Vector3.Lerp(Vector3.One, o.Values.Ambient, w);
                             v.TextureMultiply *= Vector4.Lerp(Vector4.One, o.Values.TextureMultiply, w);
+                            v.SphereMultiply *= Vector4.Lerp(Vector4.One, o.Values.SphereMultiply, w);
+                            v.ToonMultiply *= Vector4.Lerp(Vector4.One, o.Values.ToonMultiply, w);
+                            v.EdgeColor *= Vector4.Lerp(Vector4.One, o.Values.EdgeColor, w);
+                            v.EdgeSize *= 1f + ((o.Values.EdgeSize - 1f) * w);
                         }
                     }
                 }

@@ -64,9 +64,19 @@ public:
         float specularPower;
         DirectX::XMFLOAT3 ambient;
         bool doubleSided;
+        bool edge;
         std::shared_ptr<TextureImage> texture; // 無ければ空（白として描く）
+        std::shared_ptr<TextureImage> toon;    // 無ければ陰影を付けない
+        std::shared_ptr<TextureImage> sphere;
+        uint32_t sphereMode = TT_SPHERE_NONE;
+        float edgeSize = 0.0f;
+        DirectX::XMFLOAT4 edgeColor{0.0f, 0.0f, 0.0f, 1.0f};
         DirectX::XMFLOAT4 textureMultiply{1.0f, 1.0f, 1.0f, 1.0f};
         DirectX::XMFLOAT4 textureAdd{0.0f, 0.0f, 0.0f, 0.0f};
+        DirectX::XMFLOAT4 sphereMultiply{1.0f, 1.0f, 1.0f, 1.0f};
+        DirectX::XMFLOAT4 sphereAdd{0.0f, 0.0f, 0.0f, 0.0f};
+        DirectX::XMFLOAT4 toonMultiply{1.0f, 1.0f, 1.0f, 1.0f};
+        DirectX::XMFLOAT4 toonAdd{0.0f, 0.0f, 0.0f, 0.0f};
     };
 
     Mesh(Engine& engine, const TtMeshDesc& desc);
@@ -79,7 +89,10 @@ public:
     Engine& OwnerEngine() const noexcept { return engine_; }
 
     ID3D11Buffer* VertexBuffer() const noexcept { return vertexBuffer_.Get(); }
+    // 頂点ごとの輪郭線の太さの倍率（float 1 つずつ。変形しないので作ったときのまま）
+    ID3D11Buffer* EdgeScaleBuffer() const noexcept { return edgeScaleBuffer_.Get(); }
     ID3D11Buffer* IndexBuffer() const noexcept { return indexBuffer_.Get(); }
+    bool HasEdges() const noexcept { return hasEdges_; }
     const std::vector<Material>& Materials() const noexcept { return materials_; }
     bool IsEmpty() const noexcept { return !vertexBuffer_ || !indexBuffer_; }
 
@@ -103,10 +116,13 @@ private:
     uint32_t magic_ = kMagic;
     Engine& engine_;
     std::vector<TtMeshVertex> vertices_;
+    std::vector<float> edgeScales_;
     std::vector<uint32_t> indices_;
     ComPtr<ID3D11Buffer> vertexBuffer_;
+    ComPtr<ID3D11Buffer> edgeScaleBuffer_;
     ComPtr<ID3D11Buffer> indexBuffer_;
     std::vector<Material> materials_;
+    bool hasEdges_ = false;
     DirectX::XMFLOAT3 boundsMin_{};
     DirectX::XMFLOAT3 boundsMax_{};
 };

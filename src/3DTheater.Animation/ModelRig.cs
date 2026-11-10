@@ -86,7 +86,10 @@ public readonly record struct MorphImpulseOffset(int RigidBody, bool Local, Vect
     public bool IsStop => Velocity == Vector3.Zero && Torque == Vector3.Zero;
 }
 
-/// <summary>材質の値（材質モーフで変わる分）。</summary>
+/// <summary>
+/// 材質の値（材質モーフで変わる分）。テクスチャ・スフィア・トゥーンの色は「元の色 × Multiply + Add」で使う
+/// （元は Multiply = 1、Add = 0）。
+/// </summary>
 public struct MaterialValues
 {
     public Vector4 Diffuse;
@@ -95,6 +98,12 @@ public struct MaterialValues
     public Vector3 Ambient;
     public Vector4 TextureMultiply;
     public Vector4 TextureAdd;
+    public Vector4 SphereMultiply;
+    public Vector4 SphereAdd;
+    public Vector4 ToonMultiply;
+    public Vector4 ToonAdd;
+    public Vector4 EdgeColor;
+    public float EdgeSize;
 }
 
 public sealed record MorphMaterialOffset(int Material, bool Add, MaterialValues Values);
@@ -261,6 +270,12 @@ public sealed class ModelRig
                 Ambient = m.Ambient,
                 TextureMultiply = Vector4.One,
                 TextureAdd = Vector4.Zero,
+                SphereMultiply = Vector4.One,
+                SphereAdd = Vector4.Zero,
+                ToonMultiply = Vector4.One,
+                ToonAdd = Vector4.Zero,
+                EdgeColor = m.EdgeColor,
+                EdgeSize = m.EdgeSize,
             })],
         };
     }
@@ -352,8 +367,15 @@ public sealed class ModelRig
                         Specular = o.Specular,
                         SpecularPower = o.Specularity,
                         Ambient = o.Ambient,
+                        // 掛けるか足すかは材質モーフの種類で決まるので、同じ値を両方に入れておく
                         TextureMultiply = o.TextureTint,
                         TextureAdd = o.TextureTint,
+                        SphereMultiply = o.SphereTint,
+                        SphereAdd = o.SphereTint,
+                        ToonMultiply = o.ToonTint,
+                        ToonAdd = o.ToonTint,
+                        EdgeColor = o.EdgeColor,
+                        EdgeSize = o.EdgeSize,
                     }))],
             };
         }

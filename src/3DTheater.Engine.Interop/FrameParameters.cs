@@ -13,11 +13,16 @@ public enum FrameFlags : uint
     ShowAxisZ = 1u << 3,
     ShowTestObject = 1u << 4,
     TestObjectSelected = 1u << 5,
+
+    /// <summary><see cref="FrameParameters.LightDirection"/> と <see cref="FrameParameters.LightColor"/> を使う（無ければ MMD の初期の照明）。</summary>
+    UseLight = 1u << 6,
 }
 
 /// <summary>
 /// 1 つのビューを 1 枚描くための条件。行列は System.Numerics と同じ「行ベクトル × 行列」で、左手系・Y が上。
 /// <see cref="OverlayLines"/> はモデルより手前に描く線（ボーンの表示など。2 つの頂点で 1 本）。配列を使い回せるよう範囲で渡す。
+/// 照明（<see cref="LightDirection"/> は光が進む向き）は <see cref="FrameFlags.UseLight"/> のときだけ使う。
+/// <see cref="EdgePixelScale"/> は材質の輪郭線の太さ 1 を何ピクセルにするか（0 なら輪郭線を描かない）。
 /// </summary>
 public readonly record struct FrameParameters(
     FrameFlags Flags,
@@ -26,4 +31,7 @@ public readonly record struct FrameParameters(
     Matrix4x4 GridWorld,
     Matrix4x4 TestObjectWorld,
     IReadOnlyList<DrawItem>? Items = null,
-    ReadOnlyMemory<LineVertex> OverlayLines = default);
+    ReadOnlyMemory<LineVertex> OverlayLines = default,
+    Vector3 LightDirection = default,
+    Vector3 LightColor = default,
+    float EdgePixelScale = 0);

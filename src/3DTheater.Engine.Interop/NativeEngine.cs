@@ -26,7 +26,7 @@ public readonly record struct VideoMemoryInfo(ulong Usage, ulong Budget);
 public sealed unsafe class NativeEngine : IDisposable
 {
     public const int ExpectedApiVersionMajor = 0;
-    public const int ExpectedApiVersionMinor = 5;
+    public const int ExpectedApiVersionMinor = 6;
 
     private nint _handle;
 
@@ -98,9 +98,17 @@ public sealed unsafe class NativeEngine : IDisposable
         return new NativeTexture(texture);
     }
 
-    /// <summary>モデルの形を GPU に載せる。面の頂点番号と材質の範囲が正しくなければ <see cref="NativeEngineException"/>。</summary>
-    public NativeMesh CreateMesh(ReadOnlySpan<MeshVertex> vertices, ReadOnlySpan<uint> indices, IReadOnlyList<MeshMaterial> materials)
+    /// <summary>
+    /// モデルの形を GPU に載せる。面の頂点番号と材質の範囲が正しくなければ <see cref="NativeEngineException"/>。
+    /// <paramref name="edgeScales"/> は頂点ごとの輪郭線の太さの倍率（空なら全部 1）。
+    /// </summary>
+    public NativeMesh CreateMesh(ReadOnlySpan<MeshVertex> vertices, ReadOnlySpan<uint> indices, IReadOnlyList<MeshMaterial> materials,
+        ReadOnlySpan<float> edgeScales = default)
     {
+        if (!edgeScales.IsEmpty && edgeScales.Length != vertices.Length)
+        {
+            throw new ArgumentException($"輪郭線の倍率の数（{edgeScales.Length}）が頂点の数（{vertices.Length}）と違います", nameof(edgeScales));
+        }
         var nativeMaterials = new TtMeshMaterial[materials.Count];
         for (int i = 0; i < materials.Count; i++)
         {
@@ -115,6 +123,11 @@ public sealed unsafe class NativeEngine : IDisposable
                 Ambient = m.Ambient,
                 Flags = (uint)m.Flags,
                 Texture = m.Texture?.Handle ?? 0,
+                ToonTexture = m.ToonTexture?.Handle ?? 0,
+                SphereTexture = m.SphereTexture?.Handle ?? 0,
+                SphereMode = (uint)m.SphereMode,
+                EdgeSize = m.EdgeSize,
+                EdgeColor = m.EdgeColor,
             };
         }
 
@@ -122,6 +135,7 @@ public sealed unsafe class NativeEngine : IDisposable
         fixed (MeshVertex* vertexPointer = vertices)
         fixed (uint* indexPointer = indices)
         fixed (TtMeshMaterial* materialPointer = nativeMaterials)
+        fixed (float* edgePointer = edgeScales)
         {
             var desc = new TtMeshDesc
             {
@@ -132,6 +146,7 @@ public sealed unsafe class NativeEngine : IDisposable
                 IndexCount = (uint)indices.Length,
                 MaterialCount = (uint)nativeMaterials.Length,
                 Materials = materialPointer,
+                EdgeScales = edgeScales.IsEmpty ? null : edgePointer,
             };
             NativeError.Check(NativeMethods.MeshCreate(Handle, &desc, &mesh));
         }

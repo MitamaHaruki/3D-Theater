@@ -135,7 +135,8 @@ public sealed class SceneDocument
             Position = new Vector3(0f, 10f, -45f),
             Rotation = Vector3.Zero,
         });
-        document.Add(lights, new LightNode("ディレクショナルライト") { Rotation = new Vector3(45f, -30f, 0f) });
+        // MMD の初期の照明と同じ向き（光が進む向き (-0.5, -1, 0.5)。下向き 54.7°、左右 -45°）
+        document.Add(lights, new LightNode("ディレクショナルライト") { Rotation = new Vector3(54.73561f, -45f, 0f) });
         document.Add(models, new TestObjectNode("テスト用立方体") { Position = new Vector3(0f, 0.5f, 0f) });
         var grid = new SceneNode(SceneNodeKind.Stage, "床グリッド", hasTransform: false);
         document.Add(stage, grid);

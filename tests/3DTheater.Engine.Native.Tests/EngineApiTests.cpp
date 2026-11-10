@@ -5,9 +5,11 @@
 #include <CppUnitTest.h>
 #include <DirectXMath.h>
 
+#include <cmath>
 #include <cstdlib>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "tt_engine.h"
@@ -394,6 +396,197 @@ public:
         Assert::IsTrue(IsBackground(centerOf(0).data(), 1), L"裏向きの面は描かない");
         Assert::IsFalse(IsBackground(centerOf(TT_MATERIAL_DOUBLE_SIDED).data(), 40), L"両面描画なら裏向きでも描く");
 
+        Assert::AreEqual<int>(TT_OK, tt_view_destroy(view));
+        Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
+    }
+
+    TEST_METHOD(ToonTextureShadesBySideOfTheLight)
+    {
+        // トゥーン: 光の当たる側はトゥーンの上の色、反対側は下の色を掛ける。照明の色は材質の拡散色に掛かる
+        TtEngine* engine = CreateWarpEngine();
+        constexpr int width = 32;
+        constexpr int height = 32;
+        TtView* view = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_view_create_offscreen(engine, width, height, 0, &view));
+
+        const uint8_t toonPixels[] = {255, 255, 255, 255, 255, 255, 255, 255, 0, 0, 200, 255, 0, 0, 200, 255}; // 上が白、下が赤
+        TtTexture* toon = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_texture_create(engine, 2, 2, toonPixels, 8, &toon));
+        TtMeshMaterial material = QuadMaterial(nullptr);
+        material.toon_texture = toon;
+        const TtMeshDesc desc = QuadDesc(kClockwise, &material);
+        TtMesh* mesh = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_mesh_create(engine, &desc, &mesh));
+        Assert::AreEqual<int>(TT_OK, tt_texture_destroy(toon));
+
+        auto centerWith = [&](float lightZ, float lightColor) {
+            TtFrameParams params = MakeFrontParams();
+            params.flags |= TT_FRAME_USE_LIGHT;
+            params.light_direction[2] = lightZ; // 四角形は -Z を向いている
+            params.light_color[0] = params.light_color[1] = params.light_color[2] = lightColor;
+            const TtDrawItem item = DrawItem(mesh);
+            params.items = &item;
+            params.item_count = 1;
+            std::vector<uint8_t> pixels = RenderAndRead(engine, view, params, width, height);
+            const size_t index = (static_cast<size_t>(height / 2) * width + width / 2) * 4;
+            return std::vector<uint8_t>(pixels.begin() + index, pixels.begin() + index + 4);
+        };
+
+        std::vector<uint8_t> lit = centerWith(1.0f, 0.6f); // 正面から照らす
+        Assert::IsTrue(IsNear(lit[0], 255, 3) && IsNear(lit[1], 255, 3) && IsNear(lit[2], 255, 3), L"光の当たる側はトゥーンの上（白）");
+        std::vector<uint8_t> shadow = centerWith(-1.0f, 0.6f); // 裏から照らす
+        Assert::IsTrue(IsNear(shadow[0], 0, 3) && IsNear(shadow[1], 0, 3) && IsNear(shadow[2], 200, 3), L"反対側はトゥーンの下（赤）");
+
+        // 環境色 0 なら、色は 拡散色 × 照明の色
+        material.ambient[0] = material.ambient[1] = material.ambient[2] = 0.0f;
+        material.toon_texture = nullptr;
+        const TtMeshDesc dark = QuadDesc(kClockwise, &material);
+        Assert::AreEqual<int>(TT_OK, tt_mesh_destroy(mesh));
+        Assert::AreEqual<int>(TT_OK, tt_mesh_create(engine, &dark, &mesh));
+        std::vector<uint8_t> half = centerWith(1.0f, 0.5f);
+        Assert::IsTrue(IsNear(half[0], 128, 3) && IsNear(half[1], 128, 3) && IsNear(half[2], 128, 3), L"照明の色 0.5 で半分の明るさ");
+
+        Assert::AreEqual<int>(TT_OK, tt_mesh_destroy(mesh));
+        Assert::AreEqual<int>(TT_OK, tt_view_destroy(view));
+        Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
+    }
+
+    TEST_METHOD(SphereMapMultipliesOrAdds)
+    {
+        // 正面を向いた面はスフィアの中央を読む。掛ける（.sph）と足す（.spa）
+        TtEngine* engine = CreateWarpEngine();
+        constexpr int width = 32;
+        constexpr int height = 32;
+        TtView* view = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_view_create_offscreen(engine, width, height, 0, &view));
+        TtTexture* red = CreateSolidTexture(engine, 0, 0, 255);
+        TtTexture* green = CreateSolidTexture(engine, 0, 102, 0);
+
+        auto centerWith = [&](TtTexture* sphere, uint32_t mode) {
+            TtMeshMaterial material = QuadMaterial(nullptr);
+            material.diffuse[0] = material.diffuse[1] = material.diffuse[2] = 0.0f;
+            material.ambient[0] = material.ambient[1] = material.ambient[2] = 0.3f; // 灰色（77）
+            material.sphere_texture = sphere;
+            material.sphere_mode = mode;
+            const TtMeshDesc desc = QuadDesc(kClockwise, &material);
+            TtMesh* mesh = nullptr;
+            Assert::AreEqual<int>(TT_OK, tt_mesh_create(engine, &desc, &mesh));
+            TtFrameParams params = MakeFrontParams();
+            const TtDrawItem item = DrawItem(mesh);
+            params.items = &item;
+            params.item_count = 1;
+            std::vector<uint8_t> pixels = RenderAndRead(engine, view, params, width, height);
+            Assert::AreEqual<int>(TT_OK, tt_mesh_destroy(mesh));
+            const size_t index = (static_cast<size_t>(height / 2) * width + width / 2) * 4;
+            return std::vector<uint8_t>(pixels.begin() + index, pixels.begin() + index + 4);
+        };
+
+        std::vector<uint8_t> multiplied = centerWith(red, TT_SPHERE_MULTIPLY);
+        Assert::IsTrue(IsNear(multiplied[2], 77, 3) && IsNear(multiplied[1], 0, 3) && IsNear(multiplied[0], 0, 3), L"掛ける: 灰色 × 赤");
+        std::vector<uint8_t> added = centerWith(green, TT_SPHERE_ADD);
+        Assert::IsTrue(IsNear(added[2], 77, 3) && IsNear(added[1], 179, 3) && IsNear(added[0], 77, 3), L"足す: 灰色 + 緑");
+        std::vector<uint8_t> none = centerWith(red, TT_SPHERE_NONE);
+        Assert::IsTrue(IsNear(none[2], 77, 3) && IsNear(none[1], 77, 3), L"使い方が無しなら、スフィアを使わない");
+
+        TtMeshMaterial bad = QuadMaterial(nullptr);
+        bad.sphere_texture = red;
+        bad.sphere_mode = 3;
+        const TtMeshDesc badDesc = QuadDesc(kClockwise, &bad);
+        TtMesh* mesh = nullptr;
+        Assert::AreEqual<int>(TT_E_INVALID_ARG, tt_mesh_create(engine, &badDesc, &mesh), L"知らないスフィアの使い方");
+
+        Assert::AreEqual<int>(TT_OK, tt_texture_destroy(red));
+        Assert::AreEqual<int>(TT_OK, tt_texture_destroy(green));
+        Assert::AreEqual<int>(TT_OK, tt_view_destroy(view));
+        Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
+    }
+
+    TEST_METHOD(EdgeOutlinesTheSilhouette)
+    {
+        // 1 辺 1 の立方体（法線は中心から外向き）。輪郭線は面の外へ決まったピクセルだけはみ出す
+        TtEngine* engine = CreateWarpEngine();
+        constexpr int width = 128;
+        constexpr int height = 96;
+        TtView* view = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_view_create_offscreen(engine, width, height, 0, &view));
+
+        std::vector<TtMeshVertex> vertices;
+        for (int i = 0; i < 8; ++i) {
+            const float x = (i & 1) ? 0.5f : -0.5f;
+            const float y = (i & 2) ? 0.5f : -0.5f;
+            const float z = (i & 4) ? 0.5f : -0.5f;
+            const float n = 1.0f / std::sqrt(0.75f);
+            vertices.push_back(TtMeshVertex{{x, y, z}, {x * n, y * n, z * n}, {0.0f, 0.0f}});
+        }
+        std::vector<uint32_t> indices;
+        auto addQuad = [&](uint32_t a, uint32_t b, uint32_t c, uint32_t d) {
+            // 外から見て時計回り（外向きの法線 = (b - a) × (c - a)）になるよう、向きをそろえる
+            using namespace DirectX;
+            auto p = [&](uint32_t i) { return XMLoadFloat3(reinterpret_cast<const XMFLOAT3*>(vertices[i].position)); };
+            const XMVECTOR normal = XMVector3Cross(p(b) - p(a), p(c) - p(a));
+            const XMVECTOR center = (p(a) + p(b) + p(c) + p(d)) * 0.25f;
+            if (XMVectorGetX(XMVector3Dot(normal, center)) < 0) {
+                std::swap(b, d);
+            }
+            indices.insert(indices.end(), {a, b, c, a, c, d});
+        };
+        addQuad(0, 2, 3, 1); // -Z
+        addQuad(4, 5, 7, 6); // +Z
+        addQuad(0, 1, 5, 4); // -Y
+        addQuad(2, 6, 7, 3); // +Y
+        addQuad(0, 4, 6, 2); // -X
+        addQuad(1, 3, 7, 5); // +X
+
+        TtMeshMaterial material = QuadMaterial(nullptr, TT_MATERIAL_EDGE);
+        material.index_count = static_cast<uint32_t>(indices.size());
+        material.edge_size = 4.0f;
+        material.edge_color[1] = 1.0f; // 緑
+        material.edge_color[3] = 1.0f;
+        TtMeshDesc desc{};
+        desc.struct_size = sizeof(desc);
+        desc.vertex_count = static_cast<uint32_t>(vertices.size());
+        desc.vertices = vertices.data();
+        desc.index_count = static_cast<uint32_t>(indices.size());
+        desc.indices = indices.data();
+        desc.material_count = 1;
+        desc.materials = &material;
+        TtMesh* mesh = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_mesh_create(engine, &desc, &mesh));
+
+        auto render = [&](float edgePixels) {
+            TtFrameParams params = MakeFrontParams();
+            params.edge_pixel_scale = edgePixels;
+            const TtDrawItem item = DrawItem(mesh);
+            params.items = &item;
+            params.item_count = 1;
+            return RenderAndRead(engine, view, params, width, height);
+        };
+        auto pixel = [&](const std::vector<uint8_t>& pixels, int x, int y) { return &pixels[(static_cast<size_t>(y) * width + x) * 4]; };
+        auto isGreen = [](const uint8_t* p) { return p[1] > 200 && p[0] < 40 && p[2] < 40; };
+
+        // 正面の面の右端は中央から約 12.9 ピクセル右（距離 4.5、視野角 45°、幅 128）。角の法線は斜め 45° なので、横へは約 2.8 ピクセル
+        std::vector<uint8_t> withEdge = render(1.0f);
+        Assert::IsTrue(isGreen(pixel(withEdge, 78, 48)), L"面の右のすぐ外は輪郭線の色");
+        Assert::IsTrue(IsBackground(pixel(withEdge, 90, 48), 1), L"太さより外は背景");
+        Assert::IsFalse(isGreen(pixel(withEdge, 64, 48)), L"面の上は輪郭線で塗らない");
+
+        std::vector<uint8_t> noEdge = render(0.0f);
+        Assert::IsTrue(IsBackground(pixel(noEdge, 78, 48), 1), L"輪郭線の太さ 0 なら描かない");
+
+        // 材質モーフで太さを 0 にすると消える
+        TtMaterialState state{};
+        state.diffuse[0] = state.diffuse[1] = state.diffuse[2] = state.diffuse[3] = 1.0f;
+        state.ambient[0] = state.ambient[1] = state.ambient[2] = 1.0f;
+        for (float* v : {state.texture_multiply, state.sphere_multiply, state.toon_multiply}) {
+            v[0] = v[1] = v[2] = v[3] = 1.0f;
+        }
+        state.edge_color[1] = state.edge_color[3] = 1.0f;
+        state.edge_size = 0.0f;
+        Assert::AreEqual<int>(TT_OK, tt_mesh_update_materials(mesh, &state, 1));
+        std::vector<uint8_t> morphed = render(1.0f);
+        Assert::IsTrue(IsBackground(pixel(morphed, 78, 48), 1), L"太さ 0 の材質は輪郭線を描かない");
+
+        Assert::AreEqual<int>(TT_OK, tt_mesh_destroy(mesh));
         Assert::AreEqual<int>(TT_OK, tt_view_destroy(view));
         Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
     }

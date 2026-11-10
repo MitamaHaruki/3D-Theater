@@ -48,6 +48,10 @@ internal unsafe struct TtFrameParams
     public LineVertex* OverlayLines;
     public uint OverlayVertexCount;
     public uint Reserved2;
+    public Vector3 LightDirection;
+    public float EdgePixelScale;
+    public Vector3 LightColor;
+    public uint Reserved3;
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -70,6 +74,11 @@ internal struct TtMeshMaterial
     public Vector3 Ambient;
     public uint Flags;
     public nint Texture;
+    public nint ToonTexture;
+    public nint SphereTexture;
+    public uint SphereMode;
+    public float EdgeSize;
+    public Vector4 EdgeColor;
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -82,6 +91,7 @@ internal unsafe struct TtMeshDesc
     public uint IndexCount;
     public uint MaterialCount;
     public TtMeshMaterial* Materials;
+    public float* EdgeScales;
 }
 
 internal static unsafe partial class NativeMethods

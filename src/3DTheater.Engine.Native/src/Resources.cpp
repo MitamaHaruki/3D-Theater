@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cfloat>
+#include <cmath>
 #include <cstring>
 
 namespace tt {
@@ -85,11 +86,25 @@ Mesh::Mesh(Engine& engine, const TtMeshDesc& desc) : engine_(engine)
     }
     engine.ThrowIfDeviceLost();
 
+    auto image = [&](TtTexture* handle, uint32_t index, const wchar_t* what) -> std::shared_ptr<TextureImage> {
+        if (!handle) {
+            return {};
+        }
+        auto* texture = reinterpret_cast<Texture*>(handle);
+        if (!texture->IsValid() || &texture->OwnerEngine() != &engine) {
+            throw Error(TT_E_INVALID_ARG, std::format(L"材質 {} 番の{}が正しくありません", index, what));
+        }
+        return texture->Image();
+    };
+
     materials_.reserve(desc.material_count);
     for (uint32_t i = 0; i < desc.material_count; ++i) {
         const TtMeshMaterial& m = desc.materials[i];
         if (static_cast<uint64_t>(m.index_start) + m.index_count > desc.index_count) {
             throw Error(TT_E_INVALID_ARG, std::format(L"材質 {} 番の面の範囲が、面の頂点番号の数を超えています", i));
+        }
+        if (m.sphere_mode > TT_SPHERE_ADD) {
+            throw Error(TT_E_INVALID_ARG, std::format(L"材質 {} 番のスフィアの使い方（{}）が正しくありません", i, m.sphere_mode));
         }
         Material material{};
         material.indexStart = m.index_start;
@@ -99,16 +114,24 @@ Mesh::Mesh(Engine& engine, const TtMeshDesc& desc) : engine_(engine)
         material.specularPower = m.specular_power;
         material.ambient = {m.ambient[0], m.ambient[1], m.ambient[2]};
         material.doubleSided = (m.flags & TT_MATERIAL_DOUBLE_SIDED) != 0;
-        if (m.texture) {
-            auto* texture = reinterpret_cast<Texture*>(m.texture);
-            if (!texture->IsValid() || &texture->OwnerEngine() != &engine) {
-                throw Error(TT_E_INVALID_ARG, std::format(L"材質 {} 番のテクスチャが正しくありません", i));
-            }
-            material.texture = texture->Image();
-        }
+        material.edge = (m.flags & TT_MATERIAL_EDGE) != 0;
+        material.texture = image(m.texture, i, L"テクスチャ");
+        material.toon = image(m.toon_texture, i, L"トゥーンのテクスチャ");
+        material.sphere = image(m.sphere_texture, i, L"スフィアのテクスチャ");
+        material.sphereMode = material.sphere ? m.sphere_mode : TT_SPHERE_NONE;
+        material.edgeSize = std::isfinite(m.edge_size) ? std::max(0.0f, m.edge_size) : 0.0f;
+        material.edgeColor = {m.edge_color[0], m.edge_color[1], m.edge_color[2], m.edge_color[3]};
+        hasEdges_ |= material.edge && material.indexCount > 0;
         materials_.push_back(std::move(material));
     }
 
+    edgeScales_.assign(desc.vertex_count, 1.0f);
+    if (desc.edge_scales) {
+        for (uint32_t i = 0; i < desc.vertex_count; ++i) {
+            const float scale = desc.edge_scales[i];
+            edgeScales_[i] = std::isfinite(scale) ? std::max(0.0f, scale) : 1.0f;
+        }
+    }
     vertices_.assign(desc.vertices, desc.vertices + desc.vertex_count);
     indices_.assign(desc.indices, desc.indices + desc.index_count);
     CreateBuffers();
@@ -138,6 +161,13 @@ void Mesh::CreateBuffers()
     vb.BindFlags = D3D11_BIND_VERTEX_BUFFER;
     D3D11_SUBRESOURCE_DATA vbData{vertices_.data(), 0, 0};
     CheckHr(engine_.Device()->CreateBuffer(&vb, &vbData, &vertexBuffer_), L"メッシュの頂点バッファーの作成");
+
+    D3D11_BUFFER_DESC eb{};
+    eb.ByteWidth = static_cast<UINT>(edgeScales_.size() * sizeof(float));
+    eb.Usage = D3D11_USAGE_IMMUTABLE;
+    eb.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+    D3D11_SUBRESOURCE_DATA ebData{edgeScales_.data(), 0, 0};
+    CheckHr(engine_.Device()->CreateBuffer(&eb, &ebData, &edgeScaleBuffer_), L"メッシュの輪郭線の倍率のバッファーの作成");
 
     D3D11_BUFFER_DESC ib{};
     ib.ByteWidth = static_cast<UINT>(indices_.size() * sizeof(uint32_t));
@@ -174,18 +204,29 @@ void Mesh::UpdateMaterials(const TtMaterialState* states, uint32_t count)
         m.specular = {s.specular[0], s.specular[1], s.specular[2]};
         m.specularPower = s.specular_power;
         m.ambient = {s.ambient[0], s.ambient[1], s.ambient[2]};
-        m.textureMultiply = {s.texture_multiply[0], s.texture_multiply[1], s.texture_multiply[2], s.texture_multiply[3]};
-        m.textureAdd = {s.texture_add[0], s.texture_add[1], s.texture_add[2], s.texture_add[3]};
+        auto load4 = [](const float (&v)[4]) { return DirectX::XMFLOAT4{v[0], v[1], v[2], v[3]}; };
+        m.textureMultiply = load4(s.texture_multiply);
+        m.textureAdd = load4(s.texture_add);
+        m.sphereMultiply = load4(s.sphere_multiply);
+        m.sphereAdd = load4(s.sphere_add);
+        m.toonMultiply = load4(s.toon_multiply);
+        m.toonAdd = load4(s.toon_add);
+        m.edgeColor = load4(s.edge_color);
+        m.edgeSize = std::isfinite(s.edge_size) ? std::max(0.0f, s.edge_size) : 0.0f;
     }
 }
 
 void Mesh::ReleaseDeviceResources() noexcept
 {
     vertexBuffer_.Reset();
+    edgeScaleBuffer_.Reset();
     indexBuffer_.Reset();
     for (Material& material : materials_) {
-        if (material.texture) {
-            material.texture->Release(); // 持ち手を先に破棄したテクスチャも、ここで手放す
+        // 持ち手を先に破棄したテクスチャも、ここで手放す
+        for (const auto* image : {&material.texture, &material.toon, &material.sphere}) {
+            if (*image) {
+                (*image)->Release();
+            }
         }
     }
 }
@@ -194,8 +235,11 @@ void Mesh::RestoreDeviceResources()
 {
     CreateBuffers();
     for (Material& material : materials_) {
-        if (material.texture) {
-            material.texture->EnsureCreated(engine_); // 同じテクスチャを複数の材質で使っていても 1 回だけ作る
+        // 同じテクスチャを複数の材質で使っていても 1 回だけ作る
+        for (const auto* image : {&material.texture, &material.toon, &material.sphere}) {
+            if (*image) {
+                (*image)->EnsureCreated(engine_);
+            }
         }
     }
 }

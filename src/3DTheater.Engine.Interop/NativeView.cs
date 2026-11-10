@@ -84,6 +84,9 @@ public sealed unsafe class NativeView : IDisposable
                 ItemCount = (uint)count,
                 OverlayLines = lines.Length > 0 ? linePointer : null,
                 OverlayVertexCount = (uint)(lines.Length - (lines.Length % 2)),
+                LightDirection = frame.LightDirection,
+                LightColor = frame.LightColor,
+                EdgePixelScale = frame.EdgePixelScale,
             };
             return NativeError.Check(NativeMethods.ViewRender(Handle, &parameters)) == NativeResult.Ok;
         }

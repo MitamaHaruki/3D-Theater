@@ -27,7 +27,7 @@ extern "C" {
 
 // 上位 16 ビットが大きな版、下位 16 ビットが小さな版。大きな版が違う DLL とは組み合わせない。
 #define TT_API_VERSION_MAJOR 0
-#define TT_API_VERSION_MINOR 5
+#define TT_API_VERSION_MINOR 6
 #define TT_API_VERSION ((TT_API_VERSION_MAJOR << 16) | TT_API_VERSION_MINOR)
 
 // 0 以上は成功、負の値は失敗。
@@ -99,6 +99,7 @@ enum {
     TT_FRAME_SHOW_AXIS_Z = 1u << 3,
     TT_FRAME_SHOW_TEST_OBJECT = 1u << 4,
     TT_FRAME_TEST_OBJECT_SELECTED = 1u << 5, // 確認用の立方体の輪郭を強調する
+    TT_FRAME_USE_LIGHT = 1u << 6,            // light_direction・light_color を使う（無ければ MMD の初期の照明）
 };
 
 // ---- モデルの形（メッシュ）と材質 ----
@@ -112,9 +113,17 @@ typedef struct TtMeshVertex {
 
 enum {
     TT_MATERIAL_DOUBLE_SIDED = 1u << 0, // 裏面も描く（無ければ時計回りの面を表として裏面を描かない）
+    TT_MATERIAL_EDGE = 1u << 1,         // 輪郭線を描く（API 0.6）
 };
 
-// 材質。面の頂点番号の index_start から index_count 個を、この材質で描く。材質は並び順に描く（MMD と同じ）
+enum {
+    TT_SPHERE_NONE = 0,
+    TT_SPHERE_MULTIPLY = 1, // 色に掛ける（.sph）
+    TT_SPHERE_ADD = 2,      // 色に足す（.spa）
+};
+
+// 材質。面の頂点番号の index_start から index_count 個を、この材質で描く。材質は並び順に描く（MMD と同じ）。
+// 色の計算は MMD と同じ: (拡散色 × 照明の色 + 環境色) × テクスチャ → スフィア → × トゥーン → + 反射光
 typedef struct TtMeshMaterial {
     uint32_t index_start;
     uint32_t index_count;
@@ -123,7 +132,13 @@ typedef struct TtMeshMaterial {
     float specular_power;
     float ambient[3];
     uint32_t flags;
-    TtTexture* texture; // NULL ならテクスチャなし（白）。メッシュが中身を参照するので、作った後にテクスチャを破棄してよい
+    // テクスチャは NULL なら無し（基本のテクスチャは白）。メッシュが中身を参照するので、作った後にテクスチャを破棄してよい
+    TtTexture* texture;
+    TtTexture* toon_texture;   // 影の色の段階。上が明るい側、下が暗い側（API 0.6）。無ければ陰影を付けない（MMD と同じ）
+    TtTexture* sphere_texture; // スフィアマップ（API 0.6）
+    uint32_t sphere_mode;      // TT_SPHERE_*
+    float edge_size;           // 輪郭線の太さ（TtFrameParams の edge_pixel_scale を掛けたピクセル）
+    float edge_color[4];
 } TtMeshMaterial;
 
 typedef struct TtMeshDesc {
@@ -134,9 +149,10 @@ typedef struct TtMeshDesc {
     uint32_t index_count;
     uint32_t material_count;
     const TtMeshMaterial* materials;
+    const float* edge_scales; // 頂点ごとの輪郭線の太さの倍率（vertex_count 個）。NULL なら全部 1（API 0.6）
 } TtMeshDesc;
 
-// 材質の今の値（材質モーフで変わった後の値）。テクスチャの色は「テクスチャ × texture_multiply + texture_add」で使う
+// 材質の今の値（材質モーフで変わった後の値）。テクスチャ・スフィア・トゥーンの色は「元の色 × multiply + add」で使う
 typedef struct TtMaterialState {
     float diffuse[4];
     float specular[3];
@@ -145,6 +161,13 @@ typedef struct TtMaterialState {
     uint32_t reserved;
     float texture_multiply[4];
     float texture_add[4];
+    float sphere_multiply[4]; // ここから API 0.6
+    float sphere_add[4];
+    float toon_multiply[4];
+    float toon_add[4];
+    float edge_color[4];
+    float edge_size;
+    uint32_t reserved2[3];
 } TtMaterialState;
 
 // 重ね描きする線の頂点（2 つで 1 本）。座標はワールド
@@ -179,6 +202,11 @@ typedef struct TtFrameParams {
     const TtLineVertex* overlay_lines; // 最後に、奥行きに関係なく手前へ重ねて描く線（ボーンの表示など）
     uint32_t overlay_vertex_count;     // 2 の倍数
     uint32_t reserved2;
+    // ここから API 0.6
+    float light_direction[3]; // 光が進む向き（ワールド）。TT_FRAME_USE_LIGHT のときだけ使う。長さは問わない
+    float edge_pixel_scale;   // 材質の輪郭線の太さ 1 を何ピクセルにするか。0 なら輪郭線を描かない
+    float light_color[3];     // 照明の色（MMD の初期値は 154/255）。TT_FRAME_USE_LIGHT のときだけ使う
+    uint32_t reserved3;
 } TtFrameParams;
 
 TT_API uint32_t TT_CALL tt_get_api_version(void);

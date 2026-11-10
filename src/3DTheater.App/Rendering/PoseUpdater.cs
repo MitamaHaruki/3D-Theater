@@ -133,6 +133,12 @@ public sealed class PoseUpdater
                         Ambient = v.Ambient,
                         TextureMultiply = v.TextureMultiply,
                         TextureAdd = v.TextureAdd,
+                        SphereMultiply = v.SphereMultiply,
+                        SphereAdd = v.SphereAdd,
+                        ToonMultiply = v.ToonMultiply,
+                        ToonAdd = v.ToonAdd,
+                        EdgeColor = v.EdgeColor,
+                        EdgeSize = v.EdgeSize,
                     };
                 }
                 mesh.UpdateMaterials(model.MaterialStates);

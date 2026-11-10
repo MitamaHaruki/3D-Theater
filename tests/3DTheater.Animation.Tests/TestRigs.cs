@@ -61,9 +61,13 @@ internal sealed class TestRigBuilder
         return _morphs.Count - 1;
     }
 
-    public int Material(Vector4 diffuse)
+    public int Material(Vector4 diffuse, float edgeSize = 0, Vector4 edgeColor = default)
     {
-        _materials.Add(new PmxMaterial { Name = $"材質{_materials.Count}", Diffuse = diffuse, Specular = Vector3.One, Specularity = 5, Ambient = new Vector3(0.5f) });
+        _materials.Add(new PmxMaterial
+        {
+            Name = $"材質{_materials.Count}", Diffuse = diffuse, Specular = Vector3.One, Specularity = 5, Ambient = new Vector3(0.5f),
+            EdgeSize = edgeSize, EdgeColor = edgeColor,
+        });
         return _materials.Count - 1;
     }
 

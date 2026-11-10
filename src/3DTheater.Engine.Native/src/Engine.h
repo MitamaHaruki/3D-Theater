@@ -78,7 +78,17 @@ private:
     void ReleaseDevice() noexcept;
     void SetBasicPipeline();
     void SetConstants(DirectX::FXMMATRIX worldViewProj);
-    void DrawMesh(const Mesh& mesh, DirectX::FXMMATRIX world, DirectX::CXMMATRIX viewProj);
+    // 1 枚の描画で共通の、モデルの描き方（照明・カメラ・輪郭線の太さ）
+    struct ModelFrame {
+        DirectX::XMFLOAT4X4 view;
+        DirectX::XMFLOAT4X4 viewProj;
+        DirectX::XMFLOAT4 lightDirection;
+        DirectX::XMFLOAT4 lightColor;
+        DirectX::XMFLOAT4 cameraPosition;
+        DirectX::XMFLOAT4 edgeScale;
+    };
+    void DrawMesh(const Mesh& mesh, DirectX::FXMMATRIX world, const ModelFrame& frame);
+    void DrawEdges(const Mesh& mesh);
     void DrawBox(const DirectX::XMFLOAT3& minimum, const DirectX::XMFLOAT3& maximum, DirectX::FXMMATRIX world, DirectX::CXMMATRIX viewProj);
     void DrawOverlayLines(const TtLineVertex* vertices, uint32_t count, DirectX::CXMMATRIX viewProj);
 
@@ -123,17 +133,21 @@ private:
     UINT overlayVertexCapacity_ = 0;
     ComPtr<ID3D11DepthStencilState> overlayDepthState_;
 
-    // モデル（テクスチャと簡単な陰影）
+    // モデル（MMD と同じトゥーンの色の計算と輪郭線）
     ComPtr<ID3D11VertexShader> modelVertexShader_;
     ComPtr<ID3D11PixelShader> modelPixelShader_;
+    ComPtr<ID3D11VertexShader> edgeVertexShader_;
+    ComPtr<ID3D11PixelShader> edgePixelShader_;
     ComPtr<ID3D11InputLayout> modelInputLayout_;
     ComPtr<ID3D11Buffer> objectConstantBuffer_;
     ComPtr<ID3D11Buffer> materialConstantBuffer_;
     ComPtr<ID3D11RasterizerState> cullBackState_;
     ComPtr<ID3D11RasterizerState> cullNoneState_;
+    ComPtr<ID3D11RasterizerState> cullFrontState_; // 輪郭線（裏側の面だけ描く）
     ComPtr<ID3D11DepthStencilState> modelDepthState_;
     ComPtr<ID3D11BlendState> alphaBlendState_;
     ComPtr<ID3D11SamplerState> textureSampler_;
+    ComPtr<ID3D11SamplerState> clampSampler_;
     ComPtr<ID3D11ShaderResourceView> whiteTexture_;
 
     ComPtr<ID3D11Query> gpuDoneQuery_;

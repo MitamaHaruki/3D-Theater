@@ -322,7 +322,7 @@ public sealed class LightNode(string name) : SceneNode(SceneNodeKind.Light, name
 {
     private float _intensity = 1f;
 
-    /// <summary>明るさ。描画への反映は Phase 4 で行う。</summary>
+    /// <summary>明るさ。照明の色は MMD の初期値 154/255 にこれを掛けたもの（Editor の SceneLighting）。</summary>
     public float Intensity
     {
         get => _intensity;

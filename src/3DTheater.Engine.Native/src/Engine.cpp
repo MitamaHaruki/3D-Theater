@@ -1,6 +1,7 @@
 #include "Engine.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <vector>
 
@@ -11,6 +12,8 @@
 // FxCompile が中間フォルダに書き出すシェーダーのバイト列
 #include "BasicPS.h"
 #include "BasicVS.h"
+#include "EdgePS.h"
+#include "EdgeVS.h"
 #include "ModelPS.h"
 #include "ModelVS.h"
 
@@ -20,8 +23,9 @@ namespace {
 
 constexpr float kClearColor[4] = {0.13f, 0.14f, 0.16f, 1.0f};
 
-// MMD の初期の照明の向き（光が進む向き）。照明の項目の反映は Phase 4 で行う
+// MMD の初期の照明（光が進む向き (-0.5, -1, 0.5) と、色 154/255）。TT_FRAME_USE_LIGHT が無いときに使う
 const DirectX::XMVECTORF32 kLightDirection = {{{-0.4082483f, -0.8164966f, 0.4082483f, 0.0f}}};
+constexpr float kLightIntensity = 154.0f / 255.0f;
 
 struct FrameConstants {
     DirectX::XMFLOAT4X4 worldViewProj;
@@ -30,7 +34,11 @@ struct FrameConstants {
 struct ObjectConstants {
     DirectX::XMFLOAT4X4 worldViewProj;
     DirectX::XMFLOAT4X4 world;
+    DirectX::XMFLOAT4X4 view;
     DirectX::XMFLOAT4 lightDirection;
+    DirectX::XMFLOAT4 lightColor;
+    DirectX::XMFLOAT4 cameraPosition;
+    DirectX::XMFLOAT4 edgeScale;
 };
 
 struct MaterialConstants {
@@ -39,7 +47,18 @@ struct MaterialConstants {
     DirectX::XMFLOAT4 specularAndPower;
     DirectX::XMFLOAT4 textureMultiply;
     DirectX::XMFLOAT4 textureAdd;
+    DirectX::XMFLOAT4 sphereMultiply;
+    DirectX::XMFLOAT4 sphereAdd;
+    DirectX::XMFLOAT4 toonMultiply;
+    DirectX::XMFLOAT4 toonAdd;
+    DirectX::XMFLOAT4 edgeColor;
+    DirectX::XMFLOAT4 options; // x = スフィアの使い方、y = トゥーンあり、z = 輪郭線の太さ
 };
+
+bool IsFinite3(const float (&v)[3]) noexcept
+{
+    return std::isfinite(v[0]) && std::isfinite(v[1]) && std::isfinite(v[2]);
+}
 
 static_assert(sizeof(TtLineVertex) == sizeof(tt::DemoVertex), "重ね描きの線は、格子と同じ頂点の形で描く");
 
@@ -142,14 +161,18 @@ void Engine::ReleaseDevice() noexcept
     }
     gpuDoneQuery_.Reset();
     whiteTexture_.Reset();
+    clampSampler_.Reset();
     textureSampler_.Reset();
     alphaBlendState_.Reset();
     modelDepthState_.Reset();
+    cullFrontState_.Reset();
     cullNoneState_.Reset();
     cullBackState_.Reset();
     materialConstantBuffer_.Reset();
     objectConstantBuffer_.Reset();
     modelInputLayout_.Reset();
+    edgePixelShader_.Reset();
+    edgeVertexShader_.Reset();
     modelPixelShader_.Reset();
     modelVertexShader_.Reset();
     overlayDepthState_.Reset();
@@ -449,12 +472,37 @@ void Engine::DrawScene(
         }
     }
 
+    // モデルの描き方（照明・カメラの位置・輪郭線の太さ）は、1 枚の中で共通
+    ModelFrame frame{};
+    XMStoreFloat4x4(&frame.view, load(params.view));
+    XMStoreFloat4x4(&frame.viewProj, viewProj);
+    XMVECTOR lightDirection = kLightDirection;
+    XMVECTOR lightColor = XMVectorReplicate(kLightIntensity);
+    if ((params.flags & TT_FRAME_USE_LIGHT) && IsFinite3(params.light_direction) && IsFinite3(params.light_color)) {
+        const XMVECTOR direction = XMVectorSet(params.light_direction[0], params.light_direction[1], params.light_direction[2], 0.0f);
+        if (XMVectorGetX(XMVector3LengthSq(direction)) > 1e-12f) {
+            lightDirection = XMVector3Normalize(direction);
+        }
+        lightColor = XMVectorMax(XMVectorSet(params.light_color[0], params.light_color[1], params.light_color[2], 0.0f), XMVectorZero());
+    }
+    XMStoreFloat4(&frame.lightDirection, lightDirection);
+    XMStoreFloat4(&frame.lightColor, XMVectorSetW(lightColor, 1.0f));
+    XMVECTOR determinant;
+    const XMMATRIX inverseView = XMMatrixInverse(&determinant, load(params.view));
+    XMStoreFloat4(&frame.cameraPosition, XMVectorSetW(inverseView.r[3], 1.0f));
+    // 材質の太さ 1 を edge_pixel_scale ピクセルにする（画面の座標は -1〜1 なので、ピクセルの 2 / 幅）
+    const float edgePixels = std::isfinite(params.edge_pixel_scale) ? std::max(0.0f, params.edge_pixel_scale) : 0.0f;
+    frame.edgeScale = {2.0f * edgePixels / static_cast<float>(width), 2.0f * edgePixels / static_cast<float>(height), 0.0f, 0.0f};
+
     // モデル（並び順に描く。半透明の材質があるので、MMD と同じく並び順をそのまま使う）
     for (uint32_t i = 0; i < params.item_count; ++i) {
         const TtDrawItem& item = params.items[i];
         const auto& mesh = *reinterpret_cast<const Mesh*>(item.mesh);
         const XMMATRIX world = load(item.world);
-        DrawMesh(mesh, world, viewProj);
+        DrawMesh(mesh, world, frame);
+        if (edgePixels > 0.0f && mesh.HasEdges() && !mesh.IsEmpty()) {
+            DrawEdges(mesh);
+        }
         if (item.flags & TT_DRAW_SELECTED) {
             SetBasicPipeline();
             DrawBox(mesh.BoundsMin(), mesh.BoundsMax(), world, viewProj);
@@ -482,7 +530,7 @@ void Engine::SetBasicPipeline()
     ctx->OMSetBlendState(nullptr, nullptr, 0xFFFFFFFF);
 }
 
-void Engine::DrawMesh(const Mesh& mesh, DirectX::FXMMATRIX world, DirectX::CXMMATRIX viewProj)
+void Engine::DrawMesh(const Mesh& mesh, DirectX::FXMMATRIX world, const ModelFrame& frame)
 {
     using namespace DirectX;
     if (mesh.IsEmpty()) {
@@ -493,27 +541,35 @@ void Engine::DrawMesh(const Mesh& mesh, DirectX::FXMMATRIX world, DirectX::CXMMA
     D3D11_MAPPED_SUBRESOURCE mapped{};
     CheckHr(ctx->Map(objectConstantBuffer_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped), L"モデルの定数バッファーの更新");
     auto* object = static_cast<ObjectConstants*>(mapped.pData);
-    XMStoreFloat4x4(&object->worldViewProj, world * viewProj);
+    XMStoreFloat4x4(&object->worldViewProj, world * XMLoadFloat4x4(&frame.viewProj));
     XMStoreFloat4x4(&object->world, world);
-    XMStoreFloat4(&object->lightDirection, kLightDirection);
+    object->view = frame.view;
+    object->lightDirection = frame.lightDirection;
+    object->lightColor = frame.lightColor;
+    object->cameraPosition = frame.cameraPosition;
+    object->edgeScale = frame.edgeScale;
     ctx->Unmap(objectConstantBuffer_.Get(), 0);
 
-    const UINT stride = sizeof(TtMeshVertex);
-    const UINT offset = 0;
+    const UINT strides[] = {sizeof(TtMeshVertex), sizeof(float)};
+    const UINT offsets[] = {0, 0};
+    ID3D11Buffer* vertexBuffers[] = {mesh.VertexBuffer(), mesh.EdgeScaleBuffer()};
     ctx->IASetInputLayout(modelInputLayout_.Get());
     ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    ID3D11Buffer* vertexBuffer = mesh.VertexBuffer();
-    ctx->IASetVertexBuffers(0, 1, &vertexBuffer, &stride, &offset);
+    ctx->IASetVertexBuffers(0, 2, vertexBuffers, strides, offsets);
     ctx->IASetIndexBuffer(mesh.IndexBuffer(), DXGI_FORMAT_R32_UINT, 0);
     ctx->VSSetShader(modelVertexShader_.Get(), nullptr, 0);
     ID3D11Buffer* constantBuffers[] = {objectConstantBuffer_.Get(), materialConstantBuffer_.Get()};
     ctx->VSSetConstantBuffers(0, 2, constantBuffers);
     ctx->PSSetShader(modelPixelShader_.Get(), nullptr, 0);
     ctx->PSSetConstantBuffers(0, 2, constantBuffers);
-    ctx->PSSetSamplers(0, 1, textureSampler_.GetAddressOf());
+    ID3D11SamplerState* samplers[] = {textureSampler_.Get(), clampSampler_.Get()};
+    ctx->PSSetSamplers(0, 2, samplers);
     ctx->OMSetDepthStencilState(modelDepthState_.Get(), 0);
     ctx->OMSetBlendState(alphaBlendState_.Get(), nullptr, 0xFFFFFFFF);
 
+    auto view = [&](const std::shared_ptr<TextureImage>& image) {
+        return image && image->View() ? image->View() : whiteTexture_.Get();
+    };
     for (const Mesh::Material& material : mesh.Materials()) {
         if (material.indexCount == 0) {
             continue;
@@ -525,16 +581,48 @@ void Engine::DrawMesh(const Mesh& mesh, DirectX::FXMMATRIX world, DirectX::CXMMA
         constants->specularAndPower = {material.specular.x, material.specular.y, material.specular.z, material.specularPower};
         constants->textureMultiply = material.textureMultiply;
         constants->textureAdd = material.textureAdd;
+        constants->sphereMultiply = material.sphereMultiply;
+        constants->sphereAdd = material.sphereAdd;
+        constants->toonMultiply = material.toonMultiply;
+        constants->toonAdd = material.toonAdd;
+        constants->edgeColor = material.edgeColor;
+        constants->options = {static_cast<float>(material.sphere ? material.sphereMode : TT_SPHERE_NONE),
+            material.toon ? 1.0f : 0.0f, material.edgeSize, 0.0f};
         ctx->Unmap(materialConstantBuffer_.Get(), 0);
 
-        ID3D11ShaderResourceView* texture = material.texture && material.texture->View() ? material.texture->View() : whiteTexture_.Get();
-        ctx->PSSetShaderResources(0, 1, &texture);
+        ID3D11ShaderResourceView* textures[] = {view(material.texture), view(material.toon), view(material.sphere)};
+        ctx->PSSetShaderResources(0, 3, textures);
         ctx->RSSetState(material.doubleSided ? cullNoneState_.Get() : cullBackState_.Get());
         ctx->DrawIndexed(material.indexCount, material.indexStart, 0);
     }
 
-    ID3D11ShaderResourceView* none = nullptr;
-    ctx->PSSetShaderResources(0, 1, &none);
+    ID3D11ShaderResourceView* none[3] = {};
+    ctx->PSSetShaderResources(0, 3, none);
+}
+
+void Engine::DrawEdges(const Mesh& mesh)
+{
+    // DrawMesh の直後に呼ぶ（頂点・定数・合成の設定はそのまま使う）。MMD と同じく、モデルの材質を全部描いた後に描く
+    ID3D11DeviceContext* ctx = context_.Get();
+    ctx->VSSetShader(edgeVertexShader_.Get(), nullptr, 0);
+    ctx->PSSetShader(edgePixelShader_.Get(), nullptr, 0);
+    ctx->RSSetState(cullFrontState_.Get());
+    for (const Mesh::Material& material : mesh.Materials()) {
+        // 消した（不透明度 0 の）材質の線は描かない
+        if (!material.edge || material.indexCount == 0 || material.edgeSize <= 0.0f || material.diffuse.w <= 0.0f
+            || material.edgeColor.w <= 0.0f) {
+            continue;
+        }
+        D3D11_MAPPED_SUBRESOURCE mapped{};
+        CheckHr(ctx->Map(materialConstantBuffer_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped), L"輪郭線の定数バッファーの更新");
+        auto* constants = static_cast<MaterialConstants*>(mapped.pData);
+        *constants = MaterialConstants{};
+        constants->diffuse = material.diffuse;
+        constants->edgeColor = material.edgeColor;
+        constants->options = {0.0f, 0.0f, material.edgeSize, 0.0f};
+        ctx->Unmap(materialConstantBuffer_.Get(), 0);
+        ctx->DrawIndexed(material.indexCount, material.indexStart, 0);
+    }
 }
 
 void Engine::DrawBox(
@@ -595,13 +683,18 @@ void Engine::CreateModelResources()
 
     CheckHr(device_->CreateVertexShader(g_ModelVS, sizeof(g_ModelVS), nullptr, &modelVertexShader_), L"モデルの頂点シェーダーの作成");
     CheckHr(device_->CreatePixelShader(g_ModelPS, sizeof(g_ModelPS), nullptr, &modelPixelShader_), L"モデルのピクセルシェーダーの作成");
+    CheckHr(device_->CreateVertexShader(g_EdgeVS, sizeof(g_EdgeVS), nullptr, &edgeVertexShader_), L"輪郭線の頂点シェーダーの作成");
+    CheckHr(device_->CreatePixelShader(g_EdgePS, sizeof(g_EdgePS), nullptr, &edgePixelShader_), L"輪郭線のピクセルシェーダーの作成");
 
+    // 変形した頂点（0 番）と、頂点ごとの輪郭線の倍率（1 番、変形しない）を別のバッファーから読む
     const D3D11_INPUT_ELEMENT_DESC layout[] = {
         {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0},
         {"NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0},
         {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 24, D3D11_INPUT_PER_VERTEX_DATA, 0},
+        {"TEXCOORD", 1, DXGI_FORMAT_R32_FLOAT, 1, 0, D3D11_INPUT_PER_VERTEX_DATA, 0},
     };
-    CheckHr(device_->CreateInputLayout(layout, ARRAYSIZE(layout), g_ModelVS, sizeof(g_ModelVS), &modelInputLayout_),
+    // 輪郭線の頂点シェーダーは全部の要素を使うので、そちらに合わせて作る（モデルの頂点シェーダーにも使える）
+    CheckHr(device_->CreateInputLayout(layout, ARRAYSIZE(layout), g_EdgeVS, sizeof(g_EdgeVS), &modelInputLayout_),
         L"モデルの頂点レイアウトの作成");
 
     auto dynamicBuffer = [&](UINT size, ComPtr<ID3D11Buffer>& out, const wchar_t* what) {
@@ -622,6 +715,12 @@ void Engine::CreateModelResources()
     CheckHr(device_->CreateRasterizerState(&rs, &cullBackState_), L"裏面を描かない設定の作成");
     rs.CullMode = D3D11_CULL_NONE;
     CheckHr(device_->CreateRasterizerState(&rs, &cullNoneState_), L"両面を描く設定の作成");
+    // 輪郭線は裏側の面だけを描き、奥行きを少し奥へずらす（両面の材質を裏から見たとき、同じ奥行きの面を線の色で
+    // 塗りつぶさないように。線は面の外へはみ出した所だけに残る）
+    rs.CullMode = D3D11_CULL_FRONT;
+    rs.DepthBias = 64;
+    rs.SlopeScaledDepthBias = 1.0f;
+    CheckHr(device_->CreateRasterizerState(&rs, &cullFrontState_), L"裏側の面だけ描く設定の作成");
 
     D3D11_DEPTH_STENCIL_DESC ds{};
     ds.DepthEnable = TRUE;
@@ -648,6 +747,13 @@ void Engine::CreateModelResources()
     sampler.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
     sampler.MaxLOD = D3D11_FLOAT32_MAX;
     CheckHr(device_->CreateSamplerState(&sampler, &textureSampler_), L"テクスチャの読み方の設定の作成");
+    // トゥーン・スフィアは端で止める（トゥーンの上端・下端が反対側の色と混ざらないように）
+    sampler.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+    sampler.MaxAnisotropy = 1;
+    sampler.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
+    sampler.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
+    sampler.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+    CheckHr(device_->CreateSamplerState(&sampler, &clampSampler_), L"端で止めるテクスチャの読み方の設定の作成");
 
     // テクスチャの無い材質に使う白
     const uint32_t white = 0xFFFFFFFF;
