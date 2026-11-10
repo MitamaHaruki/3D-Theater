@@ -116,6 +116,11 @@
             <MenuItem Header="カメラ視点にする" InputGestureText="Num0" Tag="Camera" Click="OnViewKindClick" />
           </MenuItem>
           <MenuItem Header="レンダリング(_R)">
+            <MenuItem x:Name="SelfShadowMenuItem" Header="セルフシャドウ" IsCheckable="True" Click="OnSelfShadowClick"
+                      ToolTip="モデルに落ちる影を描きます。影を受ける材質は、影の中をトゥーンの影の色で描きます（MMD と同じ。初期値は ON。プロジェクトに保存します）" />
+            <MenuItem x:Name="GroundShadowMenuItem" Header="地面の影" IsCheckable="True" Click="OnGroundShadowClick"
+                      ToolTip="高さ 0 の床に、照明の向きに沿ってモデルの影を描きます（初期値は ON。プロジェクトに保存します）" />
+            <Separator />
             <MenuItem Header="静止画を書き出す（PNG）..." Style="{StaticResource PlannedItemStyle}" ToolTip="Phase 4 で対応します" />
             <MenuItem Header="連番を書き出す..." Style="{StaticResource PlannedItemStyle}" ToolTip="Phase 4 で対応します" />
             <MenuItem Header="描画品質の設定..." Style="{StaticResource PlannedItemStyle}" ToolTip="Phase 4 で対応します" />

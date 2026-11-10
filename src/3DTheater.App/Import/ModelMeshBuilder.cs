@@ -118,6 +118,18 @@ internal static class ModelMeshBuilder
             {
                 flags |= MaterialFlags.Edge;
             }
+            if ((m.Flags & PmxMaterialFlags.GroundShadow) != 0)
+            {
+                flags |= MaterialFlags.GroundShadow;
+            }
+            if ((m.Flags & PmxMaterialFlags.CastSelfShadow) != 0)
+            {
+                flags |= MaterialFlags.CastShadow;
+            }
+            if ((m.Flags & PmxMaterialFlags.ReceiveSelfShadow) != 0)
+            {
+                flags |= MaterialFlags.ReceiveShadow;
+            }
             materials[i] = new MeshMaterial(
                 start,
                 count,

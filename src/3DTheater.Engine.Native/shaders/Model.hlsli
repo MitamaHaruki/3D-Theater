@@ -1,4 +1,4 @@
-// モデルの描画（MMD と同じトゥーンの色の計算と輪郭線）。影（セルフシャドウ・地面の影）は次の段階で足す。
+// モデルの描画（MMD と同じトゥーンの色の計算・輪郭線・セルフシャドウ・地面の影）。
 
 cbuffer ObjectConstants : register(b0)
 {
@@ -9,6 +9,9 @@ cbuffer ObjectConstants : register(b0)
     float4 LightColor;     // rgb
     float4 CameraPosition; // xyz（ワールド）
     float4 EdgeScale;      // xy = 材質の太さ 1 を、画面の座標（-1〜1）でどれだけにするか。0 なら輪郭線なし
+    row_major float4x4 LightViewProj; // セルフシャドウ: ワールド → 照明から見た奥行きの画像の座標
+    float4 ShadowParams;              // x = 1 / 奥行きの画像の 1 辺、y = 比べるときに奥へずらす量、z = 1 ならセルフシャドウあり
+    float4 GroundShadowColor;
 };
 
 cbuffer MaterialConstants : register(b1)
@@ -23,14 +26,16 @@ cbuffer MaterialConstants : register(b1)
     float4 ToonMultiply;
     float4 ToonAdd;
     float4 EdgeColor;
-    float4 Options;           // x = スフィア（0 なし・1 掛ける・2 足す）、y = 1 ならトゥーンあり、z = 輪郭線の太さ
+    float4 Options;           // x = スフィア（0 なし・1 掛ける・2 足す）、y = 1 ならトゥーンあり、z = 輪郭線の太さ、w = 1 ならセルフシャドウを受ける
 };
 
 Texture2D DiffuseTexture : register(t0);
 Texture2D ToonTexture : register(t1);
 Texture2D SphereTexture : register(t2);
-SamplerState TextureSampler : register(s0); // 繰り返す
-SamplerState ClampSampler : register(s1);   // 端で止める（トゥーン・スフィア）
+Texture2D<float> ShadowMap : register(t3);
+SamplerState TextureSampler : register(s0);         // 繰り返す
+SamplerState ClampSampler : register(s1);           // 端で止める（トゥーン・スフィア）
+SamplerComparisonState ShadowSampler : register(s2); // 奥行きを比べて、手前なら 1（範囲の外も 1）
 
 struct ModelVSInput
 {
@@ -46,9 +51,11 @@ struct ModelPSInput
     float3 normal : NORMAL;
     float2 uv : TEXCOORD0;
     float2 sphereUv : TEXCOORD1;
-    float3 eye : TEXCOORD2; // 面からカメラへの向き
+    float3 eye : TEXCOORD2;            // 面からカメラへの向き
+    float4 shadowPosition : TEXCOORD3; // 照明から見た奥行きの画像の座標
 };
 
+// 輪郭線・影など、位置だけを使う描き方
 struct EdgePSInput
 {
     float4 position : SV_Position;

@@ -591,6 +591,148 @@ public:
         Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
     }
 
+    TEST_METHOD(GroundShadowDarkensTheFloorOnce)
+    {
+        // 高さ 1 と 1.25 の小さな水平の四角形を、斜め上（光は +X・下向き、傾き 2:1）から照らし、真上から見る。
+        // 影は高さの 2 倍だけ +X へずれ、2 つの影の重なった所も、1 つの所と同じ濃さになる
+        TtEngine* engine = CreateWarpEngine();
+        constexpr int width = 64;
+        constexpr int height = 48;
+        TtView* view = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_view_create_offscreen(engine, width, height, 0, &view));
+
+        std::vector<TtMeshVertex> vertices;
+        std::vector<uint32_t> indices;
+        auto addFlatQuad = [&](float centerX, float y, float half) {
+            const uint32_t base = static_cast<uint32_t>(vertices.size());
+            const float xs[] = {-half, half, half, -half};
+            const float zs[] = {half, half, -half, -half};
+            for (int i = 0; i < 4; ++i) {
+                vertices.push_back(TtMeshVertex{{centerX + xs[i], y, zs[i]}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}});
+            }
+            indices.insert(indices.end(), {base, base + 1, base + 2, base, base + 2, base + 3}); // 上から見て時計回り
+        };
+        addFlatQuad(0.0f, 1.0f, 0.5f);
+        addFlatQuad(0.25f, 1.25f, 0.5f);
+
+        auto render = [&](uint32_t materialFlags, uint32_t frameFlags, float lightY) {
+            TtMeshMaterial material = QuadMaterial(nullptr, materialFlags | TT_MATERIAL_DOUBLE_SIDED);
+            material.index_count = static_cast<uint32_t>(indices.size());
+            TtMeshDesc desc{};
+            desc.struct_size = sizeof(desc);
+            desc.vertex_count = static_cast<uint32_t>(vertices.size());
+            desc.vertices = vertices.data();
+            desc.index_count = static_cast<uint32_t>(indices.size());
+            desc.indices = indices.data();
+            desc.material_count = 1;
+            desc.materials = &material;
+            TtMesh* mesh = nullptr;
+            Assert::AreEqual<int>(TT_OK, tt_mesh_create(engine, &desc, &mesh));
+            TtFrameParams params = MakeParams(frameFlags | TT_FRAME_USE_LIGHT);
+            DirectX::XMStoreFloat4x4(reinterpret_cast<DirectX::XMFLOAT4X4*>(params.view),
+                DirectX::XMMatrixLookAtLH(DirectX::XMVectorSet(0, 8, 0, 1), DirectX::XMVectorZero(), DirectX::XMVectorSet(0, 0, 1, 0)));
+            params.light_direction[0] = 2.0f;
+            params.light_direction[1] = lightY;
+            params.light_color[0] = params.light_color[1] = params.light_color[2] = 0.6f;
+            params.ground_shadow_color[3] = 0.5f; // 半透明の黒
+            const TtDrawItem item = DrawItem(mesh);
+            params.items = &item;
+            params.item_count = 1;
+            std::vector<uint8_t> pixels = RenderAndRead(engine, view, params, width, height);
+            Assert::AreEqual<int>(TT_OK, tt_mesh_destroy(mesh));
+            return pixels;
+        };
+        auto pixel = [&](const std::vector<uint8_t>& pixels, int x, int y) { return &pixels[(static_cast<size_t>(y) * width + x) * 4]; };
+        auto isHalfBackground = [](const uint8_t* p) {
+            return IsNear(p[0], kBackgroundB / 2, 3) && IsNear(p[1], kBackgroundG / 2, 3) && IsNear(p[2], kBackgroundR / 2, 3);
+        };
+
+        // 床（距離 8）の X = 1.86 → 45 ピクセル目、X = 2.42（重なり）→ 49、X = 2.97 → 53
+        std::vector<uint8_t> shadowed = render(TT_MATERIAL_GROUND_SHADOW, TT_FRAME_GROUND_SHADOW, -1.0f);
+        Assert::IsTrue(isHalfBackground(pixel(shadowed, 45, 24)), L"影は床を半透明の黒で暗くする");
+        Assert::IsTrue(isHalfBackground(pixel(shadowed, 49, 24)), L"2 つの影が重なっても二重に暗くしない");
+        Assert::IsTrue(isHalfBackground(pixel(shadowed, 53, 24)));
+        Assert::IsTrue(IsBackground(pixel(shadowed, 62, 24), 1), L"影の外は床のまま");
+
+        Assert::IsTrue(IsBackground(pixel(render(0, TT_FRAME_GROUND_SHADOW, -1.0f), 45, 24), 1), L"地面影の無い材質は影を落とさない");
+        Assert::IsTrue(IsBackground(pixel(render(TT_MATERIAL_GROUND_SHADOW, 0, -1.0f), 45, 24), 1), L"地面の影を使わない描画");
+        Assert::IsTrue(IsBackground(pixel(render(TT_MATERIAL_GROUND_SHADOW, TT_FRAME_GROUND_SHADOW, 1.0f), 45, 24), 1),
+            L"下から照らすときは床に影を落とさない");
+
+        Assert::AreEqual<int>(TT_OK, tt_view_destroy(view));
+        Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
+    }
+
+    TEST_METHOD(SelfShadowFallsOnReceivers)
+    {
+        // 高さ 1 の小さな四角形（影を落とす）が、高さ 0 の大きな四角形（影を受ける・トゥーンの下が赤）に影を落とす。
+        // 光は +X・下向き（傾き 2:1）なので、影は X = 1.5〜2.5 に落ちる。影の中はトゥーンのいちばん下の色を掛ける
+        TtEngine* engine = CreateWarpEngine();
+        constexpr int width = 64;
+        constexpr int height = 48;
+        TtView* view = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_view_create_offscreen(engine, width, height, 0, &view));
+        // 上半分が白、下半分が赤（4 段にして、光の当たる側を読んだときに赤が混ざらないようにする）
+        const uint8_t toonPixels[] = {255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+            0, 0, 200, 255, 0, 0, 200, 255, 0, 0, 200, 255, 0, 0, 200, 255};
+        TtTexture* toon = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_texture_create(engine, 2, 4, toonPixels, 8, &toon));
+
+        auto flatMesh = [&](float y, float half, uint32_t flags) {
+            const TtMeshVertex vertices[] = {
+                {{-half, y, half}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
+                {{half, y, half}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
+                {{half, y, -half}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
+                {{-half, y, -half}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
+            };
+            TtMeshMaterial material = QuadMaterial(nullptr, flags | TT_MATERIAL_DOUBLE_SIDED);
+            material.toon_texture = toon;
+            TtMeshDesc desc{};
+            desc.struct_size = sizeof(desc);
+            desc.vertex_count = 4;
+            desc.vertices = vertices;
+            desc.index_count = 6;
+            desc.indices = kClockwise;
+            desc.material_count = 1;
+            desc.materials = &material;
+            TtMesh* mesh = nullptr;
+            Assert::AreEqual<int>(TT_OK, tt_mesh_create(engine, &desc, &mesh));
+            return mesh;
+        };
+        auto render = [&](uint32_t receiverFlags, uint32_t frameFlags) {
+            TtMesh* floor = flatMesh(0.0f, 3.0f, receiverFlags);
+            TtMesh* occluder = flatMesh(1.0f, 0.5f, TT_MATERIAL_CAST_SHADOW);
+            TtFrameParams params = MakeParams(frameFlags | TT_FRAME_USE_LIGHT);
+            DirectX::XMStoreFloat4x4(reinterpret_cast<DirectX::XMFLOAT4X4*>(params.view),
+                DirectX::XMMatrixLookAtLH(DirectX::XMVectorSet(0, 8, 0, 1), DirectX::XMVectorZero(), DirectX::XMVectorSet(0, 0, 1, 0)));
+            params.light_direction[0] = 2.0f;
+            params.light_direction[1] = -1.0f;
+            params.light_color[0] = params.light_color[1] = params.light_color[2] = 0.6f;
+            const TtDrawItem items[] = {DrawItem(floor), DrawItem(occluder)};
+            params.items = items;
+            params.item_count = 2;
+            std::vector<uint8_t> pixels = RenderAndRead(engine, view, params, width, height);
+            Assert::AreEqual<int>(TT_OK, tt_mesh_destroy(floor));
+            Assert::AreEqual<int>(TT_OK, tt_mesh_destroy(occluder));
+            return pixels;
+        };
+        auto pixel = [&](const std::vector<uint8_t>& pixels, int x, int y) { return &pixels[(static_cast<size_t>(y) * width + x) * 4]; };
+        auto isRed = [](const uint8_t* p) { return IsNear(p[2], 200, 6) && p[1] < 10 && p[0] < 10; };
+        auto isWhite = [](const uint8_t* p) { return p[0] > 245 && p[1] > 245 && p[2] > 245; };
+
+        // 床の X = 2.0 → 46 ピクセル目（影の中）、X = -2.0 → 17 ピクセル目（光の当たる所）
+        std::vector<uint8_t> shadowed = render(TT_MATERIAL_RECEIVE_SHADOW, TT_FRAME_SELF_SHADOW);
+        Assert::IsTrue(isRed(pixel(shadowed, 46, 24)), L"影の中はトゥーンのいちばん下の色");
+        Assert::IsTrue(isWhite(pixel(shadowed, 17, 24)), L"光の当たる所は元の色");
+
+        Assert::IsTrue(isWhite(pixel(render(0, TT_FRAME_SELF_SHADOW), 46, 24)), L"セルフ影を受けない材質には落ちない");
+        Assert::IsTrue(isWhite(pixel(render(TT_MATERIAL_RECEIVE_SHADOW, 0), 46, 24)), L"セルフシャドウを使わない描画");
+
+        Assert::AreEqual<int>(TT_OK, tt_texture_destroy(toon));
+        Assert::AreEqual<int>(TT_OK, tt_view_destroy(view));
+        Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
+    }
+
     TEST_METHOD(MeshCreationRejectsInvalidData)
     {
         TtEngine* engine = CreateWarpEngine();

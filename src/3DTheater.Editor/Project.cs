@@ -33,6 +33,9 @@ public sealed class ProjectFile
     /// <summary>物理演算を使うか（無い古いファイルは使う）。</summary>
     public bool Physics { get; set; } = true;
 
+    /// <summary>描き方（無い古いファイルは初期の設定）。</summary>
+    public RenderingEntry Rendering { get; set; } = new();
+
     /// <summary>カメラ・照明などの決まった項目（キーは <see cref="SceneDocument.FixedNodes"/> の役目の名前）。</summary>
     public Dictionary<string, NodeEntry> Nodes { get; set; } = [];
 
@@ -40,6 +43,22 @@ public sealed class ProjectFile
 
     /// <summary>音声（無ければ null）。</summary>
     public AudioEntry? Audio { get; set; }
+}
+
+/// <summary>描き方の設定（<see cref="RenderSettings"/>）。</summary>
+public sealed class RenderingEntry
+{
+    public bool SelfShadow { get; set; } = true;
+
+    public bool GroundShadow { get; set; } = true;
+
+    public static RenderingEntry From(RenderSettings settings) => new() { SelfShadow = settings.SelfShadow, GroundShadow = settings.GroundShadow };
+
+    public void ApplyTo(RenderSettings settings)
+    {
+        settings.SelfShadow = SelfShadow;
+        settings.GroundShadow = GroundShadow;
+    }
 }
 
 public sealed class AudioEntry

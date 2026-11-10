@@ -16,6 +16,12 @@ public enum FrameFlags : uint
 
     /// <summary><see cref="FrameParameters.LightDirection"/> と <see cref="FrameParameters.LightColor"/> を使う（無ければ MMD の初期の照明）。</summary>
     UseLight = 1u << 6,
+
+    /// <summary>セルフシャドウ（モデルに落ちる影）を描く。</summary>
+    SelfShadow = 1u << 7,
+
+    /// <summary>地面の影（高さ 0 の床に落ちる影）を <see cref="FrameParameters.GroundShadowColor"/> で描く。</summary>
+    GroundShadow = 1u << 8,
 }
 
 /// <summary>
@@ -23,6 +29,7 @@ public enum FrameFlags : uint
 /// <see cref="OverlayLines"/> はモデルより手前に描く線（ボーンの表示など。2 つの頂点で 1 本）。配列を使い回せるよう範囲で渡す。
 /// 照明（<see cref="LightDirection"/> は光が進む向き）は <see cref="FrameFlags.UseLight"/> のときだけ使う。
 /// <see cref="EdgePixelScale"/> は材質の輪郭線の太さ 1 を何ピクセルにするか（0 なら輪郭線を描かない）。
+/// <see cref="ShadowMapSize"/> はセルフシャドウの奥行きの画像の 1 辺（0 なら 2048）。
 /// </summary>
 public readonly record struct FrameParameters(
     FrameFlags Flags,
@@ -34,4 +41,6 @@ public readonly record struct FrameParameters(
     ReadOnlyMemory<LineVertex> OverlayLines = default,
     Vector3 LightDirection = default,
     Vector3 LightColor = default,
-    float EdgePixelScale = 0);
+    float EdgePixelScale = 0,
+    Vector4 GroundShadowColor = default,
+    int ShadowMapSize = 0);

@@ -141,6 +141,7 @@ public sealed class EditorContext
         Audio = new Audio.AudioService(this);
         Poses = new PoseUpdater(this);
         MorphPresets = Shell.MorphPresetStore.Load();
+        Rendering.Changed += (_, _) => RenderLoop.InvalidateAll();
 
         Scene.NodeChanged += (_, _) => RenderLoop.InvalidateAll();
         Selection.Changed += (_, _) => RenderLoop.InvalidateAll();
@@ -149,6 +150,9 @@ public sealed class EditorContext
     }
 
     public NativeEngine? Engine { get; }
+
+    /// <summary>作品の描き方（セルフシャドウ・地面の影。プロジェクトに保存する）。</summary>
+    public RenderSettings Rendering { get; } = new();
 
     /// <summary>表情のプリセット（利用者ごと。変わるたびに保存する）。</summary>
     public MorphPresetLibrary MorphPresets { get; }
@@ -233,6 +237,7 @@ public sealed class EditorContext
         Playback.Loop = true;
         Animation.AutoKey = false;
         Physics.Enabled = true;
+        Rendering.Reset();
         Animation.NotifyStateChanged();
         Undo.Clear();
         RenderLoop.InvalidateAll();

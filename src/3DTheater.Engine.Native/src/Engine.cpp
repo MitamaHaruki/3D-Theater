@@ -1,6 +1,7 @@
 #include "Engine.h"
 
 #include <algorithm>
+#include <cfloat>
 #include <cmath>
 #include <cstring>
 #include <vector>
@@ -14,8 +15,10 @@
 #include "BasicVS.h"
 #include "EdgePS.h"
 #include "EdgeVS.h"
+#include "GroundShadowPS.h"
 #include "ModelPS.h"
 #include "ModelVS.h"
+#include "ShadowVS.h"
 
 namespace tt {
 
@@ -26,6 +29,12 @@ constexpr float kClearColor[4] = {0.13f, 0.14f, 0.16f, 1.0f};
 // MMD の初期の照明（光が進む向き (-0.5, -1, 0.5) と、色 154/255）。TT_FRAME_USE_LIGHT が無いときに使う
 const DirectX::XMVECTORF32 kLightDirection = {{{-0.4082483f, -0.8164966f, 0.4082483f, 0.0f}}};
 constexpr float kLightIntensity = 154.0f / 255.0f;
+
+// セルフシャドウの奥行きの画像の 1 辺（指定が無いとき）と、比べるときに奥へずらす量（ワールドの長さ）
+constexpr UINT kDefaultShadowMapSize = 2048;
+constexpr float kShadowBiasWorld = 0.08f;
+// 地面の影を床から浮かせる高さ（床の面と重なってちらつかないように）
+constexpr float kGroundShadowLift = 0.01f;
 
 struct FrameConstants {
     DirectX::XMFLOAT4X4 worldViewProj;
@@ -39,6 +48,9 @@ struct ObjectConstants {
     DirectX::XMFLOAT4 lightColor;
     DirectX::XMFLOAT4 cameraPosition;
     DirectX::XMFLOAT4 edgeScale;
+    DirectX::XMFLOAT4X4 lightViewProj;
+    DirectX::XMFLOAT4 shadowParams;
+    DirectX::XMFLOAT4 groundShadowColor;
 };
 
 struct MaterialConstants {
@@ -52,7 +64,7 @@ struct MaterialConstants {
     DirectX::XMFLOAT4 toonMultiply;
     DirectX::XMFLOAT4 toonAdd;
     DirectX::XMFLOAT4 edgeColor;
-    DirectX::XMFLOAT4 options; // x = スフィアの使い方、y = トゥーンあり、z = 輪郭線の太さ
+    DirectX::XMFLOAT4 options; // x = スフィアの使い方、y = トゥーンあり、z = 輪郭線の太さ、w = セルフシャドウを受ける
 };
 
 bool IsFinite3(const float (&v)[3]) noexcept
@@ -160,6 +172,15 @@ void Engine::ReleaseDevice() noexcept
         context_->Flush();
     }
     gpuDoneQuery_.Reset();
+    shadowMapSrv_.Reset();
+    shadowMapDsv_.Reset();
+    shadowMapSize_ = 0;
+    noShadowMap_.Reset();
+    shadowSampler_.Reset();
+    groundShadowState_.Reset();
+    shadowCasterState_.Reset();
+    groundShadowPixelShader_.Reset();
+    shadowVertexShader_.Reset();
     whiteTexture_.Reset();
     clampSampler_.Reset();
     textureSampler_.Reset();
@@ -430,14 +451,43 @@ void Engine::DrawScene(
     auto load = [](const float (&m)[16]) { return XMLoadFloat4x4(reinterpret_cast<const XMFLOAT4X4*>(m)); };
 
     ID3D11DeviceContext* ctx = context_.Get();
+    const XMMATRIX viewProj = load(params.view) * load(params.projection);
+
+    // モデルの描き方（照明・カメラの位置・輪郭線の太さ・影）は、1 枚の中で共通
+    ModelFrame frame{};
+    XMStoreFloat4x4(&frame.view, load(params.view));
+    XMStoreFloat4x4(&frame.viewProj, viewProj);
+    XMVECTOR lightDirection = kLightDirection;
+    XMVECTOR lightColor = XMVectorReplicate(kLightIntensity);
+    if ((params.flags & TT_FRAME_USE_LIGHT) && IsFinite3(params.light_direction) && IsFinite3(params.light_color)) {
+        const XMVECTOR direction = XMVectorSet(params.light_direction[0], params.light_direction[1], params.light_direction[2], 0.0f);
+        if (XMVectorGetX(XMVector3LengthSq(direction)) > 1e-12f) {
+            lightDirection = XMVector3Normalize(direction);
+        }
+        lightColor = XMVectorMax(XMVectorSet(params.light_color[0], params.light_color[1], params.light_color[2], 0.0f), XMVectorZero());
+    }
+    XMStoreFloat4(&frame.lightDirection, lightDirection);
+    XMStoreFloat4(&frame.lightColor, XMVectorSetW(lightColor, 1.0f));
+    XMVECTOR determinant;
+    const XMMATRIX inverseView = XMMatrixInverse(&determinant, load(params.view));
+    XMStoreFloat4(&frame.cameraPosition, XMVectorSetW(inverseView.r[3], 1.0f));
+    // 材質の太さ 1 を edge_pixel_scale ピクセルにする（画面の座標は -1〜1 なので、ピクセルの 2 / 幅）
+    const float edgePixels = std::isfinite(params.edge_pixel_scale) ? std::max(0.0f, params.edge_pixel_scale) : 0.0f;
+    frame.edgeScale = {2.0f * edgePixels / static_cast<float>(width), 2.0f * edgePixels / static_cast<float>(height), 0.0f, 0.0f};
+    XMStoreFloat4x4(&frame.lightViewProj, XMMatrixIdentity());
+    frame.groundShadowColor = {params.ground_shadow_color[0], params.ground_shadow_color[1], params.ground_shadow_color[2],
+        params.ground_shadow_color[3]};
+    if ((params.flags & TT_FRAME_SELF_SHADOW) && params.item_count > 0) {
+        RenderShadowMap(params, frame); // 影を落とすものが無ければ、セルフシャドウなしのまま
+    }
+
     ctx->OMSetRenderTargets(1, &rtv, dsv);
     const D3D11_VIEWPORT viewport{0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height), 0.0f, 1.0f};
     ctx->RSSetViewports(1, &viewport);
     ctx->ClearRenderTargetView(rtv, kClearColor);
-    ctx->ClearDepthStencilView(dsv, D3D11_CLEAR_DEPTH, 1.0f, 0);
+    ctx->ClearDepthStencilView(dsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
 
     SetBasicPipeline();
-    const XMMATRIX viewProj = load(params.view) * load(params.projection);
     const UINT stride = sizeof(DemoVertex);
     const UINT offset = 0;
 
@@ -472,27 +522,10 @@ void Engine::DrawScene(
         }
     }
 
-    // モデルの描き方（照明・カメラの位置・輪郭線の太さ）は、1 枚の中で共通
-    ModelFrame frame{};
-    XMStoreFloat4x4(&frame.view, load(params.view));
-    XMStoreFloat4x4(&frame.viewProj, viewProj);
-    XMVECTOR lightDirection = kLightDirection;
-    XMVECTOR lightColor = XMVectorReplicate(kLightIntensity);
-    if ((params.flags & TT_FRAME_USE_LIGHT) && IsFinite3(params.light_direction) && IsFinite3(params.light_color)) {
-        const XMVECTOR direction = XMVectorSet(params.light_direction[0], params.light_direction[1], params.light_direction[2], 0.0f);
-        if (XMVectorGetX(XMVector3LengthSq(direction)) > 1e-12f) {
-            lightDirection = XMVector3Normalize(direction);
-        }
-        lightColor = XMVectorMax(XMVectorSet(params.light_color[0], params.light_color[1], params.light_color[2], 0.0f), XMVectorZero());
+    // 地面の影は、モデルより先に床へ描く（モデルの奥行きで隠れる所は、後から描くモデルが上書きする）
+    if ((params.flags & TT_FRAME_GROUND_SHADOW) && params.item_count > 0) {
+        DrawGroundShadows(params, frame);
     }
-    XMStoreFloat4(&frame.lightDirection, lightDirection);
-    XMStoreFloat4(&frame.lightColor, XMVectorSetW(lightColor, 1.0f));
-    XMVECTOR determinant;
-    const XMMATRIX inverseView = XMMatrixInverse(&determinant, load(params.view));
-    XMStoreFloat4(&frame.cameraPosition, XMVectorSetW(inverseView.r[3], 1.0f));
-    // 材質の太さ 1 を edge_pixel_scale ピクセルにする（画面の座標は -1〜1 なので、ピクセルの 2 / 幅）
-    const float edgePixels = std::isfinite(params.edge_pixel_scale) ? std::max(0.0f, params.edge_pixel_scale) : 0.0f;
-    frame.edgeScale = {2.0f * edgePixels / static_cast<float>(width), 2.0f * edgePixels / static_cast<float>(height), 0.0f, 0.0f};
 
     // モデル（並び順に描く。半透明の材質があるので、MMD と同じく並び順をそのまま使う）
     for (uint32_t i = 0; i < params.item_count; ++i) {
@@ -530,26 +563,29 @@ void Engine::SetBasicPipeline()
     ctx->OMSetBlendState(nullptr, nullptr, 0xFFFFFFFF);
 }
 
-void Engine::DrawMesh(const Mesh& mesh, DirectX::FXMMATRIX world, const ModelFrame& frame)
+void Engine::WriteObjectConstants(DirectX::FXMMATRIX world, DirectX::CXMMATRIX worldViewProj, const ModelFrame& frame)
 {
     using namespace DirectX;
-    if (mesh.IsEmpty()) {
-        return;
-    }
     ID3D11DeviceContext* ctx = context_.Get();
-
     D3D11_MAPPED_SUBRESOURCE mapped{};
     CheckHr(ctx->Map(objectConstantBuffer_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped), L"モデルの定数バッファーの更新");
     auto* object = static_cast<ObjectConstants*>(mapped.pData);
-    XMStoreFloat4x4(&object->worldViewProj, world * XMLoadFloat4x4(&frame.viewProj));
+    XMStoreFloat4x4(&object->worldViewProj, worldViewProj);
     XMStoreFloat4x4(&object->world, world);
     object->view = frame.view;
     object->lightDirection = frame.lightDirection;
     object->lightColor = frame.lightColor;
     object->cameraPosition = frame.cameraPosition;
     object->edgeScale = frame.edgeScale;
+    object->lightViewProj = frame.lightViewProj;
+    object->shadowParams = frame.shadowParams;
+    object->groundShadowColor = frame.groundShadowColor;
     ctx->Unmap(objectConstantBuffer_.Get(), 0);
+}
 
+void Engine::BindMesh(const Mesh& mesh)
+{
+    ID3D11DeviceContext* ctx = context_.Get();
     const UINT strides[] = {sizeof(TtMeshVertex), sizeof(float)};
     const UINT offsets[] = {0, 0};
     ID3D11Buffer* vertexBuffers[] = {mesh.VertexBuffer(), mesh.EdgeScaleBuffer()};
@@ -557,15 +593,30 @@ void Engine::DrawMesh(const Mesh& mesh, DirectX::FXMMATRIX world, const ModelFra
     ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     ctx->IASetVertexBuffers(0, 2, vertexBuffers, strides, offsets);
     ctx->IASetIndexBuffer(mesh.IndexBuffer(), DXGI_FORMAT_R32_UINT, 0);
-    ctx->VSSetShader(modelVertexShader_.Get(), nullptr, 0);
     ID3D11Buffer* constantBuffers[] = {objectConstantBuffer_.Get(), materialConstantBuffer_.Get()};
     ctx->VSSetConstantBuffers(0, 2, constantBuffers);
-    ctx->PSSetShader(modelPixelShader_.Get(), nullptr, 0);
     ctx->PSSetConstantBuffers(0, 2, constantBuffers);
-    ID3D11SamplerState* samplers[] = {textureSampler_.Get(), clampSampler_.Get()};
-    ctx->PSSetSamplers(0, 2, samplers);
+}
+
+void Engine::DrawMesh(const Mesh& mesh, DirectX::FXMMATRIX world, const ModelFrame& frame)
+{
+    using namespace DirectX;
+    if (mesh.IsEmpty()) {
+        return;
+    }
+    ID3D11DeviceContext* ctx = context_.Get();
+    WriteObjectConstants(world, world * XMLoadFloat4x4(&frame.viewProj), frame);
+    BindMesh(mesh);
+    ctx->VSSetShader(modelVertexShader_.Get(), nullptr, 0);
+    ctx->PSSetShader(modelPixelShader_.Get(), nullptr, 0);
+    ID3D11SamplerState* samplers[] = {textureSampler_.Get(), clampSampler_.Get(), shadowSampler_.Get()};
+    ctx->PSSetSamplers(0, 3, samplers);
     ctx->OMSetDepthStencilState(modelDepthState_.Get(), 0);
     ctx->OMSetBlendState(alphaBlendState_.Get(), nullptr, 0xFFFFFFFF);
+    const bool selfShadow = frame.shadowParams.z > 0.5f;
+    ID3D11ShaderResourceView* shadowMap = selfShadow && shadowMapSrv_ ? shadowMapSrv_.Get() : noShadowMap_.Get();
+    ctx->PSSetShaderResources(3, 1, &shadowMap);
+    D3D11_MAPPED_SUBRESOURCE mapped{};
 
     auto view = [&](const std::shared_ptr<TextureImage>& image) {
         return image && image->View() ? image->View() : whiteTexture_.Get();
@@ -587,7 +638,7 @@ void Engine::DrawMesh(const Mesh& mesh, DirectX::FXMMATRIX world, const ModelFra
         constants->toonAdd = material.toonAdd;
         constants->edgeColor = material.edgeColor;
         constants->options = {static_cast<float>(material.sphere ? material.sphereMode : TT_SPHERE_NONE),
-            material.toon ? 1.0f : 0.0f, material.edgeSize, 0.0f};
+            material.toon ? 1.0f : 0.0f, material.edgeSize, selfShadow && material.receiveShadow ? 1.0f : 0.0f};
         ctx->Unmap(materialConstantBuffer_.Get(), 0);
 
         ID3D11ShaderResourceView* textures[] = {view(material.texture), view(material.toon), view(material.sphere)};
@@ -596,8 +647,8 @@ void Engine::DrawMesh(const Mesh& mesh, DirectX::FXMMATRIX world, const ModelFra
         ctx->DrawIndexed(material.indexCount, material.indexStart, 0);
     }
 
-    ID3D11ShaderResourceView* none[3] = {};
-    ctx->PSSetShaderResources(0, 3, none);
+    ID3D11ShaderResourceView* none[4] = {};
+    ctx->PSSetShaderResources(0, 4, none);
 }
 
 void Engine::DrawEdges(const Mesh& mesh)
@@ -622,6 +673,162 @@ void Engine::DrawEdges(const Mesh& mesh)
         constants->options = {0.0f, 0.0f, material.edgeSize, 0.0f};
         ctx->Unmap(materialConstantBuffer_.Get(), 0);
         ctx->DrawIndexed(material.indexCount, material.indexStart, 0);
+    }
+}
+
+void Engine::EnsureShadowMap(UINT size)
+{
+    if (shadowMapSize_ == size && shadowMapDsv_ && shadowMapSrv_) {
+        return;
+    }
+    shadowMapSrv_.Reset();
+    shadowMapDsv_.Reset();
+    shadowMapSize_ = 0;
+    D3D11_TEXTURE2D_DESC desc{};
+    desc.Width = size;
+    desc.Height = size;
+    desc.MipLevels = 1;
+    desc.ArraySize = 1;
+    desc.Format = DXGI_FORMAT_R32_TYPELESS; // 奥行きとして書き、数として読む
+    desc.SampleDesc.Count = 1;
+    desc.Usage = D3D11_USAGE_DEFAULT;
+    desc.BindFlags = D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE;
+    ComPtr<ID3D11Texture2D> texture;
+    CheckHr(device_->CreateTexture2D(&desc, nullptr, &texture), L"セルフシャドウの奥行きの画像の作成");
+    D3D11_DEPTH_STENCIL_VIEW_DESC dsv{};
+    dsv.Format = DXGI_FORMAT_D32_FLOAT;
+    dsv.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
+    CheckHr(device_->CreateDepthStencilView(texture.Get(), &dsv, &shadowMapDsv_), L"セルフシャドウの奥行きの書き込み先の作成");
+    D3D11_SHADER_RESOURCE_VIEW_DESC srv{};
+    srv.Format = DXGI_FORMAT_R32_FLOAT;
+    srv.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+    srv.Texture2D.MipLevels = 1;
+    CheckHr(device_->CreateShaderResourceView(texture.Get(), &srv, &shadowMapSrv_), L"セルフシャドウの奥行きの読み出しの作成");
+    shadowMapSize_ = size;
+}
+
+bool Engine::RenderShadowMap(const TtFrameParams& params, ModelFrame& frame)
+{
+    using namespace DirectX;
+    auto load = [](const float (&m)[16]) { return XMLoadFloat4x4(reinterpret_cast<const XMFLOAT4X4*>(m)); };
+
+    // 照明から見た向き。真上・真下から照らすときは、上の向きを Z にする
+    const XMVECTOR direction = XMLoadFloat4(&frame.lightDirection);
+    const XMVECTOR up = std::abs(XMVectorGetY(direction)) > 0.99f ? XMVectorSet(0, 0, 1, 0) : XMVectorSet(0, 1, 0, 0);
+    const XMMATRIX lightView = XMMatrixLookToLH(XMVectorZero(), direction, up);
+
+    // 照明から見た縦横の範囲は、影を落とすモデルの囲みの箱が全部入るように（影はその外へは落ちない）。
+    // 奥行きの範囲は、影を受けるモデルも入るように（影を落とすものより照明から遠い床なども、範囲の外にしない）
+    XMVECTOR lo = XMVectorReplicate(FLT_MAX);
+    XMVECTOR hi = XMVectorReplicate(-FLT_MAX);
+    float nearZ = FLT_MAX;
+    float farZ = -FLT_MAX;
+    bool any = false;
+    for (uint32_t i = 0; i < params.item_count; ++i) {
+        const auto& mesh = *reinterpret_cast<const Mesh*>(params.items[i].mesh);
+        if (mesh.IsEmpty()) {
+            continue;
+        }
+        const XMMATRIX toLight = load(params.items[i].world) * lightView;
+        const XMFLOAT3& a = mesh.BoundsMin();
+        const XMFLOAT3& b = mesh.BoundsMax();
+        for (int corner = 0; corner < 8; ++corner) {
+            const XMVECTOR p = XMVector3Transform(
+                XMVectorSet((corner & 1) ? b.x : a.x, (corner & 2) ? b.y : a.y, (corner & 4) ? b.z : a.z, 1.0f), toLight);
+            nearZ = std::min(nearZ, XMVectorGetZ(p));
+            farZ = std::max(farZ, XMVectorGetZ(p));
+            if (mesh.CastsShadow()) {
+                lo = XMVectorMin(lo, p);
+                hi = XMVectorMax(hi, p);
+                any = true;
+            }
+        }
+    }
+    if (!any) {
+        return false;
+    }
+    XMFLOAT3 l;
+    XMFLOAT3 h;
+    XMStoreFloat3(&l, lo);
+    XMStoreFloat3(&h, hi);
+    l.z = nearZ;
+    h.z = farZ;
+    const float pad = std::max({h.x - l.x, h.y - l.y, h.z - l.z}) * 0.02f + 0.01f;
+    const float depthRange = (h.z - l.z) + 2.0f * pad;
+    const XMMATRIX lightProj = XMMatrixOrthographicOffCenterLH(l.x - pad, h.x + pad, l.y - pad, h.y + pad, l.z - pad, h.z + pad);
+    const XMMATRIX lightViewProj = lightView * lightProj;
+
+    const UINT size = params.shadow_map_size == 0 ? kDefaultShadowMapSize : std::clamp<UINT>(params.shadow_map_size, 256, 8192);
+    EnsureShadowMap(size);
+
+    ID3D11DeviceContext* ctx = context_.Get();
+    ID3D11ShaderResourceView* none = nullptr;
+    ctx->PSSetShaderResources(3, 1, &none); // 前の描画で読んでいた画像には書けないので外す
+    ctx->OMSetRenderTargets(0, nullptr, shadowMapDsv_.Get());
+    const D3D11_VIEWPORT viewport{0.0f, 0.0f, static_cast<float>(size), static_cast<float>(size), 0.0f, 1.0f};
+    ctx->RSSetViewports(1, &viewport);
+    ctx->ClearDepthStencilView(shadowMapDsv_.Get(), D3D11_CLEAR_DEPTH, 1.0f, 0);
+    ctx->VSSetShader(shadowVertexShader_.Get(), nullptr, 0);
+    ctx->PSSetShader(nullptr, nullptr, 0); // 奥行きだけを書く
+    ctx->RSSetState(shadowCasterState_.Get());
+    ctx->OMSetDepthStencilState(modelDepthState_.Get(), 0);
+    ctx->OMSetBlendState(nullptr, nullptr, 0xFFFFFFFF);
+
+    ModelFrame casterFrame = frame;
+    for (uint32_t i = 0; i < params.item_count; ++i) {
+        const auto& mesh = *reinterpret_cast<const Mesh*>(params.items[i].mesh);
+        if (mesh.IsEmpty() || !mesh.CastsShadow()) {
+            continue;
+        }
+        const XMMATRIX world = load(params.items[i].world);
+        WriteObjectConstants(world, world * lightViewProj, casterFrame);
+        BindMesh(mesh);
+        for (const Mesh::Material& material : mesh.Materials()) {
+            if (material.castShadow && material.indexCount > 0 && material.diffuse.w > 0.0f) {
+                ctx->DrawIndexed(material.indexCount, material.indexStart, 0);
+            }
+        }
+    }
+    ctx->OMSetRenderTargets(0, nullptr, nullptr);
+
+    XMStoreFloat4x4(&frame.lightViewProj, lightViewProj);
+    frame.shadowParams = {1.0f / static_cast<float>(size), kShadowBiasWorld / std::max(depthRange, 1e-3f), 1.0f, 0.0f};
+    return true;
+}
+
+void Engine::DrawGroundShadows(const TtFrameParams& params, const ModelFrame& frame)
+{
+    using namespace DirectX;
+    auto load = [](const float (&m)[16]) { return XMLoadFloat4x4(reinterpret_cast<const XMFLOAT4X4*>(m)); };
+    // 下から・真横から照らすときは、床に影を落とさない
+    const XMVECTOR direction = XMLoadFloat4(&frame.lightDirection);
+    if (XMVectorGetY(direction) > -0.05f || frame.groundShadowColor.w <= 0.0f) {
+        return;
+    }
+    // 高さ 0 の床へ、照明の向きに押しつぶす（DirectXMath の影の行列は、w = 0 の「光の来る向き」で平行光になる）
+    const XMMATRIX flatten = XMMatrixShadow(XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f), XMVectorNegate(direction))
+        * XMMatrixTranslation(0.0f, kGroundShadowLift, 0.0f);
+    const XMMATRIX viewProj = XMLoadFloat4x4(&frame.viewProj);
+
+    ID3D11DeviceContext* ctx = context_.Get();
+    ctx->VSSetShader(shadowVertexShader_.Get(), nullptr, 0);
+    ctx->PSSetShader(groundShadowPixelShader_.Get(), nullptr, 0);
+    ctx->RSSetState(cullNoneState_.Get()); // 押しつぶすと面の向きが変わることがある
+    ctx->OMSetDepthStencilState(groundShadowState_.Get(), 0);
+    ctx->OMSetBlendState(alphaBlendState_.Get(), nullptr, 0xFFFFFFFF);
+    for (uint32_t i = 0; i < params.item_count; ++i) {
+        const auto& mesh = *reinterpret_cast<const Mesh*>(params.items[i].mesh);
+        if (mesh.IsEmpty() || !mesh.HasGroundShadow()) {
+            continue;
+        }
+        const XMMATRIX world = load(params.items[i].world);
+        WriteObjectConstants(world, world * flatten * viewProj, frame);
+        BindMesh(mesh);
+        for (const Mesh::Material& material : mesh.Materials()) {
+            if (material.groundShadow && material.indexCount > 0 && material.diffuse.w > 0.0f) {
+                ctx->DrawIndexed(material.indexCount, material.indexStart, 0);
+            }
+        }
     }
 }
 
@@ -693,6 +900,9 @@ void Engine::CreateModelResources()
         {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 24, D3D11_INPUT_PER_VERTEX_DATA, 0},
         {"TEXCOORD", 1, DXGI_FORMAT_R32_FLOAT, 1, 0, D3D11_INPUT_PER_VERTEX_DATA, 0},
     };
+    CheckHr(device_->CreateVertexShader(g_ShadowVS, sizeof(g_ShadowVS), nullptr, &shadowVertexShader_), L"影の頂点シェーダーの作成");
+    CheckHr(device_->CreatePixelShader(g_GroundShadowPS, sizeof(g_GroundShadowPS), nullptr, &groundShadowPixelShader_),
+        L"地面の影のピクセルシェーダーの作成");
     // 輪郭線の頂点シェーダーは全部の要素を使うので、そちらに合わせて作る（モデルの頂点シェーダーにも使える）
     CheckHr(device_->CreateInputLayout(layout, ARRAYSIZE(layout), g_EdgeVS, sizeof(g_EdgeVS), &modelInputLayout_),
         L"モデルの頂点レイアウトの作成");
@@ -721,12 +931,27 @@ void Engine::CreateModelResources()
     rs.DepthBias = 64;
     rs.SlopeScaledDepthBias = 1.0f;
     CheckHr(device_->CreateRasterizerState(&rs, &cullFrontState_), L"裏側の面だけ描く設定の作成");
+    // セルフシャドウの奥行きの画像は両面を描き、面の傾きに応じて奥へずらす（影が自分の面に細かく落ちるのを防ぐ）
+    rs.CullMode = D3D11_CULL_NONE;
+    rs.DepthBias = 0;
+    rs.SlopeScaledDepthBias = 1.5f;
+    rs.DepthBiasClamp = 0.01f;
+    CheckHr(device_->CreateRasterizerState(&rs, &shadowCasterState_), L"影を落とす面の設定の作成");
 
     D3D11_DEPTH_STENCIL_DESC ds{};
     ds.DepthEnable = TRUE;
     ds.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
     ds.DepthFunc = D3D11_COMPARISON_LESS_EQUAL;
     CheckHr(device_->CreateDepthStencilState(&ds, &modelDepthState_), L"モデルの深度設定の作成");
+    // 地面の影: 奥行きは比べるだけ。ステンシルが 0 の所だけに描いて 1 にする（重なった影を二重に濃くしない）
+    D3D11_DEPTH_STENCIL_DESC shadowDs = ds;
+    shadowDs.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
+    shadowDs.StencilEnable = TRUE;
+    shadowDs.StencilReadMask = 0xFF;
+    shadowDs.StencilWriteMask = 0xFF;
+    shadowDs.FrontFace = {D3D11_STENCIL_OP_KEEP, D3D11_STENCIL_OP_KEEP, D3D11_STENCIL_OP_INCR_SAT, D3D11_COMPARISON_EQUAL};
+    shadowDs.BackFace = shadowDs.FrontFace;
+    CheckHr(device_->CreateDepthStencilState(&shadowDs, &groundShadowState_), L"地面の影の深度設定の作成");
 
     D3D11_BLEND_DESC blend{};
     blend.RenderTarget[0].BlendEnable = TRUE;
@@ -754,6 +979,16 @@ void Engine::CreateModelResources()
     sampler.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
     sampler.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
     CheckHr(device_->CreateSamplerState(&sampler, &clampSampler_), L"端で止めるテクスチャの読み方の設定の作成");
+    // セルフシャドウ: 奥行きを比べる（範囲の外は「影なし」）
+    D3D11_SAMPLER_DESC shadowSampler{};
+    shadowSampler.Filter = D3D11_FILTER_COMPARISON_MIN_MAG_LINEAR_MIP_POINT;
+    shadowSampler.AddressU = D3D11_TEXTURE_ADDRESS_BORDER;
+    shadowSampler.AddressV = D3D11_TEXTURE_ADDRESS_BORDER;
+    shadowSampler.AddressW = D3D11_TEXTURE_ADDRESS_BORDER;
+    shadowSampler.BorderColor[0] = shadowSampler.BorderColor[1] = shadowSampler.BorderColor[2] = shadowSampler.BorderColor[3] = 1.0f;
+    shadowSampler.ComparisonFunc = D3D11_COMPARISON_LESS_EQUAL;
+    shadowSampler.MaxLOD = D3D11_FLOAT32_MAX;
+    CheckHr(device_->CreateSamplerState(&shadowSampler, &shadowSampler_), L"影の奥行きの比べ方の設定の作成");
 
     // テクスチャの無い材質に使う白
     const uint32_t white = 0xFFFFFFFF;
@@ -770,6 +1005,15 @@ void Engine::CreateModelResources()
     ComPtr<ID3D11Texture2D> texture;
     CheckHr(device_->CreateTexture2D(&td, &init, &texture), L"白いテクスチャの作成");
     CheckHr(device_->CreateShaderResourceView(texture.Get(), nullptr, &whiteTexture_), L"白いテクスチャのビューの作成");
+
+    // セルフシャドウを使わない間に渡す、奥行き 1（何も無い）の 1 x 1 の画像
+    const float farDepth = 1.0f;
+    D3D11_TEXTURE2D_DESC sd = td;
+    sd.Format = DXGI_FORMAT_R32_FLOAT;
+    D3D11_SUBRESOURCE_DATA shadowInit{&farDepth, 4, 0};
+    ComPtr<ID3D11Texture2D> noShadow;
+    CheckHr(device_->CreateTexture2D(&sd, &shadowInit, &noShadow), L"影なしの奥行きの画像の作成");
+    CheckHr(device_->CreateShaderResourceView(noShadow.Get(), nullptr, &noShadowMap_), L"影なしの奥行きの画像のビューの作成");
 }
 
 } // namespace tt

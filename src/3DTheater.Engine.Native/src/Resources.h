@@ -65,6 +65,9 @@ public:
         DirectX::XMFLOAT3 ambient;
         bool doubleSided;
         bool edge;
+        bool groundShadow;
+        bool castShadow;
+        bool receiveShadow;
         std::shared_ptr<TextureImage> texture; // 無ければ空（白として描く）
         std::shared_ptr<TextureImage> toon;    // 無ければ陰影を付けない
         std::shared_ptr<TextureImage> sphere;
@@ -93,6 +96,8 @@ public:
     ID3D11Buffer* EdgeScaleBuffer() const noexcept { return edgeScaleBuffer_.Get(); }
     ID3D11Buffer* IndexBuffer() const noexcept { return indexBuffer_.Get(); }
     bool HasEdges() const noexcept { return hasEdges_; }
+    bool CastsShadow() const noexcept { return castsShadow_; }
+    bool HasGroundShadow() const noexcept { return hasGroundShadow_; }
     const std::vector<Material>& Materials() const noexcept { return materials_; }
     bool IsEmpty() const noexcept { return !vertexBuffer_ || !indexBuffer_; }
 
@@ -123,6 +128,8 @@ private:
     ComPtr<ID3D11Buffer> indexBuffer_;
     std::vector<Material> materials_;
     bool hasEdges_ = false;
+    bool castsShadow_ = false;
+    bool hasGroundShadow_ = false;
     DirectX::XMFLOAT3 boundsMin_{};
     DirectX::XMFLOAT3 boundsMax_{};
 };

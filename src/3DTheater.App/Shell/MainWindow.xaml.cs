@@ -73,7 +73,9 @@ public partial class MainWindow : Window
         context.Gizmo.Changed += (_, _) => UpdateGizmoControls();
         UpdateGizmoControls();
         context.Physics.Changed += (_, _) => UpdatePhysicsControls();
+        context.Rendering.Changed += (_, _) => UpdateRenderingControls();
         UpdatePhysicsControls();
+        UpdateRenderingControls();
 
         _statusTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(500), DispatcherPriority.Background, (_, _) => UpdateStatus(), Dispatcher);
         _statusTimer.Start();
@@ -533,6 +535,16 @@ public partial class MainWindow : Window
     {
         _context.Physics.Reset();
         Logging.AppLog.Info("物理をリセットしました（剛体を今の姿勢に置き直しました）");
+    }
+
+    private void OnSelfShadowClick(object sender, RoutedEventArgs e) => _context.Rendering.SelfShadow = SelfShadowMenuItem.IsChecked;
+
+    private void OnGroundShadowClick(object sender, RoutedEventArgs e) => _context.Rendering.GroundShadow = GroundShadowMenuItem.IsChecked;
+
+    private void UpdateRenderingControls()
+    {
+        SelfShadowMenuItem.IsChecked = _context.Rendering.SelfShadow;
+        GroundShadowMenuItem.IsChecked = _context.Rendering.GroundShadow;
     }
 
     private void UpdatePhysicsControls()

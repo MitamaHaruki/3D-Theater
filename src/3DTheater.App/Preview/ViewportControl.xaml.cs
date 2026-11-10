@@ -273,8 +273,17 @@ public partial class ViewportControl : UserControl, IDisposable
         _gizmo.Append(_lines, new GizmoController.ViewInfo(matrices.View, matrices.Projection, new Vector2(pixelWidth, pixelHeight) / DpiScale()));
         // 照明はシーンの照明の項目から、輪郭線の太さは画面の高さから決める（どちらもトゥーン描画で使う）
         var (lightDirection, lightColor) = SceneLighting.From(_context.MainLight);
-        return new FrameParameters(flags | FrameFlags.UseLight, matrices.View, matrices.Projection, gridWorld, testWorld, _drawItems, _lines.Memory,
-            lightDirection, lightColor, SceneLighting.EdgePixelScale(pixelHeight));
+        flags |= FrameFlags.UseLight;
+        if (_context.Rendering.SelfShadow)
+        {
+            flags |= FrameFlags.SelfShadow;
+        }
+        if (_context.Rendering.GroundShadow)
+        {
+            flags |= FrameFlags.GroundShadow;
+        }
+        return new FrameParameters(flags, matrices.View, matrices.Projection, gridWorld, testWorld, _drawItems, _lines.Memory,
+            lightDirection, lightColor, SceneLighting.EdgePixelScale(pixelHeight), RenderSettings.GroundShadowColor);
     }
 
     private static float MaxScale(SceneNode node) => Math.Max(Math.Abs(node.Scale.X), Math.Max(Math.Abs(node.Scale.Y), Math.Abs(node.Scale.Z)));

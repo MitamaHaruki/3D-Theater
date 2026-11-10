@@ -27,7 +27,7 @@ extern "C" {
 
 // 上位 16 ビットが大きな版、下位 16 ビットが小さな版。大きな版が違う DLL とは組み合わせない。
 #define TT_API_VERSION_MAJOR 0
-#define TT_API_VERSION_MINOR 6
+#define TT_API_VERSION_MINOR 7
 #define TT_API_VERSION ((TT_API_VERSION_MAJOR << 16) | TT_API_VERSION_MINOR)
 
 // 0 以上は成功、負の値は失敗。
@@ -100,6 +100,8 @@ enum {
     TT_FRAME_SHOW_TEST_OBJECT = 1u << 4,
     TT_FRAME_TEST_OBJECT_SELECTED = 1u << 5, // 確認用の立方体の輪郭を強調する
     TT_FRAME_USE_LIGHT = 1u << 6,            // light_direction・light_color を使う（無ければ MMD の初期の照明）
+    TT_FRAME_SELF_SHADOW = 1u << 7,          // セルフシャドウ（照明から見た奥行きの画像で、モデルに落ちる影を描く。API 0.7）
+    TT_FRAME_GROUND_SHADOW = 1u << 8,        // 地面の影（高さ 0 の床へ照明の向きに押しつぶして描く。API 0.7）
 };
 
 // ---- モデルの形（メッシュ）と材質 ----
@@ -114,6 +116,9 @@ typedef struct TtMeshVertex {
 enum {
     TT_MATERIAL_DOUBLE_SIDED = 1u << 0, // 裏面も描く（無ければ時計回りの面を表として裏面を描かない）
     TT_MATERIAL_EDGE = 1u << 1,         // 輪郭線を描く（API 0.6）
+    TT_MATERIAL_GROUND_SHADOW = 1u << 2, // 地面の影を落とす（API 0.7）
+    TT_MATERIAL_CAST_SHADOW = 1u << 3,   // セルフシャドウを落とす（API 0.7）
+    TT_MATERIAL_RECEIVE_SHADOW = 1u << 4, // セルフシャドウを受ける（API 0.7）。受ける材質は、影の中をトゥーンの影の色で描く（MMD と同じ）
 };
 
 enum {
@@ -207,6 +212,10 @@ typedef struct TtFrameParams {
     float edge_pixel_scale;   // 材質の輪郭線の太さ 1 を何ピクセルにするか。0 なら輪郭線を描かない
     float light_color[3];     // 照明の色（MMD の初期値は 154/255）。TT_FRAME_USE_LIGHT のときだけ使う
     uint32_t reserved3;
+    // ここから API 0.7
+    float ground_shadow_color[4]; // 地面の影の色（a は不透明度）
+    uint32_t shadow_map_size;     // セルフシャドウの奥行きの画像の 1 辺（0 なら 2048。256〜8192）
+    uint32_t reserved4;
 } TtFrameParams;
 
 TT_API uint32_t TT_CALL tt_get_api_version(void);

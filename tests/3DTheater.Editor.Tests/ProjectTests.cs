@@ -142,6 +142,34 @@ public sealed class ProjectTests
     }
 
     [TestMethod]
+    public void RenderingSettingsAreSavedAndOldFilesUseTheDefaults()
+    {
+        var settings = new RenderSettings();
+        int changes = 0;
+        settings.Changed += (_, _) => changes++;
+        settings.SelfShadow = false;
+        settings.SelfShadow = false; // 同じ値なら知らせない
+        Assert.AreEqual(1, changes);
+
+        var report = new LoadReport();
+        var project = new ProjectFile { Rendering = RenderingEntry.From(settings) };
+        ProjectFile read = ProjectSerializer.Deserialize(ProjectSerializer.Serialize(project), report)!;
+        var restored = new RenderSettings();
+        read.Rendering.ApplyTo(restored);
+        Assert.IsFalse(restored.SelfShadow);
+        Assert.IsTrue(restored.GroundShadow);
+
+        // 描き方の無い前の版のファイルは、初期の設定（どちらも ON）
+        ProjectFile old = ProjectSerializer.Deserialize("""{"format":"3DTheater.Project","version":1}""", report)!;
+        var fromOld = new RenderSettings { SelfShadow = false, GroundShadow = false };
+        old.Rendering.ApplyTo(fromOld);
+        Assert.IsTrue(fromOld.SelfShadow && fromOld.GroundShadow);
+
+        restored.Reset();
+        Assert.IsTrue(restored.SelfShadow, "新しいプロジェクトは初期の設定に戻す");
+    }
+
+    [TestMethod]
     public void BrokenNewerOrForeignFilesAreRejected()
     {
         var report = new LoadReport();

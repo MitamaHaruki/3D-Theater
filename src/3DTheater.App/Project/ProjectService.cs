@@ -26,7 +26,7 @@ internal sealed class ProjectService
     private readonly Window _owner;
     private readonly DispatcherTimer _autosaveTimer;
     private int _suppressDirty;
-    private (int FrameRate, int EndFrame, bool Loop, bool Physics) _playbackSettings;
+    private (int FrameRate, int EndFrame, bool Loop, bool Physics, bool SelfShadow, bool GroundShadow) _playbackSettings;
 
     public ProjectService(EditorContext context, Window owner)
     {
@@ -42,6 +42,7 @@ internal sealed class ProjectService
             }
         };
         context.Physics.Changed += (_, _) => OnPlaybackSettingsChanged();
+        context.Rendering.Changed += (_, _) => OnPlaybackSettingsChanged();
         context.Playback.StateChanged += (_, _) => OnPlaybackSettingsChanged();
         _autosaveTimer = new DispatcherTimer(AutosaveInterval, DispatcherPriority.Background, (_, _) => Autosave(), owner.Dispatcher);
         _autosaveTimer.Start();
@@ -149,6 +150,7 @@ internal sealed class ProjectService
             _context.ResetProject();
             ProjectApply.ApplyScene(_context.Scene, _context.Playback, _context.Animation, project, report);
             _context.Physics.Enabled = project.Physics;
+            (project.Rendering ?? new RenderingEntry()).ApplyTo(_context.Rendering);
             // 自動保存のファイルは別の場所にあるので、モデルの場所は元のプロジェクトのフォルダーから探す
             string? baseDirectory = Path.GetDirectoryName(recoveredFrom is not null && project.AutosaveOf is { } original ? original : fullPath);
             foreach (ModelEntry entry in project.Models)
@@ -295,6 +297,7 @@ internal sealed class ProjectService
             ProjectFile project = ProjectCapture.Capture(_context.Scene, _context.Playback, _context.Animation,
                 Path.GetDirectoryName(fullPath), _context.MissingModels, _context.MissingAudio);
             project.Physics = _context.Physics.Enabled;
+            project.Rendering = RenderingEntry.From(_context.Rendering);
             SafeFile.WriteAllText(fullPath, ProjectSerializer.Serialize(project));
             SetClean(fullPath);
             DeleteOwnAutosave();
@@ -338,6 +341,7 @@ internal sealed class ProjectService
             string? directory = CurrentPath is null ? null : Path.GetDirectoryName(CurrentPath);
             ProjectFile project = ProjectCapture.Capture(_context.Scene, _context.Playback, _context.Animation, directory, _context.MissingModels, _context.MissingAudio);
             project.Physics = _context.Physics.Enabled;
+            project.Rendering = RenderingEntry.From(_context.Rendering);
             project.AutosaveOf = CurrentPath;
             SafeFile.WriteAllText(OwnAutosaveFile, ProjectSerializer.Serialize(project));
         }
@@ -446,8 +450,9 @@ internal sealed class ProjectService
         }
     }
 
-    private (int, int, bool, bool) PlaybackSettings() =>
-        (_context.Playback.FrameRate, _context.Playback.EndFrame, _context.Playback.Loop, _context.Physics.Enabled);
+    private (int, int, bool, bool, bool, bool) PlaybackSettings() =>
+        (_context.Playback.FrameRate, _context.Playback.EndFrame, _context.Playback.Loop, _context.Physics.Enabled,
+            _context.Rendering.SelfShadow, _context.Rendering.GroundShadow);
 
     private void ShowReport(string path, LoadReport report)
     {

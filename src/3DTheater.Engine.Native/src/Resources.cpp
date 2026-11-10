@@ -115,6 +115,9 @@ Mesh::Mesh(Engine& engine, const TtMeshDesc& desc) : engine_(engine)
         material.ambient = {m.ambient[0], m.ambient[1], m.ambient[2]};
         material.doubleSided = (m.flags & TT_MATERIAL_DOUBLE_SIDED) != 0;
         material.edge = (m.flags & TT_MATERIAL_EDGE) != 0;
+        material.groundShadow = (m.flags & TT_MATERIAL_GROUND_SHADOW) != 0;
+        material.castShadow = (m.flags & TT_MATERIAL_CAST_SHADOW) != 0;
+        material.receiveShadow = (m.flags & TT_MATERIAL_RECEIVE_SHADOW) != 0;
         material.texture = image(m.texture, i, L"テクスチャ");
         material.toon = image(m.toon_texture, i, L"トゥーンのテクスチャ");
         material.sphere = image(m.sphere_texture, i, L"スフィアのテクスチャ");
@@ -122,6 +125,8 @@ Mesh::Mesh(Engine& engine, const TtMeshDesc& desc) : engine_(engine)
         material.edgeSize = std::isfinite(m.edge_size) ? std::max(0.0f, m.edge_size) : 0.0f;
         material.edgeColor = {m.edge_color[0], m.edge_color[1], m.edge_color[2], m.edge_color[3]};
         hasEdges_ |= material.edge && material.indexCount > 0;
+        castsShadow_ |= material.castShadow && material.indexCount > 0;
+        hasGroundShadow_ |= material.groundShadow && material.indexCount > 0;
         materials_.push_back(std::move(material));
     }
 

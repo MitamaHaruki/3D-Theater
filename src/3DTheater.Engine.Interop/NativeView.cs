@@ -87,6 +87,8 @@ public sealed unsafe class NativeView : IDisposable
                 LightDirection = frame.LightDirection,
                 LightColor = frame.LightColor,
                 EdgePixelScale = frame.EdgePixelScale,
+                GroundShadowColor = frame.GroundShadowColor,
+                ShadowMapSize = (uint)Math.Max(0, frame.ShadowMapSize),
             };
             return NativeError.Check(NativeMethods.ViewRender(Handle, &parameters)) == NativeResult.Ok;
         }

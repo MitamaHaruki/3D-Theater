@@ -52,6 +52,9 @@ internal unsafe struct TtFrameParams
     public float EdgePixelScale;
     public Vector3 LightColor;
     public uint Reserved3;
+    public Vector4 GroundShadowColor;
+    public uint ShadowMapSize;
+    public uint Reserved4;
 }
 
 [StructLayout(LayoutKind.Sequential)]

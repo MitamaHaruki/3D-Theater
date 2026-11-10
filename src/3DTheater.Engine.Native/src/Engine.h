@@ -86,9 +86,17 @@ private:
         DirectX::XMFLOAT4 lightColor;
         DirectX::XMFLOAT4 cameraPosition;
         DirectX::XMFLOAT4 edgeScale;
+        DirectX::XMFLOAT4X4 lightViewProj; // セルフシャドウ（shadowParams.z が 1 のときだけ使う）
+        DirectX::XMFLOAT4 shadowParams;
+        DirectX::XMFLOAT4 groundShadowColor;
     };
+    void WriteObjectConstants(DirectX::FXMMATRIX world, DirectX::CXMMATRIX worldViewProj, const ModelFrame& frame);
+    void BindMesh(const Mesh& mesh);
     void DrawMesh(const Mesh& mesh, DirectX::FXMMATRIX world, const ModelFrame& frame);
     void DrawEdges(const Mesh& mesh);
+    bool RenderShadowMap(const TtFrameParams& params, ModelFrame& frame);
+    void DrawGroundShadows(const TtFrameParams& params, const ModelFrame& frame);
+    void EnsureShadowMap(UINT size);
     void DrawBox(const DirectX::XMFLOAT3& minimum, const DirectX::XMFLOAT3& maximum, DirectX::FXMMATRIX world, DirectX::CXMMATRIX viewProj);
     void DrawOverlayLines(const TtLineVertex* vertices, uint32_t count, DirectX::CXMMATRIX viewProj);
 
@@ -149,6 +157,17 @@ private:
     ComPtr<ID3D11SamplerState> textureSampler_;
     ComPtr<ID3D11SamplerState> clampSampler_;
     ComPtr<ID3D11ShaderResourceView> whiteTexture_;
+
+    // 影（セルフシャドウの奥行きの画像は、使うときに作る。使わない間は 1 x 1 の「影なし」を渡す）
+    ComPtr<ID3D11VertexShader> shadowVertexShader_;
+    ComPtr<ID3D11PixelShader> groundShadowPixelShader_;
+    ComPtr<ID3D11RasterizerState> shadowCasterState_;   // 両面・奥行きを少し奥へ
+    ComPtr<ID3D11DepthStencilState> groundShadowState_; // 奥行きは比べるだけ・ステンシルで 1 ピクセル 1 回
+    ComPtr<ID3D11SamplerState> shadowSampler_;
+    ComPtr<ID3D11ShaderResourceView> noShadowMap_;
+    ComPtr<ID3D11DepthStencilView> shadowMapDsv_;
+    ComPtr<ID3D11ShaderResourceView> shadowMapSrv_;
+    UINT shadowMapSize_ = 0;
 
     ComPtr<ID3D11Query> gpuDoneQuery_;
 };

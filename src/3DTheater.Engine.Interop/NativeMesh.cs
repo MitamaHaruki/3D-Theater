@@ -21,6 +21,15 @@ public enum MaterialFlags : uint
 
     /// <summary>輪郭線を描く。</summary>
     Edge = 1u << 1,
+
+    /// <summary>地面の影を落とす。</summary>
+    GroundShadow = 1u << 2,
+
+    /// <summary>セルフシャドウを落とす。</summary>
+    CastShadow = 1u << 3,
+
+    /// <summary>セルフシャドウを受ける（影の中はトゥーンの影の色で描く）。</summary>
+    ReceiveShadow = 1u << 4,
 }
 
 /// <summary>スフィアマップの使い方（tt_engine.h の TT_SPHERE_*）。</summary>
