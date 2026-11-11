@@ -345,6 +345,14 @@
                      Text="MMD の照明は、向き（回転）・色・明るさで、モデルの陰影と影を描きます（隠すと、材質の環境色だけ）。足した照明（シーンのメニュー「照明を追加」）は、位置・向きと色でモデルを明るくします（影は、影をレイトレーシングで求めるときだけ落とします。プレビューに目印の線が出ます）。どちらの照明も、キーで動かせます（MMD のカメラ・照明のモーションの照明のキーは、MMD の照明に当てはまります）。" />
         </StackPanel>
 
+        <!-- 映像効果 -->
+        <StackPanel Visibility="{Binding IsEffectsNode, Converter={StaticResource BoolToVisibility}}">
+          <TextBlock Text="映像効果のキー" Style="{StaticResource SectionHeaderStyle}" Margin="0,14,0,6" />
+          <TextBlock Text="{Binding KeyCountText}" />
+          <TextBlock Margin="0,6,0,0" Style="{StaticResource PlannedNoteStyle}"
+                     Text="色調補正・ブルーム・周辺減光・被写界深度・霧の値を、キーで時間とともに変えられます。値はレンダリングのメニューの「映像効果...」「霧...」で変え、ここを選んでタイムラインの「キーを登録」で今のフレームに置きます。使うか（ON / OFF）と、環境光の遮り・画面の中の反射・霧の高さは、キーで動かしません。" />
+        </StackPanel>
+
         <!-- 表示・IK -->
         <StackPanel Visibility="{Binding IsDisplay, Converter={StaticResource BoolToVisibility}}">
           <TextBlock Text="表示・IK" Style="{StaticResource SectionHeaderStyle}" Margin="0,14,0,6" />

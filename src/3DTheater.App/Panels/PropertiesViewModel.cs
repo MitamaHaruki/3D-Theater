@@ -40,6 +40,7 @@ public sealed class PropertiesViewModel : ObservableObject
         SceneNodeKind.Morph => "モーフ",
         SceneNodeKind.Audio => "音声",
         SceneNodeKind.Display => "表示・IK",
+        SceneNodeKind.Effects => "映像効果",
         _ => "グループ",
     };
 
@@ -113,6 +114,9 @@ public sealed class PropertiesViewModel : ObservableObject
 
     /// <summary>モデルの表示・IK か。</summary>
     public bool IsDisplay => _node is ModelDisplayNode;
+
+    /// <summary>映像効果の項目か。</summary>
+    public bool IsEffectsNode => _node is EffectsNode;
 
     /// <summary>表示・IK の「モデルを表示する」（MMD の「表示」）。</summary>
     public bool DisplayShown
@@ -212,7 +216,7 @@ public sealed class PropertiesViewModel : ObservableObject
 
     /// <summary>選んだボーン・モーフ・カメラ・照明に、キーに登録していない変更がある。</summary>
     public bool HasUnregisteredChange => _node is BoneNode { HasUnregisteredChange: true } or MorphNode { HasUnregisteredChange: true } or CameraNode { HasUnregisteredChange: true }
-        or LightNode { HasUnregisteredChange: true } or ModelDisplayNode { HasUnregisteredChange: true };
+        or LightNode { HasUnregisteredChange: true } or ModelDisplayNode { HasUnregisteredChange: true } or EffectsNode { HasUnregisteredChange: true };
 
     /// <summary>キーの数（ボーン・モーフ・カメラ・照明）。</summary>
     public string KeyCountText => _node switch
@@ -222,6 +226,7 @@ public sealed class PropertiesViewModel : ObservableObject
         CameraNode camera => camera.Keys.Count == 0 ? "キーなし" : $"キー {camera.Keys.Count:N0} 個（{camera.Keys.FirstFrame}〜{camera.Keys.LastFrame} フレーム）",
         LightNode light => light.Keys.Count == 0 ? "キーなし" : $"キー {light.Keys.Count:N0} 個（{light.Keys.FirstFrame}〜{light.Keys.LastFrame} フレーム）",
         ModelDisplayNode display => display.Keys.Count == 0 ? "キーなし" : $"キー {display.Keys.Count:N0} 個（{display.Keys.FirstFrame}〜{display.Keys.LastFrame} フレーム）",
+        EffectsNode effects => effects.Keys.Count == 0 ? "キーなし" : $"キー {effects.Keys.Count:N0} 個（{effects.Keys.FirstFrame}〜{effects.Keys.LastFrame} フレーム）",
         _ => string.Empty,
     };
 

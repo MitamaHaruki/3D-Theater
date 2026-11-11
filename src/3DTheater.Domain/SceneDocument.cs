@@ -33,6 +33,9 @@ public sealed class SceneDocument
     /// <summary>照明を置くグループ（最初の照明は MMD の照明で外せない。「照明を追加」で足した照明はその後ろに並ぶ）。</summary>
     public SceneNode LightsGroup { get; private set; } = null!;
 
+    /// <summary>映像効果（映像効果の値を動かすキーを持つ）。</summary>
+    public EffectsNode Effects { get; private set; } = null!;
+
     /// <summary>MMD の照明（決まった役目の「light」）。</summary>
     public LightNode MainLight => (LightNode)_fixedNodes["light"];
 
@@ -134,8 +137,10 @@ public sealed class SceneDocument
         var models = Group("モデル");
         var stage = Group("ステージ");
         var audio = Group("音声");
+        var effects = new EffectsNode();
         document.Add(root, cameras);
         document.Add(root, lights);
+        document.Add(root, effects);
         document.Add(root, models);
         document.Add(root, stage);
         document.Add(root, audio);
@@ -156,6 +161,7 @@ public sealed class SceneDocument
         document.ModelsGroup = models;
         document.AudioGroup = audio;
         document.LightsGroup = lights;
+        document.Effects = effects;
 
         document._fixedNodes["group.cameras"] = cameras;
         document._fixedNodes["group.lights"] = lights;
@@ -166,9 +172,11 @@ public sealed class SceneDocument
         document._fixedNodes["light"] = lights.Children[0];
         document._fixedNodes["testObject"] = models.Children[0];
         document._fixedNodes["stage"] = grid;
+        document._fixedNodes["effects"] = effects;
         foreach (SceneNode node in document._fixedNodes.Values.Append(root))
         {
-            document._defaults[node] = node.CaptureState();
+            // キーも含めて覚える（新しいプロジェクトに戻すと、カメラ・照明・映像効果のキーも消える）
+            document._defaults[node] = node.CaptureState(includeKeys: true);
         }
         return document;
 

@@ -133,7 +133,7 @@ public sealed class EditorContext
         Selection = new SelectionService();
         Playback = new PlaybackService();
         RenderLoop = new RenderLoop(engine, Playback);
-        Animation = new AnimationService(Scene, Playback);
+        Animation = new AnimationService(Scene, Playback) { Rendering = Rendering }; // 映像効果のキーの当てはめ先
         Undo = new UndoService();
         Edits = new EditService(Undo, Animation, Playback);
         KeySelection = new KeySelectionService();

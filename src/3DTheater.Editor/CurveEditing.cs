@@ -12,7 +12,7 @@ public sealed record GraphSeries(string Name, int CurveChannel, int FirstFrame, 
 /// <summary>
 /// 補間曲線の編集と、グラフエディタに描く値。補間曲線はキーごとに持ち、「前のキーからこのキーまで」の動き方（MMD と同じ）。
 /// 曲線の番号: ボーン = 移動 X・移動 Y・移動 Z・回転、モーフ = 値、カメラ = 注視点 X・Y・Z・回転・距離・視野角（MMD と同じ本数）、
-/// 照明 = すべての値（1 本）。
+/// 照明・映像効果 = すべての値（1 本）。
 /// キーの並びを書き換えるので、画面からは <see cref="EditService"/> の中で呼び、元に戻せるようにする。
 /// </summary>
 public static class CurveEditing
@@ -23,7 +23,7 @@ public static class CurveEditing
         BoneNode => ["移動 X", "移動 Y", "移動 Z", "回転"],
         MorphNode => ["値"],
         CameraNode => ["注視点 X", "注視点 Y", "注視点 Z", "回転", "距離", "視野角"],
-        LightNode => ["すべての値"],
+        LightNode or EffectsNode => ["すべての値"],
         _ => [],
     };
 
@@ -55,6 +55,10 @@ public static class CurveEditing
                 kind = k.Kind;
                 return true;
             case LightNode light when light.Keys.TryGet(key.Frame, out LightKey k) && channel == 0:
+                curve = k.Curve;
+                kind = k.Kind;
+                return true;
+            case EffectsNode effects when effects.Keys.TryGet(key.Frame, out EffectKey k) && channel == 0:
                 curve = k.Curve;
                 kind = k.Kind;
                 return true;
@@ -95,6 +99,11 @@ public static class CurveEditing
                         ? k with { Curve = curve, Kind = KeyInterpolationKind.Curve }
                         : k));
                     break;
+                case EffectsNode effects:
+                    effects.Keys.ReplaceAll(effects.Keys.Keys.Select(k => frames.Contains(k.Frame) && channel is null or 0
+                        ? k with { Curve = curve, Kind = KeyInterpolationKind.Curve }
+                        : k));
+                    break;
                 default:
                     continue;
             }
@@ -113,6 +122,7 @@ public static class CurveEditing
             CameraNode camera => camera.Keys.Keys.Select(k => k.Frame),
             LightNode light => light.Keys.Keys.Select(k => k.Frame),
             ModelDisplayNode display => display.Keys.Keys.Select(k => k.Frame),
+            EffectsNode effects => effects.Keys.Keys.Select(k => k.Frame),
             _ => [],
         };
         int? previous = null;
@@ -135,6 +145,7 @@ public static class CurveEditing
         CameraNode camera => [.. camera.Keys.Keys.Select(k => k.Frame)],
         LightNode light => [.. light.Keys.Keys.Select(k => k.Frame)],
         ModelDisplayNode display => [.. display.Keys.Keys.Select(k => k.Frame)],
+        EffectsNode effects => [.. effects.Keys.Keys.Select(k => k.Frame)],
         _ => [],
     };
 
@@ -265,6 +276,25 @@ public static class CurveEditing
                     series.AddRange([new("広がり", 0, first, values[11]), new("縁のぼかし", 0, first, values[12])]);
                 }
                 return series;
+            }
+            case EffectsNode effects when effects.Keys.Count > 0:
+            {
+                // 値は描き方の設定にあるので、キーのある間だけ描く
+                string[] names = ["明るさ", "コントラスト", "彩度", "色温度", "ブルームの強さ", "光り始める明るさ", "ブルームの広がり", "周辺減光",
+                    "ピントの距離", "ピントの合う幅", "ぼけの大きさ", "霧の始まり", "見通せる距離", "霧の色 R", "霧の色 G", "霧の色 B"];
+                var values = names.Select(_ => new float[count]).ToArray();
+                for (int i = 0; i < count; i++)
+                {
+                    KeyframeEvaluator.TryEvaluate(effects.Keys, first + i, out EffectPose p);
+                    float[] row = [p.Exposure, p.Contrast, p.Saturation, p.Temperature, p.BloomIntensity, p.BloomThreshold, p.BloomSpread,
+                        p.Vignette, p.DofFocusDistance, p.DofFocusRange, p.DofBlur, p.FogStart, p.FogVisibility, p.FogColor.X, p.FogColor.Y,
+                        p.FogColor.Z];
+                    for (int c = 0; c < row.Length; c++)
+                    {
+                        values[c][i] = row[c];
+                    }
+                }
+                return [.. names.Select((name, c) => new GraphSeries(name, 0, first, values[c]))];
             }
             default:
                 return [];

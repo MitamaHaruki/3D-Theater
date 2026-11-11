@@ -2,7 +2,7 @@ using Theater3D.Domain;
 
 namespace Theater3D.Editor;
 
-/// <summary>キー 1 つを指す（どの項目の、どのフレームのキーか）。項目はボーン・モーフ・カメラ・照明・モデルの表示・IK。</summary>
+/// <summary>キー 1 つを指す（どの項目の、どのフレームのキーか）。項目はボーン・モーフ・カメラ・照明・モデルの表示・IK・映像効果。</summary>
 public readonly record struct KeyRef(SceneNode Node, int Frame);
 
 /// <summary>補間の種類（右クリックのメニューで選ぶ）。</summary>
@@ -105,11 +105,12 @@ public static class KeyEditing
         CameraNode camera => camera.Keys.HasKeyAt(key.Frame),
         LightNode light => light.Keys.HasKeyAt(key.Frame),
         ModelDisplayNode display => display.Keys.HasKeyAt(key.Frame),
+        EffectsNode effects => effects.Keys.HasKeyAt(key.Frame),
         _ => false,
     };
 
-    /// <summary>キーを持てる項目か（ボーン・モーフ・カメラ・照明・モデルの表示・IK）。</summary>
-    public static bool HasKeys(SceneNode node) => node is BoneNode or MorphNode or CameraNode or LightNode or ModelDisplayNode;
+    /// <summary>キーを持てる項目か（ボーン・モーフ・カメラ・照明・モデルの表示・IK・映像効果）。</summary>
+    public static bool HasKeys(SceneNode node) => node is BoneNode or MorphNode or CameraNode or LightNode or ModelDisplayNode or EffectsNode;
 
     /// <summary>項目のキーの数（キーを持てない項目は 0）。</summary>
     public static int CountKeys(SceneNode node) => node switch
@@ -119,6 +120,7 @@ public static class KeyEditing
         CameraNode camera => camera.Keys.Count,
         LightNode light => light.Keys.Count,
         ModelDisplayNode display => display.Keys.Count,
+        EffectsNode effects => effects.Keys.Count,
         _ => 0,
     };
 
@@ -168,6 +170,9 @@ public static class KeyEditing
                 case ModelDisplayNode display:
                     lost += Replace(display.Keys, [.. display.Keys.Keys.Select(k => k with { Frame = Scale(k.Frame) })]);
                     break;
+                case EffectsNode effects:
+                    lost += Replace(effects.Keys, [.. effects.Keys.Keys.Select(k => k with { Frame = Scale(k.Frame) })]);
+                    break;
             }
         }
         return lost;
@@ -206,6 +211,9 @@ public static class KeyEditing
                     break;
                 case ModelDisplayNode display:
                     Collect(display, display.Keys);
+                    break;
+                case EffectsNode effects:
+                    Collect(effects, effects.Keys);
                     break;
             }
         }
@@ -253,6 +261,9 @@ public static class KeyEditing
                 case ModelDisplayNode display:
                     MoveIn(display.Keys, frames, delta, duplicate, (k, f) => k with { Frame = f });
                     break;
+                case EffectsNode effects:
+                    MoveIn(effects.Keys, frames, delta, duplicate, (k, f) => k with { Frame = f });
+                    break;
             }
             result.AddRange(frames.Select(f => new KeyRef(group.Key, f + delta)));
         }
@@ -283,6 +294,9 @@ public static class KeyEditing
                 case ModelDisplayNode display:
                     display.Keys.ReplaceAll(display.Keys.Keys.Where(k => !frames.Contains(k.Frame)));
                     break;
+                case EffectsNode effects:
+                    effects.Keys.ReplaceAll(effects.Keys.Keys.Where(k => !frames.Contains(k.Frame)));
+                    break;
             }
         }
         return count;
@@ -312,6 +326,9 @@ public static class KeyEditing
                 case ModelDisplayNode display when display.Keys.TryGet(k.Frame, out DisplayKey key):
                     items.Add((display, k.Frame - origin, key));
                     break;
+                case EffectsNode effects when effects.Keys.TryGet(k.Frame, out EffectKey key):
+                    items.Add((effects, k.Frame - origin, key));
+                    break;
             }
         }
         return new KeyClipboard(items);
@@ -339,6 +356,9 @@ public static class KeyEditing
                     break;
                 case ModelDisplayNode display:
                     display.Keys.SetRange(group.Select(i => ((DisplayKey)i.Key) with { Frame = frame + i.Offset }));
+                    break;
+                case EffectsNode effects:
+                    effects.Keys.SetRange(group.Select(i => ((EffectKey)i.Key) with { Frame = frame + i.Offset }));
                     break;
             }
             result.AddRange(group.Select(i => new KeyRef(group.Key, frame + i.Offset)));
@@ -371,6 +391,9 @@ public static class KeyEditing
                     break;
                 case LightNode light:
                     light.Keys.ReplaceAll(light.Keys.Keys.Select(k => frames.Contains(k.Frame) ? k with { Curve = curve, Kind = kind } : k));
+                    break;
+                case EffectsNode effects:
+                    effects.Keys.ReplaceAll(effects.Keys.Keys.Select(k => frames.Contains(k.Frame) ? k with { Curve = curve, Kind = kind } : k));
                     break;
             }
         }

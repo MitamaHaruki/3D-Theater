@@ -153,7 +153,11 @@ internal sealed class ProjectService
             _context.Physics.Enabled = project.Physics;
             // 自動保存のファイルは別の場所にあるので、モデル・環境の画像の場所は元のプロジェクトのフォルダーから探す
             string? baseDirectory = Path.GetDirectoryName(recoveredFrom is not null && project.AutosaveOf is { } original ? original : fullPath);
-            (project.Rendering ?? new RenderingEntry()).ApplyTo(_context.Rendering, baseDirectory);
+            using (_context.Animation.SuspendTracking())
+            {
+                // 開いた値を、映像効果の手の変更とみなさない
+                (project.Rendering ?? new RenderingEntry()).ApplyTo(_context.Rendering, baseDirectory);
+            }
             foreach (ModelEntry entry in project.Models)
             {
                 await OpenModelAsync(entry, baseDirectory, report);
@@ -447,7 +451,10 @@ internal sealed class ProjectService
         if (now != _playbackSettings)
         {
             _playbackSettings = now;
-            MarkDirty();
+            if (!_context.Animation.IsApplying)
+            {
+                MarkDirty(); // 映像効果のキーを当てはめただけ（再生・フレームの移動）なら変更にしない
+            }
         }
     }
 

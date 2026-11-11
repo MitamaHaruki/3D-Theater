@@ -19,6 +19,8 @@ public enum SceneNodeKind
     Audio,
     /// <summary>モデルの「表示・IK」（モデルの下のいちばん上にある）。モデルの表示と IK の切り替えをキーで持つ。</summary>
     Display,
+    /// <summary>映像効果（シーンに 1 つ）。映像効果の値を動かすキーを持つ。</summary>
+    Effects,
 }
 
 /// <summary>
@@ -686,6 +688,49 @@ public sealed class ModelDisplayNode : SceneNode
             }
             Shown = s.Shown;
             Ik = s.Ik;
+            HasUnregisteredChange = s.HasUnregisteredChange;
+        }
+    }
+}
+
+/// <summary>
+/// 映像効果（シーンに 1 つ）。映像効果の値（色調補正・ブルーム・周辺減光・被写界深度・霧。<see cref="EffectPose"/>）を動かすキーを持つ。
+/// 値そのものは作品の描き方の設定にあり（Editor の RenderSettings）、キーの当てはめと登録は Editor の AnimationService が行う。
+/// </summary>
+public sealed class EffectsNode : SceneNode
+{
+    public const string DefaultName = "映像効果";
+
+    private bool _hasUnregisteredChange;
+
+    public EffectsNode()
+        : base(SceneNodeKind.Effects, DefaultName, canRename: false, hasTransform: false)
+    {
+        CanToggleVisibility = false;
+        Keys.Changed += (_, _) => OnPropertyChanged(nameof(Keys));
+    }
+
+    /// <summary>キーフレーム。</summary>
+    public KeyTrack<EffectKey> Keys { get; } = new();
+
+    /// <summary>キーに登録していない変更がある（キーのある映像効果の値を、自動キーが OFF のときに手で変えた）。</summary>
+    public bool HasUnregisteredChange
+    {
+        get => _hasUnregisteredChange;
+        set => SetProperty(ref _hasUnregisteredChange, value);
+    }
+
+    protected override object? CaptureExtra(bool includeKeys) =>
+        new EffectsState(HasUnregisteredChange, includeKeys ? new KeySnapshot<EffectKey>(Keys.ToArray()) : null);
+
+    protected override void RestoreExtra(object? extra)
+    {
+        if (extra is EffectsState s)
+        {
+            if (s.Keys is not null)
+            {
+                Keys.ReplaceAll(s.Keys.Keys);
+            }
             HasUnregisteredChange = s.HasUnregisteredChange;
         }
     }

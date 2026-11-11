@@ -161,6 +161,48 @@ public sealed class IkSwitchSet : IEquatable<IkSwitchSet>
 public readonly record struct DisplayKey(int Frame, bool Shown, IkSwitchSet Ik) : IKeyframe;
 
 /// <summary>
+/// 映像効果の値のうち、キーで動かすもの（色調補正・ブルーム・周辺減光・被写界深度・霧の数）。使うか（ON / OFF）は動かさない。
+/// <see cref="FogColor"/> は各 0〜1。
+/// </summary>
+public readonly record struct EffectPose(
+    float Exposure,
+    float Contrast,
+    float Saturation,
+    float Temperature,
+    float BloomIntensity,
+    float BloomThreshold,
+    float BloomSpread,
+    float Vignette,
+    float DofFocusDistance,
+    float DofFocusRange,
+    float DofBlur,
+    float FogStart,
+    float FogVisibility,
+    Vector3 FogColor)
+{
+    /// <summary>2 つの値の間（すべての値を同じ割合で直線に）。</summary>
+    public static EffectPose Lerp(EffectPose a, EffectPose b, float t) => new(
+        float.Lerp(a.Exposure, b.Exposure, t),
+        float.Lerp(a.Contrast, b.Contrast, t),
+        float.Lerp(a.Saturation, b.Saturation, t),
+        float.Lerp(a.Temperature, b.Temperature, t),
+        float.Lerp(a.BloomIntensity, b.BloomIntensity, t),
+        float.Lerp(a.BloomThreshold, b.BloomThreshold, t),
+        float.Lerp(a.BloomSpread, b.BloomSpread, t),
+        float.Lerp(a.Vignette, b.Vignette, t),
+        float.Lerp(a.DofFocusDistance, b.DofFocusDistance, t),
+        float.Lerp(a.DofFocusRange, b.DofFocusRange, t),
+        float.Lerp(a.DofBlur, b.DofBlur, t),
+        float.Lerp(a.FogStart, b.FogStart, t),
+        float.Lerp(a.FogVisibility, b.FogVisibility, t),
+        Vector3.Lerp(a.FogColor, b.FogColor, t));
+}
+
+/// <summary>映像効果のキー 1 つ。<see cref="Curve"/> と <see cref="Kind"/> は前のキーからこのキーまでの動き方（すべての値に同じ曲線）。</summary>
+public readonly record struct EffectKey(int Frame, EffectPose Pose, BezierCurve Curve, KeyInterpolationKind Kind = KeyInterpolationKind.Curve)
+    : IKeyframe;
+
+/// <summary>
 /// 照明の値（キーで動かすもの）。<see cref="Rotation"/> は度（シーンの項目と同じ。補間では成分ごとに直線で動く）、
 /// <see cref="Color"/> は各 0〜1。届く距離・広がり・ぼかしは、点光源・スポットライトだけが使う。
 /// </summary>
@@ -468,6 +510,29 @@ public static class KeyframeEvaluator
             float.Lerp(p.Range, q.Range, t),
             float.Lerp(p.SpotAngle, q.SpotAngle, t),
             float.Lerp(p.SpotSoftness, q.SpotSoftness, t));
+        return true;
+    }
+
+    public static bool TryEvaluate(KeyTrack<EffectKey> track, float frame, out EffectPose pose)
+    {
+        pose = default;
+        if (!track.FindSegment(frame, out int before, out int after))
+        {
+            return false;
+        }
+        EffectKey a = track.Keys[before];
+        if (before == after)
+        {
+            pose = a.Pose;
+            return true;
+        }
+        EffectKey b = track.Keys[after];
+        if (b.Kind == KeyInterpolationKind.Step)
+        {
+            pose = a.Pose;
+            return true;
+        }
+        pose = EffectPose.Lerp(a.Pose, b.Pose, b.Curve.Evaluate((frame - a.Frame) / (b.Frame - a.Frame)));
         return true;
     }
 

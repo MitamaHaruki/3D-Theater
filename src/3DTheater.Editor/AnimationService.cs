@@ -7,8 +7,8 @@ namespace Theater3D.Editor;
 /// 手で値を変えたときは、自動キーが OFF なら「未登録の変更」として残し、フレームを動かしても値を保つ（指示書 3.3「黙って失わない」）。
 /// 未登録の変更は <see cref="RegisterUnregistered"/> でキーにするか、<see cref="DiscardUnregistered"/> で捨てる。
 /// 自動キーが ON なら、変えたときに今のフレームへキーを登録する。
-/// カメラ・照明・モデルの表示・IK は、キーがあるときだけ手で変えた値を未登録の変更にする（キーの無いカメラ・照明を置くたびに
-/// 未登録が残らないように）。
+/// カメラ・照明・モデルの表示・IK・映像効果は、キーがあるときだけ手で変えた値を未登録の変更にする（キーの無いカメラ・照明を置くたびに
+/// 未登録が残らないように）。映像効果の値は作品の描き方の設定（<see cref="Rendering"/>）にあり、キーの値をそこへ当てはめる。
 /// </summary>
 public sealed class AnimationService
 {
@@ -16,6 +16,8 @@ public sealed class AnimationService
     private readonly PlaybackService _playback;
     private int _applying;
     private bool _autoKey;
+    private RenderSettings? _rendering;
+    private EffectPose _knownEffects;
 
     public AnimationService(SceneDocument scene, PlaybackService playback)
     {
@@ -27,6 +29,30 @@ public sealed class AnimationService
 
     /// <summary>自動キーの切り替えか、未登録の変更の数が変わった。</summary>
     public event EventHandler? StateChanged;
+
+    /// <summary>
+    /// 作品の描き方の設定（映像効果のキーの当てはめ先）。設定の映像効果の値が手で変わると、映像効果の未登録の変更（自動キーなら登録）にする。
+    /// </summary>
+    public RenderSettings? Rendering
+    {
+        get => _rendering;
+        set
+        {
+            if (_rendering is not null)
+            {
+                _rendering.Changed -= OnRenderingChanged;
+            }
+            _rendering = value;
+            if (value is not null)
+            {
+                value.Changed += OnRenderingChanged;
+                _knownEffects = EffectValues.Capture(value);
+            }
+        }
+    }
+
+    /// <summary>キーの値を当てはめている途中か（この間の値の変化は、手で変えたものではない）。</summary>
+    public bool IsApplying => _applying > 0;
 
     /// <summary>自動キーフレーム。初期値は OFF（指示書 3.3）。</summary>
     public bool AutoKey
@@ -49,12 +75,13 @@ public sealed class AnimationService
             .Concat(m.Morphs.Where(x => x.HasUnregisteredChange)))
             .Concat(Cameras.Where(c => c.HasUnregisteredChange))
             .Concat(Lights.Where(l => l.HasUnregisteredChange))
-            .Concat(Displays.Where(d => d.HasUnregisteredChange))];
+            .Concat(Displays.Where(d => d.HasUnregisteredChange))
+            .Concat(Effects.Where(x => x.HasUnregisteredChange))];
 
     public int UnregisteredCount =>
         Models.Sum(m => m.Bones.Count(b => b.HasUnregisteredChange) + m.Morphs.Count(x => x.HasUnregisteredChange))
         + Cameras.Count(c => c.HasUnregisteredChange) + Lights.Count(l => l.HasUnregisteredChange)
-        + Displays.Count(d => d.HasUnregisteredChange);
+        + Displays.Count(d => d.HasUnregisteredChange) + Effects.Count(x => x.HasUnregisteredChange);
 
     /// <summary>
     /// この間は、値やキーが変わっても「手で変えた」とみなさず、キーの当てはめもしない（元に戻すで値を書き戻すときに使う）。
@@ -77,6 +104,8 @@ public sealed class AnimationService
     private IEnumerable<LightNode> Lights => _scene.AllNodes.OfType<LightNode>();
 
     private IEnumerable<ModelDisplayNode> Displays => Models.Select(m => m.Display).OfType<ModelDisplayNode>();
+
+    private IEnumerable<EffectsNode> Effects => _scene.Effects is { } effects ? [effects] : [];
 
     /// <summary>今のフレームの値を、キーのある項目に当てはめる（未登録の変更がある項目はそのまま）。</summary>
     public void ApplyFrame()
@@ -108,6 +137,7 @@ public sealed class AnimationService
             {
                 ApplyLight(light, frame);
             }
+            ApplyEffects(frame);
         }
         finally
         {
@@ -181,7 +211,7 @@ public sealed class AnimationService
     }
 
     /// <summary>
-    /// 「登録」の対象: 選んだボーン・モーフ・カメラ・照明・表示・IK と、選んだモデルやまとまりの中の未登録の変更。
+    /// 「登録」の対象: 選んだボーン・モーフ・カメラ・照明・表示・IK・映像効果と、選んだモデルやまとまりの中の未登録の変更。
     /// （モデルを選んで登録しても、動かしていない全ボーンにキーは作らない）
     /// </summary>
     public IReadOnlyList<SceneNode> RegistrationTargets(IEnumerable<SceneNode> selection)
@@ -190,7 +220,7 @@ public sealed class AnimationService
         var seen = new HashSet<SceneNode>();
         foreach (SceneNode node in selection)
         {
-            if (node is BoneNode or MorphNode or CameraNode or LightNode or ModelDisplayNode)
+            if (node is BoneNode or MorphNode or CameraNode or LightNode or ModelDisplayNode or EffectsNode)
             {
                 if (seen.Add(node))
                 {
@@ -250,6 +280,11 @@ public sealed class AnimationService
                         display.Keys.Set(new DisplayKey(frame, display.Shown, display.Ik));
                         count++;
                         break;
+                    case EffectsNode effects when _rendering is not null:
+                        ClearUnregistered(effects);
+                        effects.Keys.Set(NewEffectKey(effects, EffectValues.Capture(_rendering), frame));
+                        count++;
+                        break;
                 }
             }
         }
@@ -297,6 +332,9 @@ public sealed class AnimationService
                         break;
                     case ModelDisplayNode display:
                         ApplyDisplay(display, frame);
+                        break;
+                    case EffectsNode:
+                        ApplyEffects(frame);
                         break;
                 }
             }
@@ -373,6 +411,54 @@ public sealed class AnimationService
             kind = existing.Kind;
         }
         return new LightKey(frame, light.Pose, curve, kind);
+    }
+
+    private static EffectKey NewEffectKey(EffectsNode effects, EffectPose pose, int frame)
+    {
+        // 同じフレームにキーがあれば、その動き方を引き継ぐ。無ければ直線
+        BezierCurve curve = BezierCurve.Linear;
+        KeyInterpolationKind kind = KeyInterpolationKind.Curve;
+        if (effects.Keys.TryGet(frame, out EffectKey existing))
+        {
+            curve = existing.Curve;
+            kind = existing.Kind;
+        }
+        return new EffectKey(frame, pose, curve, kind);
+    }
+
+    // 映像効果のキーの値を、描き方の設定へ入れる（_applying の中で呼ぶ）
+    private void ApplyEffects(float frame)
+    {
+        if (_rendering is null || _scene.Effects is not { HasUnregisteredChange: false } effects
+            || !KeyframeEvaluator.TryEvaluate(effects.Keys, frame, out EffectPose pose))
+        {
+            return;
+        }
+        EffectValues.Apply(_rendering, pose);
+        _knownEffects = EffectValues.Capture(_rendering);
+    }
+
+    // 描き方の設定が変わった: 映像効果の値が手で変わったなら、未登録の変更（自動キーなら登録）にする
+    private void OnRenderingChanged(object? sender, EventArgs e)
+    {
+        if (_rendering is null)
+        {
+            return;
+        }
+        EffectPose now = EffectValues.Capture(_rendering);
+        if (now == _knownEffects)
+        {
+            return; // ほかの設定（影・ON / OFF など）だけが変わった
+        }
+        _knownEffects = now;
+        if (_applying > 0 || _scene.Effects is not { } effects)
+        {
+            return;
+        }
+        if (_autoKey || effects.Keys.Count > 0)
+        {
+            OnUserEdit(effects);
+        }
     }
 
     private static void ApplyDisplay(ModelDisplayNode display, float frame)
@@ -478,6 +564,9 @@ public sealed class AnimationService
             case ModelDisplayNode display when e.PropertyName == nameof(ModelDisplayNode.Keys):
                 Apply(() => ApplyDisplay(display, _playback.CurrentFrame));
                 break;
+            case EffectsNode when e.PropertyName == nameof(EffectsNode.Keys):
+                Apply(() => ApplyEffects(_playback.CurrentFrame));
+                break;
         }
     }
 
@@ -497,7 +586,8 @@ public sealed class AnimationService
 
     private static bool IsUnregistered(SceneNode node) =>
         node is BoneNode { HasUnregisteredChange: true } or MorphNode { HasUnregisteredChange: true } or CameraNode { HasUnregisteredChange: true }
-            or LightNode { HasUnregisteredChange: true } or ModelDisplayNode { HasUnregisteredChange: true };
+            or LightNode { HasUnregisteredChange: true } or ModelDisplayNode { HasUnregisteredChange: true }
+            or EffectsNode { HasUnregisteredChange: true };
 
     private static void ClearUnregistered(SceneNode node)
     {
@@ -525,6 +615,9 @@ public sealed class AnimationService
                 break;
             case ModelDisplayNode display:
                 display.HasUnregisteredChange = value;
+                break;
+            case EffectsNode effects:
+                effects.HasUnregisteredChange = value;
                 break;
         }
     }
