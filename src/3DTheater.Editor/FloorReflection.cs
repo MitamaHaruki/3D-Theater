@@ -3,6 +3,7 @@ namespace Theater3D.Editor;
 /// <summary>
 /// 床の映り込み（高さ 0 の床に、モデルを鏡のように映す。MMD の床の鏡面の効果にあたる）。作品の描き方としてプロジェクトに保存し、
 /// プレビューと書き出しにかける。照明・影も映した向きで当てるので、鏡に映ったのと同じ見え方になる。カメラが床より下なら映さない。
+/// ぼかすと、つやのある床のように、床に接する所はくっきり、床から深い所ほどぼやけて映る。
 /// </summary>
 public sealed record FloorReflection
 {
@@ -20,10 +21,14 @@ public sealed record FloorReflection
     /// <summary>消えるまでの距離（床からの深さ。人の大きさのモデルの背丈は 20 ほど）。</summary>
     public float Fade { get; init; } = 10f;
 
+    /// <summary>ぼかし（0〜1。0 ならくっきりの鏡）。ぼけの半径は、床からの深さ × 0.2 × この値（ワールドの長さ）。</summary>
+    public float Blur { get; init; }
+
     /// <summary>値を範囲に収めたもの（数でない値は初期値にする）。</summary>
     public FloorReflection Normalized() => this with
     {
         Strength = float.IsFinite(Strength) ? Math.Clamp(Strength, 0f, 1f) : Off.Strength,
         Fade = float.IsFinite(Fade) ? Math.Clamp(Fade, MinFade, MaxFade) : Off.Fade,
+        Blur = float.IsFinite(Blur) ? Math.Clamp(Blur, 0f, 1f) : Off.Blur,
     };
 }

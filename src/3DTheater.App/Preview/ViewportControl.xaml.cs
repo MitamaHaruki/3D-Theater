@@ -367,7 +367,7 @@ public partial class ViewportControl : UserControl, IDisposable
             ShadowMapSize: _context.PreviewQuality.Profile.ShadowMapSize, Effects: _context.Rendering.ToNative(effectHeight, Camera.Kind == ViewKind.Camera ? _context.MainCamera : null),
             Lights: EffectsMapping.LightsOf(_context.Scene), ReflectionStrength: reflection.Strength, ReflectionFade: reflection.Fade,
             ShadowSoftness: _context.Rendering.ShadowStyle.SoftnessTangent, Environment: environmentImage,
-            EnvironmentIntensity: environment.Intensity, EnvironmentRotation: environment.RotationRadians);
+            EnvironmentIntensity: environment.Intensity, EnvironmentRotation: environment.RotationRadians, ReflectionBlur: reflection.Blur);
     }
 
     private static float MaxScale(SceneNode node) => Math.Max(Math.Abs(node.Scale.X), Math.Max(Math.Abs(node.Scale.Y), Math.Abs(node.Scale.Z)));

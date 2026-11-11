@@ -20,6 +20,24 @@ struct PostSurface {
     UINT height = 0;
 };
 
+// 床の映り込みをぼかすときに使う画像（ビューごと。いちばん細かい段は描画先と同じ大きさ）。
+// 段（ミップ）ごとに半分の大きさにして、だんだんぼかしたものを持つ
+struct ReflectionTargets {
+    static constexpr UINT kMaxLevels = 8;
+    ComPtr<ID3D11Texture2D> color; // 透明度をかけ合わせた色
+    ComPtr<ID3D11Texture2D> depth; // 床からの深さ × 不透明度
+    ComPtr<ID3D11RenderTargetView> colorRtv[kMaxLevels]; // 段ごと
+    ComPtr<ID3D11RenderTargetView> depthRtv[kMaxLevels];
+    ComPtr<ID3D11ShaderResourceView> colorLevelSrv[kMaxLevels]; // 段ごと（縮めるときに 1 つ細かい段を読む）
+    ComPtr<ID3D11ShaderResourceView> depthLevelSrv[kMaxLevels];
+    ComPtr<ID3D11ShaderResourceView> colorSrv; // 全部の段（重ねるときに読む）
+    ComPtr<ID3D11ShaderResourceView> depthSrv;
+    ComPtr<ID3D11DepthStencilView> dsv; // 映り込みを描くときの奥行き（いちばん細かい段と同じ大きさ）
+    UINT width = 0;
+    UINT height = 0;
+    UINT levels = 0; // 段の数（0 番 = もとの大きさを含む）
+};
+
 // GPU の上に資源を持つもの（ビュー・テクスチャ・メッシュ）。
 // GPU が使えなくなったとき、エンジンが全部の資源を手放させ、デバイスを作り直してから作り直させる。
 class DeviceObject {
@@ -62,9 +80,14 @@ public:
 
     // 1 つのビューの場面を描く（GPU へ頼むだけで完了は待たない）。描き終えたら描画先の割り当てを外す。
     // params.items の中身は呼び出し側（C API の入口）で確かめ済みであること。
-    // multisampled は描画先が MSAA（1 画素に複数の点）か。線を、点の数に合わせてなめらかに描く
+    // multisampled は描画先が MSAA（1 画素に複数の点）か。線を、点の数に合わせてなめらかに描く。
+    // reflection は床の映り込みをぼかすときに使う画像（描画先と同じ大きさ。null ならぼかさない）
     void DrawScene(ID3D11RenderTargetView* rtv, ID3D11DepthStencilView* dsv, int width, int height, const TtFrameParams& params,
-        bool multisampled, ScenePart part = ScenePart::All);
+        bool multisampled, ScenePart part = ScenePart::All, ReflectionTargets* reflection = nullptr);
+
+    // 床の映り込みをぼかすか（そのときは、ビューが CreateReflectionTargets で作った画像を DrawScene へ渡す）
+    static bool UsesBlurredFloorReflection(const TtFrameParams& params) noexcept;
+    void CreateReflectionTargets(ReflectionTargets& targets, UINT width, UINT height);
 
     // 映像効果を使うか（post_flags に知っている効果があるか）
     static bool UsesPostEffects(const TtFrameParams& params) noexcept;
@@ -145,6 +168,14 @@ private:
     void WriteLightConstants(const TtFrameParams& params, bool mirrored = false);
     // 床の映り込み: モデルを高さ 0 の床で上下に映して、床より下に描く
     void DrawFloorReflections(const TtFrameParams& params, const ModelFrame& frame);
+    // 床の映り込みを描く向き（照明・カメラ・セルフシャドウを床で上下に映したもの）。映さないとき（濃さ 0・床より下から見る）は false
+    bool MirrorFrame(const TtFrameParams& params, const ModelFrame& frame, ModelFrame& mirrored) const;
+    void DrawMirroredModels(const TtFrameParams& params, const ModelFrame& mirrored);
+    // 床の映り込みのぼかし: 映り込みだけを targets へ描き、縮めた段を作る（描画先の割り当ては外して返る）。映さないときは false
+    bool RenderBlurredFloorReflections(const TtFrameParams& params, const ModelFrame& frame, ReflectionTargets& targets);
+    // ぼかした映り込みを rtv へ重ねる（床から深い所ほど粗い段を読む）。終わったら rtv と dsv を描画先に戻す
+    void CompositeFloorReflections(const TtFrameParams& params, const ReflectionTargets& targets, DirectX::CXMMATRIX viewProj,
+        ID3D11RenderTargetView* rtv, ID3D11DepthStencilView* dsv, int width, int height);
     void BindMesh(const Mesh& mesh);
     void DrawMesh(const Mesh& mesh, DirectX::FXMMATRIX world, const ModelFrame& frame);
     void DrawEdges(const Mesh& mesh);
@@ -226,6 +257,10 @@ private:
     ComPtr<ID3D11PixelShader> aoApplyShader_;
     ComPtr<ID3D11PixelShader> fogShader_;
     ComPtr<ID3D11Buffer> postConstantBuffer_;
+    ComPtr<ID3D11PixelShader> reflectionDownShader_;      // 床の映り込みのぼかし: 縮める
+    ComPtr<ID3D11PixelShader> reflectionCompositeShader_; // 重ねる
+    ComPtr<ID3D11Buffer> reflectionConstantBuffer_;
+    ComPtr<ID3D11BlendState> premultipliedBlendState_; // 透明度をかけ合わせた色を重ねる（1 と 1 - a）
 
     // モデル（MMD と同じトゥーンの色の計算と輪郭線）
     ComPtr<ID3D11VertexShader> modelVertexShader_;

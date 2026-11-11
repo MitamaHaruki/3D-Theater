@@ -263,13 +263,24 @@ float4 PassColor(ModelPSInput input, float3 n)
     return float4(saturate(Emissive.rgb), 1.0); // 発光
 }
 
-// 材質の発光（拡張材質）は、どちらの色の計算にも足す（1 より明るくでき、ブルームで光る）
-float4 main(ModelPSInput input) : SV_Target
+struct ModelPSOutput
 {
+    float4 color : SV_Target0;
+    // 床の映り込みをぼかすときだけ使う（2 つ目の描画先があるとき。無ければ捨てられる）: x = 床からの深さ、a = color.a。
+    // 色と同じ合成（a と 1 - a）で重ねるので、描画先には「深さ × 不透明度」がたまる
+    float4 reflectionDepth : SV_Target1;
+};
+
+// 材質の発光（拡張材質）は、どちらの色の計算にも足す（1 より明るくでき、ブルームで光る）
+ModelPSOutput main(ModelPSInput input)
+{
+    ModelPSOutput output;
+    output.reflectionDepth = 0.0;
     float3 n = normalize(input.normal);
     if (RenderPass() != 0)
     {
-        return PassColor(input, n);
+        output.color = PassColor(input, n);
+        return output;
     }
     float4 color = Pbr.x > 0.5 ? PbrColor(input, n) : ToonColor(input, n);
     color.rgb += Emissive.rgb;
@@ -279,6 +290,8 @@ float4 main(ModelPSInput input) : SV_Target
         float depth = -(CameraPosition.y - input.eye.y);
         clip(depth);
         color.a *= ReflectionParams.y * saturate(1.0 - depth / max(ReflectionParams.z, 1e-3));
+        output.reflectionDepth = float4(depth, 0.0, 0.0, color.a);
     }
-    return color;
+    output.color = color;
+    return output;
 }

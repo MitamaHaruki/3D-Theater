@@ -81,8 +81,8 @@ internal unsafe struct TtFrameParams
     public uint Reserved7;
     public float ReflectionStrength;
     public float ReflectionFade;
+    public float ReflectionBlur;
     public uint Reserved8;
-    public uint Reserved9;
     public float DofFocusDistance;
     public float DofFocusRange;
     public float DofMaxBlur;

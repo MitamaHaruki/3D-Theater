@@ -76,6 +76,7 @@ private:
     PostSurface aoBlur_;                  // 光の届く割合を横にならしたもの
     PostSurface aoScene_;                 // 環境光の遮りをかけた場面
     PostSurface fog_;                     // 霧をかけた場面
+    ReflectionTargets reflection_;        // 床の映り込みをぼかすときの画像（使うときに作り、使わなくなったら手放す）
     ComPtr<ID3D11Texture2D> depthTexture_;
     ComPtr<ID3D11DepthStencilView> dsv_;
     ComPtr<ID3D11ShaderResourceView> depthSrv_; // 奥行きを読む（線画に使う）

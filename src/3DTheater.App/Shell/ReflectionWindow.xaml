@@ -36,6 +36,7 @@
       <Grid.RowDefinitions>
         <RowDefinition Height="Auto" />
         <RowDefinition Height="Auto" />
+        <RowDefinition Height="Auto" />
       </Grid.RowDefinitions>
       <TextBlock Style="{StaticResource RowLabelStyle}" Text="濃さ" ToolTip="床のすぐ下での映り込みの濃さ" />
       <Slider x:Name="StrengthSlider" Grid.Column="1" Style="{StaticResource ReflectionSliderStyle}" Minimum="0" Maximum="1"
@@ -46,10 +47,15 @@
       <Slider x:Name="FadeSlider" Grid.Row="1" Grid.Column="1" Style="{StaticResource ReflectionSliderStyle}" Minimum="0.5" Maximum="40"
               SmallChange="0.5" LargeChange="2" AutomationProperties.Name="映り込みが消えるまでの距離" ValueChanged="OnSliderChanged" />
       <TextBlock x:Name="FadeText" Grid.Row="1" Grid.Column="2" Style="{StaticResource ValueStyle}" />
+      <TextBlock Grid.Row="2" Style="{StaticResource RowLabelStyle}" Text="ぼかし"
+                 ToolTip="つやのある床のように、床に接する所はくっきり、床から深い所ほどぼかします（0 ならくっきりの鏡）" />
+      <Slider x:Name="BlurSlider" Grid.Row="2" Grid.Column="1" Style="{StaticResource ReflectionSliderStyle}" Minimum="0" Maximum="1"
+              SmallChange="0.05" LargeChange="0.1" AutomationProperties.Name="映り込みのぼかし" ValueChanged="OnSliderChanged" />
+      <TextBlock x:Name="BlurText" Grid.Row="2" Grid.Column="2" Style="{StaticResource ValueStyle}" />
     </Grid>
 
     <TextBlock Margin="0,14,0,0" TextWrapping="Wrap" Foreground="{StaticResource SubTextBrush}" FontSize="11.5"
-               Text="モデルを床で上下に映した姿を、床より下に半透明で描きます。照明と影も映した向きで当てるので、鏡に映ったのと同じ見え方です（輪郭線は映しません）。床より下から見るときは映しません。変えるとすぐにプレビューへ反映し、書き出しにもかかります。設定はプロジェクトに保存します（元に戻す・やり直しの対象ではありません）。" />
+               Text="モデルを床で上下に映した姿を、床より下に半透明で描きます。照明と影も映した向きで当てるので、鏡に映ったのと同じ見え方です（輪郭線は映しません）。ぼかすと、床に接する所はくっきり、床から深い所ほどぼやけます。床より下から見るときは映しません。変えるとすぐにプレビューへ反映し、書き出しにもかかります。設定はプロジェクトに保存します（元に戻す・やり直しの対象ではありません）。" />
 
     <DockPanel Margin="0,16,0,0" LastChildFill="False">
       <Button DockPanel.Dock="Left" MinWidth="110" Content="初期値に戻す" Click="OnResetClick" ToolTip="映り込みを OFF にし、値を初期値に戻します" />

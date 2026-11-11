@@ -27,7 +27,7 @@ extern "C" {
 
 // 上位 16 ビットが大きな版、下位 16 ビットが小さな版。大きな版が違う DLL とは組み合わせない。
 #define TT_API_VERSION_MAJOR 0
-#define TT_API_VERSION_MINOR 21
+#define TT_API_VERSION_MINOR 22
 #define TT_API_VERSION ((TT_API_VERSION_MAJOR << 16) | TT_API_VERSION_MINOR)
 
 // 0 以上は成功、負の値は失敗。
@@ -327,7 +327,10 @@ typedef struct TtFrameParams {
     // 床より下に半透明で描く（照明・影も映した向きで当てるので、鏡に映ったのと同じ見え方）。カメラが床より下なら描かない
     float reflection_strength; // 濃さ（0〜1。床のすぐ下での不透明度）
     float reflection_fade;     // 消えるまでの距離（床からの深さ。0.01 以上。ここで 0 になる）
-    uint32_t reserved8[2];
+    // API 0.22: ぼかし（0〜1。0 ならくっきり）。つやのある床のように、床に接する所はくっきり、床から深い所ほどぼかす
+    // （ぼけの半径 = 床からの深さ × 0.2 × この値。ワールドの長さ）
+    float reflection_blur;
+    uint32_t reserved8;
     // ここから API 0.16（被写界深度。TT_POST_DOF のとき）。距離はカメラから見る向きの距離
     float dof_focus_distance; // ピントの距離
     float dof_focus_range;    // ピントの合う幅（前後の合計。0 以上）

@@ -318,6 +318,7 @@ void View::ReleaseSizeDependentResources() noexcept
     aoBlur_ = PostSurface{};
     aoScene_ = PostSurface{};
     fog_ = PostSurface{};
+    reflection_ = ReflectionTargets{};
     bloomDown_.clear();
     bloomUp_.clear();
     ReleaseSampleResources();
@@ -362,8 +363,17 @@ bool View::Render(const TtFrameParams& params)
 
     const bool multisampled = sampleCount_ > 1;
     ID3D11RenderTargetView* target = multisampled ? msaaRtv_.Get() : rtv_.Get();
+    ReflectionTargets* reflection = nullptr;
+    if (Engine::UsesBlurredFloorReflection(params)) {
+        if (!reflection_.color) {
+            engine_.CreateReflectionTargets(reflection_, static_cast<UINT>(width_), static_cast<UINT>(height_));
+        }
+        reflection = &reflection_;
+    } else if (reflection_.color) {
+        reflection_ = ReflectionTargets{};
+    }
     if (!Engine::UsesPostEffects(params)) {
-        engine_.DrawScene(target, dsv_.Get(), width_, height_, params, multisampled);
+        engine_.DrawScene(target, dsv_.Get(), width_, height_, params, multisampled, Engine::ScenePart::All, reflection);
     } else {
         // 場面を背景なしで描き（MSAA ならまとめてから）、映像効果をかけて描画先へ書き、その上に格子や選択の枠を重ねる。
         // MSAA の描画先へ書いた効果の結果は、どの点も同じ色なので、重ね描きの線だけがなめらかに混ざる
@@ -373,7 +383,7 @@ bool View::Render(const TtFrameParams& params)
         const bool lines = (params.post_flags & TT_POST_LINES) != 0 || dof || ao || fog; // 奥行きを使う効果
         EnsurePostResources((params.post_flags & TT_POST_BLOOM) != 0, lines, dof, ao, fog);
         engine_.DrawScene(multisampled ? msaaRtv_.Get() : scene_.rtv.Get(), dsv_.Get(), width_, height_, params, multisampled,
-            Engine::ScenePart::Scene);
+            Engine::ScenePart::Scene, reflection);
         if (multisampled) {
             engine_.Context()->ResolveSubresource(scene_.texture.Get(), 0, msaaTexture_.Get(), 0, Engine::kColorFormat);
         }

@@ -5,7 +5,7 @@ using Theater3D.Editor;
 namespace Theater3D.App.Shell;
 
 /// <summary>
-/// 床の映り込みの設定（レンダリングのメニュー）。ON / OFF と、濃さ・消えるまでの距離を変える。
+/// 床の映り込みの設定（レンダリングのメニュー）。ON / OFF と、濃さ・消えるまでの距離・ぼかしを変える。
 /// 変えるたびに作品の描き方（<see cref="RenderSettings.Reflection"/>）へ入れるので、すぐにプレビューへ反映し、プロジェクトは変更ありになる。
 /// </summary>
 public partial class ReflectionWindow : Window
@@ -28,6 +28,7 @@ public partial class ReflectionWindow : Window
             EnabledCheck.IsChecked = value.Enabled;
             StrengthSlider.Value = value.Strength;
             FadeSlider.Value = value.Fade;
+            BlurSlider.Value = value.Blur;
         }
         finally
         {
@@ -40,6 +41,7 @@ public partial class ReflectionWindow : Window
     {
         StrengthText.Text = StrengthSlider.Value.ToString("0.00", CultureInfo.InvariantCulture);
         FadeText.Text = FadeSlider.Value.ToString("0.0", CultureInfo.InvariantCulture);
+        BlurText.Text = BlurSlider.Value.ToString("0.00", CultureInfo.InvariantCulture);
     }
 
     private void Apply()
@@ -54,6 +56,7 @@ public partial class ReflectionWindow : Window
             Enabled = EnabledCheck.IsChecked == true,
             Strength = (float)Math.Round(StrengthSlider.Value, 2),
             Fade = (float)Math.Round(FadeSlider.Value, 1),
+            Blur = (float)Math.Round(BlurSlider.Value, 2),
         };
     }
 

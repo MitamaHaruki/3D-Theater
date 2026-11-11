@@ -18,6 +18,8 @@
 #include "BloomUpPS.h"
 #include "PostCompositePS.h"
 #include "PostVS.h"
+#include "ReflectionCompositePS.h"
+#include "ReflectionDownPS.h"
 #include "EdgePS.h"
 #include "EdgeVS.h"
 #include "DofPS.h"
@@ -117,6 +119,25 @@ struct PostConstants {
     DirectX::XMFLOAT4 fogParams;
     DirectX::XMFLOAT4 fogHeightAxis;
 };
+
+// 床の映り込みのぼかし（シェーダーの ReflectionConstants と同じ並び）
+struct ReflectionConstants {
+    DirectX::XMFLOAT4X4 inverseViewProj;
+    DirectX::XMFLOAT4 clipW;
+    DirectX::XMFLOAT4 texel;
+    DirectX::XMFLOAT4 blurParams;
+};
+
+// ぼかし 1 のときの、床からの深さ 1 あたりのぼけの半径（ワールドの長さ）
+constexpr float kReflectionBlurScale = 0.2f;
+
+// 床の映り込みの色の段の形式。ぼかした薄い色が段階に分かれないよう、16 ビットの浮動小数点で持つ
+constexpr DXGI_FORMAT kReflectionColorFormat = DXGI_FORMAT_R16G16B16A16_FLOAT;
+
+float ReflectionBlurOf(const TtFrameParams& params) noexcept
+{
+    return std::isfinite(params.reflection_blur) ? std::clamp(params.reflection_blur, 0.0f, 1.0f) : 0.0f;
+}
 
 constexpr uint32_t kKnownPostFlags = TT_POST_COLOR | TT_POST_BLOOM | TT_POST_VIGNETTE | TT_POST_LINES | TT_POST_POSTERIZE
     | TT_POST_SHADOW_TINT | TT_POST_PAPER | TT_POST_DOF | TT_POST_AO | TT_POST_FOG;
@@ -260,6 +281,10 @@ void Engine::ReleaseDevice() noexcept
     linearDepthMsShader_.Reset();
     linearDepthShader_.Reset();
     postConstantBuffer_.Reset();
+    reflectionDownShader_.Reset();
+    reflectionCompositeShader_.Reset();
+    reflectionConstantBuffer_.Reset();
+    premultipliedBlendState_.Reset();
     postCompositeShader_.Reset();
     bloomUpShader_.Reset();
     bloomDownShader_.Reset();
@@ -567,7 +592,7 @@ uint32_t Engine::SupportedSampleCount(uint32_t requested) const
 }
 
 void Engine::DrawScene(ID3D11RenderTargetView* rtv, ID3D11DepthStencilView* dsv, int width, int height, const TtFrameParams& params,
-    bool multisampled, ScenePart part)
+    bool multisampled, ScenePart part, ReflectionTargets* reflection)
 {
     using namespace DirectX;
 
@@ -622,6 +647,12 @@ void Engine::DrawScene(ID3D11RenderTargetView* rtv, ID3D11DepthStencilView* dsv,
     const bool softGroundShadow = drawScene && (params.flags & TT_FRAME_GROUND_SHADOW) && params.item_count > 0
         && ShadowSoftnessOf(params) > 0.0f && RenderGroundShadowMap(params, frame, groundFrame, floorWorld);
 
+    // 床の映り込み。ぼかすときは、先に映り込みだけを別の画像へ描いて縮めた段を作っておき、背景の後に重ねる
+    const bool floorReflection = drawScene && (params.flags & TT_FRAME_FLOOR_REFLECTION) && params.item_count > 0;
+    const bool blurReflection = floorReflection && reflection && ReflectionBlurOf(params) > 0.0f
+        && reflection->width == static_cast<UINT>(width) && reflection->height == static_cast<UINT>(height);
+    const bool reflectionReady = blurReflection && RenderBlurredFloorReflections(params, frame, *reflection);
+
     ctx->OMSetRenderTargets(1, &rtv, dsv);
     const D3D11_VIEWPORT viewport{0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height), 0.0f, 1.0f};
     ctx->RSSetViewports(1, &viewport);
@@ -645,6 +676,10 @@ void Engine::DrawScene(ID3D11RenderTargetView* rtv, ID3D11DepthStencilView* dsv,
     if (drawScene && (params.flags & TT_FRAME_ENVIRONMENT_BACKGROUND)) {
         DrawSky(params, viewProj);
     }
+    // ぼかした床の映り込みは、背景のすぐ上に重ねる（格子・地面の影・モデルは、その上に描く）
+    if (reflectionReady) {
+        CompositeFloorReflections(params, *reflection, viewProj, rtv, dsv, width, height);
+    }
 
     SetBasicPipeline();
     const UINT stride = sizeof(DemoVertex);
@@ -667,7 +702,7 @@ void Engine::DrawScene(ID3D11RenderTargetView* rtv, ID3D11DepthStencilView* dsv,
     }
 
     // 床の映り込みは、床より下に描く（地面の影とモデルは、その上に重なる）
-    if (drawScene && (params.flags & TT_FRAME_FLOOR_REFLECTION) && params.item_count > 0) {
+    if (floorReflection && !blurReflection) {
         DrawFloorReflections(params, frame);
     }
 
@@ -975,6 +1010,10 @@ void Engine::CreatePostResources()
     CheckHr(device_->CreatePixelShader(g_FogPS, sizeof(g_FogPS), nullptr, &fogShader_), L"霧のシェーダーの作成");
     CheckHr(device_->CreatePixelShader(g_SkyPS, sizeof(g_SkyPS), nullptr, &skyPixelShader_), L"背景（環境の画像）のシェーダーの作成");
     CheckHr(device_->CreatePixelShader(g_AoApplyPS, sizeof(g_AoApplyPS), nullptr, &aoApplyShader_), L"環境光の遮りをかけるシェーダーの作成");
+    CheckHr(device_->CreatePixelShader(g_ReflectionDownPS, sizeof(g_ReflectionDownPS), nullptr, &reflectionDownShader_),
+        L"床の映り込みを縮めるシェーダーの作成");
+    CheckHr(device_->CreatePixelShader(g_ReflectionCompositePS, sizeof(g_ReflectionCompositePS), nullptr, &reflectionCompositeShader_),
+        L"床の映り込みを重ねるシェーダーの作成");
 
     D3D11_BUFFER_DESC desc{};
     desc.ByteWidth = sizeof(PostConstants);
@@ -984,6 +1023,19 @@ void Engine::CreatePostResources()
     CheckHr(device_->CreateBuffer(&desc, nullptr, &postConstantBuffer_), L"映像効果の定数バッファーの作成");
     desc.ByteWidth = sizeof(SkyConstants);
     CheckHr(device_->CreateBuffer(&desc, nullptr, &skyConstantBuffer_), L"背景の定数バッファーの作成");
+    desc.ByteWidth = sizeof(ReflectionConstants);
+    CheckHr(device_->CreateBuffer(&desc, nullptr, &reflectionConstantBuffer_), L"床の映り込みの定数バッファーの作成");
+
+    D3D11_BLEND_DESC blend{};
+    blend.RenderTarget[0].BlendEnable = TRUE;
+    blend.RenderTarget[0].SrcBlend = D3D11_BLEND_ONE;
+    blend.RenderTarget[0].DestBlend = D3D11_BLEND_INV_SRC_ALPHA;
+    blend.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
+    blend.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;
+    blend.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_INV_SRC_ALPHA;
+    blend.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
+    blend.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+    CheckHr(device_->CreateBlendState(&blend, &premultipliedBlendState_), L"透明度をかけ合わせた色の合成設定の作成");
 }
 
 void Engine::SetBasicPipeline()
@@ -1023,20 +1075,34 @@ void Engine::WriteObjectConstants(DirectX::FXMMATRIX world, DirectX::CXMMATRIX w
 
 void Engine::DrawFloorReflections(const TtFrameParams& params, const ModelFrame& frame)
 {
+    ModelFrame mirrored;
+    if (MirrorFrame(params, frame, mirrored)) {
+        DrawMirroredModels(params, mirrored);
+    }
+}
+
+bool Engine::MirrorFrame(const TtFrameParams& params, const ModelFrame& frame, ModelFrame& mirrored) const
+{
     using namespace DirectX;
     const float strength = std::isfinite(params.reflection_strength) ? std::clamp(params.reflection_strength, 0.0f, 1.0f) : 0.0f;
     const float fade = std::isfinite(params.reflection_fade) ? std::max(params.reflection_fade, 0.01f) : 10.0f;
     if (strength <= 0.0f || frame.cameraPosition.y <= 0.0f) {
-        return; // 床より下から見るときは、床の裏なので映さない
+        return false; // 床より下から見るときは、床の裏なので映さない
     }
     // 照明・カメラの位置・セルフシャドウも床で上下に映す。映した点を、映した照明で照らせば、もとの点と同じ見え方になる
     const XMMATRIX mirror = XMMatrixScaling(1.0f, -1.0f, 1.0f);
-    ModelFrame mirrored = frame;
+    mirrored = frame;
     mirrored.lightDirection.y = -frame.lightDirection.y;
     mirrored.cameraPosition.y = -frame.cameraPosition.y;
     XMStoreFloat4x4(&mirrored.lightViewProj, mirror * XMLoadFloat4x4(&frame.lightViewProj));
     mirrored.reflectionParams = {1.0f, strength, fade, 0.0f};
+    return true;
+}
 
+void Engine::DrawMirroredModels(const TtFrameParams& params, const ModelFrame& mirrored)
+{
+    using namespace DirectX;
+    const XMMATRIX mirror = XMMatrixScaling(1.0f, -1.0f, 1.0f);
     WriteLightConstants(params, true);
     drawingReflection_ = true;
     auto load = [](const float (&m)[16]) { return XMLoadFloat4x4(reinterpret_cast<const XMFLOAT4X4*>(m)); };
@@ -1046,6 +1112,166 @@ void Engine::DrawFloorReflections(const TtFrameParams& params, const ModelFrame&
     }
     drawingReflection_ = false;
     WriteLightConstants(params, false);
+}
+
+bool Engine::UsesBlurredFloorReflection(const TtFrameParams& params) noexcept
+{
+    return (params.flags & TT_FRAME_FLOOR_REFLECTION) && params.item_count > 0 && ReflectionBlurOf(params) > 0.0f;
+}
+
+void Engine::CreateReflectionTargets(ReflectionTargets& targets, UINT width, UINT height)
+{
+    targets = ReflectionTargets{};
+    width = std::max<UINT>(width, 1);
+    height = std::max<UINT>(height, 1);
+    // 段の数: いちばん粗い段の短い辺が 2 画素より小さくならないまで（最大 kMaxLevels 段。0 番 = もとの大きさ）
+    UINT levels = 1;
+    while (levels < ReflectionTargets::kMaxLevels && std::min(width >> levels, height >> levels) >= 2) {
+        ++levels;
+    }
+    D3D11_TEXTURE2D_DESC desc{};
+    desc.Width = width;
+    desc.Height = height;
+    desc.MipLevels = levels;
+    desc.ArraySize = 1;
+    desc.Format = kReflectionColorFormat;
+    desc.SampleDesc.Count = 1;
+    desc.Usage = D3D11_USAGE_DEFAULT;
+    desc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+    CheckHr(device_->CreateTexture2D(&desc, nullptr, &targets.color), L"床の映り込みの画像の作成");
+    desc.Format = DXGI_FORMAT_R16_FLOAT;
+    CheckHr(device_->CreateTexture2D(&desc, nullptr, &targets.depth), L"床の映り込みの深さの画像の作成");
+    CheckHr(device_->CreateShaderResourceView(targets.color.Get(), nullptr, &targets.colorSrv), L"床の映り込みの画像のビューの作成");
+    CheckHr(device_->CreateShaderResourceView(targets.depth.Get(), nullptr, &targets.depthSrv), L"床の映り込みの画像のビューの作成");
+    for (UINT level = 0; level < levels; ++level) {
+        D3D11_RENDER_TARGET_VIEW_DESC rtv{};
+        rtv.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
+        rtv.Texture2D.MipSlice = level;
+        D3D11_SHADER_RESOURCE_VIEW_DESC srv{};
+        srv.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+        srv.Texture2D.MostDetailedMip = level;
+        srv.Texture2D.MipLevels = 1;
+        rtv.Format = srv.Format = kReflectionColorFormat;
+        CheckHr(device_->CreateRenderTargetView(targets.color.Get(), &rtv, &targets.colorRtv[level]), L"床の映り込みの描画先ビューの作成");
+        CheckHr(device_->CreateShaderResourceView(targets.color.Get(), &srv, &targets.colorLevelSrv[level]),
+            L"床の映り込みの画像のビューの作成");
+        rtv.Format = srv.Format = DXGI_FORMAT_R16_FLOAT;
+        CheckHr(device_->CreateRenderTargetView(targets.depth.Get(), &rtv, &targets.depthRtv[level]), L"床の映り込みの描画先ビューの作成");
+        CheckHr(device_->CreateShaderResourceView(targets.depth.Get(), &srv, &targets.depthLevelSrv[level]),
+            L"床の映り込みの画像のビューの作成");
+    }
+    D3D11_TEXTURE2D_DESC depthDesc = desc;
+    depthDesc.MipLevels = 1;
+    depthDesc.Format = kDepthFormat;
+    depthDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL;
+    ComPtr<ID3D11Texture2D> depthTexture;
+    CheckHr(device_->CreateTexture2D(&depthDesc, nullptr, &depthTexture), L"床の映り込みの奥行きの作成");
+    CheckHr(device_->CreateDepthStencilView(depthTexture.Get(), nullptr, &targets.dsv), L"床の映り込みの奥行きのビューの作成");
+    targets.width = width;
+    targets.height = height;
+    targets.levels = levels;
+}
+
+bool Engine::RenderBlurredFloorReflections(const TtFrameParams& params, const ModelFrame& frame, ReflectionTargets& targets)
+{
+    ModelFrame mirrored;
+    if (!targets.color || targets.levels == 0 || !MirrorFrame(params, frame, mirrored)) {
+        return false;
+    }
+    ID3D11DeviceContext* ctx = context_.Get();
+    ID3D11ShaderResourceView* const none[2] = {nullptr, nullptr};
+    ctx->PSSetShaderResources(0, 2, none); // 前の 1 枚で重ねたときの読み取りを外す
+
+    // いちばん細かい段へ、映したモデルをくっきり描く（色と、床からの深さ × 不透明度）
+    ID3D11RenderTargetView* const first[2] = {targets.colorRtv[0].Get(), targets.depthRtv[0].Get()};
+    ctx->OMSetRenderTargets(2, first, targets.dsv.Get());
+    const D3D11_VIEWPORT viewport{0.0f, 0.0f, static_cast<float>(targets.width), static_cast<float>(targets.height), 0.0f, 1.0f};
+    ctx->RSSetViewports(1, &viewport);
+    const float transparent[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    ctx->ClearRenderTargetView(first[0], transparent);
+    ctx->ClearRenderTargetView(first[1], transparent);
+    ctx->ClearDepthStencilView(targets.dsv.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+    DrawMirroredModels(params, mirrored);
+
+    // 半分ずつ縮めた段（1 つ細かい段を、なだらかに平均する）
+    ctx->OMSetBlendState(nullptr, nullptr, 0xFFFFFFFF);
+    ctx->OMSetDepthStencilState(overlayDepthState_.Get(), 0);
+    ctx->RSSetState(rasterizerState_.Get());
+    ctx->IASetInputLayout(nullptr);
+    ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ctx->VSSetShader(postVertexShader_.Get(), nullptr, 0);
+    ctx->PSSetShader(reflectionDownShader_.Get(), nullptr, 0);
+    ctx->PSSetConstantBuffers(0, 1, reflectionConstantBuffer_.GetAddressOf());
+    ctx->PSSetSamplers(0, 1, clampSampler_.GetAddressOf());
+    ReflectionConstants constants{};
+    for (UINT level = 1; level < targets.levels; ++level) {
+        ctx->PSSetShaderResources(0, 2, none);
+        ID3D11RenderTargetView* const outputs[2] = {targets.colorRtv[level].Get(), targets.depthRtv[level].Get()};
+        ctx->OMSetRenderTargets(2, outputs, nullptr);
+        const UINT w = std::max<UINT>(targets.width >> level, 1);
+        const UINT h = std::max<UINT>(targets.height >> level, 1);
+        const UINT sourceWidth = std::max<UINT>(targets.width >> (level - 1), 1);
+        const UINT sourceHeight = std::max<UINT>(targets.height >> (level - 1), 1);
+        const D3D11_VIEWPORT levelViewport{0.0f, 0.0f, static_cast<float>(w), static_cast<float>(h), 0.0f, 1.0f};
+        ctx->RSSetViewports(1, &levelViewport);
+        constants.texel = {1.0f / static_cast<float>(sourceWidth), 1.0f / static_cast<float>(sourceHeight), static_cast<float>(w),
+            static_cast<float>(h)};
+        D3D11_MAPPED_SUBRESOURCE mapped{};
+        CheckHr(ctx->Map(reflectionConstantBuffer_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped), L"床の映り込みの定数の更新");
+        std::memcpy(mapped.pData, &constants, sizeof(constants));
+        ctx->Unmap(reflectionConstantBuffer_.Get(), 0);
+        ID3D11ShaderResourceView* const sources[2] = {targets.colorLevelSrv[level - 1].Get(), targets.depthLevelSrv[level - 1].Get()};
+        ctx->PSSetShaderResources(0, 2, sources);
+        ctx->Draw(3, 0);
+    }
+    ctx->PSSetShaderResources(0, 2, none);
+    ctx->OMSetRenderTargets(0, nullptr, nullptr);
+    return true;
+}
+
+void Engine::CompositeFloorReflections(const TtFrameParams& params, const ReflectionTargets& targets, DirectX::CXMMATRIX viewProj,
+    ID3D11RenderTargetView* rtv, ID3D11DepthStencilView* dsv, int width, int height)
+{
+    using namespace DirectX;
+    ID3D11DeviceContext* ctx = context_.Get();
+    XMVECTOR determinant;
+    const XMMATRIX inverse = XMMatrixInverse(&determinant, viewProj);
+    const float projectionScale = std::isfinite(params.projection[5]) ? std::abs(params.projection[5]) : 0.0f;
+    if (XMVectorGetX(determinant) != 0.0f && projectionScale > 0.0f) {
+        ReflectionConstants constants{};
+        XMStoreFloat4x4(&constants.inverseViewProj, inverse);
+        XMFLOAT4X4 m;
+        XMStoreFloat4x4(&m, viewProj);
+        constants.clipW = {m._14, m._24, m._34, m._44};
+        constants.texel = {1.0f / static_cast<float>(width), 1.0f / static_cast<float>(height), static_cast<float>(width),
+            static_cast<float>(height)};
+        constants.blurParams = {ReflectionBlurOf(params) * kReflectionBlurScale, 0.5f * static_cast<float>(height) * projectionScale,
+            static_cast<float>(targets.levels - 1), 0.0f};
+        D3D11_MAPPED_SUBRESOURCE mapped{};
+        CheckHr(ctx->Map(reflectionConstantBuffer_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped), L"床の映り込みの定数の更新");
+        std::memcpy(mapped.pData, &constants, sizeof(constants));
+        ctx->Unmap(reflectionConstantBuffer_.Get(), 0);
+
+        ctx->OMSetRenderTargets(1, &rtv, nullptr);
+        const D3D11_VIEWPORT viewport{0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height), 0.0f, 1.0f};
+        ctx->RSSetViewports(1, &viewport);
+        ctx->OMSetBlendState(premultipliedBlendState_.Get(), nullptr, 0xFFFFFFFF);
+        ctx->OMSetDepthStencilState(overlayDepthState_.Get(), 0);
+        ctx->RSSetState(rasterizerState_.Get());
+        ctx->IASetInputLayout(nullptr);
+        ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        ctx->VSSetShader(postVertexShader_.Get(), nullptr, 0);
+        ctx->PSSetShader(reflectionCompositeShader_.Get(), nullptr, 0);
+        ctx->PSSetConstantBuffers(0, 1, reflectionConstantBuffer_.GetAddressOf());
+        ctx->PSSetSamplers(0, 1, clampSampler_.GetAddressOf());
+        ID3D11ShaderResourceView* const sources[2] = {targets.colorSrv.Get(), targets.depthSrv.Get()};
+        ctx->PSSetShaderResources(0, 2, sources);
+        ctx->Draw(3, 0);
+        ID3D11ShaderResourceView* const none[2] = {nullptr, nullptr};
+        ctx->PSSetShaderResources(0, 2, none);
+        ctx->OMSetBlendState(nullptr, nullptr, 0xFFFFFFFF);
+    }
+    ctx->OMSetRenderTargets(1, &rtv, dsv);
 }
 
 void Engine::WriteLightConstants(const TtFrameParams& params, bool mirrored)

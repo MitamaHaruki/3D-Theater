@@ -238,12 +238,16 @@ public sealed class VisualEffectsTests
         Assert.AreEqual(1f, wild.Strength);
         Assert.AreEqual(FloorReflection.Off.Fade, wild.Fade, "数でない値は初期値");
         Assert.AreEqual(FloorReflection.MinFade, (FloorReflection.Off with { Fade = 0f }).Normalized().Fade);
+        Assert.AreEqual(0f, FloorReflection.Off.Blur, "初めはくっきり（前の版のファイルも）");
+        Assert.AreEqual(1f, (FloorReflection.Off with { Blur = 5f }).Normalized().Blur);
+        Assert.AreEqual(0f, (FloorReflection.Off with { Blur = -1f }).Normalized().Blur);
+        Assert.AreEqual(0f, (FloorReflection.Off with { Blur = float.NaN }).Normalized().Blur, "数でない値はくっきり");
 
         var settings = new RenderSettings();
         int changes = 0;
         settings.Changed += (_, _) => changes++;
-        settings.Reflection = FloorReflection.Off with { Enabled = true, Strength = 0.5f };
-        settings.Reflection = FloorReflection.Off with { Enabled = true, Strength = 0.5f };
+        settings.Reflection = FloorReflection.Off with { Enabled = true, Strength = 0.5f, Blur = 0.4f };
+        settings.Reflection = FloorReflection.Off with { Enabled = true, Strength = 0.5f, Blur = 0.4f };
         Assert.AreEqual(1, changes, "同じ値では知らせない");
 
         string plain = ProjectSerializer.Serialize(new ProjectFile { Rendering = RenderingEntry.From(new RenderSettings()) });
@@ -253,6 +257,7 @@ public sealed class VisualEffectsTests
         var restored = new RenderSettings();
         read.Rendering.ApplyTo(restored);
         Assert.AreEqual(settings.Reflection, restored.Reflection);
+        Assert.AreEqual(0.4f, restored.Reflection.Blur, "ぼかしも保存する");
 
         restored.Reset();
         Assert.AreEqual(FloorReflection.Off, restored.Reflection, "新しいプロジェクトは映り込みなし");

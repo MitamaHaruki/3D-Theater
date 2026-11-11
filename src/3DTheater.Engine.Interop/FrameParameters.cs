@@ -29,7 +29,10 @@ public enum FrameFlags : uint
     /// <summary>背景を <see cref="FrameParameters.ClearColor"/> で消す（a = 0 で透明。書き出し用）。</summary>
     ClearColor = 1u << 10,
 
-    /// <summary>床の映り込み（<see cref="FrameParameters.ReflectionStrength"/>・<see cref="FrameParameters.ReflectionFade"/>）。</summary>
+    /// <summary>
+    /// 床の映り込み（<see cref="FrameParameters.ReflectionStrength"/>・<see cref="FrameParameters.ReflectionFade"/>・
+    /// <see cref="FrameParameters.ReflectionBlur"/>）。
+    /// </summary>
     FloorReflection = 1u << 11,
 
     /// <summary>環境の画像（<see cref="FrameParameters.Environment"/>）を背景に描く（平行投影では描かない）。</summary>
@@ -218,6 +221,7 @@ public readonly record struct PostEffects(
 /// 光源の見かけの半径の tan（0〜0.5。0 ならくっきり）。
 /// <see cref="Environment"/> は環境の画像（PBR の材質の環境光と映り込み。トゥーンには使わない）。明るさと、Y 軸のまわりの回転（ラジアン）。
 /// <see cref="ClearColor"/> は <see cref="FrameFlags.ClearColor"/> のときの背景の色。透明で描くと、読み出した色は透明度をかけ合わせた値になる。
+/// <see cref="ReflectionBlur"/> は床の映り込みのぼかし（0〜1。0 ならくっきり）。床に接する所はくっきり、床から深い所ほどぼかす。
 /// </summary>
 public readonly record struct FrameParameters(
     FrameFlags Flags,
@@ -243,4 +247,5 @@ public readonly record struct FrameParameters(
     float EnvironmentRotation = 0f,
     RenderPass Pass = RenderPass.None,
     float PassDepthNear = 0f,
-    float PassDepthFar = 1f);
+    float PassDepthFar = 1f,
+    float ReflectionBlur = 0f);

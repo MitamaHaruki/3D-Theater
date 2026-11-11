@@ -1318,6 +1318,82 @@ public:
         Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
     }
 
+    TEST_METHOD(FloorReflectionBlurGrowsWithDepthBelowTheFloor)
+    {
+        // 高さ 0.5〜1.5 に立てた赤い四角形の映り込み（床の下の -0.5〜-1.5）をぼかす。床から深い所ほど、縁の外へ広がる
+        TtEngine* engine = CreateWarpEngine();
+        constexpr int width = 128;
+        constexpr int height = 96;
+        TtView* view = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_view_create_offscreen(engine, width, height, 0, &view));
+        TtTexture* red = CreateSolidTexture(engine, 0, 0, 255);
+        TtMeshMaterial material = QuadMaterial(red, TT_MATERIAL_DOUBLE_SIDED);
+        const TtMeshDesc desc = QuadDesc(kClockwise, &material);
+        TtMesh* mesh = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_mesh_create(engine, &desc, &mesh));
+        Assert::AreEqual<int>(TT_OK, tt_texture_destroy(red));
+
+        using namespace DirectX;
+        TtFrameParams params = MakeParams(TT_FRAME_FLOOR_REFLECTION);
+        XMStoreFloat4x4(reinterpret_cast<XMFLOAT4X4*>(params.view),
+            XMMatrixLookAtLH(XMVectorSet(0.0f, 2.0f, -6.0f, 1.0f), XMVectorSet(0.0f, 0.0f, 0.0f, 1.0f), XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f)));
+        TtDrawItem item = DrawItem(mesh);
+        XMStoreFloat4x4(reinterpret_cast<XMFLOAT4X4*>(item.world), XMMatrixScaling(0.5f, 0.5f, 1.0f) * XMMatrixTranslation(0.0f, 1.0f, 0.0f));
+        params.items = &item;
+        params.item_count = 1;
+        params.reflection_strength = 0.8f;
+        params.reflection_fade = 10.0f;
+        auto render = [&](float blur) {
+            params.reflection_blur = blur;
+            return RenderAndRead(engine, view, params, width, height);
+        };
+        // ワールドの点が映る画素
+        const XMMATRIX viewProj = XMLoadFloat4x4(reinterpret_cast<const XMFLOAT4X4*>(params.view))
+            * XMLoadFloat4x4(reinterpret_cast<const XMFLOAT4X4*>(params.projection));
+        auto pixelOf = [&](float x, float y) {
+            XMVECTOR p = XMVector3TransformCoord(XMVectorSet(x, y, 0.0f, 1.0f), viewProj);
+            const int px = static_cast<int>((XMVectorGetX(p) * 0.5f + 0.5f) * width);
+            const int py = static_cast<int>((-XMVectorGetY(p) * 0.5f + 0.5f) * height);
+            return (static_cast<size_t>(py) * width + px) * 4;
+        };
+
+        const std::vector<uint8_t> sharp = render(0.0f);
+        // ごく小さいぼかし: 別の画像に描いて重ねる道を通っても、くっきりの映り込みとほとんど同じ（位置がずれない・濃さが変わらない）
+        const std::vector<uint8_t> tiny = render(0.001f);
+        int worst = 0;
+        for (size_t i = 0; i < sharp.size(); ++i) {
+            worst = std::max(worst, std::abs(static_cast<int>(sharp[i]) - static_cast<int>(tiny[i])));
+        }
+        Assert::IsTrue(worst <= 3, L"ごく小さいぼかしは、くっきりの映り込みと同じ");
+
+        const std::vector<uint8_t> blurred = render(1.0f);
+        const size_t above = pixelOf(0.0f, 1.0f);
+        Assert::IsTrue(IsNear(blurred[above + 2], sharp[above + 2], 2), L"もとの四角形はぼかさない");
+        const size_t inside = pixelOf(0.0f, -1.0f);
+        Assert::IsTrue(blurred[inside + 2] > kBackgroundR + 60, L"映り込みの真ん中は赤いまま");
+        // 映り込みの右の縁（x = 0.5）から 4 画素外の、背景より赤い分
+        auto outside = [&](const std::vector<uint8_t>& image, float depth) {
+            const size_t edge = pixelOf(0.5f, -depth);
+            return static_cast<int>(image[edge + 4 * 4 + 2]) - static_cast<int>(kBackgroundR);
+        };
+        Assert::IsTrue(std::abs(outside(sharp, 0.6f)) <= 1 && std::abs(outside(sharp, 1.4f)) <= 1, L"くっきりなら、縁の外は背景");
+        const int shallow = outside(blurred, 0.6f);
+        const int deep = outside(blurred, 1.4f);
+        Assert::IsTrue(deep > 10, L"床から深い所は、縁の外へぼけて広がる");
+        Assert::IsTrue(deep > shallow + 5, L"床に近い所ほどくっきり");
+
+        // 映像効果を使うとき（背景なしで描いてから仕上げる道）も同じようにぼかす
+        params.post_flags = TT_POST_VIGNETTE;
+        params.vignette = 0.0f;
+        const std::vector<uint8_t> post = render(1.0f);
+        Assert::IsTrue(IsNear(post[pixelOf(0.5f, -1.4f) + 4 * 4 + 2], blurred[pixelOf(0.5f, -1.4f) + 4 * 4 + 2], 3),
+            L"映像効果を使っても、ぼかした映り込みは同じ");
+
+        Assert::AreEqual<int>(TT_OK, tt_mesh_destroy(mesh));
+        Assert::AreEqual<int>(TT_OK, tt_view_destroy(view));
+        Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
+    }
+
     TEST_METHOD(DepthOfFieldBlursOutsideTheFocus)
     {
         // 手前（距離 3）に小さな赤い四角形、奥（距離 8）に大きな緑の四角形。ピントの合っていないほうの縁がぼける
