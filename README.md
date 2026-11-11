@@ -3,9 +3,13 @@
 MMD 系のモデルを使って 3D アニメーションを作る、Windows 用のソフト。
 何を作るかは [開発指示書](3D_Theater_開発資料一式/3D_Theater_開発指示書.md) にまとめてある。
 
-## 今の状態（Phase 4 まで完了：トゥーン描画と輪郭線・影・PNG と動画の書き出し・描画品質の設定・映像効果・イラスト風・拡張材質・照明の追加・床の映り込み・被写界深度・環境光の遮り・霧・柔らかな影・環境の画像・モーションブラー・書き出しの枠と見本）
+## 今の状態（Phase 5 を進めている：プラグインの土台。Phase 4 まで完了：トゥーン描画と輪郭線・影・PNG と動画の書き出し・描画品質の設定・映像効果・イラスト風・拡張材質・照明の追加・床の映り込み・被写界深度・環境光の遮り・霧・柔らかな影・環境の画像・モーションブラー・書き出しの枠と見本）
 
-Phase 4 で新しくできたこと:
+Phase 5 で新しくできたこと:
+
+- プラグイン（メニュー「プラグイン」）: C# の DLL で、メニューのコマンド（ショートカットも）とドッキングパネルを足せる。「プラグインの管理...」で一覧・状態・問題の記録を見て、有効・無効を切り替える（初めて見つけたものは無効。無効にするとメニューとパネルがすぐに外れる）。プラグインのエラーではアプリを止めず、始める途中でアプリが落ちたら次の起動でそのプラグインを無効にする。Shift を押しながら起動すると安全モード（プラグインを始めない）。見本の「サンプル: シーンの情報」（今のフレーム・モデル・選択を出すパネルと、2 つのコマンド）を同梱した。作り方は [プラグインの作り方](docs/プラグインの作り方.md)
+
+Phase 4 でできたこと:
 
 - 書き出しの枠と見本: カメラ視点の区画に、書き出しの大きさの枠を出す（枠の中は書き出しと同じ写り方。枠の外は暗く）。書き出しの画面の「見本を描く」で、今の設定の書き出しを 1 枚描いて見られる。プレビューと書き出しの違いは [設計判断記録](docs/設計判断記録.md) の 38 章の一覧にまとめた
 - モーションブラー（書き出しの画面の「動き」）: 1 フレームの間を何回かに分けて描いて重ね、動いている物とカメラの動きをぶらす（ぶれの長さ・分ける数）。物理も前後のフレームを補間してぶらす。隣り合うフレームのキー（カメラの場面の切り替え）は混ぜない。書き出しにだけかかる
@@ -149,6 +153,7 @@ src\3DTheater.App\bin\x64\Debug\net10.0-windows\3DTheater.exe
 |---|---|
 | `--warp` | GPU を使わないソフトウェア描画で起動する（診断用） |
 | `--debug-layer` | Release でも Direct3D の検査機能を使う（Debug では常に使う） |
+| `--safe-mode`（Shift を押しながらの起動でも同じ） | 安全モード: 有効なプラグインも始めずに起動する（プラグインのせいで起動できないとき） |
 | PMX ファイルのパス | 起動したあとに、そのモデルを読み込む（いくつでも並べられる） |
 | VMD / VPD ファイルのパス | モデルを読み込んだ後に、そのモーション・ポーズを当てはめる |
 | プロジェクト（.3dtproj）のパス | そのプロジェクトを開く |
@@ -193,6 +198,8 @@ GPU の面を WPF と共有できない環境では、描いた絵を読み出�
 | レイアウト・プレビューの分け方・ウィンドウの位置と最大化（設定などの画面の位置も）・ギズモ・描画品質・書き出しの設定 | `%APPDATA%\3DTheater\UserSettings\` |
 | ログ | `%LOCALAPPDATA%\3DTheater\Logs\`（メニュー「ヘルプ → ログフォルダーを開く」） |
 | 自動保存 | `%LOCALAPPDATA%\3DTheater\AutoSave\`（保存せずに終わったとき、次に起動すると復旧するか尋ねる） |
+| プラグインの有効・無効と、プラグインごとの設定 | `%APPDATA%\3DTheater\UserSettings\settings.json` の `Plugins` |
+| プラグイン（利用者が入れるもの） | `%APPDATA%\3DTheater\Plugins\`（アプリと一緒に配るものは、アプリのフォルダーの `Plugins\`） |
 
 レイアウトがおかしくなったときは、ツールバーの「初期配置」を押すか、`UserSettings` フォルダーを消して起動し直す。
 
@@ -202,7 +209,7 @@ GPU の面を WPF と共有できない環境では、描いた絵を読み出�
 3DTheater.slnx                     ソリューション
 build.ps1                          ビルドとテスト
 src/
-  3DTheater.App/                   WPF の画面（Shell = 外枠、Panels = 各パネル、Preview = 3D の区画）
+  3DTheater.App/                   WPF の画面（Shell = 外枠、Panels = 各パネル、Preview = 3D の区画、Plugins = プラグインの受け入れ）
   3DTheater.Domain/                シーンの項目のデータ
   3DTheater.Editor/                選択・再生位置・キーの当てはめと登録・モーションの当てはめ・視点の計算・当たり判定
   3DTheater.Formats/               PMX・VMD・VPD の読み込みと読み込みレポート
@@ -213,6 +220,9 @@ src/
   3DTheater.Video.Native/          C++ の動画の書き手（Media Foundation を包んだ DLL。公開する関数は include/tv_video.h）
   3DTheater.Engine.Interop/        C# から C++ を呼ぶ境界
   3DTheater.Engine.Native/         C++ の描画エンジン（公開する関数は include/tt_engine.h）
+  Plugin.Core/                     プラグインの共通の契約と、読み込み・管理（アプリにも WPF にも依存しない）
+  Plugin.UI.Wpf/                   プラグインの画面の契約（ドッキングパネル・メッセージ。WPF）
+  3DTheater.Plugin.SDK/            3D Theater 専用のプラグインの SDK（シーン・再生位置・選択）
 tests/
   3DTheater.Editor.Tests/          視点・選択・再生・キーフレーム・モーションの当てはめなどのテスト
   3DTheater.Formats.Tests/         PMX・VMD・VPD の読み込みのテスト（実在のファイルは使わず、テストの中でデータを作る）
@@ -221,11 +231,16 @@ tests/
   3DTheater.Media.Tests/           音声の読み込みと波形、動画の書き出しのテスト
   3DTheater.Engine.Interop.Tests/  C# 側から見たエンジンのテスト
   3DTheater.Engine.Native.Tests/   C++ の公開関数のテスト
+  Plugin.Core.Tests/               プラグインの plugin.json・互換性・読み込み・有効と無効・異常時のテスト
+  Plugin.TestPlugins/              テストで読み込むプラグイン（正しく動くもの・例外を投げるものなど）
+plugins/
+  3DTheater.SamplePlugin/          サンプルのプラグイン（シーンの情報。アプリの出力の Plugins\SceneInfo に写る）
 external/
   bullet3/                         Bullet Physics 3.25 のソース（そのまま写したもの。external/README.md）
   3DTheater.Bullet.vcxproj         Bullet を静的ライブラリにするプロジェクト
 docs/
   設計判断記録.md                  決めたことと理由、持ち越し事項
+  プラグインの作り方.md            プラグインを作る人向けの説明（SDK の使い方）
   ライセンス一覧.md                使っている部品と利用条件
 3D_Theater_開発資料一式/           開発指示書と画面の参考画像
 artifacts/                         C++ のビルド結果（Git では管理しない）

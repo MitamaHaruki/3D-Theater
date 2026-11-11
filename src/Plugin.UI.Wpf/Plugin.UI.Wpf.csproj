@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- 共通の画面の拡張（WPF）の契約（指示書 7.1 の Plugin.UI）。ドッキングパネルと、アプリの窓に合わせた知らせ。
+       Plugin.Core と同じく、アプリと全プラグインで 1 つだけ読み込む -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>Plugin.UI.Wpf</RootNamespace>
+    <AssemblyName>Plugin.UI.Wpf</AssemblyName>
+    <Version>1.0.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Plugin.Core\Plugin.Core.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -14,6 +14,7 @@ namespace Theater3D.App.Shell;
 /// <summary>
 /// Visual Studio 型のドッキング画面（AvalonDock）の並べ方。初期配置の組み立て、保存と復元、プレビューの追加と片付けを受け持つ。
 /// 保存したレイアウトに知らないパネル（無効になったプラグインのパネルなど）があっても、そのパネルだけ外して起動する。
+/// プラグインのパネル（<see cref="RegisterPluginPanel"/>）も、アプリのパネルと同じ決まりで出し入れ・保存・復元する。
 /// </summary>
 public sealed class DockingLayout
 {
@@ -24,11 +25,14 @@ public sealed class DockingLayout
     public const string LogId = "Panel.Log";
     public const string GraphId = "Panel.Graph";
     private const string PreviewPrefix = "Preview.";
+    private const string PluginPrefix = "Plugin/";
 
     private readonly DockingManager _dock;
     private readonly EditorContext _context;
     private readonly Dictionary<string, (string Title, FrameworkElement Content, AnchorableShowStrategy Side)> _panels;
     private readonly List<PreviewPanel> _previews = [];
+    private readonly Dictionary<string, PluginPanelSlot> _pluginPanels = [];
+    private bool _layoutReady;
 
     public DockingLayout(DockingManager dock, EditorContext context)
     {
@@ -53,6 +57,58 @@ public sealed class DockingLayout
     }
 
     public event EventHandler<PreviewPanel>? PreviewCreated;
+
+    /// <summary>プラグインのパネルが増えた・減った（表示のメニューを作り直す）。</summary>
+    public event EventHandler? PluginPanelsChanged;
+
+    /// <summary>プラグインのパネル（登録順）。</summary>
+    public IEnumerable<(string Id, string Title)> PluginPanels => _pluginPanels.Select(p => (p.Key, p.Value.Title));
+
+    /// <summary>プラグインのパネルの名前（レイアウトの保存に使う）。</summary>
+    public static string PluginPanelId(string pluginId, string panelId) => $"{PluginPrefix}{pluginId}/{panelId}";
+
+    /// <summary>
+    /// プラグインのパネルを足す。レイアウトを戻す前なら、前回の場所に戻す（前回に無ければ初めの場所に出す）。
+    /// 戻した後なら、初めの場所に出す。中身は初めて出すときに作る。
+    /// </summary>
+    public void RegisterPluginPanel(string id, string title, Func<FrameworkElement> createContent, AnchorableShowStrategy side)
+    {
+        if (_panels.ContainsKey(id) || _pluginPanels.ContainsKey(id))
+        {
+            throw new ArgumentException($"同じ Id のパネル（{id}）がすでにあります", nameof(id));
+        }
+        _pluginPanels[id] = new PluginPanelSlot(title, createContent, side);
+        if (_layoutReady && FindAnchorable(id) is null)
+        {
+            // 動いているアプリで有効にしたとき: 足したパネルを前に出して、増えたことが分かるようにする
+            LayoutAnchorable anchorable = CreateAnchorable(id);
+            AddMissing(anchorable);
+            anchorable.IsSelected = true;
+        }
+        PluginPanelsChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>プラグインのパネルを外す（プラグインを無効にしたとき）。</summary>
+    public void UnregisterPluginPanel(string id)
+    {
+        if (!_pluginPanels.Remove(id))
+        {
+            return;
+        }
+        if (FindAnchorable(id) is { } anchorable)
+        {
+            anchorable.Content = null;
+            if (_dock.Layout.Hidden.Contains(anchorable))
+            {
+                _dock.Layout.Hidden.Remove(anchorable);
+            }
+            else
+            {
+                (anchorable.Parent as ILayoutContainer)?.RemoveChild(anchorable);
+            }
+        }
+        PluginPanelsChanged?.Invoke(this, EventArgs.Empty);
+    }
 
     public event EventHandler<PreviewPanel>? PreviewRemoved;
 
@@ -119,6 +175,11 @@ public sealed class DockingLayout
         root.Children.Add(center);
         root.Children.Add(right);
         _dock.Layout = new LayoutRoot { RootPanel = root };
+        foreach (string id in _pluginPanels.Keys)
+        {
+            AddMissing(CreateAnchorable(id));
+        }
+        _layoutReady = true;
     }
 
     public void Save(UserSettings settings)
@@ -186,6 +247,11 @@ public sealed class DockingLayout
             {
                 e.Content = CreatePreview(id, settings.Previews.GetValueOrDefault(id));
             }
+            else if (_pluginPanels.TryGetValue(id, out PluginPanelSlot? slot))
+            {
+                e.Content = slot.GetContent();
+                e.Model.Title = slot.Title;
+            }
             else
             {
                 AppLog.Warning($"レイアウトにあるパネル「{id}」が見つからないため外しました（そのパネルを出すプラグインが無効になっている可能性があります）");
@@ -202,11 +268,12 @@ public sealed class DockingLayout
             throw;
         }
 
-        // 前回のレイアウトに無かった標準パネルは足しておく（後の版で増えたパネルなど）
-        foreach (string id in _panels.Keys.Where(id => FindAnchorable(id) is null))
+        // 前回のレイアウトに無かった標準パネル（後の版で増えたパネルなど）・プラグインのパネルは足しておく
+        foreach (string id in _panels.Keys.Concat(_pluginPanels.Keys).Where(id => FindAnchorable(id) is null).ToList())
         {
             AddMissing(CreateAnchorable(id));
         }
+        _layoutReady = true;
         if (_previews.Count == 0)
         {
             AddPreview();
@@ -216,7 +283,7 @@ public sealed class DockingLayout
     // 下に出すパネル（グラフなど）は、タイムラインと同じ場所にタブで足す（無ければ下の端に）
     private void AddMissing(LayoutAnchorable anchorable)
     {
-        AnchorableShowStrategy side = _panels[anchorable.ContentId].Side;
+        AnchorableShowStrategy side = _panels.TryGetValue(anchorable.ContentId, out var panel) ? panel.Side : _pluginPanels[anchorable.ContentId].Side;
         if (side == AnchorableShowStrategy.Bottom && FindAnchorable(TimelineId)?.Parent is LayoutAnchorablePane pane)
         {
             pane.Children.Add(anchorable);
@@ -230,8 +297,24 @@ public sealed class DockingLayout
 
     private LayoutAnchorable CreateAnchorable(string id)
     {
+        if (_pluginPanels.TryGetValue(id, out PluginPanelSlot? slot))
+        {
+            return new LayoutAnchorable { ContentId = id, Title = slot.Title, Content = slot.GetContent(), CanHide = true, CanClose = false };
+        }
         var (title, content, _) = _panels[id];
         return new LayoutAnchorable { ContentId = id, Title = title, Content = content, CanHide = true, CanClose = false };
+    }
+
+    /// <summary>プラグインのパネル 1 つ。中身は初めて要るときに作り、レイアウトを組み直しても使い回す。</summary>
+    private sealed class PluginPanelSlot(string title, Func<FrameworkElement> createContent, AnchorableShowStrategy side)
+    {
+        private FrameworkElement? _content;
+
+        public string Title { get; } = title;
+
+        public AnchorableShowStrategy Side { get; } = side;
+
+        public FrameworkElement GetContent() => _content ??= createContent();
     }
 
     private LayoutDocument CreatePreviewDocument(PreviewSettings settings)

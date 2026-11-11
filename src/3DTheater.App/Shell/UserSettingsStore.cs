@@ -37,6 +37,19 @@ public sealed class UserSettings
 
     /// <summary>描画品質（プレビューの品質）。</summary>
     public RenderingPreferences Rendering { get; set; } = new();
+
+    /// <summary>プラグインごとの有効・無効と設定（キーはプラグインの id）。</summary>
+    public Dictionary<string, PluginPreferences> Plugins { get; set; } = [];
+}
+
+/// <summary>プラグイン 1 つの、利用者の設定。</summary>
+public sealed class PluginPreferences
+{
+    /// <summary>有効にしているか（初めて見つけたプラグインは無効）。</summary>
+    public bool Enabled { get; set; }
+
+    /// <summary>プラグインが保存する設定（キーと文字列の値）。</summary>
+    public Dictionary<string, string> Settings { get; set; } = [];
 }
 
 /// <summary>描画品質の設定。</summary>

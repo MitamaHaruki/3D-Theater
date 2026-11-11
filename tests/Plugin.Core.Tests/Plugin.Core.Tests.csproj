@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Plugin.Core.Tests</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MSTest" Version="4.0.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Microsoft.VisualStudio.TestTools.UnitTesting" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Plugin.Core\Plugin.Core.csproj" />
+    <!-- テスト用のプラグインは参照せず（既定の読み込み先に入れない）、作ったものを出力の TestPlugins に写して、プラグインとして読む -->
+    <ProjectReference Include="..\Plugin.TestPlugins\Plugin.TestPlugins.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <Target Name="CopyTestPlugins" AfterTargets="Build">
+    <Copy SourceFiles="$(MSBuildThisFileDirectory)..\Plugin.TestPlugins\bin\$(Platform)\$(Configuration)\net10.0\Plugin.TestPlugins.dll"
+          DestinationFolder="$(OutDir)TestPlugins\" SkipUnchangedFiles="true" />
+  </Target>
+
+</Project>

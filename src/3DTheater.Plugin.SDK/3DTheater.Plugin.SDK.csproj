@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- 3D Theater 専用の SDK（指示書 7.1）。プラグインに見せるのは、ここに書いた形だけ（アプリの内部の型は見せない）。
+       Plugin.Core と同じく、アプリと全プラグインで 1 つだけ読み込む -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Theater3D.Plugin.Sdk</RootNamespace>
+    <AssemblyName>3DTheater.Plugin.SDK</AssemblyName>
+    <Version>1.0.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Plugin.Core\Plugin.Core.csproj" />
+  </ItemGroup>
+
+</Project>

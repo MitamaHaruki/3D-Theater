@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- サンプルのプラグイン（指示書 Phase 5）。アプリの出力の Plugins\SceneInfo に置かれる（3DTheater.App のビルドで写す）。
+       共通の契約と SDK はアプリのものを使うので、出力に写さない（Private=false） -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>Theater3D.SamplePlugin</RootNamespace>
+    <AssemblyName>3DTheater.SamplePlugin</AssemblyName>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <Version>1.0.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Plugin.Core\Plugin.Core.csproj">
+      <Private>false</Private>
+    </ProjectReference>
+    <ProjectReference Include="..\..\src\Plugin.UI.Wpf\Plugin.UI.Wpf.csproj">
+      <Private>false</Private>
+    </ProjectReference>
+    <ProjectReference Include="..\..\src\3DTheater.Plugin.SDK\3DTheater.Plugin.SDK.csproj">
+      <Private>false</Private>
+    </ProjectReference>
+  </ItemGroup>
+
+  <!-- plugin.json は、アプリのビルドがこのフォルダーから直接写す（出力に写す印を付けると、アプリの出力のいちばん上にも写ってしまうため） -->
+
+</Project>

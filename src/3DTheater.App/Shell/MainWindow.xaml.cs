@@ -23,6 +23,8 @@ public partial class MainWindow : Window
     private readonly EditorContext _context;
     private readonly DockingLayout _layout;
     private readonly UserSettings _settings;
+    private readonly Plugins.PluginHost _plugins;
+    private readonly bool _safeMode;
     private readonly DispatcherTimer _statusTimer;
     private PreviewPanel? _activePreview;
     private ViewportControl? _activeView;
@@ -32,7 +34,7 @@ public partial class MainWindow : Window
     private bool _busy;
     private readonly Project.ProjectService _project;
 
-    public MainWindow(EditorContext context, string? engineError)
+    public MainWindow(EditorContext context, string? engineError, bool safeMode = false)
     {
         InitializeComponent();
         _context = context;
@@ -65,9 +67,17 @@ public partial class MainWindow : Window
                 Activate(preview, preview.VisibleViews.FirstOrDefault() ?? preview.FirstView);
             }
         };
+        // プラグイン: レイアウトを戻す前に始める（前回のレイアウトにあるプラグインのパネルを、同じ場所に戻すため）
+        _safeMode = safeMode;
+        _plugins = new Plugins.PluginHost(context, _layout, this, _settings);
+        _plugins.Start(safeMode);
+        _plugins.CommandsChanged += (_, _) => BuildPluginsMenu();
+        _layout.PluginPanelsChanged += (_, _) => BuildPluginPanelItems();
         _layout.LoadOrDefault(_settings);
 
         BuildPanelsMenu();
+        BuildPluginPanelItems();
+        BuildPluginsMenu();
         BuildViewKindsMenu();
         context.RenderLoop.RenderFailed += OnRenderFailed;
         context.RenderLoop.DeviceStateChanged += OnDeviceStateChanged;
@@ -92,6 +102,12 @@ public partial class MainWindow : Window
         {
             DpiScale dpi = VisualTreeHelper.GetDpi(this);
             AppLog.Info($"メインウィンドウを表示しました（拡大率 {dpi.DpiScaleX * 100:F0}%、プレビュー {_layout.Previews.Count} 枚）");
+            if (_plugins.Manager.DisabledAfterCrash is { } crashed)
+            {
+                Dispatcher.BeginInvoke(() => MessageBox.Show(this,
+                    $"前回、プラグイン「{crashed.Name}」を始める途中でアプリが終了しました。\n安全のため、このプラグインを無効にしました（プラグインのメニュー「プラグインの管理」で有効に戻せます）。",
+                    "プラグイン", MessageBoxButton.OK, MessageBoxImage.Warning), DispatcherPriority.Background);
+            }
             UpdateStatus();
             UpdateFrameText();
         };
@@ -118,6 +134,7 @@ public partial class MainWindow : Window
         WindowMemory.SaveTo(_settings); // メインのウィンドウの置き場所は、閉じる知らせ（base.OnClosing）で覚えてある
         _settings.Window = null;
         _layout.Save(_settings);
+        _plugins.Manager.ShutdownAll(); // レイアウトを保存してから（プラグインのパネルの場所を残すため）。設定より先（止めるときに設定を書くプラグインのため）
         _settings.Gizmo = new GizmoPreferences { Style = _context.Gizmo.Style, Tool = _context.Gizmo.Tool, LocalSpace = _context.Gizmo.LocalSpace };
         _settings.Rendering = new RenderingPreferences { PreviewQuality = _context.PreviewQuality.Quality };
         UserSettingsStore.Save(_settings);
@@ -249,6 +266,11 @@ public partial class MainWindow : Window
                 e.Handled = true;
                 break;
         }
+        // プラグインのショートカット（アプリの操作に使われなかったキーだけ）
+        if (!e.Handled && _plugins.TryRunShortcut(key, modifiers))
+        {
+            e.Handled = true;
+        }
     }
 
     private static bool IsTyping() =>
@@ -298,6 +320,74 @@ public partial class MainWindow : Window
             var item = new MenuItem { Header = title, IsCheckable = true, Tag = id };
             item.Click += (_, _) => _layout.TogglePanel(id);
             PanelsMenu.Items.Add(item);
+        }
+    }
+
+    /// <summary>表示のメニュー「パネル」の、プラグインのパネルの項目を作り直す。</summary>
+    private void BuildPluginPanelItems()
+    {
+        foreach (object old in PanelsMenu.Items.Cast<object>()
+                     .Where(i => i is Separator { Tag: "plugins" } || (i is MenuItem { Tag: string tag } && tag.StartsWith("Plugin/", StringComparison.Ordinal)))
+                     .ToList())
+        {
+            PanelsMenu.Items.Remove(old);
+        }
+        var panels = _layout.PluginPanels.ToList();
+        if (panels.Count == 0)
+        {
+            return;
+        }
+        PanelsMenu.Items.Add(new Separator { Tag = "plugins" });
+        foreach (var (id, title) in panels)
+        {
+            var item = new MenuItem { Header = title.Replace("_", "__", StringComparison.Ordinal), IsCheckable = true, Tag = id };
+            item.Click += (_, _) => _layout.TogglePanel(id);
+            PanelsMenu.Items.Add(item);
+        }
+    }
+
+    /// <summary>プラグインのメニュー: 「プラグインの管理」と、プラグインごとのコマンド。</summary>
+    private void BuildPluginsMenu()
+    {
+        PluginsMenu.Items.Clear();
+        var manage = new MenuItem { Header = "プラグインの管理..." };
+        manage.Click += (_, _) =>
+        {
+            var window = new Plugins.PluginsWindow(_plugins) { Owner = this };
+            WindowMemory.Track(window);
+            window.ShowDialog();
+        };
+        PluginsMenu.Items.Add(manage);
+        var groups = _plugins.Commands.GroupBy(c => c.Plugin).ToList();
+        if (groups.Count == 0)
+        {
+            return;
+        }
+        PluginsMenu.Items.Add(new Separator());
+        foreach (var group in groups)
+        {
+            var parent = new MenuItem { Header = group.Key.Name.Replace("_", "__", StringComparison.Ordinal) };
+            var items = new List<(MenuItem Item, Plugins.PluginHost.RegisteredCommand Command)>();
+            foreach (Plugins.PluginHost.RegisteredCommand command in group)
+            {
+                var item = new MenuItem
+                {
+                    Header = command.Command.Title.Replace("_", "__", StringComparison.Ordinal),
+                    InputGestureText = command.GestureText,
+                    ToolTip = command.Command.Description,
+                };
+                item.Click += (_, _) => _plugins.Run(command);
+                parent.Items.Add(item);
+                items.Add((item, command));
+            }
+            parent.SubmenuOpened += (_, _) =>
+            {
+                foreach (var (item, command) in items)
+                {
+                    item.IsEnabled = _plugins.CanRun(command);
+                }
+            };
+            PluginsMenu.Items.Add(parent);
         }
     }
 
@@ -695,7 +785,7 @@ public partial class MainWindow : Window
 
     private void UpdateTitle()
     {
-        string title = $"{_project.DisplayName}{(_project.IsDirty ? " ＊" : string.Empty)} - 3D Theater";
+        string title = $"{_project.DisplayName}{(_project.IsDirty ? " ＊" : string.Empty)} - 3D Theater{(_safeMode ? "（安全モード）" : string.Empty)}";
         TitleText.Text = title;
         Title = title;
     }

@@ -159,9 +159,7 @@
           <MenuItem Header="ツール(_T)">
             <MenuItem Header="設定..." Style="{StaticResource PlannedItemStyle}" ToolTip="操作感度・ショートカットの設定は今後対応します" />
           </MenuItem>
-          <MenuItem Header="プラグイン(_P)">
-            <MenuItem Header="プラグインの管理..." Style="{StaticResource PlannedItemStyle}" ToolTip="Phase 5 で対応します" />
-          </MenuItem>
+          <MenuItem x:Name="PluginsMenu" Header="プラグイン(_P)" />
           <MenuItem Header="ヘルプ(_H)">
             <MenuItem Header="操作方法" Click="OnShortcutsClick" />
             <MenuItem Header="ログフォルダーを開く(_L)" Click="OnOpenLogFolderClick" />

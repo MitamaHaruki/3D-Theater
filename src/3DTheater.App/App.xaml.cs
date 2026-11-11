@@ -26,7 +26,11 @@ public partial class App : Application
         var options = StartupOptions.Parse(e.Args);
         _engine = CreateEngine(options, out string? engineError);
 
-        var window = new Shell.MainWindow(new EditorContext(_engine), engineError);
+        if (options.SafeMode)
+        {
+            AppLog.Info("安全モードで起動します（プラグインを始めません）");
+        }
+        var window = new Shell.MainWindow(new EditorContext(_engine), engineError, options.SafeMode);
         MainWindow = window;
         window.Show();
         window.ImportOnStartup(options.Files);
@@ -136,7 +140,8 @@ public partial class App : Application
     }
 
     /// <param name="Files">「--」で始まらない引数。起動後に読み込むモデルのファイル。</param>
-    private sealed record StartupOptions(bool UseWarp, bool DebugLayer, IReadOnlyList<string> Files)
+    /// <param name="SafeMode">安全モード（プラグインを始めない）。「--safe-mode」か、Shift を押しながらの起動。</param>
+    private sealed record StartupOptions(bool UseWarp, bool DebugLayer, IReadOnlyList<string> Files, bool SafeMode)
     {
         public static StartupOptions Parse(string[] args)
         {
@@ -147,7 +152,10 @@ public partial class App : Application
             bool debugLayer = args.Contains("--debug-layer", StringComparer.OrdinalIgnoreCase);
 #endif
             string[] files = [.. args.Where(a => !a.StartsWith("--", StringComparison.Ordinal))];
-            return new StartupOptions(useWarp, debugLayer, files);
+            bool safeMode = args.Contains("--safe-mode", StringComparer.OrdinalIgnoreCase)
+                || System.Windows.Input.Keyboard.IsKeyDown(System.Windows.Input.Key.LeftShift)
+                || System.Windows.Input.Keyboard.IsKeyDown(System.Windows.Input.Key.RightShift);
+            return new StartupOptions(useWarp, debugLayer, files, safeMode);
         }
     }
 }

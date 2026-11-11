@@ -26,6 +26,21 @@
     <ProjectReference Include="..\3DTheater.Engine.Interop\3DTheater.Engine.Interop.csproj" />
     <ProjectReference Include="..\3DTheater.Physics\3DTheater.Physics.csproj" />
     <ProjectReference Include="..\3DTheater.Media\3DTheater.Media.csproj" />
+    <ProjectReference Include="..\Plugin.Core\Plugin.Core.csproj" />
+    <ProjectReference Include="..\Plugin.UI.Wpf\Plugin.UI.Wpf.csproj" />
+    <ProjectReference Include="..\3DTheater.Plugin.SDK\3DTheater.Plugin.SDK.csproj" />
+    <!-- サンプルのプラグイン: 先に作り、出力の Plugins\SceneInfo に置く（アプリからは参照しない） -->
+    <ProjectReference Include="..\..\plugins\3DTheater.SamplePlugin\3DTheater.SamplePlugin.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
+
+  <Target Name="CopySamplePlugin" AfterTargets="Build">
+    <PropertyGroup>
+      <SamplePluginOutput>$(MSBuildThisFileDirectory)..\..\plugins\3DTheater.SamplePlugin\bin\$(Platform)\$(Configuration)\net10.0-windows\</SamplePluginOutput>
+    </PropertyGroup>
+    <ItemGroup>
+      <SamplePluginFiles Include="$(SamplePluginOutput)3DTheater.SamplePlugin.dll;$(SamplePluginOutput)3DTheater.SamplePlugin.deps.json;$(MSBuildThisFileDirectory)..\..\plugins\3DTheater.SamplePlugin\plugin.json" />
+    </ItemGroup>
+    <Copy SourceFiles="@(SamplePluginFiles)" DestinationFolder="$(OutDir)Plugins\SceneInfo\" SkipUnchangedFiles="true" />
+  </Target>
 
 </Project>

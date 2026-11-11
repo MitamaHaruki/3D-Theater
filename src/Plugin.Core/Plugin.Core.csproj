@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- 共通のプラグインの契約と管理（指示書 7 章）。アプリ（3D Theater・Drawing Canvas）にも WPF にも依存しない。
+       この DLL はアプリと全プラグインで 1 つだけ読み込む（プラグインごとの読み込み先からは、アプリのものを使う） -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Plugin.Core</RootNamespace>
+    <AssemblyName>Plugin.Core</AssemblyName>
+    <Version>1.0.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Plugin.Core.Tests" />
+  </ItemGroup>
+
+</Project>
