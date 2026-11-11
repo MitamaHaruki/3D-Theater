@@ -39,13 +39,22 @@ internal static class MotionImporter
         VmdLoadResult? preloaded = null;
         if (!isPoseFile)
         {
-            // カメラ用のモーション（またはカメラを選んでいるとき）は、モデルではなくシーンのカメラに当てはめる
+            // カメラ・照明用のモーション（またはカメラ・照明を選んでいるとき）は、モデルではなくシーンのカメラ・照明に当てはめる。
+            // 照明のキーは、照明を選んでいればその照明、そうでなければ MMD の照明へ
             preloaded = await Task.Run(() => VmdReader.Load(path));
-            if (preloaded.Succeeded && context.MainCamera is { } camera
-                && (preloaded.Document!.IsCameraMotion || (context.Selection.Primary is CameraNode && preloaded.Document.CameraKeys.Count > 0)))
+            if (preloaded.Succeeded && context.MainCamera is { } camera)
             {
-                ImportCamera(context, camera, path, preloaded, owner);
-                return;
+                VmdDocument vmd = preloaded.Document!;
+                bool cameraSelected = context.Selection.Primary is CameraNode && vmd.CameraKeys.Count > 0;
+                bool lightSelected = context.Selection.Primary is LightNode && vmd.LightKeys.Count > 0;
+                if (vmd.IsCameraMotion || cameraSelected || lightSelected)
+                {
+                    LightNode light = context.Selection.Primary as LightNode ?? context.Scene.MainLight;
+                    bool useCamera = vmd.CameraKeys.Count > 0 && !lightSelected;
+                    bool useLight = vmd.LightKeys.Count > 0 && (vmd.IsCameraMotion || lightSelected);
+                    ImportCameraAndLight(context, useCamera ? camera : null, useLight ? light : null, path, preloaded, owner);
+                    return;
+                }
             }
         }
 
@@ -107,27 +116,56 @@ internal static class MotionImporter
             $"最後のキー {imported.LastFrame:N0} フレーム、{stopwatch.Elapsed.TotalMilliseconds:F0} ms）");
     }
 
-    private static void ImportCamera(EditorContext context, CameraNode camera, string path, VmdLoadResult motion, Window owner)
+    /// <summary>
+    /// カメラ・照明のモーションを当てはめる。<paramref name="camera"/> が null ならカメラのキーは使わず、<paramref name="light"/> が
+    /// null なら照明のキーは使わない（どちらかは null でない）。
+    /// </summary>
+    private static void ImportCameraAndLight(EditorContext context, CameraNode? camera, LightNode? light, string path, VmdLoadResult motion,
+        Window owner)
     {
-        if (!camera.CanEdit)
+        VmdDocument vmd = motion.Document!;
+        foreach (SceneNode node in new SceneNode?[] { camera, light }.OfType<SceneNode>())
         {
-            MessageBox.Show(owner, $"「{camera.Name}」は編集ロック中のため、カメラのモーションを当てはめられません（シーン一覧の鍵で外せます）。",
-                "モーションの読み込み", MessageBoxButton.OK, MessageBoxImage.Information);
-            return;
+            if (!node.CanEdit)
+            {
+                MessageBox.Show(owner, $"「{node.Name}」は編集ロック中のため、モーションを当てはめられません（シーン一覧の鍵で外せます）。",
+                    "モーションの読み込み", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
         }
         context.Playback.Pause();
-        AppLog.Info($"カメラのモーションを読み込みます: {path}（当てはめる先: {camera.Name}）");
-        CameraImportResult imported = null!;
-        context.Edits.Change($"カメラのモーションの読み込み（{Path.GetFileName(path)}）", [camera],
-            () => imported = CameraMotion.Apply(motion.Document!, camera, context.Playback.FrameRate, motion.Report), includeKeys: true);
-        if (imported.LastFrame > context.Playback.EndFrame)
+        SceneNode[] targets = [.. new SceneNode?[] { camera, light }.OfType<SceneNode>()];
+        AppLog.Info($"カメラ・照明のモーションを読み込みます: {path}（当てはめる先: {string.Join("・", targets.Select(n => n.Name))}）");
+        CameraImportResult? cameraResult = null;
+        LightImportResult? lightResult = null;
+        context.Edits.Change($"カメラ・照明のモーションの読み込み（{Path.GetFileName(path)}）", targets, () =>
         {
-            context.Playback.EndFrame = imported.LastFrame;
-            motion.Report.Info(LoadIssueCategory.Note, $"モーションの長さに合わせて、終わりのフレームを {imported.LastFrame:N0} にしました");
+            cameraResult = camera is null ? null : CameraMotion.Apply(vmd, camera, context.Playback.FrameRate, motion.Report);
+            lightResult = light is null ? null : LightMotion.Apply(vmd, light, context.Playback.FrameRate, motion.Report);
+        }, includeKeys: true);
+        int lastFrame = Math.Max(cameraResult?.LastFrame ?? 0, lightResult?.LastFrame ?? 0);
+        if (lastFrame > context.Playback.EndFrame)
+        {
+            context.Playback.EndFrame = lastFrame;
+            motion.Report.Info(LoadIssueCategory.Note, $"モーションの長さに合わせて、終わりのフレームを {lastFrame:N0} にしました");
+        }
+        if (light is null && vmd.LightKeys.Count > 0)
+        {
+            motion.Report.Info(LoadIssueCategory.Note, $"照明のキー {vmd.LightKeys.Count:N0} 個は使いませんでした（照明を選んで読み込むと当てはまります）");
         }
         context.Animation.ApplyFrame();
+        var parts = new List<string>();
+        if (camera is not null && cameraResult is not null)
+        {
+            parts.Add($"カメラ「{camera.Name}」にキー {cameraResult.Keys:N0}");
+        }
+        if (light is not null && lightResult is not null)
+        {
+            parts.Add($"照明「{light.Name}」にキー {lightResult.Keys:N0}");
+        }
         Finish(owner, path, motion.Report, "モーション",
-            $"カメラのモーションを「{camera.Name}」に当てはめました（キー {imported.Keys:N0}、最後のキー {imported.LastFrame:N0} フレーム）。カメラ視点の区画で見られます");
+            $"カメラ・照明のモーションを当てはめました（{string.Join("・", parts)}、最後のキー {lastFrame:N0} フレーム）。"
+            + (camera is not null ? "カメラ視点の区画で見られます" : string.Empty));
     }
 
     private static void Finish(Window owner, string path, LoadReport report, string what, string summary)

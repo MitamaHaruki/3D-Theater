@@ -7,7 +7,7 @@ namespace Theater3D.Editor;
 /// 手で値を変えたときは、自動キーが OFF なら「未登録の変更」として残し、フレームを動かしても値を保つ（指示書 3.3「黙って失わない」）。
 /// 未登録の変更は <see cref="RegisterUnregistered"/> でキーにするか、<see cref="DiscardUnregistered"/> で捨てる。
 /// 自動キーが ON なら、変えたときに今のフレームへキーを登録する。
-/// カメラは、キーがあるときだけ手で動かした値を未登録の変更にする（キーの無いカメラを置くたびに未登録が残らないように）。
+/// カメラ・照明は、キーがあるときだけ手で動かした値を未登録の変更にする（キーの無いカメラ・照明を置くたびに未登録が残らないように）。
 /// </summary>
 public sealed class AnimationService
 {
@@ -46,11 +46,12 @@ public sealed class AnimationService
     public IReadOnlyList<SceneNode> Unregistered =>
         [.. Models.SelectMany(m => m.Bones.Where(b => b.HasUnregisteredChange).Cast<SceneNode>()
             .Concat(m.Morphs.Where(x => x.HasUnregisteredChange)))
-            .Concat(Cameras.Where(c => c.HasUnregisteredChange))];
+            .Concat(Cameras.Where(c => c.HasUnregisteredChange))
+            .Concat(Lights.Where(l => l.HasUnregisteredChange))];
 
     public int UnregisteredCount =>
         Models.Sum(m => m.Bones.Count(b => b.HasUnregisteredChange) + m.Morphs.Count(x => x.HasUnregisteredChange))
-        + Cameras.Count(c => c.HasUnregisteredChange);
+        + Cameras.Count(c => c.HasUnregisteredChange) + Lights.Count(l => l.HasUnregisteredChange);
 
     /// <summary>
     /// この間は、値やキーが変わっても「手で変えた」とみなさず、キーの当てはめもしない（元に戻すで値を書き戻すときに使う）。
@@ -69,6 +70,8 @@ public sealed class AnimationService
     private IEnumerable<ModelNode> Models => _scene.ModelsGroup.Children.OfType<ModelNode>();
 
     private IEnumerable<CameraNode> Cameras => _scene.AllNodes.OfType<CameraNode>();
+
+    private IEnumerable<LightNode> Lights => _scene.AllNodes.OfType<LightNode>();
 
     /// <summary>今のフレームの値を、キーのある項目に当てはめる（未登録の変更がある項目はそのまま）。</summary>
     public void ApplyFrame()
@@ -91,6 +94,10 @@ public sealed class AnimationService
             foreach (CameraNode camera in Cameras)
             {
                 ApplyCamera(camera, frame);
+            }
+            foreach (LightNode light in Lights)
+            {
+                ApplyLight(light, frame);
             }
         }
         finally
@@ -125,6 +132,10 @@ public sealed class AnimationService
             {
                 ApplyCamera(camera, SampleTime(camera.Keys, time, anchorFrame));
             }
+            foreach (LightNode light in Lights)
+            {
+                ApplyLight(light, SampleTime(light.Keys, time, anchorFrame));
+            }
         }
         finally
         {
@@ -157,7 +168,7 @@ public sealed class AnimationService
     }
 
     /// <summary>
-    /// 「登録」の対象: 選んだボーン・モーフと、選んだモデルやまとまりの中の未登録の変更。
+    /// 「登録」の対象: 選んだボーン・モーフ・カメラ・照明と、選んだモデルやまとまりの中の未登録の変更。
     /// （モデルを選んで登録しても、動かしていない全ボーンにキーは作らない）
     /// </summary>
     public IReadOnlyList<SceneNode> RegistrationTargets(IEnumerable<SceneNode> selection)
@@ -166,7 +177,7 @@ public sealed class AnimationService
         var seen = new HashSet<SceneNode>();
         foreach (SceneNode node in selection)
         {
-            if (node is BoneNode or MorphNode or CameraNode)
+            if (node is BoneNode or MorphNode or CameraNode or LightNode)
             {
                 if (seen.Add(node))
                 {
@@ -216,6 +227,11 @@ public sealed class AnimationService
                         camera.Keys.Set(NewCameraKey(camera, frame));
                         count++;
                         break;
+                    case LightNode light:
+                        ClearUnregistered(light);
+                        light.Keys.Set(NewLightKey(light, frame));
+                        count++;
+                        break;
                 }
             }
         }
@@ -257,6 +273,9 @@ public sealed class AnimationService
                         break;
                     case CameraNode camera:
                         ApplyCamera(camera, frame);
+                        break;
+                    case LightNode light:
+                        ApplyLight(light, frame);
                         break;
                 }
             }
@@ -320,6 +339,32 @@ public sealed class AnimationService
             camera.ApplyPose(pose);
         }
     }
+
+    private static LightKey NewLightKey(LightNode light, int frame)
+    {
+        // 同じフレームにキーがあれば、その動き方を引き継ぐ。無ければ直線
+        BezierCurve curve = BezierCurve.Linear;
+        KeyInterpolationKind kind = KeyInterpolationKind.Curve;
+        if (light.Keys.TryGet(frame, out LightKey existing))
+        {
+            curve = existing.Curve;
+            kind = existing.Kind;
+        }
+        return new LightKey(frame, light.Pose, curve, kind);
+    }
+
+    private static void ApplyLight(LightNode light, float frame)
+    {
+        if (!light.HasUnregisteredChange && KeyframeEvaluator.TryEvaluate(light.Keys, frame, out LightPose pose))
+        {
+            light.ApplyPose(pose);
+        }
+    }
+
+    /// <summary>照明の値のうち、キーで動かすもの（手で変えると未登録の変更・自動キーになる）。</summary>
+    private static bool IsKeyedLightProperty(string? name) => name is nameof(SceneNode.Position) or nameof(SceneNode.Rotation)
+        or nameof(LightNode.Color) or nameof(LightNode.Intensity) or nameof(LightNode.Range) or nameof(LightNode.SpotAngle)
+        or nameof(LightNode.SpotSoftness);
 
     private static void ApplyBone(BoneNode bone, float frame, bool resetWithoutKeys)
     {
@@ -385,6 +430,15 @@ public sealed class AnimationService
             case CameraNode camera when e.PropertyName == nameof(CameraNode.Keys):
                 Apply(() => ApplyCamera(camera, _playback.CurrentFrame));
                 break;
+            case LightNode light when IsKeyedLightProperty(e.PropertyName):
+                if (_autoKey || light.Keys.Count > 0)
+                {
+                    OnUserEdit(light);
+                }
+                break;
+            case LightNode light when e.PropertyName == nameof(LightNode.Keys):
+                Apply(() => ApplyLight(light, _playback.CurrentFrame));
+                break;
         }
     }
 
@@ -403,7 +457,8 @@ public sealed class AnimationService
     }
 
     private static bool IsUnregistered(SceneNode node) =>
-        node is BoneNode { HasUnregisteredChange: true } or MorphNode { HasUnregisteredChange: true } or CameraNode { HasUnregisteredChange: true };
+        node is BoneNode { HasUnregisteredChange: true } or MorphNode { HasUnregisteredChange: true } or CameraNode { HasUnregisteredChange: true }
+            or LightNode { HasUnregisteredChange: true };
 
     private static void ClearUnregistered(SceneNode node)
     {
@@ -425,6 +480,9 @@ public sealed class AnimationService
                 break;
             case CameraNode camera:
                 camera.HasUnregisteredChange = value;
+                break;
+            case LightNode light:
+                light.HasUnregisteredChange = value;
                 break;
         }
     }

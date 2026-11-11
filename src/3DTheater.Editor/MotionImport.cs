@@ -14,7 +14,7 @@ public sealed record PoseImportResult(int Bones, int Morphs);
 /// <summary>
 /// 読み込んだ VMD・VPD を、シーンのモデルのボーン・モーフに当てはめる。元のファイルは書き換えない。
 /// 名前の対応は MMD と同じく、Shift-JIS にして決まった長さ（ボーン・モーフは 15 バイト）で切ったバイト列で比べる。
-/// モデルに無いボーン・モーフ、まだ使えないキー（カメラ・照明・IK の切り替えなど）はレポートで知らせる。
+/// モデルに無いボーン・モーフ、モデルには当てはめないキー（カメラ・照明）、まだ使えないキー（IK の切り替えなど）はレポートで知らせる。
 /// </summary>
 public static class MotionImport
 {
@@ -108,7 +108,7 @@ public static class MotionImport
         if (vmd.CameraKeys.Count > 0 || vmd.LightKeys.Count > 0 || vmd.ShadowKeys.Count > 0)
         {
             report.Info(LoadIssueCategory.Note,
-                $"カメラ {vmd.CameraKeys.Count:N0}・照明 {vmd.LightKeys.Count:N0}・セルフ影 {vmd.ShadowKeys.Count:N0} 個のキーは、モデルには当てはめません（カメラのキーは、カメラを選んで読み込むか、カメラ用のモーションを読み込むと当てはまります）");
+                $"カメラ {vmd.CameraKeys.Count:N0}・照明 {vmd.LightKeys.Count:N0}・セルフ影 {vmd.ShadowKeys.Count:N0} 個のキーは、モデルには当てはめません（カメラ・照明のキーは、カメラか照明を選んで読み込むか、カメラ・照明用のモーションを読み込むと当てはまります）");
         }
         int ikOff = vmd.VisibilityKeys.Sum(k => k.IkStates.Count(s => !s.Enabled));
         int hidden = vmd.VisibilityKeys.Count(k => !k.Visible);

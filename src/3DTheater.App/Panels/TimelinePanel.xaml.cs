@@ -134,7 +134,7 @@ public partial class TimelinePanel : UserControl
         }
         else
         {
-            Logging.AppLog.Info("登録するボーン・モーフがありません（ボーンかモーフを選ぶか、モデルを選んで動かしてから登録してください）");
+            Logging.AppLog.Info("登録する項目がありません（ボーン・モーフ・カメラ・照明を選ぶか、モデルを選んで動かしてから登録してください）");
         }
     }
 }

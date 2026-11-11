@@ -108,9 +108,9 @@ public static class CameraMotion
         {
             report.Info(LoadIssueCategory.Unsupported, $"パース OFF（平行投影）のキー {orthographic:N0} 個は、今は透視投影で表示します");
         }
-        if (vmd.LightKeys.Count > 0 || vmd.ShadowKeys.Count > 0)
+        if (vmd.ShadowKeys.Count > 0)
         {
-            report.Info(LoadIssueCategory.Unsupported, $"照明 {vmd.LightKeys.Count:N0}・セルフ影 {vmd.ShadowKeys.Count:N0} 個のキーは、今は使いません（陰影の描画は Phase 4）");
+            report.Info(LoadIssueCategory.Unsupported, $"セルフ影 {vmd.ShadowKeys.Count:N0} 個のキーは、今は使いません");
         }
         if (vmd.BoneKeys.Count > 0 || vmd.MorphKeys.Count > 0)
         {
@@ -125,8 +125,9 @@ public static class CameraMotion
 
     /// <summary>
     /// シーンのカメラのキーを VMD（カメラ・照明用）にする。30 fps に直し、段階の補間は 1 つ前のフレームにキーを足して表す。
+    /// <paramref name="light"/>（MMD の照明）にキーがあれば、照明のキーも一緒に書く（<see cref="LightMotion.CreateKeys"/>）。
     /// </summary>
-    public static VmdDocument CreateVmd(CameraNode camera, int frameRate, LoadReport report)
+    public static VmdDocument CreateVmd(CameraNode camera, int frameRate, LoadReport report, LightNode? light = null)
     {
         double scale = MotionImport.MmdFrameRate / (double)frameRate;
         int Scale(int frame) => (int)Math.Round(frame * scale, MidpointRounding.AwayFromZero);
@@ -164,10 +165,16 @@ public static class CameraMotion
         {
             report.Warning(LoadIssueCategory.Note, "カメラにキーに登録していない変更があり、書き出していません（書き出すには先に登録してください）");
         }
-        if (written.Count == 0)
+        IReadOnlyList<VmdLightKey> lights = light is null ? [] : LightMotion.CreateKeys(light, frameRate, report);
+        if (written.Count == 0 && lights.Count == 0)
         {
-            report.Warning(LoadIssueCategory.Note, "カメラのキーがありません（空のモーションになります）");
+            report.Warning(LoadIssueCategory.Note, light is null ? "カメラのキーがありません（空のモーションになります）" : "カメラ・照明のキーがありません（空のモーションになります）");
         }
-        return new VmdDocument { ModelName = VmdName.FromText("カメラ・照明", VmdText.ModelNameBytes), CameraKeys = [.. written.Values] };
+        return new VmdDocument
+        {
+            ModelName = VmdName.FromText("カメラ・照明", VmdText.ModelNameBytes),
+            CameraKeys = [.. written.Values],
+            LightKeys = lights,
+        };
     }
 }

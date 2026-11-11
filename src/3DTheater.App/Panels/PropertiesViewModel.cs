@@ -188,15 +188,17 @@ public sealed class PropertiesViewModel : ObservableObject
 
     public bool IsBoneIkLinkNote => _node is BoneNode { Traits.IsIkLink: true };
 
-    /// <summary>選んだボーン・モーフに、キーに登録していない変更がある。</summary>
-    public bool HasUnregisteredChange => _node is BoneNode { HasUnregisteredChange: true } or MorphNode { HasUnregisteredChange: true } or CameraNode { HasUnregisteredChange: true };
+    /// <summary>選んだボーン・モーフ・カメラ・照明に、キーに登録していない変更がある。</summary>
+    public bool HasUnregisteredChange => _node is BoneNode { HasUnregisteredChange: true } or MorphNode { HasUnregisteredChange: true } or CameraNode { HasUnregisteredChange: true }
+        or LightNode { HasUnregisteredChange: true };
 
-    /// <summary>キーの数（ボーン・モーフ）。</summary>
+    /// <summary>キーの数（ボーン・モーフ・カメラ・照明）。</summary>
     public string KeyCountText => _node switch
     {
         BoneNode bone => bone.Keys.Count == 0 ? "キーなし" : $"キー {bone.Keys.Count:N0} 個（{bone.Keys.FirstFrame}〜{bone.Keys.LastFrame} フレーム）",
         MorphNode morph => morph.Keys.Count == 0 ? "キーなし" : $"キー {morph.Keys.Count:N0} 個（{morph.Keys.FirstFrame}〜{morph.Keys.LastFrame} フレーム）",
         CameraNode camera => camera.Keys.Count == 0 ? "キーなし" : $"キー {camera.Keys.Count:N0} 個（{camera.Keys.FirstFrame}〜{camera.Keys.LastFrame} フレーム）",
+        LightNode light => light.Keys.Count == 0 ? "キーなし" : $"キー {light.Keys.Count:N0} 個（{light.Keys.FirstFrame}〜{light.Keys.LastFrame} フレーム）",
         _ => string.Empty,
     };
 

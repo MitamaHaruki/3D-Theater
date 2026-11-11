@@ -118,8 +118,8 @@
                       ToolTip="今操作しているモデルのボーン・モーフのキーを、MMD のモーションとして書き出します" />
             <MenuItem Header="ポーズを書き出す（VPD）..." Click="OnExportPoseClick"
                       ToolTip="今操作しているモデルの、今のフレームの姿勢を書き出します" />
-            <MenuItem Header="カメラのモーションを書き出す（VMD）..." Click="OnExportCameraClick"
-                      ToolTip="シーンのカメラのキーを、MMD のカメラのモーションとして書き出します" />
+            <MenuItem Header="カメラ・照明のモーションを書き出す（VMD）..." Click="OnExportCameraClick"
+                      ToolTip="シーンのカメラと MMD の照明のキーを、MMD のカメラ・照明のモーションとして書き出します" />
             <Separator />
             <MenuItem Header="キーフレームを登録" InputGestureText="I" Click="OnRegisterKeysClick"
                       ToolTip="選んだボーン・モーフを、今のフレームのキーにします" />

@@ -2,7 +2,7 @@ using Theater3D.Domain;
 
 namespace Theater3D.Editor;
 
-/// <summary>キー 1 つを指す（どの項目の、どのフレームのキーか）。項目はボーンかモーフ。</summary>
+/// <summary>キー 1 つを指す（どの項目の、どのフレームのキーか）。項目はボーン・モーフ・カメラ・照明。</summary>
 public readonly record struct KeyRef(SceneNode Node, int Frame);
 
 /// <summary>補間の種類（右クリックのメニューで選ぶ）。</summary>
@@ -103,11 +103,12 @@ public static class KeyEditing
         BoneNode bone => bone.Keys.HasKeyAt(key.Frame),
         MorphNode morph => morph.Keys.HasKeyAt(key.Frame),
         CameraNode camera => camera.Keys.HasKeyAt(key.Frame),
+        LightNode light => light.Keys.HasKeyAt(key.Frame),
         _ => false,
     };
 
-    /// <summary>キーを持てる項目か（ボーン・モーフ・カメラ）。</summary>
-    public static bool HasKeys(SceneNode node) => node is BoneNode or MorphNode or CameraNode;
+    /// <summary>キーを持てる項目か（ボーン・モーフ・カメラ・照明）。</summary>
+    public static bool HasKeys(SceneNode node) => node is BoneNode or MorphNode or CameraNode or LightNode;
 
     /// <summary>項目のキーの数（キーを持てない項目は 0）。</summary>
     public static int CountKeys(SceneNode node) => node switch
@@ -115,13 +116,14 @@ public static class KeyEditing
         BoneNode bone => bone.Keys.Count,
         MorphNode morph => morph.Keys.Count,
         CameraNode camera => camera.Keys.Count,
+        LightNode light => light.Keys.Count,
         _ => 0,
     };
 
     /// <summary>
     /// キーの位置を <paramref name="scale"/> 倍にする（作品のフレームの速さを変えても、動きの秒数を保つとき）。
-    /// 同じフレームに重なったキーは後ろのものを使う。広げるときは、元で 1 フレームしか離れていなかったカメラのキー
-    /// （カメラの切り替え）を段階の補間にする（間に途中の絵を出さない。VMD の読み込みと同じ）。重なって消えたキーの数を返す。
+    /// 同じフレームに重なったキーは後ろのものを使う。広げるときは、元で 1 フレームしか離れていなかったカメラ・照明のキー
+    /// （場面の切り替え）を段階の補間にする（間に途中の絵を出さない。VMD の読み込みと同じ）。重なって消えたキーの数を返す。
     /// </summary>
     public static int ScaleTime(IEnumerable<SceneNode> nodes, double scale)
     {
@@ -147,6 +149,18 @@ public static class KeyEditing
                         scaled[i] = keys[i] with { Frame = Scale(keys[i].Frame), Kind = cut ? KeyInterpolationKind.Step : keys[i].Kind };
                     }
                     lost += Replace(camera.Keys, scaled);
+                    break;
+                }
+                case LightNode light:
+                {
+                    IReadOnlyList<LightKey> keys = light.Keys.Keys;
+                    var scaled = new LightKey[keys.Count];
+                    for (int i = 0; i < keys.Count; i++)
+                    {
+                        bool cut = scale > 1 && i > 0 && keys[i].Frame - keys[i - 1].Frame == 1;
+                        scaled[i] = keys[i] with { Frame = Scale(keys[i].Frame), Kind = cut ? KeyInterpolationKind.Step : keys[i].Kind };
+                    }
+                    lost += Replace(light.Keys, scaled);
                     break;
                 }
             }
@@ -181,6 +195,9 @@ public static class KeyEditing
                     break;
                 case CameraNode camera:
                     Collect(camera, camera.Keys);
+                    break;
+                case LightNode light:
+                    Collect(light, light.Keys);
                     break;
             }
         }
@@ -222,6 +239,9 @@ public static class KeyEditing
                 case CameraNode camera:
                     MoveIn(camera.Keys, frames, delta, duplicate, (k, f) => k with { Frame = f });
                     break;
+                case LightNode light:
+                    MoveIn(light.Keys, frames, delta, duplicate, (k, f) => k with { Frame = f });
+                    break;
             }
             result.AddRange(frames.Select(f => new KeyRef(group.Key, f + delta)));
         }
@@ -246,6 +266,9 @@ public static class KeyEditing
                 case CameraNode camera:
                     camera.Keys.ReplaceAll(camera.Keys.Keys.Where(k => !frames.Contains(k.Frame)));
                     break;
+                case LightNode light:
+                    light.Keys.ReplaceAll(light.Keys.Keys.Where(k => !frames.Contains(k.Frame)));
+                    break;
             }
         }
         return count;
@@ -269,6 +292,9 @@ public static class KeyEditing
                 case CameraNode camera when camera.Keys.TryGet(k.Frame, out CameraKey key):
                     items.Add((camera, k.Frame - origin, key));
                     break;
+                case LightNode light when light.Keys.TryGet(k.Frame, out LightKey key):
+                    items.Add((light, k.Frame - origin, key));
+                    break;
             }
         }
         return new KeyClipboard(items);
@@ -290,6 +316,9 @@ public static class KeyEditing
                     break;
                 case CameraNode camera:
                     camera.Keys.SetRange(group.Select(i => ((CameraKey)i.Key) with { Frame = frame + i.Offset }));
+                    break;
+                case LightNode light:
+                    light.Keys.SetRange(group.Select(i => ((LightKey)i.Key) with { Frame = frame + i.Offset }));
                     break;
             }
             result.AddRange(group.Select(i => new KeyRef(group.Key, frame + i.Offset)));
@@ -319,6 +348,9 @@ public static class KeyEditing
                     camera.Keys.ReplaceAll(camera.Keys.Keys.Select(k => frames.Contains(k.Frame)
                         ? k with { Interpolation = new CameraInterpolation(curve, curve, curve, curve, curve, curve), Kind = kind }
                         : k));
+                    break;
+                case LightNode light:
+                    light.Keys.ReplaceAll(light.Keys.Keys.Select(k => frames.Contains(k.Frame) ? k with { Curve = curve, Kind = kind } : k));
                     break;
             }
         }

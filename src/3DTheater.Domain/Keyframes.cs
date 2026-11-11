@@ -117,6 +117,20 @@ public readonly record struct CameraKey(int Frame, Vector3 Target, Vector3 Rotat
 public readonly record struct MorphKey(int Frame, float Weight, BezierCurve Curve, KeyInterpolationKind Kind = KeyInterpolationKind.Curve) : IKeyframe;
 
 /// <summary>
+/// 照明の値（キーで動かすもの）。<see cref="Rotation"/> は度（シーンの項目と同じ。補間では成分ごとに直線で動く）、
+/// <see cref="Color"/> は各 0〜1。届く距離・広がり・ぼかしは、点光源・スポットライトだけが使う。
+/// </summary>
+public readonly record struct LightPose(Vector3 Position, Vector3 Rotation, Vector3 Color, float Intensity, float Range, float SpotAngle,
+    float SpotSoftness);
+
+/// <summary>
+/// 照明のキー 1 つ（MMD の照明と足した照明）。<see cref="Curve"/> と <see cref="Kind"/> は前のキーからこのキーまでの動き方で、
+/// すべての値に同じ曲線を使う（MMD の照明のキーは直線だけ）。
+/// </summary>
+public readonly record struct LightKey(int Frame, LightPose Pose, BezierCurve Curve, KeyInterpolationKind Kind = KeyInterpolationKind.Curve)
+    : IKeyframe;
+
+/// <summary>
 /// 1 つの項目のキーの並び（フレーム順、同じフレームには 1 つだけ）。変わると <see cref="Changed"/> を出す。
 /// </summary>
 public sealed class KeyTrack<TKey> where TKey : struct, IKeyframe
@@ -378,6 +392,38 @@ public static class KeyframeEvaluator
         pose = new CameraPose(target, rotation,
             float.Lerp(a.Distance, b.Distance, ip.Distance.Evaluate(t)),
             float.Lerp(a.FieldOfView, b.FieldOfView, ip.FieldOfView.Evaluate(t)));
+        return true;
+    }
+
+    public static bool TryEvaluate(KeyTrack<LightKey> track, float frame, out LightPose pose)
+    {
+        pose = default;
+        if (!track.FindSegment(frame, out int before, out int after))
+        {
+            return false;
+        }
+        LightKey a = track.Keys[before];
+        if (before == after)
+        {
+            pose = a.Pose;
+            return true;
+        }
+        LightKey b = track.Keys[after];
+        if (b.Kind == KeyInterpolationKind.Step)
+        {
+            pose = a.Pose;
+            return true;
+        }
+        float t = b.Curve.Evaluate((frame - a.Frame) / (b.Frame - a.Frame));
+        LightPose p = a.Pose, q = b.Pose;
+        pose = new LightPose(
+            Vector3.Lerp(p.Position, q.Position, t),
+            Vector3.Lerp(p.Rotation, q.Rotation, t), // カメラと同じく、角度を成分ごとに直線で動かす
+            Vector3.Lerp(p.Color, q.Color, t),
+            float.Lerp(p.Intensity, q.Intensity, t),
+            float.Lerp(p.Range, q.Range, t),
+            float.Lerp(p.SpotAngle, q.SpotAngle, t),
+            float.Lerp(p.SpotSoftness, q.SpotSoftness, t));
         return true;
     }
 

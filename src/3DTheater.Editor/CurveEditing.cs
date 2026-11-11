@@ -11,7 +11,8 @@ public sealed record GraphSeries(string Name, int CurveChannel, int FirstFrame, 
 
 /// <summary>
 /// 補間曲線の編集と、グラフエディタに描く値。補間曲線はキーごとに持ち、「前のキーからこのキーまで」の動き方（MMD と同じ）。
-/// 曲線の番号: ボーン = 移動 X・移動 Y・移動 Z・回転、モーフ = 値、カメラ = 注視点 X・Y・Z・回転・距離・視野角（MMD と同じ本数）。
+/// 曲線の番号: ボーン = 移動 X・移動 Y・移動 Z・回転、モーフ = 値、カメラ = 注視点 X・Y・Z・回転・距離・視野角（MMD と同じ本数）、
+/// 照明 = すべての値（1 本）。
 /// キーの並びを書き換えるので、画面からは <see cref="EditService"/> の中で呼び、元に戻せるようにする。
 /// </summary>
 public static class CurveEditing
@@ -22,6 +23,7 @@ public static class CurveEditing
         BoneNode => ["移動 X", "移動 Y", "移動 Z", "回転"],
         MorphNode => ["値"],
         CameraNode => ["注視点 X", "注視点 Y", "注視点 Z", "回転", "距離", "視野角"],
+        LightNode => ["すべての値"],
         _ => [],
     };
 
@@ -50,6 +52,10 @@ public static class CurveEditing
                     4 => k.Interpolation.Distance,
                     _ => k.Interpolation.FieldOfView,
                 };
+                kind = k.Kind;
+                return true;
+            case LightNode light when light.Keys.TryGet(key.Frame, out LightKey k) && channel == 0:
+                curve = k.Curve;
                 kind = k.Kind;
                 return true;
             default:
@@ -84,6 +90,11 @@ public static class CurveEditing
                         ? k with { Interpolation = With(k.Interpolation, channel, curve), Kind = KeyInterpolationKind.Curve }
                         : k));
                     break;
+                case LightNode light:
+                    light.Keys.ReplaceAll(light.Keys.Keys.Select(k => frames.Contains(k.Frame) && channel is null or 0
+                        ? k with { Curve = curve, Kind = KeyInterpolationKind.Curve }
+                        : k));
+                    break;
                 default:
                     continue;
             }
@@ -100,6 +111,7 @@ public static class CurveEditing
             BoneNode bone => bone.Keys.Keys.Select(k => k.Frame),
             MorphNode morph => morph.Keys.Keys.Select(k => k.Frame),
             CameraNode camera => camera.Keys.Keys.Select(k => k.Frame),
+            LightNode light => light.Keys.Keys.Select(k => k.Frame),
             _ => [],
         };
         int? previous = null;
@@ -120,13 +132,15 @@ public static class CurveEditing
         BoneNode bone => [.. bone.Keys.Keys.Select(k => k.Frame)],
         MorphNode morph => [.. morph.Keys.Keys.Select(k => k.Frame)],
         CameraNode camera => [.. camera.Keys.Keys.Select(k => k.Frame)],
+        LightNode light => [.. light.Keys.Keys.Select(k => k.Frame)],
         _ => [],
     };
 
     /// <summary>
     /// グラフに描く値を、<paramref name="first"/>〜<paramref name="last"/> の各フレームで求める（キーが無ければ今の値の平らな線）。
     /// ボーン: 移動 X・Y・Z と回転 X・Y・Z（度。前のフレームから 180° を超えて飛ばないようにつなぐ）。
-    /// モーフ: 値。カメラ: 注視点 X・Y・Z、回転 X・Y・Z、距離、視野角。シーンの値は書き換えない。
+    /// モーフ: 値。カメラ: 注視点 X・Y・Z、回転 X・Y・Z、距離、視野角。照明: 回転 X・Y・Z、色 R・G・B、明るさ（点光源・スポットライトは
+    /// 位置 X・Y・Z と届く距離、スポットライトは広がりとぼかしも）。シーンの値は書き換えない。
     /// </summary>
     public static IReadOnlyList<GraphSeries> Sample(SceneNode node, int first, int last)
     {
@@ -203,6 +217,52 @@ public static class CurveEditing
                     new("距離", 4, first, values[6]),
                     new("視野角", 5, first, values[7]),
                 ];
+            }
+            case LightNode light:
+            {
+                var values = Enumerable.Range(0, 14).Select(_ => new float[count]).ToArray();
+                for (int i = 0; i < count; i++)
+                {
+                    LightPose pose = light.Keys.Count > 0 && KeyframeEvaluator.TryEvaluate(light.Keys, first + i, out LightPose p) ? p : light.Pose;
+                    values[0][i] = pose.Position.X;
+                    values[1][i] = pose.Position.Y;
+                    values[2][i] = pose.Position.Z;
+                    values[3][i] = pose.Rotation.X;
+                    values[4][i] = pose.Rotation.Y;
+                    values[5][i] = pose.Rotation.Z;
+                    values[6][i] = pose.Color.X;
+                    values[7][i] = pose.Color.Y;
+                    values[8][i] = pose.Color.Z;
+                    values[9][i] = pose.Intensity;
+                    values[10][i] = pose.Range;
+                    values[11][i] = pose.SpotAngle;
+                    values[12][i] = pose.SpotSoftness;
+                }
+                var series = new List<GraphSeries>();
+                bool ranged = light.Type != LightType.Directional;
+                if (ranged)
+                {
+                    series.AddRange([new("位置 X", 0, first, values[0]), new("位置 Y", 0, first, values[1]), new("位置 Z", 0, first, values[2])]);
+                }
+                series.AddRange(
+                [
+                    new("回転 X", 0, first, values[3]),
+                    new("回転 Y", 0, first, values[4]),
+                    new("回転 Z", 0, first, values[5]),
+                    new("色 R", 0, first, values[6]),
+                    new("色 G", 0, first, values[7]),
+                    new("色 B", 0, first, values[8]),
+                    new("明るさ", 0, first, values[9]),
+                ]);
+                if (ranged)
+                {
+                    series.Add(new("届く距離", 0, first, values[10]));
+                }
+                if (light.Type == LightType.Spot)
+                {
+                    series.AddRange([new("広がり", 0, first, values[11]), new("縁のぼかし", 0, first, values[12])]);
+                }
+                return series;
             }
             default:
                 return [];

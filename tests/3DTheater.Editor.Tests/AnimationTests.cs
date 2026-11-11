@@ -255,7 +255,8 @@ public sealed class AnimationServiceTests
         Assert.HasCount(1, animation.RegistrationTargets([model]), "モデルを選んだときは未登録の変更だけ");
         CollectionAssert.AreEquivalent(new SceneNode[] { model.Bones[1], model.Morphs[0] }, animation.RegistrationTargets([model.Bones[1], model]).ToArray());
         Assert.HasCount(1, animation.RegistrationTargets([scene.FindFirst<CameraNode>()!]), "カメラを選んだときはカメラのキーを登録する");
-        Assert.IsEmpty(animation.RegistrationTargets([scene.FindFirst<LightNode>()!]), "照明のキーはまだ無い");
+        Assert.HasCount(1, animation.RegistrationTargets([scene.FindFirst<LightNode>()!]), "照明を選んだときは照明のキーを登録する");
+        Assert.IsEmpty(animation.RegistrationTargets([scene.LightsGroup]), "照明のまとまりを選んだときは、未登録の変更だけ");
     }
 
     [TestMethod]

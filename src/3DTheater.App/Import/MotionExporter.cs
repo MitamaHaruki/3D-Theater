@@ -44,7 +44,7 @@ internal static class MotionExporter
         }
         var dialog = new Microsoft.Win32.SaveFileDialog
         {
-            Title = "カメラのモーションを書き出す（VMD）",
+            Title = "カメラ・照明のモーションを書き出す（VMD）",
             Filter = "モーション (*.vmd)|*.vmd",
             DefaultExt = ".vmd",
             AddExtension = true,
@@ -55,9 +55,9 @@ internal static class MotionExporter
             return;
         }
         var report = new LoadReport();
-        VmdDocument vmd = CameraMotion.CreateVmd(camera, context.Playback.FrameRate, report);
-        Write(owner, dialog.FileName, VmdWriter.Write(vmd), report, "カメラのモーション",
-            $"カメラのモーションを書き出しました: {dialog.FileName}（キー {vmd.CameraKeys.Count:N0}）");
+        VmdDocument vmd = CameraMotion.CreateVmd(camera, context.Playback.FrameRate, report, context.Scene.MainLight);
+        Write(owner, dialog.FileName, VmdWriter.Write(vmd), report, "カメラ・照明のモーション",
+            $"カメラ・照明のモーションを書き出しました: {dialog.FileName}（カメラのキー {vmd.CameraKeys.Count:N0}・照明のキー {vmd.LightKeys.Count:N0}）");
     }
 
     public static void ExportVpd(EditorContext context, Window owner)

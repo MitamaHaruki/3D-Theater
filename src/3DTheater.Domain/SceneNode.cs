@@ -333,10 +333,11 @@ public enum LightType
 
 /// <summary>
 /// 照明。シーンの最初の照明（決まった役目の「light」）は MMD の照明（平行光。セルフシャドウ・地面の影もこれで決まる）。
-/// 「照明を追加」で足した照明（点光源・スポットライト・平行光）は、モデルをその色で明るくする（影は落とさない）。
-/// 色は MMD の初期値 154/255 に、色と明るさを掛けたもの（Editor の SceneLighting）。
+/// 「照明を追加」で足した照明（点光源・スポットライト・平行光）は、モデルをその色で明るくする（影は、影をレイトレーシングで
+/// 求めるときだけ落とす）。色は MMD の初期値 154/255 に、色と明るさを掛けたもの（Editor の SceneLighting）。
+/// 位置・回転・色・明るさ・届く距離・広がり・ぼかしはキーで動かせる（<see cref="Keys"/>）。
 /// </summary>
-public sealed class LightNode(string name, LightType type = LightType.Directional) : SceneNode(SceneNodeKind.Light, name, canScale: false)
+public sealed class LightNode : SceneNode
 {
     public const float MinRange = 0.1f;
     public const float MaxRange = 1000f;
@@ -347,9 +348,42 @@ public sealed class LightNode(string name, LightType type = LightType.Directiona
     private float _spotAngle = 40f;
     private float _spotSoftness = 0.3f;
     private bool _castsShadow = true;
+    private bool _hasUnregisteredChange;
+
+    public LightNode(string name, LightType type = LightType.Directional)
+        : base(SceneNodeKind.Light, name, canScale: false)
+    {
+        Type = type;
+        Keys.Changed += (_, _) => OnPropertyChanged(nameof(Keys));
+    }
 
     /// <summary>種類（作るときに決め、あとから変えない）。</summary>
-    public LightType Type { get; } = type;
+    public LightType Type { get; }
+
+    /// <summary>キーフレーム。</summary>
+    public KeyTrack<LightKey> Keys { get; } = new();
+
+    /// <summary>キーに登録していない変更がある（キーのある照明を、自動キーが OFF のときに手で変えた）。</summary>
+    public bool HasUnregisteredChange
+    {
+        get => _hasUnregisteredChange;
+        set => SetProperty(ref _hasUnregisteredChange, value);
+    }
+
+    /// <summary>今の値（キーにするもの）。</summary>
+    public LightPose Pose => new(Position, Rotation, Color, Intensity, Range, SpotAngle, SpotSoftness);
+
+    /// <summary>値を当てはめる（キーの再生など）。</summary>
+    public void ApplyPose(LightPose pose)
+    {
+        Position = pose.Position;
+        Rotation = pose.Rotation;
+        Color = pose.Color;
+        Intensity = pose.Intensity;
+        Range = pose.Range;
+        SpotAngle = pose.SpotAngle;
+        SpotSoftness = pose.SpotSoftness;
+    }
 
     /// <summary>明るさ（0 以上）。</summary>
     public float Intensity
@@ -399,18 +433,24 @@ public sealed class LightNode(string name, LightType type = LightType.Directiona
     }
 
     protected override object? CaptureExtra(bool includeKeys) =>
-        new LightState(Intensity, Color, Range, SpotAngle, SpotSoftness, CastsShadow);
+        new LightState(Intensity, Color, Range, SpotAngle, SpotSoftness, CastsShadow, HasUnregisteredChange,
+            includeKeys ? new KeySnapshot<LightKey>(Keys.ToArray()) : null);
 
     protected override void RestoreExtra(object? extra)
     {
         if (extra is LightState s)
         {
+            if (s.Keys is not null)
+            {
+                Keys.ReplaceAll(s.Keys.Keys);
+            }
             Intensity = s.Intensity;
             Color = s.Color;
             Range = s.Range;
             SpotAngle = s.SpotAngle;
             SpotSoftness = s.SpotSoftness;
             CastsShadow = s.CastsShadow;
+            HasUnregisteredChange = s.HasUnregisteredChange;
         }
     }
 }

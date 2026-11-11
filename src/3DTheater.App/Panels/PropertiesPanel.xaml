@@ -310,6 +310,7 @@
               <RowDefinition Height="Auto" />
               <RowDefinition Height="Auto" />
               <RowDefinition Height="Auto" />
+              <RowDefinition Height="22" />
             </Grid.RowDefinitions>
             <TextBlock Text="種類" Style="{StaticResource RowLabelStyle}" />
             <TextBlock Grid.Column="1" Grid.ColumnSpan="2" VerticalAlignment="Center" TextWrapping="Wrap" Text="{Binding LightTypeText}" />
@@ -332,12 +333,15 @@
                        Visibility="{Binding IsSpotLight, Converter={StaticResource BoolToVisibility}}" ToolTip="0 でくっきり、1 でなめらか" />
             <c:NumberBox Grid.Row="5" Grid.Column="2" Value="{Binding SpotSoftness}" Step="0.05" Format="0.00"
                          Visibility="{Binding IsSpotLight, Converter={StaticResource BoolToVisibility}}" />
+            <TextBlock Grid.Row="6" Text="キー" Style="{StaticResource RowLabelStyle}"
+                       ToolTip="位置・回転・色・明るさ・届く距離・広がり・ぼかしをキーで動かせます（タイムラインの「キーを登録」）" />
+            <TextBlock Grid.Row="6" Grid.Column="1" Grid.ColumnSpan="2" VerticalAlignment="Center" Text="{Binding KeyCountText}" />
           </Grid>
           <CheckBox Margin="0,6,0,0" Content="影を落とす（影をレイトレーシングで求めるとき）" IsChecked="{Binding LightCastsShadow}"
                     IsEnabled="{Binding IsEditable}" Visibility="{Binding IsAddedLight, Converter={StaticResource BoolToVisibility}}"
                     ToolTip="「影の設定...」でセルフシャドウを使い、「影をレイトレーシングで求める」にしたとき、この照明もモデルに影を落とします（くっきりした影。照明ごとに少し重くなります）" />
           <TextBlock Margin="0,6,0,0" Style="{StaticResource PlannedNoteStyle}"
-                     Text="MMD の照明は、向き（回転）・色・明るさで、モデルの陰影と影を描きます（隠すと、材質の環境色だけ）。足した照明（シーンのメニュー「照明を追加」）は、位置・向きと色でモデルを明るくします（影は、影をレイトレーシングで求めるときだけ落とします。プレビューに目印の線が出ます）。" />
+                     Text="MMD の照明は、向き（回転）・色・明るさで、モデルの陰影と影を描きます（隠すと、材質の環境色だけ）。足した照明（シーンのメニュー「照明を追加」）は、位置・向きと色でモデルを明るくします（影は、影をレイトレーシングで求めるときだけ落とします。プレビューに目印の線が出ます）。どちらの照明も、キーで動かせます（MMD のカメラ・照明のモーションの照明のキーは、MMD の照明に当てはまります）。" />
         </StackPanel>
 
         <!-- 確認用の立方体 -->

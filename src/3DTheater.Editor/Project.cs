@@ -76,6 +76,12 @@ public sealed class LightEntry
     /// <summary>影を落とすか（影をレイトレーシングで求めるとき）。無い前の版のファイルは落とす。</summary>
     public bool CastShadow { get; set; } = true;
 
+    /// <summary>未登録の変更（キーのある照明を手で変えたまま）。</summary>
+    public bool Unregistered { get; set; }
+
+    /// <summary>キー（<see cref="NodeEntry.Keys"/> の照明と同じ並び）。無ければ書かない。</summary>
+    public float[][]? Keys { get; set; }
+
     internal static string TypeName(LightType type) => type switch
     {
         LightType.Directional => "directional",
@@ -259,10 +265,13 @@ public sealed class NodeEntry
     /// <summary>カメラの注視点までの距離。</summary>
     public float? TargetDistance { get; set; }
 
-    /// <summary>カメラの未登録の変更。</summary>
+    /// <summary>カメラ・照明の未登録の変更。</summary>
     public bool Unregistered { get; set; }
 
-    /// <summary>カメラのキー（フレーム・注視点 3・回転 3・距離・視野角・種類・平行投影、曲線が直線でなければ 24 個足す）。</summary>
+    /// <summary>
+    /// カメラ・照明のキー。カメラ: フレーム・注視点 3・回転 3・距離・視野角・種類・平行投影、曲線が直線でなければ 24 個足す。
+    /// 照明: フレーム・位置 3・回転 3・色 3・明るさ・届く距離・広がり・ぼかし・種類、曲線が直線でなければ 4 個足す。
+    /// </summary>
     public float[][]? Keys { get; set; }
 }
 
@@ -471,6 +480,8 @@ public static class ProjectCapture
             SpotAngle = l.SpotAngle,
             SpotSoftness = l.SpotSoftness,
             CastShadow = l.CastsShadow,
+            Unregistered = l.HasUnregisteredChange,
+            Keys = l.Keys.Count > 0 ? [.. l.Keys.Keys.Select(KeyCodec.Encode)] : null,
         })];
         project.Lights = lights.Count > 0 ? lights : null;
         foreach (ModelNode model in scene.ModelsGroup.Children.OfType<ModelNode>())
@@ -515,6 +526,8 @@ public static class ProjectCapture
             case LightNode light:
                 entry.Intensity = light.Intensity;
                 entry.Color = light.Color == Vector3.One ? null : ImageExport.FormatColor(light.Color);
+                entry.Unregistered = light.HasUnregisteredChange;
+                entry.Keys = light.Keys.Count > 0 ? [.. light.Keys.Keys.Select(KeyCodec.Encode)] : null;
                 break;
             case TestObjectNode test:
                 entry.SpinWithFrame = test.SpinWithFrame;
@@ -696,6 +709,8 @@ public static class ProjectApply
                 case LightNode light:
                     light.Intensity = entry.Intensity ?? light.Intensity;
                     light.Color = ImageExport.TryParseColor(entry.Color, out Vector3 color) ? color : Vector3.One;
+                    light.Keys.ReplaceAll((entry.Keys ?? []).Select(KeyCodec.DecodeLight).OfType<LightKey>());
+                    light.HasUnregisteredChange = entry.Unregistered;
                     break;
                 case TestObjectNode test:
                     test.SpinWithFrame = entry.SpinWithFrame ?? test.SpinWithFrame;
@@ -728,6 +743,8 @@ public static class ProjectApply
                 CastsShadow = entry.CastShadow,
                 IsVisible = entry.Visible,
             };
+            light.Keys.ReplaceAll((entry.Keys ?? []).Select(KeyCodec.DecodeLight).OfType<LightKey>());
+            light.HasUnregisteredChange = entry.Unregistered;
             scene.Add(scene.LightsGroup, light);
             light.IsLocked = entry.Locked;
         }
@@ -914,6 +931,34 @@ internal static class KeyCodec
             : CameraInterpolation.Linear;
         return new CameraKey((int)v[0], new Vector3(v[1], v[2], v[3]), new Vector3(v[4], v[5], v[6]), v[7], v[8], ip,
             v[9] == 1 ? KeyInterpolationKind.Step : KeyInterpolationKind.Curve, v[10] == 1);
+    }
+
+    public static float[] Encode(LightKey k)
+    {
+        LightPose p = k.Pose;
+        var values = new List<float>
+        {
+            k.Frame, p.Position.X, p.Position.Y, p.Position.Z, p.Rotation.X, p.Rotation.Y, p.Rotation.Z, p.Color.X, p.Color.Y, p.Color.Z,
+            p.Intensity, p.Range, p.SpotAngle, p.SpotSoftness, k.Kind == KeyInterpolationKind.Step ? 1 : 0,
+        };
+        if (!k.Curve.IsLinear)
+        {
+            values.AddRange([k.Curve.Control1.X, k.Curve.Control1.Y, k.Curve.Control2.X, k.Curve.Control2.Y]);
+        }
+        return [.. values];
+    }
+
+    public static LightKey? DecodeLight(float[] v)
+    {
+        if (v is not { Length: 15 or 19 } || !v.All(float.IsFinite) || v[0] < 0)
+        {
+            return null;
+        }
+        BezierCurve curve = v.Length == 19 ? Curve(v, 15) : BezierCurve.Linear;
+        var pose = new LightPose(new Vector3(v[1], v[2], v[3]), new Vector3(v[4], v[5], v[6]),
+            Vector3.Clamp(new Vector3(v[7], v[8], v[9]), Vector3.Zero, Vector3.One), Math.Max(0f, v[10]),
+            Math.Clamp(v[11], LightNode.MinRange, LightNode.MaxRange), Math.Clamp(v[12], 1f, 179f), Math.Clamp(v[13], 0f, 1f));
+        return new LightKey((int)v[0], pose, curve, v[14] == 1 ? KeyInterpolationKind.Step : KeyInterpolationKind.Curve);
     }
 
     public static float[] Encode(MorphKey k)
