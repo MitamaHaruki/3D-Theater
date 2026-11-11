@@ -29,7 +29,8 @@ public sealed partial class PluginHost
     /// <summary>このアプリが出している SDK の版と機能。</summary>
     public static PluginHostInfo Info { get; } = new(TheaterSdk.HostId, TheaterSdk.Version,
     [
-        CoreCapabilities.Commands, CoreCapabilities.Settings, UiCapabilities.Panels, UiCapabilities.Dialogs,
+        CoreCapabilities.Commands, CoreCapabilities.Settings, CoreCapabilities.Tasks, CoreCapabilities.Files,
+        UiCapabilities.Panels, UiCapabilities.Dialogs,
         UiCapabilities.Toolbar, UiCapabilities.ContextMenus, UiCapabilities.StatusBar,
         TheaterCapabilities.SceneRead, TheaterCapabilities.SceneSeek, TheaterCapabilities.SceneEdit,
     ]);
@@ -199,6 +200,8 @@ public sealed partial class PluginHost
             : serviceType == typeof(IToolbarRegistry) ? this
             : serviceType == typeof(IContextMenuRegistry) ? this
             : serviceType == typeof(IStatusBarRegistry) ? this
+            : serviceType == typeof(IPluginTasks) ? this
+            : serviceType == typeof(IFileFormatRegistry) ? this
             : serviceType == typeof(ITheaterScene) ? _scene
             : serviceType == typeof(ITheaterEditor) ? _editor
             : null;

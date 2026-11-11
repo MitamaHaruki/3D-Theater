@@ -24,6 +24,10 @@ public partial class MainWindow : Window
     private readonly DockingLayout _layout;
     private readonly UserSettings _settings;
     private readonly Plugins.PluginHost _plugins;
+    private static readonly TimeSpan NoticeDuration = TimeSpan.FromSeconds(8);
+    private string? _notice;
+    private bool _noticeIsError;
+    private DateTime _noticeUntil;
     private readonly bool _safeMode;
     private readonly DispatcherTimer _statusTimer;
     private PreviewPanel? _activePreview;
@@ -74,6 +78,8 @@ public partial class MainWindow : Window
         _plugins.CommandsChanged += (_, _) => BuildPluginsMenu();
         _plugins.ToolbarChanged += (_, _) => BuildPluginToolbar();
         _plugins.StatusBarChanged += (_, _) => BuildPluginStatus();
+        _plugins.FormatsChanged += (_, _) => BuildPluginFileMenus();
+        _plugins.ShowStatus = ShowNotice;
         _layout.PluginPanelsChanged += (_, _) => BuildPluginPanelItems();
         _layout.LoadOrDefault(_settings);
 
@@ -82,6 +88,7 @@ public partial class MainWindow : Window
         BuildPluginsMenu();
         BuildPluginToolbar();
         BuildPluginStatus();
+        BuildPluginFileMenus();
         BuildViewKindsMenu();
         context.RenderLoop.RenderFailed += OnRenderFailed;
         context.RenderLoop.DeviceStateChanged += OnDeviceStateChanged;
@@ -425,6 +432,76 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>ファイルのメニューの、プラグインの形式の読み込み・書き出しを作り直す。</summary>
+    private void BuildPluginFileMenus()
+    {
+        PluginImportMenu.Items.Clear();
+        PluginExportMenu.Items.Clear();
+        foreach (Plugins.PluginHost.FileFormat format in _plugins.Formats)
+        {
+            string tip = $"プラグイン「{format.Plugin.Name}」";
+            if (format.CanReadFiles)
+            {
+                var item = new MenuItem { Header = format.MenuTitle.Replace("_", "__", StringComparison.Ordinal), Tag = format, ToolTip = tip };
+                item.Click += OnPluginImportClick;
+                PluginImportMenu.Items.Add(item);
+            }
+            if (format.CanWriteFiles)
+            {
+                var item = new MenuItem { Header = format.MenuTitle.Replace("_", "__", StringComparison.Ordinal), Tag = format, ToolTip = tip };
+                item.Click += OnPluginExportClick;
+                PluginExportMenu.Items.Add(item);
+            }
+        }
+        PluginImportMenu.Visibility = PluginImportMenu.Items.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        PluginExportMenu.Visibility = PluginExportMenu.Items.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void OnPluginFileMenuOpened(object sender, RoutedEventArgs e)
+    {
+        foreach (MenuItem item in PluginImportMenu.Items.OfType<MenuItem>())
+        {
+            item.IsEnabled = _plugins.CanImport((Plugins.PluginHost.FileFormat)item.Tag);
+        }
+        foreach (MenuItem item in PluginExportMenu.Items.OfType<MenuItem>())
+        {
+            item.IsEnabled = _plugins.CanExport((Plugins.PluginHost.FileFormat)item.Tag);
+        }
+    }
+
+    private async void OnPluginImportClick(object sender, RoutedEventArgs e)
+    {
+        var format = (Plugins.PluginHost.FileFormat)((MenuItem)sender).Tag;
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = $"{format.Format.Title}を読み込む",
+            Filter = format.Filter + "|すべてのファイル (*.*)|*.*",
+            Multiselect = false,
+        };
+        if (dialog.ShowDialog(this) == true)
+        {
+            await _plugins.ImportAsync(format, dialog.FileName);
+        }
+    }
+
+    private async void OnPluginExportClick(object sender, RoutedEventArgs e)
+    {
+        var format = (Plugins.PluginHost.FileFormat)((MenuItem)sender).Tag;
+        string extension = format.Extensions[0];
+        var dialog = new Microsoft.Win32.SaveFileDialog
+        {
+            Title = $"{format.Format.Title}を書き出す",
+            Filter = format.Filter,
+            DefaultExt = extension,
+            AddExtension = true,
+            FileName = _plugins.SuggestExportName(format) + extension,
+        };
+        if (dialog.ShowDialog(this) == true)
+        {
+            await _plugins.ExportAsync(format, dialog.FileName);
+        }
+    }
+
     private void BuildViewKindsMenu()
     {
         foreach (ViewKind kind in ViewKinds.All)
@@ -485,7 +562,14 @@ public partial class MainWindow : Window
         else if (!_busy)
         {
             bool recovered = _renderFailure is null && DateTime.Now - _recoveredAt < TimeSpan.FromSeconds(8);
-            SetStatus(_renderFailure ?? (recovered ? "GPU を作り直して、描画を再開しました" : "準備完了"), isError: _renderFailure is not null);
+            if (_renderFailure is null && !recovered && _notice is not null && DateTime.Now < _noticeUntil)
+            {
+                SetStatus(_notice, _noticeIsError);
+            }
+            else
+            {
+                SetStatus(_renderFailure ?? (recovered ? "GPU を作り直して、描画を再開しました" : "準備完了"), isError: _renderFailure is not null);
+            }
         }
         EngineInfo info = engine.Info;
         string presenter = _context.SurfaceSharingUnavailable ? "読み出し方式" : "共有方式";
@@ -498,6 +582,15 @@ public partial class MainWindow : Window
         FrameRateText.ToolTip =
             $"1 回の描画の内訳（UI スレッドの時間）: 変形 {b.Prepare:F1} ms・描画の依頼 {b.Submit:F1} ms・GPU 待ち {b.Wait:F1} ms・表示 {b.Present:F1} ms";
         VideoMemoryText.Text = FormatVideoMemory(engine);
+    }
+
+    /// <summary>しばらく（<see cref="NoticeDuration"/>）状態表示に残す知らせ（プラグインの処理の結果など。すぐに「準備完了」に戻さない）。</summary>
+    private void ShowNotice(string text, bool isError)
+    {
+        _notice = text;
+        _noticeIsError = isError;
+        _noticeUntil = DateTime.Now + NoticeDuration;
+        SetStatus(text, isError);
     }
 
     private void SetStatus(string text, bool isError)
@@ -986,7 +1079,7 @@ public partial class MainWindow : Window
     {
         bool accepted = e.Data.GetData(DataFormats.FileDrop) is string[] files
             && files.Any(f => ModelImporter.IsModelFile(f) || MotionImporter.IsMotionFile(f) || Audio.AudioImporter.IsAudioFile(f)
-                || Project.ProjectService.IsProjectFile(f));
+                || Project.ProjectService.IsProjectFile(f) || _plugins.HasImporterFor(f));
         e.Effects = accepted ? DragDropEffects.Copy : DragDropEffects.None;
         e.Handled = true;
     }
@@ -1027,6 +1120,19 @@ public partial class MainWindow : Window
         if (files.LastOrDefault(Audio.AudioImporter.IsAudioFile) is { } audioFile) // 音声は 1 つまで
         {
             await Audio.AudioImporter.ImportAsync(_context, audioFile, this);
+        }
+        // アプリの形式でないファイルは、読み込めるプラグインの形式があれば、それで読み込む（モデルの後なので、読み込んだモデルに使える）
+        foreach (string path in files.Where(f => !ModelImporter.IsModelFile(f) && !MotionImporter.IsMotionFile(f) && !Audio.AudioImporter.IsAudioFile(f)
+                     && _plugins.HasImporterFor(f)))
+        {
+            if (_plugins.FindImporter(path) is { } format)
+            {
+                await _plugins.ImportAsync(format, path);
+            }
+            else
+            {
+                ShowNotice($"今は読み込めません（プラグインの形式の条件に合いません）: {System.IO.Path.GetFileName(path)}", isError: true);
+            }
         }
     }
 

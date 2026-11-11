@@ -100,4 +100,10 @@ public static class CoreCapabilities
 
     /// <summary>プラグインごとの設定。</summary>
     public const string Settings = "settings";
+
+    /// <summary>時間のかかる処理（進み具合と取り消し。<see cref="IPluginTasks"/>。3D Theater は SDK 1.3 から）。</summary>
+    public const string Tasks = "tasks";
+
+    /// <summary>ファイルの形式（読み込み・書き出しの追加。<see cref="IFileFormatRegistry"/>。3D Theater は SDK 1.3 から）。</summary>
+    public const string Files = "files";
 }

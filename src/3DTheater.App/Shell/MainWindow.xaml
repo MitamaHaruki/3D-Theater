@@ -53,6 +53,9 @@
             <MenuItem Header="音声を外す" Click="OnRemoveAudioClick" ToolTip="シーンから音声を外します（ファイルは消しません。Ctrl+Z で戻せます）" />
             <MenuItem Header="書き出す（PNG・連番・動画）..." Click="OnExportStillClick"
                       ToolTip="シーンのカメラから見た絵を PNG で書き出します（レンダリングのメニューと同じ）" />
+            <!-- プラグインのファイルの形式（あるときだけ出す） -->
+            <MenuItem x:Name="PluginImportMenu" Header="読み込む（プラグインの形式）" Visibility="Collapsed" SubmenuOpened="OnPluginFileMenuOpened" />
+            <MenuItem x:Name="PluginExportMenu" Header="書き出す（プラグインの形式）" Visibility="Collapsed" SubmenuOpened="OnPluginFileMenuOpened" />
             <Separator />
             <MenuItem Header="終了(_X)" InputGestureText="Alt+F4" Click="OnExitClick" />
           </MenuItem>

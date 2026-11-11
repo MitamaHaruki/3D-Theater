@@ -12,8 +12,9 @@ public static class TheaterSdk
     /// SDK の版（主.副）。副の版は、形を壊さずに足したときに上げる。
     /// 1.0: シーン・再生位置・選択を読む。1.1: ボーン・モーフの値とキーを読む・編集する（<see cref="ITheaterEditor"/>）、モデルの Id。
     /// 1.2: ツールバー・右クリックのメニュー（<see cref="TheaterMenuPlaces"/>）・状態表示（Plugin.UI.Wpf）。
+    /// 1.3: 時間のかかる処理（進み具合と取り消し）・ファイルの形式の追加（Plugin.Core の IPluginTasks・IFileFormatRegistry）。
     /// </summary>
-    public static Version Version { get; } = new(1, 2);
+    public static Version Version { get; } = new(1, 3);
 }
 
 /// <summary>プラグインの項目を足せる右クリックのメニュー（Plugin.UI.Wpf の PluginContextMenuItem.Place に書く。SDK 1.2 から）。</summary>
