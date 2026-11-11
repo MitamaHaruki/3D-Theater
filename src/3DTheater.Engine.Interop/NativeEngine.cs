@@ -26,7 +26,7 @@ public readonly record struct VideoMemoryInfo(ulong Usage, ulong Budget);
 public sealed unsafe class NativeEngine : IDisposable
 {
     public const int ExpectedApiVersionMajor = 0;
-    public const int ExpectedApiVersionMinor = 25;
+    public const int ExpectedApiVersionMinor = 26;
 
     private nint _handle;
 
@@ -175,6 +175,12 @@ public sealed unsafe class NativeEngine : IDisposable
     public void WaitForGpu() => NativeError.Check(NativeMethods.EngineWaitForGpu(Handle));
 
     /// <summary>
+    /// それまでに頼んだ描画を、すぐ GPU へ送る（待たない）。描画を頼み終えたときに呼ぶと、次に待つまでの間に GPU が描ける
+    /// （呼ばないと、頼んだ描画は待つときまで GPU へ送られないことがある）。
+    /// </summary>
+    public void Flush() => NativeError.Check(NativeMethods.EngineFlush(Handle));
+
+    /// <summary>
     /// GPU が使えなくなっているか（取り外し・ドライバーの更新・応答なしなど）。
     /// 使えない間は、描画などが <see cref="NativeResult.DeviceLost"/> の例外になる。<see cref="Recover"/> で作り直す。
     /// </summary>
@@ -210,10 +216,14 @@ public sealed unsafe class NativeEngine : IDisposable
     }
 
     /// <summary>画面外に描くビュー。<paramref name="shareWithD3D9"/> を true にすると WPF の D3DImage に渡せる。</summary>
-    public NativeView CreateOffscreenView(int width, int height, bool shareWithD3D9 = false)
+    /// <remarks>
+    /// <paramref name="deferredPublish"/> を true にすると、描いた絵は <see cref="NativeView.Publish"/> を呼んだときに初めて見える面へ写る
+    /// （表示側が前の絵を出している間に、GPU の完了を待たずに次の絵を描ける）。
+    /// </remarks>
+    public NativeView CreateOffscreenView(int width, int height, bool shareWithD3D9 = false, bool deferredPublish = false)
     {
         nint view;
-        uint flags = shareWithD3D9 ? 1u : 0u;
+        uint flags = (shareWithD3D9 ? 1u : 0u) | (deferredPublish ? 2u : 0u);
         NativeError.Check(NativeMethods.ViewCreateOffscreen(Handle, width, height, flags, &view));
         return new NativeView(this, view);
     }

@@ -19,8 +19,23 @@ public interface IRenderTarget
 
     void Invalidate();
 
-    /// <summary>1 枚の描画を GPU へ頼む。頼んだら true（あとで必ず <see cref="Complete"/> が呼ばれる）。</summary>
+    /// <summary>描いたが、まだ表示に出していない絵があるか（次の画面更新で出す）。</summary>
+    bool HasPendingFrame { get; }
+
+    /// <summary>
+    /// 1 枚の描画を GPU へ頼む（完了は待たない）。頼んだら true。頼んだ絵は、ふつうは次の画面更新で、GPU が描き終えた頃に表示へ出す
+    /// （<see cref="HasPendingFrame"/> が true になる）。
+    /// </summary>
     bool Submit();
+
+    /// <summary>頼んだ絵を、同じ画面更新の中で出すか（表示の面を作り直した直後など、出しておける前の絵が無いとき）。</summary>
+    bool PresentImmediately { get; }
+
+    /// <summary>
+    /// まだ出していない絵を、表示の面へ写すよう GPU に頼む。この後、描画ループが GPU の完了を 1 回だけ待ってから、
+    /// 必ず <see cref="Complete"/> を呼ぶ。
+    /// </summary>
+    void Publish();
 
     /// <summary>GPU の完了を待った後に呼ばれる。<paramref name="succeeded"/> が false なら表示を更新しない。</summary>
     void Complete(bool succeeded);
@@ -29,8 +44,10 @@ public interface IRenderTarget
 /// <summary>
 /// WPF の画面更新（CompositionTarget.Rendering）に合わせて、変化のあった描画先だけを描く。
 /// 再生中は再生位置を進める。何も変わらず再生もしていないときは購読をやめて GPU と CPU を休ませる。
-/// 描き方は「全区画の描画を頼む → GPU の完了を 1 回だけ待つ → 全区画を表示に反映」の 3 段階。
-/// UI スレッドで描く（実物のモデルを 8 区画に出しても 1 回 3〜4 ms で収まるため。docs/設計判断記録.md 15 章）。
+/// 1 回の画面更新では「前の更新で頼んだ絵を表示の面へ写し、GPU の完了を 1 回だけ待って表示に反映 → 変化のあった区画の次の絵を頼む
+/// （待たない）」の順に進める。GPU は次の画面更新までの間に描くので、重い効果を使っても UI スレッドはほとんど待たない
+/// （表示は 1 回分遅れる。表示の面を作り直した直後の区画だけは、同じ更新の中で待って出す）。
+/// UI スレッドで描く（docs/設計判断記録.md 15 章・51 章）。
 /// GPU が使えなくなったら（取り外し・ドライバーの更新・応答なし）描画を止め、デバイスを作り直して再開する。
 /// </summary>
 public sealed class RenderLoop(NativeEngine? engine, PlaybackService playback)
@@ -44,6 +61,8 @@ public sealed class RenderLoop(NativeEngine? engine, PlaybackService playback)
 
     private readonly List<IRenderTarget> _targets = [];
     private readonly List<IRenderTarget> _submitted = [];
+    private readonly List<IRenderTarget> _presenting = [];
+    private readonly List<IRenderTarget> _published = [];
     private bool _subscribed;
     private long _lastTimestamp;
     private TimeSpan _lastRenderingTime = TimeSpan.MinValue;
@@ -166,7 +185,7 @@ public sealed class RenderLoop(NativeEngine? engine, PlaybackService playback)
         }
         UpdateFrameRate(now);
 
-        bool idle = IsSuspended || DeviceState != DeviceState.Ready || !_targets.Any(t => t.CanRender && t.NeedsRender);
+        bool idle = IsSuspended || DeviceState != DeviceState.Ready || !_targets.Any(t => (t.CanRender && t.NeedsRender) || t.HasPendingFrame);
         if (!playback.IsPlaying && idle && KeepRunning?.Invoke() != true)
         {
             Stop();
@@ -176,10 +195,29 @@ public sealed class RenderLoop(NativeEngine? engine, PlaybackService playback)
     private int RenderChangedTargets()
     {
         _submitted.Clear();
-        if (!_targets.Any(t => t.CanRender && t.NeedsRender))
+        double waitMilliseconds = 0;
+        double presentMilliseconds = 0;
+
+        // 1. 前の画面更新で頼んだ絵を出す（GPU はもう描き終えている頃なので、待つのはふつう表示の面へ写す分だけ）
+        _presenting.Clear();
+        _presenting.AddRange(_targets.Where(t => t.HasPendingFrame));
+        NativeEngineException? lost = Present(_presenting, ref waitMilliseconds, ref presentMilliseconds);
+        if (lost is not null)
         {
+            RecordWaitAndPresent(waitMilliseconds, presentMilliseconds);
+            OnDeviceLost(lost);
             return 0;
         }
+        if (!_targets.Any(t => t.CanRender && t.NeedsRender))
+        {
+            if (_presenting.Count > 0)
+            {
+                RecordWaitAndPresent(waitMilliseconds, presentMilliseconds);
+            }
+            return 0;
+        }
+
+        // 2. 変化のあった区画の次の絵を頼む（GPU の完了は待たない）
         long phase = Stopwatch.GetTimestamp();
         try
         {
@@ -190,7 +228,6 @@ public sealed class RenderLoop(NativeEngine? engine, PlaybackService playback)
             AppLog.Error("描画の準備（モデルの変形）に失敗しました", ex);
         }
         phase = Lap(_prepareTimer, phase);
-        NativeEngineException? lost = null;
         foreach (IRenderTarget target in _targets.ToArray())
         {
             if (!target.CanRender || !target.NeedsRender)
@@ -216,12 +253,72 @@ public sealed class RenderLoop(NativeEngine? engine, PlaybackService playback)
         }
         if (_submitted.Count == 0 && lost is null)
         {
+            RecordWaitAndPresent(waitMilliseconds, presentMilliseconds);
             return 0;
         }
-        phase = Lap(_submitTimer, phase);
+        if (lost is null && _submitted.Count > 0)
+        {
+            // 頼んだ描画をすぐ GPU へ送る（送らないと、次の更新で待つときまで GPU が描き始めない）
+            try
+            {
+                engine?.Flush();
+            }
+            catch (NativeEngineException ex) when (ex.Result == NativeResult.DeviceLost)
+            {
+                lost = ex;
+            }
+        }
+        Lap(_submitTimer, phase);
 
+        // 3. 表示の面を作り直した直後の区画は、出しておける前の絵が無いので、待って同じ更新の中で出す
+        if (lost is null)
+        {
+            _presenting.Clear();
+            _presenting.AddRange(_submitted.Where(t => t.PresentImmediately));
+            lost = Present(_presenting, ref waitMilliseconds, ref presentMilliseconds);
+        }
+        RecordWaitAndPresent(waitMilliseconds, presentMilliseconds);
+        if (lost is not null)
+        {
+            OnDeviceLost(lost);
+            return 0;
+        }
+        return _submitted.Count;
+    }
+
+    /// <summary>
+    /// 区画の絵を表示の面へ写し、GPU の完了を 1 回だけ待って表示に反映する。GPU が使えなくなったら、その例外を返す
+    /// （写すよう頼んだ区画には、失敗でも必ず Complete を呼ぶ）。
+    /// </summary>
+    private NativeEngineException? Present(List<IRenderTarget> targets, ref double waitMilliseconds, ref double presentMilliseconds)
+    {
+        if (targets.Count == 0)
+        {
+            return null;
+        }
+        long start = Stopwatch.GetTimestamp();
+        _published.Clear();
+        NativeEngineException? lost = null;
+        foreach (IRenderTarget target in targets)
+        {
+            try
+            {
+                target.Publish();
+                _published.Add(target);
+            }
+            catch (NativeEngineException ex) when (ex.Result == NativeResult.DeviceLost)
+            {
+                lost = ex;
+                break;
+            }
+            catch (Exception ex)
+            {
+                Fail(target, ex);
+            }
+        }
+        long published = Stopwatch.GetTimestamp();
         bool succeeded = lost is null;
-        if (succeeded)
+        if (succeeded && _published.Count > 0)
         {
             try
             {
@@ -239,9 +336,8 @@ public sealed class RenderLoop(NativeEngine? engine, PlaybackService playback)
                 RenderFailed?.Invoke(this, new RenderFailedEventArgs(null, ex));
             }
         }
-        phase = Lap(_waitTimer, phase);
-
-        foreach (IRenderTarget target in _submitted)
+        long waited = Stopwatch.GetTimestamp();
+        foreach (IRenderTarget target in _published)
         {
             try
             {
@@ -252,13 +348,16 @@ public sealed class RenderLoop(NativeEngine? engine, PlaybackService playback)
                 Fail(target, ex);
             }
         }
-        Lap(_presentTimer, phase);
-        if (lost is not null)
-        {
-            OnDeviceLost(lost);
-            return 0;
-        }
-        return _submitted.Count;
+        waitMilliseconds += Stopwatch.GetElapsedTime(published, waited).TotalMilliseconds;
+        presentMilliseconds += Stopwatch.GetElapsedTime(start, published).TotalMilliseconds
+            + Stopwatch.GetElapsedTime(waited).TotalMilliseconds;
+        return lost;
+    }
+
+    private void RecordWaitAndPresent(double waitMilliseconds, double presentMilliseconds)
+    {
+        _waitTimer.Add(TimeSpan.FromMilliseconds(waitMilliseconds));
+        _presentTimer.Add(TimeSpan.FromMilliseconds(presentMilliseconds));
     }
 
     /// <summary>

@@ -27,7 +27,7 @@ extern "C" {
 
 // 上位 16 ビットが大きな版、下位 16 ビットが小さな版。大きな版が違う DLL とは組み合わせない。
 #define TT_API_VERSION_MAJOR 0
-#define TT_API_VERSION_MINOR 25
+#define TT_API_VERSION_MINOR 26
 #define TT_API_VERSION ((TT_API_VERSION_MAJOR << 16) | TT_API_VERSION_MINOR)
 
 // 0 以上は成功、負の値は失敗。
@@ -91,6 +91,10 @@ typedef struct TtVideoMemoryInfo {
 enum {
     // WPF の D3DImage へ渡すため、Direct3D 9Ex と共有できる描画先を作る
     TT_VIEW_FLAG_SHARE_D3D9 = 1u << 0,
+    // API 0.26: 描いた絵を「見える面」（Direct3D 9 の面と tt_view_read_pixels で読む面）へ、tt_view_publish を呼んだときに初めて写す。
+    // tt_view_render は見える面に触れないので、表示側が前の絵を出している間に、GPU の完了を待たずに次の絵を描ける。
+    // 見える面は、作った・大きさを変えたときは透明な黒（0, 0, 0, 0）
+    TT_VIEW_FLAG_DEFERRED_PUBLISH = 1u << 1,
 };
 
 enum {
@@ -393,6 +397,9 @@ TT_API TtResult TT_CALL tt_engine_get_info(TtEngine* engine, TtEngineInfo* out_i
 TT_API TtResult TT_CALL tt_engine_query_video_memory(TtEngine* engine, TtVideoMemoryInfo* out_info);
 // それまでに頼んだ描画を GPU が終えるまで待つ。共有ビューを全部描いてから 1 回だけ呼び、WPF へ渡す
 TT_API TtResult TT_CALL tt_engine_wait_for_gpu(TtEngine* engine);
+// API 0.26: それまでに頼んだ描画を、すぐ GPU へ送る（待たない）。頼んだ描画は、ふつうはある程度たまるか、待つときまで
+// GPU へ送られない。描画を頼み終えたときに呼ぶと、次に待つまでの間に GPU が描ける
+TT_API TtResult TT_CALL tt_engine_flush(TtEngine* engine);
 
 // GPU が使える状態なら TT_OK、使えなくなっていれば TT_E_DEVICE_LOST
 TT_API TtResult TT_CALL tt_engine_check_device(TtEngine* engine);
@@ -448,7 +455,13 @@ TT_API TtResult TT_CALL tt_view_set_sample_count(TtView* view, uint32_t sample_c
 TT_API TtResult TT_CALL tt_view_render(TtView* view, const TtFrameParams* params);
 
 // 画面外ビューの内容を BGRA 8 ビットで読み出す。テスト・保存用で、毎フレーム呼ぶものではない
+// （TT_VIEW_FLAG_DEFERRED_PUBLISH のビューは、見える面 = 最後に tt_view_publish した絵を読む）
 TT_API TtResult TT_CALL tt_view_read_pixels(TtView* view, void* buffer, int32_t stride, int32_t buffer_size);
+
+// API 0.26: TT_VIEW_FLAG_DEFERRED_PUBLISH のビューで、最後に描いた絵を見える面へ写すよう GPU に頼む（完了は待たない。
+// D3DImage へ渡す前に tt_engine_wait_for_gpu で待つ）。大きさを変えた後にまだ描いていなければ何もしない。
+// そのほかのビューでは何もしない（TT_OK）
+TT_API TtResult TT_CALL tt_view_publish(TtView* view);
 
 #ifdef __cplusplus
 }

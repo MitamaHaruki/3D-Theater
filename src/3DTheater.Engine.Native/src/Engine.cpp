@@ -513,6 +513,12 @@ void Engine::CreateSceneResources()
     CheckHr(device_->CreateQuery(&queryDesc, &gpuDoneQuery_), L"GPU 完了確認用クエリの作成");
 }
 
+void Engine::Flush()
+{
+    ThrowIfDeviceLost();
+    context_->Flush();
+}
+
 void Engine::WaitForGpu()
 {
     ThrowIfDeviceLost();

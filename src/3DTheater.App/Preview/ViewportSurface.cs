@@ -13,6 +13,7 @@ namespace Theater3D.App.Preview;
 /// <summary>
 /// 3D を表示する面。Direct3D 11 で画面外のテクスチャに描き、Direct3D 9Ex と共有して WPF の D3DImage として出す
 /// （方式 B。docs/設計判断記録.md 3 章）。WPF の部品を上に重ねられ、入力も普通の WPF 部品として受け取れる。
+/// 描く面と、D3DImage に渡す「見える面」を分けている。描いた絵は次の画面更新で見える面へ写す（51 章。GPU の完了を待たずに描くため）。
 /// 共有できない環境（ソフトウェア描画など）では、描いた絵を読み出して WriteableBitmap で出す予備の方式に切り替える。
 /// GPU を作り直すときは、古い面を D3DImage から外し、作り直した後に新しい面を渡し直す。
 /// なめらかさ（MSAA の点の数）はプレビューの品質と大きさから決める（<see cref="RenderQuality.FitSampleCount"/>）。
@@ -29,6 +30,7 @@ public sealed class ViewportSurface : FrameworkElement, IRenderTarget, IDisposab
     private int _pixelHeight;
     private bool _backBufferDirty;
     private bool _locked;
+    private bool _pending; // 描いたが、まだ見える面へ写していない絵がある
     private int _sampleCount = 1; // 描画エンジンに頼んだ点の数
     private string? _errorMessage;
     private bool _disposed;
@@ -72,6 +74,11 @@ public sealed class ViewportSurface : FrameworkElement, IRenderTarget, IDisposab
 
     public void Invalidate() => NeedsRender = true;
 
+    public bool HasPendingFrame => _pending && CanRender;
+
+    // 読み出す方式（共有できない環境）は、描いたらすぐ読み出す。見える面を作り直した直後は、出しておける前の絵が無い
+    public bool PresentImmediately => _useReadback || _backBufferDirty;
+
     public bool Submit()
     {
         NeedsRender = false;
@@ -81,13 +88,18 @@ public sealed class ViewportSurface : FrameworkElement, IRenderTarget, IDisposab
             return false;
         }
 
-        FrameParameters frame = _frameProvider(_pixelWidth, _pixelHeight);
-        if (_useReadback)
-        {
-            _view.Render(frame);
-            return true;
-        }
+        // 描く面は D3DImage に渡していないので、D3DImage を開けずに描ける（写すのは Publish）
+        _view.Render(_frameProvider(_pixelWidth, _pixelHeight));
+        _pending = true;
+        return true;
+    }
 
+    public void Publish()
+    {
+        if (_useReadback || _view is null)
+        {
+            return; // 読み出す方式は Complete で読み出す
+        }
         _sharedImage.Lock();
         _locked = true;
         try
@@ -99,18 +111,18 @@ public sealed class ViewportSurface : FrameworkElement, IRenderTarget, IDisposab
                 _backBufferDirty = false;
                 InvalidateVisual();
             }
-            _view.Render(frame);
+            _view.Publish();
         }
         catch
         {
             Unlock();
             throw;
         }
-        return true;
     }
 
     public void Complete(bool succeeded)
     {
+        _pending = false;
         if (_useReadback)
         {
             if (succeeded && _view is not null)
@@ -209,6 +221,7 @@ public sealed class ViewportSurface : FrameworkElement, IRenderTarget, IDisposab
         if (_view is not null)
         {
             ReleaseBackBuffer();
+            _pending = false; // 前の大きさの絵は出さない
             bool fewer = WantedSampleCount() < _sampleCount;
             if (fewer)
             {
@@ -246,7 +259,7 @@ public sealed class ViewportSurface : FrameworkElement, IRenderTarget, IDisposab
         {
             try
             {
-                _view = _context.Engine.CreateOffscreenView(_pixelWidth, _pixelHeight, shareWithD3D9: true);
+                _view = _context.Engine.CreateOffscreenView(_pixelWidth, _pixelHeight, shareWithD3D9: true, deferredPublish: true);
                 _backBufferDirty = true;
                 _sampleCount = 1;
                 ApplySampleCount();
@@ -309,6 +322,7 @@ public sealed class ViewportSurface : FrameworkElement, IRenderTarget, IDisposab
 
     private void OnDeviceResetting(object? sender, EventArgs e)
     {
+        _pending = false; // 作り直すと、描いた絵は無くなる
         if (_view is not null && !_useReadback)
         {
             ReleaseBackBuffer(); // 作り直すと面が別の物になる

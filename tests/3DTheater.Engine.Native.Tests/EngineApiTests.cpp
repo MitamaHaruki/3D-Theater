@@ -1899,6 +1899,91 @@ public:
         Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
     }
 
+    TEST_METHOD(DeferredPublishShowsOnlyPublishedFrames)
+    {
+        // 見える面を分けたビュー: 描いても、写す（tt_view_publish）までは見える面（読み出し）は変わらない。
+        // 表示側が前の絵を出している間に、GPU の完了を待たずに次の絵を描けるようにするため
+        TtEngine* engine = CreateWarpEngine();
+        constexpr int width = 32;
+        constexpr int height = 24;
+        TtView* view = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_view_create_offscreen(engine, width, height, TT_VIEW_FLAG_DEFERRED_PUBLISH, &view));
+        auto read = [&] {
+            std::vector<uint8_t> pixels(static_cast<size_t>(width) * height * 4);
+            Assert::AreEqual<int>(TT_OK, tt_engine_wait_for_gpu(engine));
+            Assert::AreEqual<int>(TT_OK, tt_view_read_pixels(view, pixels.data(), width * 4, static_cast<int>(pixels.size())));
+            return pixels;
+        };
+        auto render = [&](float r, float g, float b) {
+            TtFrameParams params = MakeParams(TT_FRAME_CLEAR_COLOR);
+            params.clear_color[0] = r;
+            params.clear_color[1] = g;
+            params.clear_color[2] = b;
+            params.clear_color[3] = 1.0f;
+            Assert::AreEqual<int>(TT_OK, tt_view_render(view, &params));
+        };
+        auto isColor = [](const std::vector<uint8_t>& pixels, int b, int g, int r, int a) {
+            for (size_t i = 0; i < pixels.size(); i += 4) {
+                if (!IsNear(pixels[i], b, 1) || !IsNear(pixels[i + 1], g, 1) || !IsNear(pixels[i + 2], r, 1) || !IsNear(pixels[i + 3], a, 1)) {
+                    return false;
+                }
+            }
+            return true;
+        };
+
+        Assert::IsTrue(isColor(read(), 0, 0, 0, 0), L"作ったときの見える面は透明な黒");
+        Assert::AreEqual<int>(TT_OK, tt_view_publish(view));
+        Assert::IsTrue(isColor(read(), 0, 0, 0, 0), L"まだ描いていなければ、写しても変わらない");
+        render(1.0f, 0.0f, 0.0f);
+        Assert::IsTrue(isColor(read(), 0, 0, 0, 0), L"描いただけでは、見える面は変わらない");
+        Assert::AreEqual<int>(TT_OK, tt_view_publish(view));
+        Assert::IsTrue(isColor(read(), 0, 0, 255, 255), L"写すと、描いた絵が見える");
+        render(0.0f, 1.0f, 0.0f);
+        Assert::IsTrue(isColor(read(), 0, 0, 255, 255), L"次の絵を描いている間も、前に写した絵が見えている");
+        Assert::AreEqual<int>(TT_OK, tt_view_publish(view));
+        Assert::IsTrue(isColor(read(), 0, 255, 0, 255), L"写すと、次の絵に変わる");
+
+        // MSAA でも同じ（まとめた後の絵を写す）
+        uint32_t actual = 0;
+        Assert::AreEqual<int>(TT_OK, tt_view_set_sample_count(view, 4, &actual));
+        render(0.0f, 0.0f, 1.0f);
+        Assert::IsTrue(isColor(read(), 0, 255, 0, 255), L"MSAA でも、写すまでは前の絵");
+        Assert::AreEqual<int>(TT_OK, tt_view_publish(view));
+        Assert::IsTrue(isColor(read(), 255, 0, 0, 255), L"MSAA でも、写すと描いた絵が見える");
+
+        // 大きさを変えると、見える面は透明な黒に戻り、描くまでは写しても変わらない
+        Assert::AreEqual<int>(TT_OK, tt_view_resize(view, width, height + 1));
+        Assert::AreEqual<int>(TT_OK, tt_view_resize(view, width, height));
+        Assert::AreEqual<int>(TT_OK, tt_view_publish(view));
+        Assert::IsTrue(isColor(read(), 0, 0, 0, 0), L"大きさを変えた後、描くまでは透明な黒");
+
+        // GPU を作り直しても、同じように使える
+        render(1.0f, 1.0f, 1.0f);
+        Assert::AreEqual<int>(TT_OK, tt_engine_flush(engine), L"頼んだ描画をすぐ GPU へ送る");
+        Assert::AreEqual<int>(TT_OK, tt_engine_simulate_device_lost(engine));
+        Assert::AreEqual<int>(TT_E_DEVICE_LOST, tt_view_publish(view));
+        Assert::AreEqual<int>(TT_E_DEVICE_LOST, tt_engine_flush(engine));
+        Assert::AreEqual<int>(TT_OK, tt_engine_recover(engine));
+        Assert::IsTrue(isColor(read(), 0, 0, 0, 0), L"作り直した後は、描くまで透明な黒");
+        render(1.0f, 1.0f, 1.0f);
+        Assert::AreEqual<int>(TT_OK, tt_view_publish(view));
+        Assert::IsTrue(isColor(read(), 255, 255, 255, 255), L"作り直した後も、写すと見える");
+        Assert::AreEqual<int>(TT_OK, tt_view_destroy(view));
+
+        // 見える面を分けないビューでは、写すのは何もしない（描いた絵がすぐ読める）
+        Assert::AreEqual<int>(TT_OK, tt_view_create_offscreen(engine, width, height, 0, &view));
+        render(1.0f, 0.0f, 0.0f);
+        Assert::AreEqual<int>(TT_OK, tt_view_publish(view));
+        Assert::IsTrue(isColor(read(), 0, 0, 255, 255), L"分けないビューは、描いた絵がそのまま見える");
+        Assert::AreEqual<int>(TT_OK, tt_view_destroy(view));
+
+        TtView* bad = nullptr;
+        Assert::AreEqual<int>(TT_E_INVALID_ARG, tt_view_create_offscreen(engine, width, height, 1u << 2, &bad), L"知らない印は受け付けない");
+        Assert::AreEqual<int>(TT_E_INVALID_ARG, tt_view_publish(nullptr));
+        Assert::AreEqual<int>(TT_E_INVALID_ARG, tt_engine_flush(nullptr));
+        Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
+    }
+
     TEST_METHOD(DepthOfFieldBlursOutsideTheFocus)
     {
         // 手前（距離 3）に小さな赤い四角形、奥（距離 8）に大きな緑の四角形。ピントの合っていないほうの縁がぼける

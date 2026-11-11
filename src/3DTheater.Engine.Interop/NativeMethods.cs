@@ -227,6 +227,10 @@ internal static unsafe partial class NativeMethods
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial int MeshUpdateMaterials(nint mesh, MaterialState* states, uint count);
 
+    [LibraryImport(Library, EntryPoint = "tt_engine_flush")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial int EngineFlush(nint engine);
+
     [LibraryImport(Library, EntryPoint = "tt_engine_wait_for_gpu")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial int EngineWaitForGpu(nint engine);
@@ -278,4 +282,8 @@ internal static unsafe partial class NativeMethods
     [LibraryImport(Library, EntryPoint = "tt_view_read_pixels")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial int ViewReadPixels(nint view, void* buffer, int stride, int bufferSize);
+
+    [LibraryImport(Library, EntryPoint = "tt_view_publish")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial int ViewPublish(nint view);
 }

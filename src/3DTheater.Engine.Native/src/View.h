@@ -28,6 +28,8 @@ public:
     // 表示側の準備ができておらず描かなかったときは false
     bool Render(const TtFrameParams& params);
     void ReadPixels(void* buffer, int stride, int bufferSize);
+    // TT_VIEW_FLAG_DEFERRED_PUBLISH のとき、最後に描いた絵を見える面へ写す（GPU へ頼むだけ）。そのほかは何もしない
+    void Publish();
 
     // GPU の作り直し。D3DImage 用の面は別の物になるので、呼び出し側は面を取り直すこと
     void ReleaseDeviceResources() noexcept override;
@@ -64,6 +66,9 @@ private:
     HANDLE frameLatencyWaitable_ = nullptr; // 前の表示が終わると合図が来る
 
     ComPtr<ID3D11Texture2D> colorTexture_; // 表示・読み出しに使う面（MSAA のときは、描いた後にここへまとめる）
+    // TT_VIEW_FLAG_DEFERRED_PUBLISH のときの見える面（共有するときはこちらを Direct3D 9 と共有する）。colorTexture_ は描くだけの面になる
+    ComPtr<ID3D11Texture2D> publishedTexture_;
+    bool hasRendered_ = false; // 今の大きさで 1 度でも描いたか（見える面へ写せる絵があるか）
     ComPtr<ID3D11RenderTargetView> rtv_;
     ComPtr<ID3D11Texture2D> msaaTexture_; // MSAA のときだけ。ここへ描いてから colorTexture_ へまとめる
     ComPtr<ID3D11RenderTargetView> msaaRtv_;

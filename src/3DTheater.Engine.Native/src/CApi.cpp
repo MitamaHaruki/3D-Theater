@@ -239,6 +239,11 @@ TT_API TtResult TT_CALL tt_engine_wait_for_gpu(TtEngine* engine)
     return Guard([&] { ToEngine(engine).WaitForGpu(); });
 }
 
+TT_API TtResult TT_CALL tt_engine_flush(TtEngine* engine)
+{
+    return Guard([&] { ToEngine(engine).Flush(); });
+}
+
 TT_API TtResult TT_CALL tt_engine_check_device(TtEngine* engine)
 {
     // 使えないのは失敗ではなく状態なので、ログには残さない
@@ -285,7 +290,7 @@ TT_API TtResult TT_CALL tt_view_create_offscreen(
         *out_view = nullptr;
         tt::Engine& e = ToEngine(engine);
         RequireSize(width, height, 1);
-        Require((flags & ~static_cast<uint32_t>(TT_VIEW_FLAG_SHARE_D3D9)) == 0, L"flags に未知の値があります");
+        Require((flags & ~static_cast<uint32_t>(TT_VIEW_FLAG_SHARE_D3D9 | TT_VIEW_FLAG_DEFERRED_PUBLISH)) == 0, L"flags に未知の値があります");
         auto view = tt::View::CreateOffscreen(e, width, height, flags);
         *out_view = reinterpret_cast<TtView*>(view.release());
     });
@@ -362,6 +367,11 @@ TT_API TtResult TT_CALL tt_view_render(TtView* view, const TtFrameParams* params
 TT_API TtResult TT_CALL tt_view_read_pixels(TtView* view, void* buffer, int32_t stride, int32_t buffer_size)
 {
     return Guard([&] { ToView(view).ReadPixels(buffer, stride, buffer_size); });
+}
+
+TT_API TtResult TT_CALL tt_view_publish(TtView* view)
+{
+    return Guard([&] { ToView(view).Publish(); });
 }
 
 } // extern "C"

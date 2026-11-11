@@ -157,6 +157,9 @@ void View::CreateSizeDependentResources()
     if (kind_ == Kind::Window) {
         CheckHr(swapChain_->GetBuffer(0, IID_PPV_ARGS(&colorTexture_)), L"バックバッファーの取得");
     } else {
+        // 見える面を分けるときは、描く面は共有しない（共有するのは見える面）
+        const bool deferred = (flags_ & TT_VIEW_FLAG_DEFERRED_PUBLISH) != 0;
+        const bool shared = (flags_ & TT_VIEW_FLAG_SHARE_D3D9) != 0;
         D3D11_TEXTURE2D_DESC desc{};
         desc.Width = static_cast<UINT>(width_);
         desc.Height = static_cast<UINT>(height_);
@@ -166,12 +169,22 @@ void View::CreateSizeDependentResources()
         desc.SampleDesc.Count = 1;
         desc.Usage = D3D11_USAGE_DEFAULT;
         desc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
-        desc.MiscFlags = (flags_ & TT_VIEW_FLAG_SHARE_D3D9) ? D3D11_RESOURCE_MISC_SHARED : 0;
+        desc.MiscFlags = shared && !deferred ? D3D11_RESOURCE_MISC_SHARED : 0;
         CheckHr(device->CreateTexture2D(&desc, nullptr, &colorTexture_), L"描画先テクスチャの作成");
+        hasRendered_ = false;
+        if (deferred) {
+            desc.MiscFlags = shared ? D3D11_RESOURCE_MISC_SHARED : 0;
+            CheckHr(device->CreateTexture2D(&desc, nullptr, &publishedTexture_), L"見える面のテクスチャの作成");
+            // 初めは透明な黒（まだ何も写していない）
+            ComPtr<ID3D11RenderTargetView> clearView;
+            CheckHr(device->CreateRenderTargetView(publishedTexture_.Get(), nullptr, &clearView), L"見える面のビューの作成");
+            const float transparent[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+            engine_.Context()->ClearRenderTargetView(clearView.Get(), transparent);
+        }
 
-        if (flags_ & TT_VIEW_FLAG_SHARE_D3D9) {
+        if (shared) {
             ComPtr<IDXGIResource> dxgiResource;
-            CheckHr(colorTexture_.As(&dxgiResource), L"IDXGIResource の取得");
+            CheckHr((deferred ? publishedTexture_ : colorTexture_).As(&dxgiResource), L"IDXGIResource の取得");
             HANDLE sharedHandle = nullptr;
             CheckHr(dxgiResource->GetSharedHandle(&sharedHandle), L"共有ハンドルの取得");
             CheckHr(engine_.D3D9Device()->CreateTexture(static_cast<UINT>(width_), static_cast<UINT>(height_), 1,
@@ -331,6 +344,8 @@ void View::ReleaseSizeDependentResources() noexcept
     ReleaseSampleResources();
     rtv_.Reset();
     colorTexture_.Reset();
+    publishedTexture_.Reset();
+    hasRendered_ = false;
     d3d9Surface_.Reset();
     d3d9Texture_.Reset();
 }
@@ -432,6 +447,7 @@ bool View::Render(const TtFrameParams& params)
         // 1 画素の点を平均して、表示・読み出しに使う面へまとめる
         engine_.Context()->ResolveSubresource(colorTexture_.Get(), 0, msaaTexture_.Get(), 0, Engine::kColorFormat);
     }
+    hasRendered_ = true;
 
     if (kind_ == Kind::Window) {
         CheckHr(swapChain_->Present(0, 0), L"画面への表示 (Present)");
@@ -453,8 +469,10 @@ void View::ReadPixels(void* buffer, int stride, int bufferSize)
         throw Error(TT_E_INVALID_ARG, L"読み出し先の大きさが足りません");
     }
 
+    // 見える面を分けたビューは、見える面（最後に写した絵）を読む
+    ID3D11Texture2D* visible = publishedTexture_ ? publishedTexture_.Get() : colorTexture_.Get();
     D3D11_TEXTURE2D_DESC desc{};
-    colorTexture_->GetDesc(&desc);
+    visible->GetDesc(&desc);
     desc.Usage = D3D11_USAGE_STAGING;
     desc.BindFlags = 0;
     desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
@@ -463,7 +481,7 @@ void View::ReadPixels(void* buffer, int stride, int bufferSize)
     CheckHr(engine_.Device()->CreateTexture2D(&desc, nullptr, &staging), L"読み出し用テクスチャの作成");
 
     ID3D11DeviceContext* ctx = engine_.Context();
-    ctx->CopyResource(staging.Get(), colorTexture_.Get());
+    ctx->CopyResource(staging.Get(), visible);
     D3D11_MAPPED_SUBRESOURCE mapped{};
     CheckHr(ctx->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &mapped), L"読み出し用テクスチャのマップ");
     auto* dst = static_cast<uint8_t*>(buffer);
@@ -473,6 +491,15 @@ void View::ReadPixels(void* buffer, int stride, int bufferSize)
             static_cast<size_t>(width_) * 4);
     }
     ctx->Unmap(staging.Get(), 0);
+}
+
+void View::Publish()
+{
+    if (!publishedTexture_ || !hasRendered_) {
+        return; // 見える面を分けていない・まだ描いていない
+    }
+    engine_.ThrowIfDeviceLost();
+    engine_.Context()->CopyResource(publishedTexture_.Get(), colorTexture_.Get());
 }
 
 void View::ReleaseDeviceResources() noexcept

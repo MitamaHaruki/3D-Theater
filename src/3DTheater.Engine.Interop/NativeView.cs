@@ -166,7 +166,18 @@ public sealed unsafe class NativeView : IDisposable
         }
     }
 
-    /// <summary>画面外ビューの内容を BGRA 8 ビットで読み出す。テスト・保存用と、共有できない環境での表示用。</summary>
+    /// <summary>
+    /// 見える面を分けたビュー（<see cref="NativeEngine.CreateOffscreenView"/> の deferredPublish）で、最後に描いた絵を見える面
+    /// （<see cref="D3D9Surface"/> と <see cref="ReadPixels"/> で読む面）へ写すよう GPU に頼む。完了は待たないので、
+    /// WPF へ渡す前に <see cref="NativeEngine.WaitForGpu"/> を呼ぶこと。大きさを変えた後にまだ描いていなければ何もしない。
+    /// 見える面を分けていないビューでは何もしない。
+    /// </summary>
+    public void Publish() => NativeError.Check(NativeMethods.ViewPublish(Handle));
+
+    /// <summary>
+    /// 画面外ビューの内容を BGRA 8 ビットで読み出す。テスト・保存用と、共有できない環境での表示用。
+    /// 見える面を分けたビューでは、最後に <see cref="Publish"/> した絵を読む。
+    /// </summary>
     public void ReadPixels(Span<byte> destination, int stride)
     {
         fixed (byte* buffer = destination)

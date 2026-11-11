@@ -343,6 +343,34 @@ public sealed class NativeEngineTests
     }
 
     [TestMethod]
+    public void DeferredViewShowsOnlyPublishedFrames()
+    {
+        using var engine = NativeEngine.Create(NativeEngineOptions.UseWarp);
+        const int width = 32;
+        const int height = 24;
+        using var view = engine.CreateOffscreenView(width, height, deferredPublish: true);
+        var pixels = new byte[width * height * 4];
+        byte[] Read()
+        {
+            engine.WaitForGpu();
+            view.ReadPixels(pixels, width * 4);
+            return pixels[..4];
+        }
+        FrameParameters Clear(float r, float g, float b) =>
+            DefaultFrame with { Flags = FrameFlags.ClearColor, ClearColor = new System.Numerics.Vector4(r, g, b, 1f) };
+
+        CollectionAssert.AreEqual(new byte[] { 0, 0, 0, 0 }, Read(), "作ったときの見える面は透明な黒");
+        Assert.IsTrue(view.Render(Clear(1f, 0f, 0f)));
+        CollectionAssert.AreEqual(new byte[] { 0, 0, 0, 0 }, Read(), "描いただけでは、見える面は変わらない");
+        view.Publish();
+        CollectionAssert.AreEqual(new byte[] { 0, 0, 255, 255 }, Read(), "写すと、描いた絵が見える");
+        Assert.IsTrue(view.Render(Clear(0f, 1f, 0f)));
+        CollectionAssert.AreEqual(new byte[] { 0, 0, 255, 255 }, Read(), "次の絵を描いている間も、前に写した絵が見えている");
+        view.Publish();
+        CollectionAssert.AreEqual(new byte[] { 0, 255, 0, 255 }, Read(), "写すと、次の絵に変わる");
+    }
+
+    [TestMethod]
     public void SharedViewIsNotSupportedOnWarp()
     {
         using var engine = NativeEngine.Create(NativeEngineOptions.UseWarp);
