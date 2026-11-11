@@ -36,6 +36,9 @@ public sealed class SceneDocument
     /// <summary>映像効果（映像効果の値を動かすキーを持つ）。</summary>
     public EffectsNode Effects { get; private set; } = null!;
 
+    /// <summary>セルフ影（セルフシャドウを使うかを切り替えるキーを持つ）。</summary>
+    public SelfShadowNode SelfShadow { get; private set; } = null!;
+
     /// <summary>MMD の照明（決まった役目の「light」）。</summary>
     public LightNode MainLight => (LightNode)_fixedNodes["light"];
 
@@ -138,9 +141,11 @@ public sealed class SceneDocument
         var stage = Group("ステージ");
         var audio = Group("音声");
         var effects = new EffectsNode();
+        var selfShadow = new SelfShadowNode();
         document.Add(root, cameras);
         document.Add(root, lights);
         document.Add(root, effects);
+        document.Add(root, selfShadow);
         document.Add(root, models);
         document.Add(root, stage);
         document.Add(root, audio);
@@ -162,6 +167,7 @@ public sealed class SceneDocument
         document.AudioGroup = audio;
         document.LightsGroup = lights;
         document.Effects = effects;
+        document.SelfShadow = selfShadow;
 
         document._fixedNodes["group.cameras"] = cameras;
         document._fixedNodes["group.lights"] = lights;
@@ -173,6 +179,7 @@ public sealed class SceneDocument
         document._fixedNodes["testObject"] = models.Children[0];
         document._fixedNodes["stage"] = grid;
         document._fixedNodes["effects"] = effects;
+        document._fixedNodes["selfShadow"] = selfShadow;
         foreach (SceneNode node in document._fixedNodes.Values.Append(root))
         {
             // キーも含めて覚える（新しいプロジェクトに戻すと、カメラ・照明・映像効果のキーも消える）

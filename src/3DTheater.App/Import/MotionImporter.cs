@@ -47,12 +47,15 @@ internal static class MotionImporter
                 VmdDocument vmd = preloaded.Document!;
                 bool cameraSelected = context.Selection.Primary is CameraNode && vmd.CameraKeys.Count > 0;
                 bool lightSelected = context.Selection.Primary is LightNode && vmd.LightKeys.Count > 0;
-                if (vmd.IsCameraMotion || cameraSelected || lightSelected)
+                bool shadowSelected = context.Selection.Primary is SelfShadowNode && vmd.ShadowKeys.Count > 0;
+                if (vmd.IsCameraMotion || cameraSelected || lightSelected || shadowSelected)
                 {
                     LightNode light = context.Selection.Primary as LightNode ?? context.Scene.MainLight;
-                    bool useCamera = vmd.CameraKeys.Count > 0 && !lightSelected;
-                    bool useLight = vmd.LightKeys.Count > 0 && (vmd.IsCameraMotion || lightSelected);
-                    ImportCameraAndLight(context, useCamera ? camera : null, useLight ? light : null, path, preloaded, owner);
+                    bool useCamera = vmd.CameraKeys.Count > 0 && !lightSelected && !shadowSelected;
+                    bool useLight = vmd.LightKeys.Count > 0 && !shadowSelected && (vmd.IsCameraMotion || lightSelected);
+                    bool useShadow = vmd.ShadowKeys.Count > 0 && ((vmd.IsCameraMotion && !lightSelected) || shadowSelected);
+                    ImportCameraAndLight(context, useCamera ? camera : null, useLight ? light : null, useShadow ? context.Scene.SelfShadow : null,
+                        path, preloaded, owner);
                     return;
                 }
             }
@@ -123,14 +126,14 @@ internal static class MotionImporter
     }
 
     /// <summary>
-    /// カメラ・照明のモーションを当てはめる。<paramref name="camera"/> が null ならカメラのキーは使わず、<paramref name="light"/> が
-    /// null なら照明のキーは使わない（どちらかは null でない）。
+    /// カメラ・照明・セルフ影のモーションを当てはめる。<paramref name="camera"/>・<paramref name="light"/>・<paramref name="selfShadow"/>
+    /// が null なら、そのキーは使わない（どれかは null でない）。
     /// </summary>
-    private static void ImportCameraAndLight(EditorContext context, CameraNode? camera, LightNode? light, string path, VmdLoadResult motion,
-        Window owner)
+    private static void ImportCameraAndLight(EditorContext context, CameraNode? camera, LightNode? light, SelfShadowNode? selfShadow, string path,
+        VmdLoadResult motion, Window owner)
     {
         VmdDocument vmd = motion.Document!;
-        foreach (SceneNode node in new SceneNode?[] { camera, light }.OfType<SceneNode>())
+        foreach (SceneNode node in new SceneNode?[] { camera, light, selfShadow }.OfType<SceneNode>())
         {
             if (!node.CanEdit)
             {
@@ -140,16 +143,18 @@ internal static class MotionImporter
             }
         }
         context.Playback.Pause();
-        SceneNode[] targets = [.. new SceneNode?[] { camera, light }.OfType<SceneNode>()];
+        SceneNode[] targets = [.. new SceneNode?[] { camera, light, selfShadow }.OfType<SceneNode>()];
         AppLog.Info($"カメラ・照明のモーションを読み込みます: {path}（当てはめる先: {string.Join("・", targets.Select(n => n.Name))}）");
         CameraImportResult? cameraResult = null;
         LightImportResult? lightResult = null;
+        SelfShadowImportResult? shadowResult = null;
         context.Edits.Change($"カメラ・照明のモーションの読み込み（{Path.GetFileName(path)}）", targets, () =>
         {
             cameraResult = camera is null ? null : CameraMotion.Apply(vmd, camera, context.Playback.FrameRate, motion.Report);
             lightResult = light is null ? null : LightMotion.Apply(vmd, light, context.Playback.FrameRate, motion.Report);
+            shadowResult = selfShadow is null ? null : SelfShadowMotion.Apply(vmd, selfShadow, context.Playback.FrameRate, motion.Report);
         }, includeKeys: true);
-        int lastFrame = Math.Max(cameraResult?.LastFrame ?? 0, lightResult?.LastFrame ?? 0);
+        int lastFrame = Math.Max(Math.Max(cameraResult?.LastFrame ?? 0, lightResult?.LastFrame ?? 0), shadowResult?.LastFrame ?? 0);
         if (lastFrame > context.Playback.EndFrame)
         {
             context.Playback.EndFrame = lastFrame;
@@ -168,6 +173,14 @@ internal static class MotionImporter
         if (light is not null && lightResult is not null)
         {
             parts.Add($"照明「{light.Name}」にキー {lightResult.Keys:N0}");
+        }
+        if (selfShadow is not null && shadowResult is not null)
+        {
+            parts.Add($"セルフ影にキー {shadowResult.Keys:N0}");
+        }
+        if (selfShadow is null && vmd.ShadowKeys.Count > 0)
+        {
+            motion.Report.Info(LoadIssueCategory.Note, $"セルフ影のキー {vmd.ShadowKeys.Count:N0} 個は使いませんでした（セルフ影を選んで読み込むと当てはまります）");
         }
         Finish(owner, path, motion.Report, "モーション",
             $"カメラ・照明のモーションを当てはめました（{string.Join("・", parts)}、最後のキー {lastFrame:N0} フレーム）。"

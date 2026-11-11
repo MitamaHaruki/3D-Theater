@@ -161,6 +161,19 @@ public sealed class IkSwitchSet : IEquatable<IkSwitchSet>
 public readonly record struct DisplayKey(int Frame, bool Shown, IkSwitchSet Ik) : IKeyframe;
 
 /// <summary>
+/// セルフ影のキー 1 つ（MMD のセルフ影のキー）。<see cref="Mode"/> は MMD のモード（0 = 影なし、1 = モード 1、2 = モード 2）、
+/// <see cref="Distance"/> は MMD の影範囲の VMD での値（このアプリでは使わず、書き戻すために持つ）。次のキーまで変えない（いつも段階）。
+/// </summary>
+public readonly record struct SelfShadowKey(int Frame, byte Mode, float Distance) : IKeyframe
+{
+    /// <summary>MMD の影範囲の初期の値の、VMD での値と思われる値（MMD の影範囲 8875 → 0.1 − 8875 / 100000。MMD 本体との見比べはまだ）。</summary>
+    public const float DefaultDistance = 0.01125f;
+
+    /// <summary>セルフシャドウを使うか（モード 0 でない）。</summary>
+    public bool Enabled => Mode != 0;
+}
+
+/// <summary>
 /// 映像効果の値のうち、キーで動かすもの（色調補正・ブルーム・周辺減光・被写界深度・霧の数）。使うか（ON / OFF）は動かさない。
 /// <see cref="FogColor"/> は各 0〜1。
 /// </summary>
@@ -533,6 +546,18 @@ public static class KeyframeEvaluator
             return true;
         }
         pose = EffectPose.Lerp(a.Pose, b.Pose, b.Curve.Evaluate((frame - a.Frame) / (b.Frame - a.Frame)));
+        return true;
+    }
+
+    /// <summary>セルフ影: <paramref name="frame"/> 以前のいちばん近いキーの値（最初のキーより前は最初のキー）。</summary>
+    public static bool TryEvaluate(KeyTrack<SelfShadowKey> track, float frame, out SelfShadowKey key)
+    {
+        key = default;
+        if (!track.FindSegment(frame, out int before, out _))
+        {
+            return false;
+        }
+        key = track.Keys[before];
         return true;
     }
 

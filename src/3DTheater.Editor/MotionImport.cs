@@ -109,7 +109,7 @@ public static class MotionImport
         if (vmd.CameraKeys.Count > 0 || vmd.LightKeys.Count > 0 || vmd.ShadowKeys.Count > 0)
         {
             report.Info(LoadIssueCategory.Note,
-                $"カメラ {vmd.CameraKeys.Count:N0}・照明 {vmd.LightKeys.Count:N0}・セルフ影 {vmd.ShadowKeys.Count:N0} 個のキーは、モデルには当てはめません（カメラ・照明のキーは、カメラか照明を選んで読み込むか、カメラ・照明用のモーションを読み込むと当てはまります）");
+                $"カメラ {vmd.CameraKeys.Count:N0}・照明 {vmd.LightKeys.Count:N0}・セルフ影 {vmd.ShadowKeys.Count:N0} 個のキーは、モデルには当てはめません（カメラ・照明・セルフ影のキーは、カメラ・照明・セルフ影を選んで読み込むか、カメラ・照明用のモーションを読み込むと当てはまります）");
         }
         // 表示・IK（いつも段階。キーに無い IK ボーンは、IK を解く）
         int displayKeyCount = 0;

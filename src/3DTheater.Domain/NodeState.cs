@@ -20,6 +20,9 @@ public sealed record ModelState(MaterialOverrideSet MaterialOverrides);
 
 public sealed record AudioState(int StartFrame, float Volume);
 
+/// <summary>セルフ影の項目の値（セルフシャドウを使うかは描き方の設定にある）。</summary>
+public sealed record SelfShadowState(bool HasUnregisteredChange, KeySnapshot<SelfShadowKey>? Keys);
+
 /// <summary>映像効果の項目の値（映像効果の値そのものは描き方の設定にある）。</summary>
 public sealed record EffectsState(bool HasUnregisteredChange, KeySnapshot<EffectKey>? Keys);
 

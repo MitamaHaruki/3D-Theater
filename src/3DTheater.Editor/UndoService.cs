@@ -186,15 +186,15 @@ public sealed class EditService(UndoService undo, AnimationService animation, Pl
 
     /// <summary>
     /// 作品の描き方の設定（映像効果・霧・影・イラスト風・床の映り込み・環境の画像）を、何度も変えてから 1 つの操作として残す編集を始める
-    /// （設定の画面を開く前に呼び、閉じたら <see cref="SettingsTransaction.Commit"/>）。映像効果のキーと未登録の印も写す
-    /// （キーのあるときに映像効果の値を変えると未登録の変更になり、自動キーならキーが置かれるため）。
+    /// （設定の画面を開く前に呼び、閉じたら <see cref="SettingsTransaction.Commit"/>）。映像効果・セルフ影のキーと未登録の印も写す
+    /// （キーのあるときに映像効果の値・セルフシャドウの ON / OFF を変えると未登録の変更になり、自動キーならキーが置かれるため）。
     /// </summary>
     public SettingsTransaction BeginSettings(string description, RenderSettings settings)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(description);
         ArgumentNullException.ThrowIfNull(settings);
-        EffectsNode? effects = animation.Scene.Effects;
-        return new SettingsTransaction(this, description, settings, settings.Capture(), effects, effects?.CaptureState(includeKeys: true));
+        SceneNode[] keyed = [.. new SceneNode?[] { animation.Scene.Effects, animation.Scene.SelfShadow }.OfType<SceneNode>()];
+        return new SettingsTransaction(this, description, settings, settings.Capture(), keyed, [.. keyed.Select(n => n.CaptureState(includeKeys: true))]);
     }
 
     /// <summary>描き方の設定をすぐ変え、元に戻せるように履歴へ積む（メニューの切り替え）。何も変わらなければ積まずに false。</summary>
@@ -211,22 +211,22 @@ public sealed class EditService(UndoService undo, AnimationService animation, Pl
     }
 
     internal void PushSettings(string description, RenderSettings settings, RenderSettingsSnapshot before, RenderSettingsSnapshot after,
-        EffectsNode? effects, NodeState? effectsBefore, NodeState? effectsAfter) =>
-        Undo.Push(new SettingsChange(this, description, settings, before, after, effects, effectsBefore, effectsAfter));
+        SceneNode[] keyed, NodeState[] keyedBefore, NodeState[] keyedAfter) =>
+        Undo.Push(new SettingsChange(this, description, settings, before, after, keyed, keyedBefore, keyedAfter));
 
-    /// <summary>描き方の設定（と映像効果の項目）を写しの値に戻す（元に戻す・やり直しから呼ぶ）。</summary>
-    private void RestoreSettings(RenderSettings settings, RenderSettingsSnapshot snapshot, EffectsNode? effects, NodeState? effectsState)
+    /// <summary>描き方の設定（と映像効果・セルフ影の項目）を写しの値に戻す（元に戻す・やり直しから呼ぶ）。</summary>
+    private void RestoreSettings(RenderSettings settings, RenderSettingsSnapshot snapshot, SceneNode[] keyed, NodeState[] keyedStates)
     {
         playback.Pause();
         using (animation.SuspendTracking())
         {
             settings.Restore(snapshot);
-            if (effects is not null && effectsState is not null)
+            for (int i = 0; i < keyed.Length; i++)
             {
-                effects.RestoreState(effectsState);
+                keyed[i].RestoreState(keyedStates[i]);
             }
         }
-        // 映像効果のキーがあれば（未登録でなければ）、今のフレームの値に合わせ直す
+        // 映像効果・セルフ影のキーがあれば（未登録でなければ）、今のフレームの値に合わせ直す
         animation.ApplyFrame();
         animation.NotifyStateChanged();
     }
@@ -234,13 +234,13 @@ public sealed class EditService(UndoService undo, AnimationService animation, Pl
     /// <summary>描き方の設定を変える操作 1 つ。</summary>
     private sealed class SettingsChange(
         EditService owner, string description, RenderSettings settings, RenderSettingsSnapshot before, RenderSettingsSnapshot after,
-        EffectsNode? effects, NodeState? effectsBefore, NodeState? effectsAfter) : IUndoableAction
+        SceneNode[] keyed, NodeState[] keyedBefore, NodeState[] keyedAfter) : IUndoableAction
     {
         public string Description { get; } = description;
 
-        public void Undo() => owner.RestoreSettings(settings, before, effects, effectsBefore);
+        public void Undo() => owner.RestoreSettings(settings, before, keyed, keyedBefore);
 
-        public void Redo() => owner.RestoreSettings(settings, after, effects, effectsAfter);
+        public void Redo() => owner.RestoreSettings(settings, after, keyed, keyedAfter);
     }
 
     /// <summary>
@@ -442,19 +442,19 @@ public sealed class SettingsTransaction
     private readonly string _description;
     private readonly RenderSettings _settings;
     private readonly RenderSettingsSnapshot _before;
-    private readonly EffectsNode? _effects;
-    private readonly NodeState? _effectsBefore;
+    private readonly SceneNode[] _keyed;
+    private readonly NodeState[] _keyedBefore;
     private bool _done;
 
     internal SettingsTransaction(EditService owner, string description, RenderSettings settings, RenderSettingsSnapshot before,
-        EffectsNode? effects, NodeState? effectsBefore)
+        SceneNode[] keyed, NodeState[] keyedBefore)
     {
         _owner = owner;
         _description = description;
         _settings = settings;
         _before = before;
-        _effects = effects;
-        _effectsBefore = effectsBefore;
+        _keyed = keyed;
+        _keyedBefore = keyedBefore;
     }
 
     /// <summary>始めてから変わっていれば、1 つの操作として積んで true。変わっていなければ積まずに false。2 回目からは何もしない。</summary>
@@ -466,12 +466,12 @@ public sealed class SettingsTransaction
         }
         _done = true;
         RenderSettingsSnapshot after = _settings.Capture();
-        NodeState? effectsAfter = _effects?.CaptureState(includeKeys: true);
-        if (after == _before && Equals(effectsAfter, _effectsBefore))
+        NodeState[] keyedAfter = [.. _keyed.Select(n => n.CaptureState(includeKeys: true))];
+        if (after == _before && keyedAfter.SequenceEqual(_keyedBefore))
         {
             return false;
         }
-        _owner.PushSettings(_description, _settings, _before, after, _effects, _effectsBefore, effectsAfter);
+        _owner.PushSettings(_description, _settings, _before, after, _keyed, _keyedBefore, keyedAfter);
         return true;
     }
 }

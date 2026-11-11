@@ -2,7 +2,7 @@ using Theater3D.Domain;
 
 namespace Theater3D.Editor;
 
-/// <summary>キー 1 つを指す（どの項目の、どのフレームのキーか）。項目はボーン・モーフ・カメラ・照明・モデルの表示・IK・映像効果。</summary>
+/// <summary>キー 1 つを指す（どの項目の、どのフレームのキーか）。項目はボーン・モーフ・カメラ・照明・モデルの表示・IK・映像効果・セルフ影。</summary>
 public readonly record struct KeyRef(SceneNode Node, int Frame);
 
 /// <summary>補間の種類（右クリックのメニューで選ぶ）。</summary>
@@ -106,11 +106,13 @@ public static class KeyEditing
         LightNode light => light.Keys.HasKeyAt(key.Frame),
         ModelDisplayNode display => display.Keys.HasKeyAt(key.Frame),
         EffectsNode effects => effects.Keys.HasKeyAt(key.Frame),
+        SelfShadowNode shadow => shadow.Keys.HasKeyAt(key.Frame),
         _ => false,
     };
 
-    /// <summary>キーを持てる項目か（ボーン・モーフ・カメラ・照明・モデルの表示・IK・映像効果）。</summary>
-    public static bool HasKeys(SceneNode node) => node is BoneNode or MorphNode or CameraNode or LightNode or ModelDisplayNode or EffectsNode;
+    /// <summary>キーを持てる項目か（ボーン・モーフ・カメラ・照明・モデルの表示・IK・映像効果・セルフ影）。</summary>
+    public static bool HasKeys(SceneNode node) =>
+        node is BoneNode or MorphNode or CameraNode or LightNode or ModelDisplayNode or EffectsNode or SelfShadowNode;
 
     /// <summary>項目のキーの数（キーを持てない項目は 0）。</summary>
     public static int CountKeys(SceneNode node) => node switch
@@ -121,6 +123,7 @@ public static class KeyEditing
         LightNode light => light.Keys.Count,
         ModelDisplayNode display => display.Keys.Count,
         EffectsNode effects => effects.Keys.Count,
+        SelfShadowNode shadow => shadow.Keys.Count,
         _ => 0,
     };
 
@@ -173,6 +176,9 @@ public static class KeyEditing
                 case EffectsNode effects:
                     lost += Replace(effects.Keys, [.. effects.Keys.Keys.Select(k => k with { Frame = Scale(k.Frame) })]);
                     break;
+                case SelfShadowNode shadow:
+                    lost += Replace(shadow.Keys, [.. shadow.Keys.Keys.Select(k => k with { Frame = Scale(k.Frame) })]);
+                    break;
             }
         }
         return lost;
@@ -214,6 +220,9 @@ public static class KeyEditing
                     break;
                 case EffectsNode effects:
                     Collect(effects, effects.Keys);
+                    break;
+                case SelfShadowNode shadow:
+                    Collect(shadow, shadow.Keys);
                     break;
             }
         }
@@ -264,6 +273,9 @@ public static class KeyEditing
                 case EffectsNode effects:
                     MoveIn(effects.Keys, frames, delta, duplicate, (k, f) => k with { Frame = f });
                     break;
+                case SelfShadowNode shadow:
+                    MoveIn(shadow.Keys, frames, delta, duplicate, (k, f) => k with { Frame = f });
+                    break;
             }
             result.AddRange(frames.Select(f => new KeyRef(group.Key, f + delta)));
         }
@@ -297,6 +309,9 @@ public static class KeyEditing
                 case EffectsNode effects:
                     effects.Keys.ReplaceAll(effects.Keys.Keys.Where(k => !frames.Contains(k.Frame)));
                     break;
+                case SelfShadowNode shadow:
+                    shadow.Keys.ReplaceAll(shadow.Keys.Keys.Where(k => !frames.Contains(k.Frame)));
+                    break;
             }
         }
         return count;
@@ -329,6 +344,9 @@ public static class KeyEditing
                 case EffectsNode effects when effects.Keys.TryGet(k.Frame, out EffectKey key):
                     items.Add((effects, k.Frame - origin, key));
                     break;
+                case SelfShadowNode shadow when shadow.Keys.TryGet(k.Frame, out SelfShadowKey key):
+                    items.Add((shadow, k.Frame - origin, key));
+                    break;
             }
         }
         return new KeyClipboard(items);
@@ -360,13 +378,16 @@ public static class KeyEditing
                 case EffectsNode effects:
                     effects.Keys.SetRange(group.Select(i => ((EffectKey)i.Key) with { Frame = frame + i.Offset }));
                     break;
+                case SelfShadowNode shadow:
+                    shadow.Keys.SetRange(group.Select(i => ((SelfShadowKey)i.Key) with { Frame = frame + i.Offset }));
+                    break;
             }
             result.AddRange(group.Select(i => new KeyRef(group.Key, frame + i.Offset)));
         }
         return result;
     }
 
-    /// <summary>キーの補間（前のキーからこのキーまでの動き方）を変える。表示・IK のキーはいつも段階なので変えない。</summary>
+    /// <summary>キーの補間（前のキーからこのキーまでの動き方）を変える。表示・IK・セルフ影のキーはいつも段階なので変えない。</summary>
     public static void SetInterpolation(IEnumerable<KeyRef> keys, InterpolationPreset preset)
     {
         BezierCurve curve = preset == InterpolationPreset.Smooth ? SmoothCurve : BezierCurve.Linear;

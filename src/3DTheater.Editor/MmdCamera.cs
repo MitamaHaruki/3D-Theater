@@ -108,10 +108,6 @@ public static class CameraMotion
         {
             report.Info(LoadIssueCategory.Unsupported, $"パース OFF（平行投影）のキー {orthographic:N0} 個は、今は透視投影で表示します");
         }
-        if (vmd.ShadowKeys.Count > 0)
-        {
-            report.Info(LoadIssueCategory.Unsupported, $"セルフ影 {vmd.ShadowKeys.Count:N0} 個のキーは、今は使いません");
-        }
         if (vmd.BoneKeys.Count > 0 || vmd.MorphKeys.Count > 0)
         {
             report.Info(LoadIssueCategory.Note, "ボーン・モーフのキーは、カメラには当てはめません（モデルを選んで読み込むと当てはまります）");
@@ -125,9 +121,10 @@ public static class CameraMotion
 
     /// <summary>
     /// シーンのカメラのキーを VMD（カメラ・照明用）にする。30 fps に直し、段階の補間は 1 つ前のフレームにキーを足して表す。
-    /// <paramref name="light"/>（MMD の照明）にキーがあれば、照明のキーも一緒に書く（<see cref="LightMotion.CreateKeys"/>）。
+    /// <paramref name="light"/>（MMD の照明）・<paramref name="selfShadow"/> にキーがあれば、照明・セルフ影のキーも一緒に書く
+    /// （<see cref="LightMotion.CreateKeys"/>・<see cref="SelfShadowMotion.CreateKeys"/>）。
     /// </summary>
-    public static VmdDocument CreateVmd(CameraNode camera, int frameRate, LoadReport report, LightNode? light = null)
+    public static VmdDocument CreateVmd(CameraNode camera, int frameRate, LoadReport report, LightNode? light = null, SelfShadowNode? selfShadow = null)
     {
         double scale = MotionImport.MmdFrameRate / (double)frameRate;
         int Scale(int frame) => (int)Math.Round(frame * scale, MidpointRounding.AwayFromZero);
@@ -166,7 +163,8 @@ public static class CameraMotion
             report.Warning(LoadIssueCategory.Note, "カメラにキーに登録していない変更があり、書き出していません（書き出すには先に登録してください）");
         }
         IReadOnlyList<VmdLightKey> lights = light is null ? [] : LightMotion.CreateKeys(light, frameRate, report);
-        if (written.Count == 0 && lights.Count == 0)
+        IReadOnlyList<VmdShadowKey> shadows = selfShadow is null ? [] : SelfShadowMotion.CreateKeys(selfShadow, frameRate, report);
+        if (written.Count == 0 && lights.Count == 0 && shadows.Count == 0)
         {
             report.Warning(LoadIssueCategory.Note, light is null ? "カメラのキーがありません（空のモーションになります）" : "カメラ・照明のキーがありません（空のモーションになります）");
         }
@@ -175,6 +173,7 @@ public static class CameraMotion
             ModelName = VmdName.FromText("カメラ・照明", VmdText.ModelNameBytes),
             CameraKeys = [.. written.Values],
             LightKeys = lights,
+            ShadowKeys = shadows,
         };
     }
 }

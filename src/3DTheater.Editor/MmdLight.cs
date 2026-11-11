@@ -172,3 +172,94 @@ public static class LightMotion
         }
     }
 }
+
+/// <summary>セルフ影のモーションを当てはめた結果。</summary>
+public sealed record SelfShadowImportResult(int Keys, int LastFrame);
+
+/// <summary>
+/// VMD のセルフ影のキーと、シーンのセルフ影のキーの変換。このアプリは影の範囲をいつも自動で決め、モード 2 も無いので、
+/// モード 0 を「セルフシャドウなし」、モード 1・2 を「あり」として使い、モードと影範囲の値は書き戻すために持つ。
+/// </summary>
+public static class SelfShadowMotion
+{
+    /// <summary>VMD のセルフ影のキーを足す（同じフレームのキーは置き換える）。30 fps 以外の作品では位置を合わせる。</summary>
+    public static SelfShadowImportResult Apply(VmdDocument vmd, SelfShadowNode node, int frameRate, LoadReport report)
+    {
+        double scale = frameRate / (double)MotionImport.MmdFrameRate;
+        int Scale(int frame) => (int)Math.Round(frame * scale, MidpointRounding.AwayFromZero);
+        var keys = new List<SelfShadowKey>();
+        int mode2 = 0, unknown = 0;
+        foreach (VmdShadowKey k in vmd.ShadowKeys.OrderBy(k => k.Frame))
+        {
+            byte mode = k.Mode;
+            if (mode > 2)
+            {
+                unknown++;
+                mode = 1;
+            }
+            mode2 += mode == 2 ? 1 : 0;
+            keys.Add(new SelfShadowKey(Scale(k.Frame), mode, float.IsFinite(k.Distance) ? k.Distance : SelfShadowKey.DefaultDistance));
+        }
+        node.Keys.SetRange(keys);
+        if (scale != 1)
+        {
+            InfoOnce(report, $"作品のフレームの速さ（{frameRate} fps）に合わせて、キーの位置を {scale:0.##} 倍にしました（MMD のモーションは 30 fps）");
+        }
+        if (mode2 > 0)
+        {
+            report.Info(LoadIssueCategory.Unsupported, $"セルフ影のモード 2（{mode2:N0} 件）は、モード 1 と同じに描きます");
+        }
+        if (unknown > 0)
+        {
+            report.Warning(LoadIssueCategory.Format, $"分からないセルフ影のモード（{unknown:N0} 件）は、モード 1 にしました");
+        }
+        if (keys.Count > 0)
+        {
+            report.Info(LoadIssueCategory.Note, "セルフ影の影範囲は使いません（影の範囲はいつも自動で決めます。値は書き出しのために残します）");
+        }
+        return new SelfShadowImportResult(keys.Count, node.Keys.LastFrame);
+    }
+
+    /// <summary>シーンのセルフ影のキーを、VMD のセルフ影のキーにする（30 fps に直す。段階なのでそのまま）。</summary>
+    public static IReadOnlyList<VmdShadowKey> CreateKeys(SelfShadowNode node, int frameRate, LoadReport report)
+    {
+        if (node.Keys.Count == 0)
+        {
+            return [];
+        }
+        double scale = MotionImport.MmdFrameRate / (double)frameRate;
+        int Scale(int frame) => (int)Math.Round(frame * scale, MidpointRounding.AwayFromZero);
+        var written = new SortedDictionary<int, VmdShadowKey>();
+        int overlapped = 0;
+        foreach (SelfShadowKey key in node.Keys.Keys)
+        {
+            int frame = Scale(key.Frame);
+            if (written.ContainsKey(frame))
+            {
+                overlapped++;
+            }
+            written[frame] = new VmdShadowKey(frame, key.Mode, key.Distance);
+        }
+        if (scale != 1)
+        {
+            InfoOnce(report, $"作品のフレームの速さ（{frameRate} fps）から、MMD の 30 fps に直してキーの位置を {scale:0.##} 倍にしました");
+        }
+        if (overlapped > 0)
+        {
+            report.Warning(LoadIssueCategory.Note, $"30 fps に直したときに同じフレームに重なったセルフ影のキーが {overlapped:N0} 件あり、後ろのキーを使いました");
+        }
+        if (node.HasUnregisteredChange)
+        {
+            report.Warning(LoadIssueCategory.Note, "セルフ影にキーに登録していない変更があり、書き出していません（書き出すには先に登録してください）");
+        }
+        return [.. written.Values];
+    }
+
+    private static void InfoOnce(LoadReport report, string message)
+    {
+        if (!report.Issues.Any(i => i.Message == message))
+        {
+            report.Info(LoadIssueCategory.Note, message);
+        }
+    }
+}

@@ -85,8 +85,8 @@ public sealed class VmdDocument
 
     public IReadOnlyList<VmdVisibilityKey> VisibilityKeys { get; init; } = [];
 
-    /// <summary>カメラ・照明用のモーション（ボーンもモーフも無く、カメラか照明のキーがある）か。</summary>
-    public bool IsCameraMotion => BoneKeys.Count == 0 && MorphKeys.Count == 0 && (CameraKeys.Count > 0 || LightKeys.Count > 0);
+    /// <summary>カメラ・照明用のモーション（ボーンもモーフも無く、カメラか照明かセルフ影のキーがある）か。</summary>
+    public bool IsCameraMotion => BoneKeys.Count == 0 && MorphKeys.Count == 0 && (CameraKeys.Count > 0 || LightKeys.Count > 0 || ShadowKeys.Count > 0);
 
     /// <summary>いちばん後ろのキーのフレーム（キーが無ければ 0）。</summary>
     public int LastFrame => new[]

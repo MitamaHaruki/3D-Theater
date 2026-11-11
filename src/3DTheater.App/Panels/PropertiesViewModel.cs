@@ -18,6 +18,13 @@ public sealed class PropertiesViewModel : ObservableObject
     {
         _context = context;
         context.Selection.Changed += (_, _) => Refresh();
+        context.Rendering.Changed += (_, _) =>
+        {
+            if (_node is SelfShadowNode)
+            {
+                OnPropertyChanged(nameof(SelfShadowEnabled)); // メニューやキーで切り替わった
+            }
+        };
         Refresh();
     }
 
@@ -41,6 +48,7 @@ public sealed class PropertiesViewModel : ObservableObject
         SceneNodeKind.Audio => "音声",
         SceneNodeKind.Display => "表示・IK",
         SceneNodeKind.Effects => "映像効果",
+        SceneNodeKind.SelfShadow => "セルフ影",
         _ => "グループ",
     };
 
@@ -117,6 +125,20 @@ public sealed class PropertiesViewModel : ObservableObject
 
     /// <summary>映像効果の項目か。</summary>
     public bool IsEffectsNode => _node is EffectsNode;
+
+    /// <summary>セルフ影の項目か。</summary>
+    public bool IsSelfShadowNode => _node is SelfShadowNode;
+
+    /// <summary>セルフシャドウを使うか（描き方の設定。元に戻せる。キーのあるときに変えると未登録の変更）。</summary>
+    public bool SelfShadowEnabled
+    {
+        get => _context.Rendering.SelfShadow;
+        set
+        {
+            _context.Playback.Pause();
+            _context.Edits.ChangeSettings("セルフシャドウの切り替え", _context.Rendering, () => _context.Rendering.SelfShadow = value);
+        }
+    }
 
     /// <summary>表示・IK の「モデルを表示する」（MMD の「表示」）。</summary>
     public bool DisplayShown
@@ -216,7 +238,7 @@ public sealed class PropertiesViewModel : ObservableObject
 
     /// <summary>選んだボーン・モーフ・カメラ・照明に、キーに登録していない変更がある。</summary>
     public bool HasUnregisteredChange => _node is BoneNode { HasUnregisteredChange: true } or MorphNode { HasUnregisteredChange: true } or CameraNode { HasUnregisteredChange: true }
-        or LightNode { HasUnregisteredChange: true } or ModelDisplayNode { HasUnregisteredChange: true } or EffectsNode { HasUnregisteredChange: true };
+        or LightNode { HasUnregisteredChange: true } or ModelDisplayNode { HasUnregisteredChange: true } or EffectsNode { HasUnregisteredChange: true } or SelfShadowNode { HasUnregisteredChange: true };
 
     /// <summary>キーの数（ボーン・モーフ・カメラ・照明）。</summary>
     public string KeyCountText => _node switch
@@ -227,6 +249,7 @@ public sealed class PropertiesViewModel : ObservableObject
         LightNode light => light.Keys.Count == 0 ? "キーなし" : $"キー {light.Keys.Count:N0} 個（{light.Keys.FirstFrame}〜{light.Keys.LastFrame} フレーム）",
         ModelDisplayNode display => display.Keys.Count == 0 ? "キーなし" : $"キー {display.Keys.Count:N0} 個（{display.Keys.FirstFrame}〜{display.Keys.LastFrame} フレーム）",
         EffectsNode effects => effects.Keys.Count == 0 ? "キーなし" : $"キー {effects.Keys.Count:N0} 個（{effects.Keys.FirstFrame}〜{effects.Keys.LastFrame} フレーム）",
+        SelfShadowNode shadow => shadow.Keys.Count == 0 ? "キーなし" : $"キー {shadow.Keys.Count:N0} 個（{shadow.Keys.FirstFrame}〜{shadow.Keys.LastFrame} フレーム）",
         _ => string.Empty,
     };
 

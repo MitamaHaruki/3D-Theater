@@ -278,7 +278,7 @@ public sealed class NodeEntry
     /// カメラ・照明・映像効果のキー。カメラ: フレーム・注視点 3・回転 3・距離・視野角・種類・平行投影、曲線が直線でなければ 24 個足す。
     /// 照明: フレーム・位置 3・回転 3・色 3・明るさ・届く距離・広がり・ぼかし・種類、曲線が直線でなければ 4 個足す。
     /// 映像効果: フレーム・明るさ・コントラスト・彩度・色温度・ブルーム 3・周辺減光・被写界深度 3・霧の始まり・見通せる距離・霧の色 3・種類、
-    /// 曲線が直線でなければ 4 個足す。
+    /// 曲線が直線でなければ 4 個足す。セルフ影: フレーム・MMD のモード・MMD の影範囲（VMD での値）。
     /// </summary>
     public float[][]? Keys { get; set; }
 }
@@ -568,6 +568,10 @@ public static class ProjectCapture
                 entry.Unregistered = effects.HasUnregisteredChange;
                 entry.Keys = effects.Keys.Count > 0 ? [.. effects.Keys.Keys.Select(KeyCodec.Encode)] : null;
                 break;
+            case SelfShadowNode shadow:
+                entry.Unregistered = shadow.HasUnregisteredChange;
+                entry.Keys = shadow.Keys.Count > 0 ? [.. shadow.Keys.Keys.Select(KeyCodec.Encode)] : null;
+                break;
             case TestObjectNode test:
                 entry.SpinWithFrame = test.SpinWithFrame;
                 break;
@@ -780,6 +784,10 @@ public static class ProjectApply
                 case EffectsNode effects:
                     effects.Keys.ReplaceAll((entry.Keys ?? []).Select(KeyCodec.DecodeEffect).OfType<EffectKey>());
                     effects.HasUnregisteredChange = entry.Unregistered;
+                    break;
+                case SelfShadowNode shadow:
+                    shadow.Keys.ReplaceAll((entry.Keys ?? []).Select(KeyCodec.DecodeSelfShadow).OfType<SelfShadowKey>());
+                    shadow.HasUnregisteredChange = entry.Unregistered;
                     break;
                 case TestObjectNode test:
                     test.SpinWithFrame = entry.SpinWithFrame ?? test.SpinWithFrame;
@@ -1092,6 +1100,17 @@ internal static class KeyCodec
         var pose = new EffectPose(v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], v[9], v[10], v[11], v[12], v[13],
             Vector3.Clamp(new Vector3(v[14], v[15], v[16]), Vector3.Zero, Vector3.One));
         return new EffectKey((int)v[0], pose, curve, v[17] == 1 ? KeyInterpolationKind.Step : KeyInterpolationKind.Curve);
+    }
+
+    public static float[] Encode(SelfShadowKey k) => [k.Frame, k.Mode, k.Distance];
+
+    public static SelfShadowKey? DecodeSelfShadow(float[] v)
+    {
+        if (v is not { Length: 3 } || !v.All(float.IsFinite) || v[0] < 0 || v[1] < 0 || v[1] > 2)
+        {
+            return null;
+        }
+        return new SelfShadowKey((int)v[0], (byte)v[1], v[2]);
     }
 
     public static float[] Encode(MorphKey k)

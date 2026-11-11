@@ -21,6 +21,8 @@ public enum SceneNodeKind
     Display,
     /// <summary>映像効果（シーンに 1 つ）。映像効果の値を動かすキーを持つ。</summary>
     Effects,
+    /// <summary>セルフ影（シーンに 1 つ）。セルフシャドウを使うかを切り替えるキーを持つ（MMD のセルフ影のキー）。</summary>
+    SelfShadow,
 }
 
 /// <summary>
@@ -726,6 +728,49 @@ public sealed class EffectsNode : SceneNode
     protected override void RestoreExtra(object? extra)
     {
         if (extra is EffectsState s)
+        {
+            if (s.Keys is not null)
+            {
+                Keys.ReplaceAll(s.Keys.Keys);
+            }
+            HasUnregisteredChange = s.HasUnregisteredChange;
+        }
+    }
+}
+
+/// <summary>
+/// セルフ影（シーンに 1 つ）。セルフシャドウを使うか（MMD のセルフ影のモード）を切り替えるキーを持つ。値そのものは作品の描き方の設定
+/// （Editor の RenderSettings のセルフシャドウ）にあり、キーの当てはめと登録は Editor の AnimationService が行う。
+/// </summary>
+public sealed class SelfShadowNode : SceneNode
+{
+    public const string DefaultName = "セルフ影";
+
+    private bool _hasUnregisteredChange;
+
+    public SelfShadowNode()
+        : base(SceneNodeKind.SelfShadow, DefaultName, canRename: false, hasTransform: false)
+    {
+        CanToggleVisibility = false;
+        Keys.Changed += (_, _) => OnPropertyChanged(nameof(Keys));
+    }
+
+    /// <summary>キーフレーム。</summary>
+    public KeyTrack<SelfShadowKey> Keys { get; } = new();
+
+    /// <summary>キーに登録していない変更がある（キーのあるときに、セルフシャドウの ON / OFF を手で切り替えた）。</summary>
+    public bool HasUnregisteredChange
+    {
+        get => _hasUnregisteredChange;
+        set => SetProperty(ref _hasUnregisteredChange, value);
+    }
+
+    protected override object? CaptureExtra(bool includeKeys) =>
+        new SelfShadowState(HasUnregisteredChange, includeKeys ? new KeySnapshot<SelfShadowKey>(Keys.ToArray()) : null);
+
+    protected override void RestoreExtra(object? extra)
+    {
+        if (extra is SelfShadowState s)
         {
             if (s.Keys is not null)
             {

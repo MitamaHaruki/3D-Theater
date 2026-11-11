@@ -123,6 +123,7 @@ public static class CurveEditing
             LightNode light => light.Keys.Keys.Select(k => k.Frame),
             ModelDisplayNode display => display.Keys.Keys.Select(k => k.Frame),
             EffectsNode effects => effects.Keys.Keys.Select(k => k.Frame),
+            SelfShadowNode shadow => shadow.Keys.Keys.Select(k => k.Frame),
             _ => [],
         };
         int? previous = null;
@@ -146,6 +147,7 @@ public static class CurveEditing
         LightNode light => [.. light.Keys.Keys.Select(k => k.Frame)],
         ModelDisplayNode display => [.. display.Keys.Keys.Select(k => k.Frame)],
         EffectsNode effects => [.. effects.Keys.Keys.Select(k => k.Frame)],
+        SelfShadowNode shadow => [.. shadow.Keys.Keys.Select(k => k.Frame)],
         _ => [],
     };
 

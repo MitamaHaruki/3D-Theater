@@ -353,6 +353,16 @@
                      Text="色調補正・ブルーム・周辺減光・被写界深度・霧の値を、キーで時間とともに変えられます。値はレンダリングのメニューの「映像効果...」「霧...」で変え、ここを選んでタイムラインの「キーを登録」で今のフレームに置きます。使うか（ON / OFF）と、環境光の遮り・画面の中の反射・霧の高さは、キーで動かしません。" />
         </StackPanel>
 
+        <!-- セルフ影 -->
+        <StackPanel Visibility="{Binding IsSelfShadowNode, Converter={StaticResource BoolToVisibility}}">
+          <TextBlock Text="セルフ影のキー" Style="{StaticResource SectionHeaderStyle}" Margin="0,14,0,6" />
+          <CheckBox Content="セルフシャドウを使う" IsChecked="{Binding SelfShadowEnabled}"
+                    ToolTip="レンダリングのメニューの「セルフシャドウ」と同じ。キーのあるときに変えると、未登録の変更になります" />
+          <TextBlock Margin="0,8,0,0" Text="{Binding KeyCountText}" />
+          <TextBlock Margin="0,6,0,0" Style="{StaticResource PlannedNoteStyle}"
+                     Text="MMD のセルフ影のキーと同じく、セルフシャドウを使うかをキーで切り替えます（次のキーまで変えない）。ここを選んでタイムラインの「キーを登録」で今のフレームに置きます。MMD のカメラ・照明のモーションのセルフ影のキーも読み書きします（モード 2 はモード 1 と同じに描き、影範囲は使いません。影の範囲はいつも自動です）。" />
+        </StackPanel>
+
         <!-- 表示・IK -->
         <StackPanel Visibility="{Binding IsDisplay, Converter={StaticResource BoolToVisibility}}">
           <TextBlock Text="表示・IK" Style="{StaticResource SectionHeaderStyle}" Margin="0,14,0,6" />

@@ -18,6 +18,7 @@ public sealed class AnimationService
     private bool _autoKey;
     private RenderSettings? _rendering;
     private EffectPose _knownEffects;
+    private bool _knownSelfShadow;
 
     public AnimationService(SceneDocument scene, PlaybackService playback)
     {
@@ -47,6 +48,7 @@ public sealed class AnimationService
             {
                 value.Changed += OnRenderingChanged;
                 _knownEffects = EffectValues.Capture(value);
+                _knownSelfShadow = value.SelfShadow;
             }
         }
     }
@@ -79,12 +81,14 @@ public sealed class AnimationService
             .Concat(Cameras.Where(c => c.HasUnregisteredChange))
             .Concat(Lights.Where(l => l.HasUnregisteredChange))
             .Concat(Displays.Where(d => d.HasUnregisteredChange))
-            .Concat(Effects.Where(x => x.HasUnregisteredChange))];
+            .Concat(Effects.Where(x => x.HasUnregisteredChange))
+            .Concat(SelfShadows.Where(x => x.HasUnregisteredChange))];
 
     public int UnregisteredCount =>
         Models.Sum(m => m.Bones.Count(b => b.HasUnregisteredChange) + m.Morphs.Count(x => x.HasUnregisteredChange))
         + Cameras.Count(c => c.HasUnregisteredChange) + Lights.Count(l => l.HasUnregisteredChange)
-        + Displays.Count(d => d.HasUnregisteredChange) + Effects.Count(x => x.HasUnregisteredChange);
+        + Displays.Count(d => d.HasUnregisteredChange) + Effects.Count(x => x.HasUnregisteredChange)
+        + SelfShadows.Count(x => x.HasUnregisteredChange);
 
     /// <summary>
     /// この間は、値やキーが変わっても「手で変えた」とみなさず、キーの当てはめもしない（元に戻すで値を書き戻すときに使う）。
@@ -109,6 +113,8 @@ public sealed class AnimationService
     private IEnumerable<ModelDisplayNode> Displays => Models.Select(m => m.Display).OfType<ModelDisplayNode>();
 
     private IEnumerable<EffectsNode> Effects => _scene.Effects is { } effects ? [effects] : [];
+
+    private IEnumerable<SelfShadowNode> SelfShadows => _scene.SelfShadow is { } shadow ? [shadow] : [];
 
     /// <summary>今のフレームの値を、キーのある項目に当てはめる（未登録の変更がある項目はそのまま）。</summary>
     public void ApplyFrame()
@@ -141,6 +147,7 @@ public sealed class AnimationService
                 ApplyLight(light, frame);
             }
             ApplyEffects(frame);
+            ApplySelfShadow(frame);
         }
         finally
         {
@@ -214,7 +221,7 @@ public sealed class AnimationService
     }
 
     /// <summary>
-    /// 「登録」の対象: 選んだボーン・モーフ・カメラ・照明・表示・IK・映像効果と、選んだモデルやまとまりの中の未登録の変更。
+    /// 「登録」の対象: 選んだボーン・モーフ・カメラ・照明・表示・IK・映像効果・セルフ影と、選んだモデルやまとまりの中の未登録の変更。
     /// （モデルを選んで登録しても、動かしていない全ボーンにキーは作らない）
     /// </summary>
     public IReadOnlyList<SceneNode> RegistrationTargets(IEnumerable<SceneNode> selection)
@@ -223,7 +230,7 @@ public sealed class AnimationService
         var seen = new HashSet<SceneNode>();
         foreach (SceneNode node in selection)
         {
-            if (node is BoneNode or MorphNode or CameraNode or LightNode or ModelDisplayNode or EffectsNode)
+            if (node is BoneNode or MorphNode or CameraNode or LightNode or ModelDisplayNode or EffectsNode or SelfShadowNode)
             {
                 if (seen.Add(node))
                 {
@@ -288,6 +295,11 @@ public sealed class AnimationService
                         effects.Keys.Set(NewEffectKey(effects, EffectValues.Capture(_rendering), frame));
                         count++;
                         break;
+                    case SelfShadowNode shadow when _rendering is not null:
+                        ClearUnregistered(shadow);
+                        shadow.Keys.Set(NewSelfShadowKey(shadow, _rendering.SelfShadow, frame));
+                        count++;
+                        break;
                 }
             }
         }
@@ -338,6 +350,9 @@ public sealed class AnimationService
                         break;
                     case EffectsNode:
                         ApplyEffects(frame);
+                        break;
+                    case SelfShadowNode:
+                        ApplySelfShadow(frame);
                         break;
                 }
             }
@@ -429,6 +444,34 @@ public sealed class AnimationService
         return new EffectKey(frame, pose, curve, kind);
     }
 
+    /// <summary>
+    /// セルフ影のキー: 使うかは今の設定から。モードと影範囲（このアプリでは使わない値）は、同じフレームのキーがあればそれ、無ければ
+    /// 前のキーから引き継ぐ（使うならモード 0 を 1 にする）。
+    /// </summary>
+    private static SelfShadowKey NewSelfShadowKey(SelfShadowNode shadow, bool enabled, int frame)
+    {
+        byte mode = 1;
+        float distance = SelfShadowKey.DefaultDistance;
+        if (KeyframeEvaluator.TryEvaluate(shadow.Keys, frame, out SelfShadowKey near))
+        {
+            mode = near.Mode;
+            distance = near.Distance;
+        }
+        return new SelfShadowKey(frame, enabled ? (mode == 0 ? (byte)1 : mode) : (byte)0, distance);
+    }
+
+    // セルフ影のキーの値を、描き方の設定へ入れる（_applying の中で呼ぶ）
+    private void ApplySelfShadow(float frame)
+    {
+        if (_rendering is null || _scene.SelfShadow is not { HasUnregisteredChange: false } shadow
+            || !KeyframeEvaluator.TryEvaluate(shadow.Keys, frame, out SelfShadowKey key))
+        {
+            return;
+        }
+        _rendering.SelfShadow = key.Enabled;
+        _knownSelfShadow = _rendering.SelfShadow;
+    }
+
     // 映像効果のキーの値を、描き方の設定へ入れる（_applying の中で呼ぶ）
     private void ApplyEffects(float frame)
     {
@@ -441,7 +484,7 @@ public sealed class AnimationService
         _knownEffects = EffectValues.Capture(_rendering);
     }
 
-    // 描き方の設定が変わった: 映像効果の値が手で変わったなら、未登録の変更（自動キーなら登録）にする
+    // 描き方の設定が変わった: 映像効果の値・セルフシャドウの ON / OFF が手で変わったなら、未登録の変更（自動キーなら登録）にする
     private void OnRenderingChanged(object? sender, EventArgs e)
     {
         if (_rendering is null)
@@ -449,18 +492,21 @@ public sealed class AnimationService
             return;
         }
         EffectPose now = EffectValues.Capture(_rendering);
-        if (now == _knownEffects)
+        if (now != _knownEffects)
         {
-            return; // ほかの設定（影・ON / OFF など）だけが変わった
+            _knownEffects = now;
+            if (_applying == 0 && _scene.Effects is { } effects && (_autoKey || effects.Keys.Count > 0))
+            {
+                OnUserEdit(effects);
+            }
         }
-        _knownEffects = now;
-        if (_applying > 0 || _scene.Effects is not { } effects)
+        if (_rendering.SelfShadow != _knownSelfShadow)
         {
-            return;
-        }
-        if (_autoKey || effects.Keys.Count > 0)
-        {
-            OnUserEdit(effects);
+            _knownSelfShadow = _rendering.SelfShadow;
+            if (_applying == 0 && _scene.SelfShadow is { } shadow && (_autoKey || shadow.Keys.Count > 0))
+            {
+                OnUserEdit(shadow);
+            }
         }
     }
 
@@ -570,6 +616,9 @@ public sealed class AnimationService
             case EffectsNode when e.PropertyName == nameof(EffectsNode.Keys):
                 Apply(() => ApplyEffects(_playback.CurrentFrame));
                 break;
+            case SelfShadowNode when e.PropertyName == nameof(SelfShadowNode.Keys):
+                Apply(() => ApplySelfShadow(_playback.CurrentFrame));
+                break;
         }
     }
 
@@ -590,7 +639,7 @@ public sealed class AnimationService
     private static bool IsUnregistered(SceneNode node) =>
         node is BoneNode { HasUnregisteredChange: true } or MorphNode { HasUnregisteredChange: true } or CameraNode { HasUnregisteredChange: true }
             or LightNode { HasUnregisteredChange: true } or ModelDisplayNode { HasUnregisteredChange: true }
-            or EffectsNode { HasUnregisteredChange: true };
+            or EffectsNode { HasUnregisteredChange: true } or SelfShadowNode { HasUnregisteredChange: true };
 
     private static void ClearUnregistered(SceneNode node)
     {
@@ -621,6 +670,9 @@ public sealed class AnimationService
                 break;
             case EffectsNode effects:
                 effects.HasUnregisteredChange = value;
+                break;
+            case SelfShadowNode shadow:
+                shadow.HasUnregisteredChange = value;
                 break;
         }
     }
