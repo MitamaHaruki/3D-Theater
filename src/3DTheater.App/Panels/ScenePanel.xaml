@@ -166,7 +166,12 @@
     <TreeView x:Name="Tree" Background="Transparent" BorderThickness="0" Padding="2"
               ItemContainerStyle="{StaticResource SceneItemStyle}" ItemTemplate="{StaticResource SceneItemTemplate}"
               PreviewMouseLeftButtonDown="OnTreeMouseDown" KeyDown="OnTreeKeyDown" Focusable="True"
+              PreviewMouseRightButtonDown="OnTreeRightButtonDown" ContextMenuOpening="OnTreeContextMenuOpening"
               ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+      <!-- 右クリックのメニュー（開くたびに作る。プラグインの項目も足す） -->
+      <TreeView.ContextMenu>
+        <ContextMenu />
+      </TreeView.ContextMenu>
       <TreeView.Resources>
         <Style TargetType="TreeViewItem" BasedOn="{StaticResource SceneItemStyle}" />
       </TreeView.Resources>

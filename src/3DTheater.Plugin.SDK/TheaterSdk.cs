@@ -11,8 +11,19 @@ public static class TheaterSdk
     /// <summary>
     /// SDK の版（主.副）。副の版は、形を壊さずに足したときに上げる。
     /// 1.0: シーン・再生位置・選択を読む。1.1: ボーン・モーフの値とキーを読む・編集する（<see cref="ITheaterEditor"/>）、モデルの Id。
+    /// 1.2: ツールバー・右クリックのメニュー（<see cref="TheaterMenuPlaces"/>）・状態表示（Plugin.UI.Wpf）。
     /// </summary>
-    public static Version Version { get; } = new(1, 1);
+    public static Version Version { get; } = new(1, 2);
+}
+
+/// <summary>プラグインの項目を足せる右クリックのメニュー（Plugin.UI.Wpf の PluginContextMenuItem.Place に書く。SDK 1.2 から）。</summary>
+public static class TheaterMenuPlaces
+{
+    /// <summary>プレビュー（3D の区画）の右クリックと、区画の見出しの視点のボタンのメニュー。</summary>
+    public const string Preview = "preview";
+
+    /// <summary>シーンの一覧の行の右クリックのメニュー（右クリックした行を選んでから出す）。</summary>
+    public const string SceneTree = "scene-tree";
 }
 
 /// <summary>3D Theater の機能の名前（plugin.json の requires に書く）。</summary>

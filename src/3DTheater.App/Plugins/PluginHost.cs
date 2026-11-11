@@ -17,7 +17,7 @@ namespace Theater3D.App.Plugins;
 /// - アプリのフォルダーの Plugins（アプリと一緒に配るもの。サンプル）
 /// - %APPDATA%\3DTheater\Plugins（利用者が入れるもの）
 /// </summary>
-public sealed class PluginHost
+public sealed partial class PluginHost
 {
     /// <summary>アプリと一緒に配るプラグインの場所。</summary>
     public static string BundledFolder { get; } = Path.Combine(AppContext.BaseDirectory, "Plugins");
@@ -30,6 +30,7 @@ public sealed class PluginHost
     public static PluginHostInfo Info { get; } = new(TheaterSdk.HostId, TheaterSdk.Version,
     [
         CoreCapabilities.Commands, CoreCapabilities.Settings, UiCapabilities.Panels, UiCapabilities.Dialogs,
+        UiCapabilities.Toolbar, UiCapabilities.ContextMenus, UiCapabilities.StatusBar,
         TheaterCapabilities.SceneRead, TheaterCapabilities.SceneSeek, TheaterCapabilities.SceneEdit,
     ]);
 
@@ -47,6 +48,10 @@ public sealed class PluginHost
         _layout = layout;
         _owner = owner;
         Manager = new PluginManager(Info, new PluginStateStore(settings), entry => new Scope(this, entry), new LogSink(), SharedAssemblies);
+        context.ContextMenus.AddSource(CreateContextMenuItems);
+        context.Selection.Changed += (_, _) => RequeryToolbar();
+        context.Undo.Changed += (_, _) => RequeryToolbar();
+        context.Playback.FrameChanged += (_, _) => RequeryToolbar();
     }
 
     public PluginManager Manager { get; }
@@ -162,12 +167,13 @@ public sealed class PluginHost
     {
         if (_commands.Remove(command))
         {
+            RemoveUiFor(command);
             CommandsChanged?.Invoke(this, EventArgs.Empty);
         }
     }
 
     /// <summary>プラグイン 1 つ分の機能。Dispose で、そのプラグインが登録したものを全部外す。</summary>
-    private sealed class Scope : IPluginScope, ICommandRegistry, IPanelRegistry, IPluginUi
+    private sealed partial class Scope : IPluginScope, ICommandRegistry, IPanelRegistry, IPluginUi
     {
         private readonly PluginHost _host;
         private readonly PluginEntry _entry;
@@ -190,6 +196,9 @@ public sealed class PluginHost
             serviceType == typeof(ICommandRegistry) ? this
             : serviceType == typeof(IPanelRegistry) ? this
             : serviceType == typeof(IPluginUi) ? this
+            : serviceType == typeof(IToolbarRegistry) ? this
+            : serviceType == typeof(IContextMenuRegistry) ? this
+            : serviceType == typeof(IStatusBarRegistry) ? this
             : serviceType == typeof(ITheaterScene) ? _scene
             : serviceType == typeof(ITheaterEditor) ? _editor
             : null;

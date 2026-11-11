@@ -12,6 +12,7 @@ namespace Theater3D.App.Panels;
 /// <summary>
 /// シーン一覧。クリックで選択、Ctrl + クリックで追加・解除、Shift + クリックで範囲選択、
 /// ダブルクリックか F2 で名前の変更。階層の組み替えは Phase 1 ではできない（読み込んだ構造を勝手に変えないため）。
+/// 右クリックで、その行を選んでからメニュー（名前の変更と、プラグインの項目）を出す。
 /// </summary>
 public partial class ScenePanel : UserControl
 {
@@ -86,6 +87,39 @@ public partial class ScenePanel : UserControl
         }
         _rangeAnchor = item;
         _context.Selection.Select(item.Node, modifiers.HasFlag(ModifierKeys.Control) ? SelectMode.Toggle : SelectMode.Replace, this);
+    }
+
+    // 右クリックした行を選ぶ（選んでいる行の中なら、選択はそのまま。メニューはボタンを放したときに出る）
+    private void OnTreeRightButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        var source = e.OriginalSource as DependencyObject;
+        if (FindAncestor<ToggleButton>(source) is not null || FindAncestor<TextBox>(source) is not null
+            || FindAncestor<TreeViewItem>(source)?.DataContext is not SceneTreeItem item)
+        {
+            return;
+        }
+        Tree.Focus();
+        if (!_context.Selection.Contains(item.Node))
+        {
+            _rangeAnchor = item;
+            _context.Selection.Select(item.Node, SelectMode.Replace, this);
+        }
+        e.Handled = true;
+    }
+
+    private void OnTreeContextMenuOpening(object sender, ContextMenuEventArgs e)
+    {
+        SceneTreeItem? current = AllItems.FirstOrDefault(i => i.Node == _context.Selection.Primary);
+        if (current is null || Tree.ContextMenu is not { } menu || current.IsRenaming)
+        {
+            e.Handled = true; // 何も選んでいない・名前の入力中はメニューを出さない
+            return;
+        }
+        menu.Items.Clear();
+        var rename = new MenuItem { Header = "名前を変える", InputGestureText = "F2", IsEnabled = current.CanRename };
+        rename.Click += (_, _) => BeginRename(current);
+        menu.Items.Add(rename);
+        _context.ContextMenus.AppendTo(menu, Shell.MenuPlace.SceneTree);
     }
 
     private void SelectRange(SceneTreeItem from, SceneTreeItem to)

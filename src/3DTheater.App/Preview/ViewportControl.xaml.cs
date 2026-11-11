@@ -215,6 +215,7 @@ public partial class ViewportControl : UserControl, IDisposable
         var bones = new MenuItem { Header = "選んだモデルのボーンを表示", IsCheckable = true, IsChecked = ShowBones };
         bones.Click += (_, _) => ShowBones = bones.IsChecked;
         menu.Items.Add(bones);
+        _context.ContextMenus.AppendTo(menu, Shell.MenuPlace.Preview);
         return menu;
     }
 

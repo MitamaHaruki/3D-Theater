@@ -1,12 +1,12 @@
 {
   "id": "theater3d.sample.scene-info",
   "name": "サンプル: シーンの情報",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "host": "3DTheater",
-  "sdkVersion": "1.1",
+  "sdkVersion": "1.2",
   "assembly": "3DTheater.SamplePlugin.dll",
   "entryType": "Theater3D.SamplePlugin.SceneInfoPlugin",
-  "description": "プラグインの作り方の見本。シーンの情報（今のフレーム・モデル・選択）と選んだモデルのキーを出すパネルと、今のフレームを知らせるコマンド（Ctrl+Alt+I）・選んだモデルにまばたきのキーを打つコマンド（元に戻せる）・先頭のフレームへ戻すコマンドを足します。",
+  "description": "プラグインの作り方の見本。シーンの情報（今のフレーム・モデル・選択）と選んだモデルのキーを出すパネルと、今のフレームを知らせるコマンド（Ctrl+Alt+I）・選んだモデルにまばたきのキーを打つコマンド（元に戻せる。ツールバーと右クリックのメニューにも出す）・先頭のフレームへ戻すコマンドと、今のフレームを時間で出す状態表示の欄を足します。",
   "author": "3D Theater",
-  "requires": [ "commands", "settings", "panels", "ui.dialogs", "scene.read", "scene.seek", "scene.edit" ]
+  "requires": [ "commands", "settings", "panels", "ui.dialogs", "ui.toolbar", "ui.contextmenu", "ui.statusbar", "scene.read", "scene.seek", "scene.edit" ]
 }

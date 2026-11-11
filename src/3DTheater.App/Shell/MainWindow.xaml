@@ -224,6 +224,9 @@
             <ToggleButton x:Name="PhysicsButton" Style="{StaticResource TextButtonStyle}" Content="物理"
                           Checked="OnPhysicsButtonToggled" Unchecked="OnPhysicsButtonToggled"
                           ToolTip="物理演算（髪・スカートなどの揺れ）の ON / OFF" />
+            <!-- プラグインのボタン（あるときだけ区切り線を出す） -->
+            <Rectangle x:Name="PluginToolbarSeparator" Style="{StaticResource ToolbarSeparatorStyle}" Visibility="Collapsed" />
+            <StackPanel x:Name="PluginToolbar" Orientation="Horizontal" />
           </StackPanel>
           <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
             <Button Style="{StaticResource TextButtonStyle}" Click="OnResetLayoutClick" ToolTip="パネルの並びを初期配置に戻す">
@@ -245,6 +248,8 @@
           <TextBlock x:Name="FrameText" DockPanel.Dock="Right" Margin="18,0,0,0" VerticalAlignment="Center" Foreground="{StaticResource SubTextBrush}" />
           <TextBlock x:Name="PhysicsText" DockPanel.Dock="Right" Margin="18,0,0,0" VerticalAlignment="Center" Foreground="{StaticResource SubTextBrush}"
                      ToolTip="物理の焼き込み（0 フレーム目から順に計算した結果を覚えておく）の進み具合。できたフレームは、どこから来ても同じ姿勢になります" />
+          <!-- プラグインの欄（アプリの欄の左） -->
+          <StackPanel x:Name="PluginStatusArea" DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center" />
           <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
             <Ellipse x:Name="StatusDot" Width="8" Height="8" Margin="0,0,8,0" Fill="#FF3FB950" />
             <TextBlock x:Name="StatusText" TextTrimming="CharacterEllipsis" Text="準備完了" />

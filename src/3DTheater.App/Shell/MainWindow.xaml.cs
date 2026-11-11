@@ -72,12 +72,16 @@ public partial class MainWindow : Window
         _plugins = new Plugins.PluginHost(context, _layout, this, _settings);
         _plugins.Start(safeMode);
         _plugins.CommandsChanged += (_, _) => BuildPluginsMenu();
+        _plugins.ToolbarChanged += (_, _) => BuildPluginToolbar();
+        _plugins.StatusBarChanged += (_, _) => BuildPluginStatus();
         _layout.PluginPanelsChanged += (_, _) => BuildPluginPanelItems();
         _layout.LoadOrDefault(_settings);
 
         BuildPanelsMenu();
         BuildPluginPanelItems();
         BuildPluginsMenu();
+        BuildPluginToolbar();
+        BuildPluginStatus();
         BuildViewKindsMenu();
         context.RenderLoop.RenderFailed += OnRenderFailed;
         context.RenderLoop.DeviceStateChanged += OnDeviceStateChanged;
@@ -388,6 +392,36 @@ public partial class MainWindow : Window
                 }
             };
             PluginsMenu.Items.Add(parent);
+        }
+    }
+
+    /// <summary>ツールバーの、プラグインのボタンを作り直す。</summary>
+    private void BuildPluginToolbar()
+    {
+        PluginToolbar.Children.Clear();
+        foreach (Plugins.PluginHost.ToolbarButton entry in _plugins.ToolbarButtons)
+        {
+            var button = new Button
+            {
+                Style = (Style)FindResource(entry.Glyph is null ? "TextButtonStyle" : "IconButtonStyle"),
+                Content = entry.Glyph ?? entry.Text,
+                Command = entry.Command,
+                ToolTip = entry.ToolTip,
+            };
+            ToolTipService.SetShowOnDisabled(button, true);
+            System.Windows.Automation.AutomationProperties.SetName(button, entry.Source.Command.Title);
+            PluginToolbar.Children.Add(button);
+        }
+        PluginToolbarSeparator.Visibility = PluginToolbar.Children.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// <summary>状態表示の、プラグインの欄を作り直す。</summary>
+    private void BuildPluginStatus()
+    {
+        PluginStatusArea.Children.Clear();
+        foreach (FrameworkElement view in _plugins.StatusViews)
+        {
+            PluginStatusArea.Children.Add(view);
         }
     }
 

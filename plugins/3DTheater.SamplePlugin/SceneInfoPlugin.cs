@@ -66,6 +66,21 @@ public sealed class SceneInfoPlugin : IPlugin
             Placement = PanelPlacement.Right,
             CreateContent = () => _view = new SceneInfoView(scene, () => RunCount(context)),
         });
+
+        // ツールバーのボタンと右クリックのメニュー（どちらも登録したコマンドを実行する。SDK 1.2）
+        context.GetService<IToolbarRegistry>()?.Register(new PluginToolbarButton { CommandId = "insert-blink", Glyph = "\uE890" }); // 目の絵（Segoe Fluent Icons）
+        IContextMenuRegistry? menus = context.GetService<IContextMenuRegistry>();
+        menus?.Register(new PluginContextMenuItem { CommandId = "insert-blink", Place = TheaterMenuPlaces.Preview });
+        menus?.Register(new PluginContextMenuItem { CommandId = "insert-blink", Place = TheaterMenuPlaces.SceneTree });
+
+        // 状態表示: 今のフレームを時間で（再生位置が変わるたびに出し直す）
+        if (context.GetService<IStatusBarRegistry>()?.Add("time") is { } time)
+        {
+            time.ToolTip = "今のフレームを時間で表したもの（サンプルのプラグイン）";
+            void ShowTime() => time.Text = FormatTime(scene.CurrentFrame, scene.FrameRate);
+            scene.FrameChanged += (_, _) => ShowTime();
+            ShowTime();
+        }
         context.Log.Info("始めました");
     }
 
@@ -99,6 +114,14 @@ public sealed class SceneInfoPlugin : IPlugin
         {
             ui?.ShowMessage($"キーは変わりませんでした（「{BlinkMorph}」をロックしているか、同じキーがすでにあります）。");
         }
+    }
+
+    /// <summary>フレームを「時間 分:秒.百分の一秒」にする。</summary>
+    internal static string FormatTime(int frame, int frameRate)
+    {
+        double seconds = frame / (double)Math.Max(1, frameRate);
+        int minutes = (int)(seconds / 60);
+        return string.Create(CultureInfo.InvariantCulture, $"時間 {minutes}:{seconds - minutes * 60:00.00}");
     }
 
     private static int RunCount(IPluginContext context) =>
