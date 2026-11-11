@@ -159,6 +159,8 @@ public sealed unsafe class NativeView : IDisposable
                 RenderPass = (uint)frame.Pass,
                 PassDepthNear = frame.PassDepthNear,
                 PassDepthFar = frame.PassDepthFar,
+                SsrStrength = frame.Effects.SsrStrength,
+                SsrMaxDistance = frame.Effects.SsrMaxDistance,
             };
             return NativeError.Check(NativeMethods.ViewRender(Handle, &parameters)) == NativeResult.Ok;
         }

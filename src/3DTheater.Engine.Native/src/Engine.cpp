@@ -20,6 +20,7 @@
 #include "PostVS.h"
 #include "ReflectionCompositePS.h"
 #include "ReflectionDownPS.h"
+#include "ScreenReflectionPS.h"
 #include "EdgePS.h"
 #include "EdgeVS.h"
 #include "DofPS.h"
@@ -79,6 +80,7 @@ struct ObjectConstants {
     DirectX::XMFLOAT4 reflectionParams;
     DirectX::XMFLOAT4 shadowSoftness;
     DirectX::XMFLOAT4 passParams; // レンダーパス（ModelFrame と同じ）
+    DirectX::XMFLOAT4 ssrParams;  // 画面の中の反射の下準備（ModelFrame と同じ）
 };
 
 // 足す照明（シェーダーの LightConstants と同じ並び）
@@ -118,6 +120,7 @@ struct PostConstants {
     DirectX::XMFLOAT4 fogColor;
     DirectX::XMFLOAT4 fogParams;
     DirectX::XMFLOAT4 fogHeightAxis;
+    DirectX::XMFLOAT4 ssrParams;
 };
 
 // 床の映り込みのぼかし（シェーダーの ReflectionConstants と同じ並び）
@@ -134,13 +137,18 @@ constexpr float kReflectionBlurScale = 0.2f;
 // 床の映り込みの色の段の形式。ぼかした薄い色が段階に分かれないよう、16 ビットの浮動小数点で持つ
 constexpr DXGI_FORMAT kReflectionColorFormat = DXGI_FORMAT_R16G16B16A16_FLOAT;
 
+// 画面の中の反射の下準備の画像の形式（映り込みの強さ・環境の映り込み・面の向き × (1 + 粗さ)）。環境の映り込みは 1 より明るくなり、
+// 面の向きは負の値になるので、浮動小数点で持つ
+constexpr DXGI_FORMAT kSurfaceFormats[SurfaceTargets::kCount] = {
+    DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R16G16B16A16_FLOAT, DXGI_FORMAT_R16G16B16A16_FLOAT};
+
 float ReflectionBlurOf(const TtFrameParams& params) noexcept
 {
     return std::isfinite(params.reflection_blur) ? std::clamp(params.reflection_blur, 0.0f, 1.0f) : 0.0f;
 }
 
 constexpr uint32_t kKnownPostFlags = TT_POST_COLOR | TT_POST_BLOOM | TT_POST_VIGNETTE | TT_POST_LINES | TT_POST_POSTERIZE
-    | TT_POST_SHADOW_TINT | TT_POST_PAPER | TT_POST_DOF | TT_POST_AO | TT_POST_FOG;
+    | TT_POST_SHADOW_TINT | TT_POST_PAPER | TT_POST_DOF | TT_POST_AO | TT_POST_FOG | TT_POST_SSR;
 
 // 数でない値は fallback に、範囲の外は範囲に収める
 float Sanitize(float value, float fallback, float minimum, float maximum) noexcept
@@ -283,6 +291,7 @@ void Engine::ReleaseDevice() noexcept
     postConstantBuffer_.Reset();
     reflectionDownShader_.Reset();
     reflectionCompositeShader_.Reset();
+    screenReflectionShader_.Reset();
     reflectionConstantBuffer_.Reset();
     premultipliedBlendState_.Reset();
     postCompositeShader_.Reset();
@@ -592,7 +601,7 @@ uint32_t Engine::SupportedSampleCount(uint32_t requested) const
 }
 
 void Engine::DrawScene(ID3D11RenderTargetView* rtv, ID3D11DepthStencilView* dsv, int width, int height, const TtFrameParams& params,
-    bool multisampled, ScenePart part, ReflectionTargets* reflection)
+    bool multisampled, ScenePart part, ReflectionTargets* reflection, const SurfaceTargets* surface)
 {
     using namespace DirectX;
 
@@ -715,6 +724,20 @@ void Engine::DrawScene(ID3D11RenderTargetView* rtv, ID3D11DepthStencilView* dsv,
         }
     }
 
+    // 画面の中の反射の下準備: モデルを描く間だけ、色と一緒に映り込みの強さ・環境の映り込み・面の向きを書く
+    // （PBR の材質は環境の映り込みを色に入れずに分けて書く。映像効果の段で、画面に映っている物の色と置き換えて戻す）
+    const bool writeSurface = drawScene && surface && surface->rtv[0];
+    if (writeSurface) {
+        const float zero[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+        ID3D11RenderTargetView* targets[1 + SurfaceTargets::kCount] = {rtv};
+        for (int k = 0; k < SurfaceTargets::kCount; ++k) {
+            ctx->ClearRenderTargetView(surface->rtv[k].Get(), zero);
+            targets[1 + k] = surface->rtv[k].Get();
+        }
+        ctx->OMSetRenderTargets(1 + SurfaceTargets::kCount, targets, dsv);
+        frame.ssrParams.x = 1.0f;
+    }
+
     // モデル（並び順に描く。半透明の材質があるので、MMD と同じく並び順をそのまま使う）
     for (uint32_t i = 0; drawScene && i < params.item_count; ++i) {
         const TtDrawItem& item = params.items[i];
@@ -729,6 +752,10 @@ void Engine::DrawScene(ID3D11RenderTargetView* rtv, ID3D11DepthStencilView* dsv,
             SetBasicPipeline();
             DrawBox(mesh.BoundsMin(), mesh.BoundsMax(), world, viewProj);
         }
+    }
+    if (writeSurface) {
+        ctx->OMSetRenderTargets(1, &rtv, dsv);
+        frame.ssrParams.x = 0.0f;
     }
 
     // 重ね描き（映像効果の後）: 格子と座標軸、選択の枠。奥行きは場面のものを使う
@@ -890,6 +917,12 @@ void Engine::ApplyPostEffects(const TtFrameParams& params, const PostInputs& inp
     if (fogDensity <= 0.0f || orthographic || !screenToViewValid || XMVectorGetX(determinant) == 0.0f) {
         flags &= ~static_cast<uint32_t>(TT_POST_FOG);
     }
+    // 画面の中の反射（下準備の画像が無ければ使えない。強さは、奥行きの準備ができてから入れる）
+    const float ssrStrength = Sanitize(params.ssr_strength, 0.0f, 0.0f, 1.0f);
+    constants.ssrParams = {0.0f, Sanitize(params.ssr_max_distance, 30.0f, 0.1f, 1e5f), 0.0f, 0.0f};
+    if (ssrStrength <= 0.0f || !screenToViewValid || !inputs.surface) {
+        flags &= ~static_cast<uint32_t>(TT_POST_SSR);
+    }
 
     ctx->OMSetBlendState(nullptr, nullptr, 0xFFFFFFFF);
     ctx->OMSetDepthStencilState(overlayDepthState_.Get(), 0);
@@ -900,12 +933,13 @@ void Engine::ApplyPostEffects(const TtFrameParams& params, const PostInputs& inp
     ctx->PSSetConstantBuffers(0, 1, postConstantBuffer_.GetAddressOf());
     ctx->PSSetSamplers(0, 1, clampSampler_.GetAddressOf());
 
-    ID3D11ShaderResourceView* const none[4] = {nullptr, nullptr, nullptr, nullptr};
+    ID3D11ShaderResourceView* const none[5] = {nullptr, nullptr, nullptr, nullptr, nullptr};
     ID3D11ShaderResourceView* third = nullptr; // 線画の準備（見る向きの距離）
-    ID3D11ShaderResourceView* fourth = nullptr; // 場面の奥行き（線画の準備のときだけ）
+    ID3D11ShaderResourceView* fourth = nullptr; // 場面の奥行き（線画の準備のとき）・環境の映り込み（画面の中の反射のとき）
+    ID3D11ShaderResourceView* fifth = nullptr;  // 面の向き（画面の中の反射のとき）
     auto pass = [&](ID3D11PixelShader* shader, ID3D11RenderTargetView* target, UINT w, UINT h, ID3D11ShaderResourceView* first,
                     ID3D11ShaderResourceView* second, UINT sourceWidth, UINT sourceHeight) {
-        ctx->PSSetShaderResources(0, 4, none); // 前の段で書いた画像を、読む前に描画先から外す
+        ctx->PSSetShaderResources(0, 5, none); // 前の段で書いた画像を、読む前に描画先から外す
         ctx->OMSetRenderTargets(1, &target, nullptr);
         const D3D11_VIEWPORT viewport{0.0f, 0.0f, static_cast<float>(w), static_cast<float>(h), 0.0f, 1.0f};
         ctx->RSSetViewports(1, &viewport);
@@ -916,14 +950,14 @@ void Engine::ApplyPostEffects(const TtFrameParams& params, const PostInputs& inp
         CheckHr(ctx->Map(postConstantBuffer_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped), L"映像効果の定数の更新");
         std::memcpy(mapped.pData, &constants, sizeof(constants));
         ctx->Unmap(postConstantBuffer_.Get(), 0);
-        ID3D11ShaderResourceView* const sources[4] = {first, second, third, fourth};
-        ctx->PSSetShaderResources(0, 4, sources);
+        ID3D11ShaderResourceView* const sources[5] = {first, second, third, fourth, fifth};
+        ctx->PSSetShaderResources(0, 5, sources);
         ctx->PSSetShader(shader, nullptr, 0);
         ctx->Draw(3, 0);
     };
 
     // 線画・被写界深度・環境光の遮りの準備: 奥行きを見る向きの距離に直す
-    constexpr uint32_t kDepthEffects = TT_POST_LINES | TT_POST_DOF | TT_POST_AO | TT_POST_FOG;
+    constexpr uint32_t kDepthEffects = TT_POST_LINES | TT_POST_DOF | TT_POST_AO | TT_POST_FOG | TT_POST_SSR;
     if ((flags & kDepthEffects) && inputs.depth && inputs.linearDepth && inputs.linearDepth->rtv) {
         fourth = inputs.depth;
         pass(inputs.depthMultisampled ? linearDepthMsShader_.Get() : linearDepthShader_.Get(), inputs.linearDepth->rtv.Get(),
@@ -943,6 +977,19 @@ void Engine::ApplyPostEffects(const TtFrameParams& params, const PostInputs& inp
         pass(aoApplyShader_.Get(), inputs.aoScene->rtv.Get(), static_cast<UINT>(width), static_cast<UINT>(height), scene,
             inputs.aoBlur->srv.Get(), static_cast<UINT>(width), static_cast<UINT>(height));
         scene = inputs.aoScene->srv.Get();
+    }
+
+    // 画面の中の反射: モデルを描くときに分けて書いた環境の映り込みを、映り込む向きに画面に映っている物の色と置き換えて戻す
+    // （環境光の遮りの後・霧と被写界深度の前。下準備を書いたときは、効果を使えなくても、強さ 0 で環境の映り込みを必ず戻す）
+    if (inputs.surface && inputs.ssr && inputs.ssr->rtv) {
+        constants.ssrParams.x = (flags & TT_POST_SSR) ? ssrStrength : 0.0f;
+        fourth = inputs.surface->resolved[1].srv.Get();
+        fifth = inputs.surface->resolved[2].srv.Get();
+        pass(screenReflectionShader_.Get(), inputs.ssr->rtv.Get(), static_cast<UINT>(width), static_cast<UINT>(height), scene,
+            inputs.surface->resolved[0].srv.Get(), static_cast<UINT>(width), static_cast<UINT>(height));
+        fourth = nullptr;
+        fifth = nullptr;
+        scene = inputs.ssr->srv.Get();
     }
 
     // 霧: 遠くの物ほど霧の色に溶けこませる（被写界深度でぼかす前に。遠くの霧もぼける）
@@ -981,7 +1028,7 @@ void Engine::ApplyPostEffects(const TtFrameParams& params, const PostInputs& inp
     pass(postCompositeShader_.Get(), output, static_cast<UINT>(width), static_cast<UINT>(height), scene, bloom,
         bloom ? bloomDown[0].width : 1, bloom ? bloomDown[0].height : 1);
 
-    ctx->PSSetShaderResources(0, 4, none);
+    ctx->PSSetShaderResources(0, 5, none);
     ctx->OMSetRenderTargets(0, nullptr, nullptr);
 }
 
@@ -1014,6 +1061,8 @@ void Engine::CreatePostResources()
         L"床の映り込みを縮めるシェーダーの作成");
     CheckHr(device_->CreatePixelShader(g_ReflectionCompositePS, sizeof(g_ReflectionCompositePS), nullptr, &reflectionCompositeShader_),
         L"床の映り込みを重ねるシェーダーの作成");
+    CheckHr(device_->CreatePixelShader(g_ScreenReflectionPS, sizeof(g_ScreenReflectionPS), nullptr, &screenReflectionShader_),
+        L"画面の中の反射のシェーダーの作成");
 
     D3D11_BUFFER_DESC desc{};
     desc.ByteWidth = sizeof(PostConstants);
@@ -1070,6 +1119,7 @@ void Engine::WriteObjectConstants(DirectX::FXMMATRIX world, DirectX::CXMMATRIX w
     object->reflectionParams = frame.reflectionParams;
     object->shadowSoftness = frame.shadowSoftness;
     object->passParams = frame.passParams;
+    object->ssrParams = frame.ssrParams;
     ctx->Unmap(objectConstantBuffer_.Get(), 0);
 }
 
@@ -1096,6 +1146,7 @@ bool Engine::MirrorFrame(const TtFrameParams& params, const ModelFrame& frame, M
     mirrored.cameraPosition.y = -frame.cameraPosition.y;
     XMStoreFloat4x4(&mirrored.lightViewProj, mirror * XMLoadFloat4x4(&frame.lightViewProj));
     mirrored.reflectionParams = {1.0f, strength, fade, 0.0f};
+    mirrored.ssrParams = {0.0f, 0.0f, 0.0f, 0.0f}; // 映り込みには、画面の中の反射の下準備を書かない
     return true;
 }
 
@@ -1112,6 +1163,58 @@ void Engine::DrawMirroredModels(const TtFrameParams& params, const ModelFrame& m
     }
     drawingReflection_ = false;
     WriteLightConstants(params, false);
+}
+
+bool Engine::UsesScreenReflections(const TtFrameParams& params) noexcept
+{
+    return (params.post_flags & TT_POST_SSR) && std::isfinite(params.ssr_strength) && params.ssr_strength > 0.0f;
+}
+
+bool Engine::CreateSurfaceTargets(SurfaceTargets& targets, UINT width, UINT height, uint32_t sampleCount)
+{
+    targets = SurfaceTargets{};
+    sampleCount = std::max<uint32_t>(sampleCount, 1);
+    if (sampleCount > 1) {
+        for (DXGI_FORMAT format : kSurfaceFormats) {
+            UINT levels = 0;
+            if (FAILED(device_->CheckMultisampleQualityLevels(format, sampleCount, &levels)) || levels == 0) {
+                return false;
+            }
+        }
+    }
+    for (int k = 0; k < SurfaceTargets::kCount; ++k) {
+        CreatePostSurface(targets.resolved[k], width, height, kSurfaceFormats[k]);
+        if (sampleCount > 1) {
+            D3D11_TEXTURE2D_DESC desc{};
+            desc.Width = std::max<UINT>(width, 1);
+            desc.Height = std::max<UINT>(height, 1);
+            desc.MipLevels = 1;
+            desc.ArraySize = 1;
+            desc.Format = kSurfaceFormats[k];
+            desc.SampleDesc.Count = sampleCount;
+            desc.Usage = D3D11_USAGE_DEFAULT;
+            desc.BindFlags = D3D11_BIND_RENDER_TARGET;
+            CheckHr(device_->CreateTexture2D(&desc, nullptr, &targets.multisampled[k]), L"画面の中の反射の下準備の画像の作成");
+            CheckHr(device_->CreateRenderTargetView(targets.multisampled[k].Get(), nullptr, &targets.rtv[k]),
+                L"画面の中の反射の下準備の描画先ビューの作成");
+        } else {
+            targets.rtv[k] = targets.resolved[k].rtv;
+        }
+    }
+    targets.sampleCount = sampleCount;
+    return true;
+}
+
+void Engine::ResolveSurfaceTargets(const SurfaceTargets& targets)
+{
+    if (targets.sampleCount <= 1) {
+        return;
+    }
+    for (int k = 0; k < SurfaceTargets::kCount; ++k) {
+        if (targets.multisampled[k] && targets.resolved[k].texture) {
+            context_->ResolveSubresource(targets.resolved[k].texture.Get(), 0, targets.multisampled[k].Get(), 0, kSurfaceFormats[k]);
+        }
+    }
 }
 
 bool Engine::UsesBlurredFloorReflection(const TtFrameParams& params) noexcept

@@ -139,7 +139,8 @@ float3 PbrDirect(float3 n, float3 v, float3 l, float3 radiance, float3 base, flo
 // - ベースカラー = 材質の拡散色 × テクスチャ × 色合い。スフィア・トゥーン・MMD の反射光は使わない
 // - 照明: シーンの平行光 1 つ（セルフシャドウを受ける材質は、影の中で光が届かない）
 // - 環境光: 照明の色をもとにした、空（上）と地面（下）の 2 色。反射もこの 2 色を映す（粗いほど混ざる）
-float4 PbrColor(ModelPSInput input, float3 n)
+// 環境の映り込み（環境の色 × 映り込みの強さ）は、色に足さずに reflection へ返す（画面の中の反射で置き換えられるように）
+float4 PbrColor(ModelPSInput input, float3 n, out float3 fresnel, out float3 reflection, out float roughnessOut)
 {
     float4 base = float4(Diffuse.rgb * BaseTint.rgb, Diffuse.a);
     if (AmbientAndTexture.w > 0.5)
@@ -197,7 +198,10 @@ float4 PbrColor(ModelPSInput input, float3 n)
         environment = lerp(environment, (reflectionSky + reflectionGround) * 0.5, roughness);
     }
     float3 ambientFresnel = f0 + (max(float3(1.0 - roughness, 1.0 - roughness, 1.0 - roughness), f0) - f0) * pow(1.0 - nv, 5.0);
-    return float4(direct + ambient + environment * ambientFresnel, base.a);
+    fresnel = ambientFresnel;
+    reflection = environment * ambientFresnel;
+    roughnessOut = roughness;
+    return float4(direct + ambient, base.a);
 }
 
 // ---- レンダーパス（書き出しの合成用の画像。tt_engine.h の TtRenderPass） ----
@@ -266,31 +270,60 @@ float4 PassColor(ModelPSInput input, float3 n)
 struct ModelPSOutput
 {
     float4 color : SV_Target0;
-    // 床の映り込みをぼかすときだけ使う（2 つ目の描画先があるとき。無ければ捨てられる）: x = 床からの深さ、a = color.a。
-    // 色と同じ合成（a と 1 - a）で重ねるので、描画先には「深さ × 不透明度」がたまる
-    float4 reflectionDepth : SV_Target1;
+    // 2〜4 番目は、描画先があるときだけ使う（無ければ捨てられる）。a はどれも color.a（色と同じ合成 a と 1 - a で重なり、
+    // 描画先には「値 × 不透明度」がたまる）
+    // 床の映り込みをぼかすとき: target1.x = 床からの深さ
+    // 画面の中の反射の下準備のとき: target1.rgb = 映り込みの強さ（フレネル）、target2.rgb = 環境の映り込み（強さを掛けた色）、
+    //   target3.xyz = 見る向きの座標での面の向き × (1 + 粗さ)。トゥーンの材質は強さ 0（映さない）
+    float4 target1 : SV_Target1;
+    float4 target2 : SV_Target2;
+    float4 target3 : SV_Target3;
 };
 
 // 材質の発光（拡張材質）は、どちらの色の計算にも足す（1 より明るくでき、ブルームで光る）
 ModelPSOutput main(ModelPSInput input)
 {
     ModelPSOutput output;
-    output.reflectionDepth = 0.0;
+    output.target1 = 0.0;
+    output.target2 = 0.0;
+    output.target3 = 0.0;
     float3 n = normalize(input.normal);
     if (RenderPass() != 0)
     {
         output.color = PassColor(input, n);
         return output;
     }
-    float4 color = Pbr.x > 0.5 ? PbrColor(input, n) : ToonColor(input, n);
+    float3 fresnel = 0.0;
+    float3 reflection = 0.0;
+    float roughness = 1.0;
+    // 条件の演算子（? :）は両方を計算するので、if で分ける（トゥーンの材質に PBR の映り込みが入らないように）
+    float4 color;
+    if (Pbr.x > 0.5)
+    {
+        color = PbrColor(input, n, fresnel, reflection, roughness);
+    }
+    else
+    {
+        color = ToonColor(input, n);
+    }
     color.rgb += Emissive.rgb;
+    if (SsrParams.x > 0.5)
+    {
+        output.target1 = float4(fresnel, color.a);
+        output.target2 = float4(reflection, color.a);
+        output.target3 = float4(mul(float4(n, 0.0), View).xyz * (1.0 + roughness), color.a);
+    }
+    else
+    {
+        color.rgb += reflection;
+    }
     if (ReflectionParams.x > 0.5)
     {
         // 床の映り込み: 映した点（床より下）を描き、床から深いほど薄くする。床より上へ出た所（もとの物の、床より下の部分）は描かない
         float depth = -(CameraPosition.y - input.eye.y);
         clip(depth);
         color.a *= ReflectionParams.y * saturate(1.0 - depth / max(ReflectionParams.z, 1e-3));
-        output.reflectionDepth = float4(depth, 0.0, 0.0, color.a);
+        output.target1 = float4(depth, 0.0, 0.0, color.a);
     }
     output.color = color;
     return output;

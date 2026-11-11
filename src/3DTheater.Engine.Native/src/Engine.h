@@ -38,6 +38,17 @@ struct ReflectionTargets {
     UINT levels = 0; // 段の数（0 番 = もとの大きさを含む）
 };
 
+// 画面の中の反射の下準備（ビューごと。描画先と同じ大きさ・点の数）。モデルを描くとき、色と一緒に書く 3 つの画像
+//   0: 映り込みの強さ（フレネル）、1: 環境の映り込み（強さを掛けた色）、2: 見る向きの座標での面の向き × (1 + 粗さ)。
+// どれも「値 × 不透明度」（色と同じ合成で重ねる）
+struct SurfaceTargets {
+    static constexpr int kCount = 3;
+    ComPtr<ID3D11RenderTargetView> rtv[kCount];   // 描く先（MSAA のときは MSAA の画像）
+    ComPtr<ID3D11Texture2D> multisampled[kCount]; // MSAA のときだけ。描いた後に resolved へまとめる
+    PostSurface resolved[kCount];                 // 映像効果で読む画像
+    uint32_t sampleCount = 0;
+};
+
 // GPU の上に資源を持つもの（ビュー・テクスチャ・メッシュ）。
 // GPU が使えなくなったとき、エンジンが全部の資源を手放させ、デバイスを作り直してから作り直させる。
 class DeviceObject {
@@ -81,9 +92,19 @@ public:
     // 1 つのビューの場面を描く（GPU へ頼むだけで完了は待たない）。描き終えたら描画先の割り当てを外す。
     // params.items の中身は呼び出し側（C API の入口）で確かめ済みであること。
     // multisampled は描画先が MSAA（1 画素に複数の点）か。線を、点の数に合わせてなめらかに描く。
-    // reflection は床の映り込みをぼかすときに使う画像（描画先と同じ大きさ。null ならぼかさない）
+    // reflection は床の映り込みをぼかすときに使う画像（描画先と同じ大きさ。null ならぼかさない）。
+    // surface は画面の中の反射の下準備の画像（描画先と同じ大きさ・点の数。null なら書かない。書いたときは、PBR の環境の映り込みが
+    // 色に入らないので、ApplyPostEffects へ渡して戻すこと）
     void DrawScene(ID3D11RenderTargetView* rtv, ID3D11DepthStencilView* dsv, int width, int height, const TtFrameParams& params,
-        bool multisampled, ScenePart part = ScenePart::All, ReflectionTargets* reflection = nullptr);
+        bool multisampled, ScenePart part = ScenePart::All, ReflectionTargets* reflection = nullptr,
+        const SurfaceTargets* surface = nullptr);
+
+    // 画面の中の反射を使うか（そのときは、ビューが CreateSurfaceTargets で作った画像を DrawScene と ApplyPostEffects へ渡す）
+    static bool UsesScreenReflections(const TtFrameParams& params) noexcept;
+    // 下準備の画像を作る。この GPU で sampleCount の MSAA が使えない形式があれば作らずに false
+    bool CreateSurfaceTargets(SurfaceTargets& targets, UINT width, UINT height, uint32_t sampleCount);
+    // MSAA で描いた下準備の画像を、映像効果で読む画像へまとめる
+    void ResolveSurfaceTargets(const SurfaceTargets& targets);
 
     // 床の映り込みをぼかすか（そのときは、ビューが CreateReflectionTargets で作った画像を DrawScene へ渡す）
     static bool UsesBlurredFloorReflection(const TtFrameParams& params) noexcept;
@@ -106,6 +127,8 @@ public:
         const PostSurface* aoBlur = nullptr;               // 光の届く割合を横にならしたものを書く画像
         const PostSurface* aoScene = nullptr;              // 環境光の遮りをかけた場面を書く画像
         const PostSurface* fog = nullptr;                  // 霧をかけた場面を書く画像
+        const SurfaceTargets* surface = nullptr;           // 画面の中の反射の下準備（DrawScene で書いたもの）
+        const PostSurface* ssr = nullptr;                  // 画面の中の反射をかけた場面を書く画像
     };
     // 映像効果をかける: 場面から output（width x height）へ。背景も置く
     void ApplyPostEffects(const TtFrameParams& params, const PostInputs& inputs, ID3D11RenderTargetView* output, int width, int height);
@@ -162,6 +185,7 @@ private:
         DirectX::XMFLOAT4 reflectionParams; // x = 1 なら床の映り込みを描いている、y = 濃さ、z = 消えるまでの距離
         DirectX::XMFLOAT4 shadowSoftness;   // 柔らかな影（シェーダーの ShadowSoftness と同じ）
         DirectX::XMFLOAT4 passParams;       // レンダーパス: x = 種類（TT_PASS_*）、y = 物の番号（1 から）、z = 奥行きの手前、w = 奥
+        DirectX::XMFLOAT4 ssrParams;        // x = 1 なら画面の中の反射の下準備を書く（シェーダーの SsrParams と同じ）
     };
     void WriteObjectConstants(DirectX::FXMMATRIX world, DirectX::CXMMATRIX worldViewProj, const ModelFrame& frame);
     // 足す照明を定数バッファーへ書く（1 枚の描画で 1 回。床の映り込みを描く間は、床で上下に映した照明を書く）
@@ -261,6 +285,7 @@ private:
     ComPtr<ID3D11PixelShader> reflectionCompositeShader_; // 重ねる
     ComPtr<ID3D11Buffer> reflectionConstantBuffer_;
     ComPtr<ID3D11BlendState> premultipliedBlendState_; // 透明度をかけ合わせた色を重ねる（1 と 1 - a）
+    ComPtr<ID3D11PixelShader> screenReflectionShader_; // 画面の中の反射
 
     // モデル（MMD と同じトゥーンの色の計算と輪郭線）
     ComPtr<ID3D11VertexShader> modelVertexShader_;

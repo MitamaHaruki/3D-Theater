@@ -27,7 +27,7 @@ extern "C" {
 
 // 上位 16 ビットが大きな版、下位 16 ビットが小さな版。大きな版が違う DLL とは組み合わせない。
 #define TT_API_VERSION_MAJOR 0
-#define TT_API_VERSION_MINOR 22
+#define TT_API_VERSION_MINOR 23
 #define TT_API_VERSION ((TT_API_VERSION_MAJOR << 16) | TT_API_VERSION_MINOR)
 
 // 0 以上は成功、負の値は失敗。
@@ -126,6 +126,8 @@ enum {
     TT_POST_AO = 1u << 8, // 環境光の遮り（奥行きから、物の隙間や接する所を暗くする。ao_*。被写界深度・ブルームより先にかける）
     // ここから API 0.18
     TT_POST_FOG = 1u << 9, // 霧（遠くの物ほど fog_color に溶けこませる。fog_*。背景が不透明なら背景にも。平行投影では使わない）
+    // ここから API 0.23
+    TT_POST_SSR = 1u << 10, // 画面の中の反射（つやのある PBR の材質に、画面に映っている物を映す。ssr_*）
 };
 
 // レンダーパス（API 0.21。TtFrameParams.render_pass）。TT_PASS_NONE 以外のときは、モデルを色の計算の代わりにパスの値で描く。
@@ -362,6 +364,12 @@ typedef struct TtFrameParams {
     float pass_depth_near; // TT_PASS_DEPTH: 0 にする距離（カメラから見る向き）
     float pass_depth_far;  // TT_PASS_DEPTH: 1 にする距離（near より大きく。そうでなければ near + 1）
     uint32_t reserved12;
+    // ここから API 0.23（画面の中の反射。TT_POST_SSR のとき）。PBR の材質の環境の映り込みのうち、映り込む向きに画面に映っている物が
+    // ある所を、その物の色に置き換える。粗い材質ほど弱く（粗さ 0.65 で 0）、カメラの方へ戻る向き・画面の外・物の裏は環境の映り込みのまま。
+    // トゥーンの材質は映さない
+    float ssr_strength;     // 強さ（0〜1。0 なら何もしない）
+    float ssr_max_distance; // 映る物を探す距離（ワールドの長さ。0.1 以上）
+    uint32_t reserved13[2];
 } TtFrameParams;
 
 TT_API uint32_t TT_CALL tt_get_api_version(void);

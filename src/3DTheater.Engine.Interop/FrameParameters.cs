@@ -165,6 +165,9 @@ public enum PostEffectFlags : uint
 
     /// <summary>霧（遠くの物ほど霧の色に溶けこませる。平行投影では使わない）。</summary>
     Fog = 1u << 9,
+
+    /// <summary>画面の中の反射（つやのある PBR の材質に、画面に映っている物を映す）。</summary>
+    ScreenReflections = 1u << 10,
 }
 
 /// <summary>
@@ -177,6 +180,7 @@ public enum PostEffectFlags : uint
 /// 被写界深度は、ピントの距離・ピントの合う幅（前後の合計）・ぼけの最大（画素）・最大になるまでの距離（カメラから見る向きの距離）。
 /// 環境光の遮りは、強さ（0〜2）と広がり（ワールドの長さ。これより離れた物は遮らない）。
 /// 霧は、色・始まる距離（カメラから）・濃さ（霧の量 = 1 - exp(-濃さ × 長さ)）・高さの尺度（0 なら高さに関係なく同じ濃さ）。
+/// 画面の中の反射は、強さ（0〜1）と映る物を探す距離（ワールドの長さ）。PBR の材質の環境の映り込みを、映り込む向きに画面に映っている物の色に置き換える。
 /// </summary>
 public readonly record struct PostEffects(
     PostEffectFlags Flags,
@@ -206,7 +210,9 @@ public readonly record struct PostEffects(
     Vector3 FogColor = default,
     float FogStart = 0f,
     float FogDensity = 0f,
-    float FogHeight = 0f)
+    float FogHeight = 0f,
+    float SsrStrength = 0f,
+    float SsrMaxDistance = 30f)
 {
     /// <summary>映像効果なし。</summary>
     public static PostEffects None => new(PostEffectFlags.None);

@@ -102,6 +102,10 @@ internal unsafe struct TtFrameParams
     public float PassDepthNear;
     public float PassDepthFar;
     public uint Reserved12;
+    public float SsrStrength;
+    public float SsrMaxDistance;
+    public uint Reserved13;
+    public uint Reserved14;
 }
 
 [StructLayout(LayoutKind.Sequential)]

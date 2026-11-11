@@ -16,6 +16,7 @@ cbuffer ObjectConstants : register(b0)
     float4 ShadowSoftness;            // 柔らかな影: x = 奥行き 1 あたりのワールドの長さ、y = 光源の見かけの半径の tan（0 ならくっきり）、
                                       //             zw = ワールドの長さ 1 あたりの、奥行きの画像の座標（横・縦）
     float4 PassParams;                // レンダーパス: x = 種類（TT_PASS_*。0 なら普通の色）、y = 物の番号（1 から）、z = 奥行きの手前、w = 奥
+    float4 SsrParams;                 // 画面の中の反射の下準備: x = 1 なら、PBR の環境の映り込みを色に入れずに、2〜4 番目の出力へ分けて書く
 };
 
 cbuffer MaterialConstants : register(b1)

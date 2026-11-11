@@ -5,6 +5,7 @@
 #include <mutex>
 
 #include "Engine.h"
+#include "Log.h"
 
 extern "C" IMAGE_DOS_HEADER __ImageBase;
 
@@ -234,6 +235,8 @@ void View::ReleaseSampleResources() noexcept
     }
     msaaRtv_.Reset();
     msaaTexture_.Reset();
+    surface_ = SurfaceTargets{}; // 画面の中の反射の下準備も、点の数に合わせて作り直す
+    surfaceUnsupported_ = false;
     depthSrv_.Reset();
     dsv_.Reset();
     depthTexture_.Reset();
@@ -266,7 +269,7 @@ uint32_t View::SetSampleCount(uint32_t requested)
     return actual;
 }
 
-void View::EnsurePostResources(bool bloom, bool depth, bool dof, bool ao, bool fog)
+void View::EnsurePostResources(bool bloom, bool depth, bool dof, bool ao, bool fog, bool ssr)
 {
     if (!scene_.texture) {
         engine_.CreatePostSurface(scene_, static_cast<UINT>(width_), static_cast<UINT>(height_), Engine::kColorFormat);
@@ -284,6 +287,9 @@ void View::EnsurePostResources(bool bloom, bool depth, bool dof, bool ao, bool f
     }
     if (fog && !fog_.texture) {
         engine_.CreatePostSurface(fog_, static_cast<UINT>(width_), static_cast<UINT>(height_), Engine::kColorFormat);
+    }
+    if (ssr && !ssr_.texture) {
+        engine_.CreatePostSurface(ssr_, static_cast<UINT>(width_), static_cast<UINT>(height_), Engine::kColorFormat);
     }
     if (!bloom || !bloomDown_.empty()) {
         return;
@@ -319,6 +325,7 @@ void View::ReleaseSizeDependentResources() noexcept
     aoScene_ = PostSurface{};
     fog_ = PostSurface{};
     reflection_ = ReflectionTargets{};
+    ssr_ = PostSurface{};
     bloomDown_.clear();
     bloomUp_.clear();
     ReleaseSampleResources();
@@ -380,12 +387,29 @@ bool View::Render(const TtFrameParams& params)
         const bool dof = (params.post_flags & TT_POST_DOF) != 0;
         const bool ao = (params.post_flags & TT_POST_AO) != 0;
         const bool fog = (params.post_flags & TT_POST_FOG) != 0;
-        const bool lines = (params.post_flags & TT_POST_LINES) != 0 || dof || ao || fog; // 奥行きを使う効果
-        EnsurePostResources((params.post_flags & TT_POST_BLOOM) != 0, lines, dof, ao, fog);
+        // 画面の中の反射は、下準備の画像を作れたときだけ（この GPU で MSAA の形式が使えなければ、反射なしで描く）
+        SurfaceTargets* surface = nullptr;
+        if (Engine::UsesScreenReflections(params)) {
+            if (!surface_.rtv[0] && !surfaceUnsupported_) {
+                surfaceUnsupported_ = !engine_.CreateSurfaceTargets(surface_, static_cast<UINT>(width_), static_cast<UINT>(height_), sampleCount_);
+                if (surfaceUnsupported_) {
+                    Log(TT_LOG_WARNING, L"この GPU では、今の MSAA の点の数で画面の中の反射の下準備を作れないため、反射なしで描きます");
+                }
+            }
+            surface = surface_.rtv[0] ? &surface_ : nullptr;
+        } else if (surface_.rtv[0]) {
+            surface_ = SurfaceTargets{};
+        }
+        const bool ssr = surface != nullptr;
+        const bool lines = (params.post_flags & TT_POST_LINES) != 0 || dof || ao || fog || ssr; // 奥行きを使う効果
+        EnsurePostResources((params.post_flags & TT_POST_BLOOM) != 0, lines, dof, ao, fog, ssr);
         engine_.DrawScene(multisampled ? msaaRtv_.Get() : scene_.rtv.Get(), dsv_.Get(), width_, height_, params, multisampled,
-            Engine::ScenePart::Scene, reflection);
+            Engine::ScenePart::Scene, reflection, surface);
         if (multisampled) {
             engine_.Context()->ResolveSubresource(scene_.texture.Get(), 0, msaaTexture_.Get(), 0, Engine::kColorFormat);
+        }
+        if (surface) {
+            engine_.ResolveSurfaceTargets(*surface);
         }
         Engine::PostInputs inputs;
         inputs.scene = scene_.srv.Get();
@@ -399,6 +423,8 @@ bool View::Render(const TtFrameParams& params)
         inputs.aoBlur = ao ? &aoBlur_ : nullptr;
         inputs.aoScene = ao ? &aoScene_ : nullptr;
         inputs.fog = fog ? &fog_ : nullptr;
+        inputs.surface = surface;
+        inputs.ssr = ssr ? &ssr_ : nullptr;
         engine_.ApplyPostEffects(params, inputs, target, width_, height_);
         engine_.DrawScene(target, dsv_.Get(), width_, height_, params, multisampled, Engine::ScenePart::Overlays);
     }

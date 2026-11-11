@@ -36,6 +36,7 @@ public static class EffectsMapping
         Add(style.PaperEnabled, PostEffectFlags.Paper);
         Add(effects.DofEnabled && sceneCamera is not null, PostEffectFlags.DepthOfField);
         Add(effects.AoEnabled, PostEffectFlags.AmbientOcclusion);
+        Add(effects.SsrEnabled, PostEffectFlags.ScreenReflections);
         SceneFog fog = settings.Fog;
         Add(fog.Enabled, PostEffectFlags.Fog);
 
@@ -61,7 +62,9 @@ public static class EffectsMapping
             FogColor: fog.ColorValue,
             FogStart: fog.Start,
             FogDensity: fog.Density,
-            FogHeight: fog.HeightScale);
+            FogHeight: fog.HeightScale,
+            SsrStrength: effects.SsrStrength,
+            SsrMaxDistance: effects.SsrDistance);
 
         void Add(bool enabled, PostEffectFlags flag)
         {

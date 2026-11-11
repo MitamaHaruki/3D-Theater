@@ -120,6 +120,27 @@ public sealed class VisualEffectsTests
     }
 
     [TestMethod]
+    public void ScreenReflectionsAreKeptInRangeAndSaved()
+    {
+        Assert.IsFalse(VisualEffects.None.SsrEnabled, "初期値は OFF");
+        VisualEffects ssr = VisualEffects.None with { SsrEnabled = true };
+        Assert.IsTrue(ssr.Any);
+
+        VisualEffects wild = (ssr with { SsrStrength = 5f, SsrDistance = 0f }).Normalized();
+        Assert.AreEqual(1f, wild.SsrStrength);
+        Assert.AreEqual(VisualEffects.MinSsrDistance, wild.SsrDistance);
+        Assert.AreEqual(VisualEffects.MaxSsrDistance, (ssr with { SsrDistance = 1e6f }).Normalized().SsrDistance);
+        Assert.AreEqual(VisualEffects.None.SsrStrength, (ssr with { SsrStrength = float.NaN }).Normalized().SsrStrength, "数でない値は初期値");
+
+        var settings = new RenderSettings { Effects = ssr with { SsrStrength = 0.7f, SsrDistance = 45f } };
+        ProjectFile read = ProjectSerializer.Deserialize(
+            ProjectSerializer.Serialize(new ProjectFile { Rendering = RenderingEntry.From(settings) }), new Formats.LoadReport())!;
+        var restored = new RenderSettings();
+        read.Rendering.ApplyTo(restored);
+        Assert.AreEqual(settings.Effects, restored.Effects, "画面の中の反射の値も保存して戻る");
+    }
+
+    [TestMethod]
     public void EnvironmentIsKeptInRangeAndSavedRelativeToTheProject()
     {
         Assert.IsFalse(SceneEnvironment.Off.IsActive, "初期値は使わない");

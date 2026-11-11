@@ -1394,6 +1394,122 @@ public:
         Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
     }
 
+    TEST_METHOD(ScreenReflectionsMirrorObjectsOnGlossyPbrFloors)
+    {
+        // 滑らかな金属（PBR）の床の奥に、赤い四角形を立てる。画面の中の反射を使うと、床の手前に赤い四角形が映る。
+        // 探す距離が短いとき・トゥーンの床では、今までどおり環境の映り込み（分けて書いた環境の映り込みを、そのまま戻す）
+        TtEngine* engine = CreateWarpEngine();
+        constexpr int width = 96;
+        constexpr int height = 72;
+        TtView* view = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_view_create_offscreen(engine, width, height, 0, &view));
+        auto makeQuad = [&](uint8_t b, uint8_t g, uint8_t r) {
+            TtTexture* texture = CreateSolidTexture(engine, b, g, r);
+            const TtMeshMaterial material = QuadMaterial(texture, TT_MATERIAL_DOUBLE_SIDED);
+            const TtMeshDesc desc = QuadDesc(kClockwise, &material);
+            TtMesh* mesh = nullptr;
+            Assert::AreEqual<int>(TT_OK, tt_mesh_create(engine, &desc, &mesh));
+            Assert::AreEqual<int>(TT_OK, tt_texture_destroy(texture));
+            return mesh;
+        };
+        TtMesh* floor = makeQuad(255, 255, 255);
+        TtMesh* wall = makeQuad(0, 0, 255);
+        auto state = [](uint32_t shading) {
+            TtMaterialState s{};
+            s.diffuse[0] = s.diffuse[1] = s.diffuse[2] = s.diffuse[3] = 1.0f;
+            s.ambient[0] = s.ambient[1] = s.ambient[2] = 0.5f;
+            for (float* v : {s.texture_multiply, s.sphere_multiply, s.toon_multiply, s.base_tint}) {
+                v[0] = v[1] = v[2] = v[3] = 1.0f;
+            }
+            s.edge_color[3] = 1.0f;
+            s.shading = shading;
+            s.metallic = 1.0f;
+            s.roughness = 0.05f;
+            return s;
+        };
+
+        using namespace DirectX;
+        TtDrawItem items[2] = {DrawItem(floor), DrawItem(wall)};
+        // 床: 2 x 2 の四角形を寝かせる（高さ 0、奥行き -2〜2）。壁: 高さ 0.1〜1.3・奥行き 0.8 に立てる
+        XMStoreFloat4x4(reinterpret_cast<XMFLOAT4X4*>(items[0].world), XMMatrixScaling(2.0f, 2.0f, 1.0f) * XMMatrixRotationX(XM_PIDIV2));
+        XMStoreFloat4x4(reinterpret_cast<XMFLOAT4X4*>(items[1].world), XMMatrixScaling(0.6f, 0.6f, 1.0f) * XMMatrixTranslation(0.0f, 0.7f, 0.8f));
+        TtFrameParams params = MakeParams(TT_FRAME_USE_LIGHT);
+        XMStoreFloat4x4(reinterpret_cast<XMFLOAT4X4*>(params.view),
+            XMMatrixLookAtLH(XMVectorSet(0.0f, 1.2f, -4.0f, 1.0f), XMVectorSet(0.0f, 0.4f, 0.0f, 1.0f), XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f)));
+        params.light_direction[0] = 0.5f;
+        params.light_direction[1] = -1.0f;
+        params.light_direction[2] = 0.5f;
+        params.light_color[0] = params.light_color[1] = params.light_color[2] = 0.6f;
+        params.items = items;
+        params.item_count = 2;
+        params.vignette = 0.0f;
+        auto render = [&](uint32_t postFlags, float strength, float distance) {
+            params.post_flags = postFlags;
+            params.ssr_strength = strength;
+            params.ssr_max_distance = distance;
+            return RenderAndRead(engine, view, params, width, height);
+        };
+        const XMMATRIX viewProj = XMLoadFloat4x4(reinterpret_cast<const XMFLOAT4X4*>(params.view))
+            * XMLoadFloat4x4(reinterpret_cast<const XMFLOAT4X4*>(params.projection));
+        auto pixelOf = [&](float x, float y, float z) {
+            XMVECTOR p = XMVector3TransformCoord(XMVectorSet(x, y, z, 1.0f), viewProj);
+            const int px = static_cast<int>((XMVectorGetX(p) * 0.5f + 0.5f) * width);
+            const int py = static_cast<int>((-XMVectorGetY(p) * 0.5f + 0.5f) * height);
+            return (static_cast<size_t>(py) * width + px) * 4;
+        };
+        auto worstDifference = [](const std::vector<uint8_t>& a, const std::vector<uint8_t>& b) {
+            int worst = 0;
+            for (size_t i = 0; i < a.size(); ++i) {
+                worst = std::max(worst, std::abs(static_cast<int>(a[i]) - static_cast<int>(b[i])));
+            }
+            return worst;
+        };
+
+        const TtMaterialState pbr = state(TT_SHADING_PBR);
+        Assert::AreEqual<int>(TT_OK, tt_mesh_update_materials(floor, &pbr, 1));
+        const std::vector<uint8_t> plain = render(TT_POST_VIGNETTE, 0.0f, 30.0f); // 映像効果を通すが、反射は使わない
+        const std::vector<uint8_t> mirrored = render(TT_POST_VIGNETTE | TT_POST_SSR, 1.0f, 30.0f);
+        // 床の、壁の真ん中（高さ 0.7）が映る所（カメラから映した点へ向かう線が床と交わる所）
+        const size_t onFloor = pixelOf(0.0f, 0.0f, -0.97f);
+        Assert::IsTrue(plain[onFloor + 2] > 60 && IsNear(plain[onFloor + 1], plain[onFloor + 2], 30), L"反射なしでは、床は周りの色（灰色）を映す");
+        Assert::IsTrue(mirrored[onFloor + 2] > mirrored[onFloor + 1] + 60, L"画面の中の反射で、床に赤い壁が映る");
+        Assert::IsTrue(plain[onFloor + 1] > mirrored[onFloor + 1] + 30, L"周りの色の映り込みは、壁の色に置き換わる");
+        // 壁から離れた床（映り込む向きには何も無い）は、反射なしと同じ（自分の面に当たったことにしない）
+        for (float z : {-1.5f, -0.5f, 0.5f, 1.2f, 1.8f}) {
+            for (float x : {-1.7f, 1.7f}) {
+                const size_t p = pixelOf(x, 0.0f, z);
+                Assert::IsTrue(IsNear(mirrored[p], plain[p], 3) && IsNear(mirrored[p + 1], plain[p + 1], 3) && IsNear(mirrored[p + 2], plain[p + 2], 3),
+                    L"何も映らない所は、反射なしと同じ");
+            }
+        }
+        const size_t onWall = pixelOf(0.0f, 0.7f, 0.8f);
+        Assert::IsTrue(IsNear(mirrored[onWall + 2], plain[onWall + 2], 2) && IsNear(mirrored[onWall + 1], plain[onWall + 1], 2),
+            L"トゥーンの壁そのものは変わらない");
+
+        // 探す距離が短く、何にも当たらないときは、分けて書いた環境の映り込みを戻すだけ（反射なしと同じ）
+        const std::vector<uint8_t> shortReach = render(TT_POST_VIGNETTE | TT_POST_SSR, 1.0f, 0.1f);
+        Assert::IsTrue(worstDifference(plain, shortReach) <= 3, L"当たらなければ、反射なしと同じ");
+
+        // MSAA でも同じように映る
+        uint32_t actual = 0;
+        Assert::AreEqual<int>(TT_OK, tt_view_set_sample_count(view, 4, &actual));
+        const std::vector<uint8_t> smooth = render(TT_POST_VIGNETTE | TT_POST_SSR, 1.0f, 30.0f);
+        Assert::IsTrue(smooth[onFloor + 2] > smooth[onFloor + 1] + 60, L"MSAA でも床に赤い壁が映る");
+        Assert::AreEqual<int>(TT_OK, tt_view_set_sample_count(view, 1, &actual));
+
+        // トゥーンの床には映さない
+        const TtMaterialState toon = state(TT_SHADING_TOON);
+        Assert::AreEqual<int>(TT_OK, tt_mesh_update_materials(floor, &toon, 1));
+        const std::vector<uint8_t> toonPlain = render(TT_POST_VIGNETTE, 0.0f, 30.0f);
+        const std::vector<uint8_t> toonMirrored = render(TT_POST_VIGNETTE | TT_POST_SSR, 1.0f, 30.0f);
+        Assert::IsTrue(worstDifference(toonPlain, toonMirrored) <= 1, L"トゥーンの材質は映さない");
+
+        Assert::AreEqual<int>(TT_OK, tt_mesh_destroy(floor));
+        Assert::AreEqual<int>(TT_OK, tt_mesh_destroy(wall));
+        Assert::AreEqual<int>(TT_OK, tt_view_destroy(view));
+        Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
+    }
+
     TEST_METHOD(DepthOfFieldBlursOutsideTheFocus)
     {
         // 手前（距離 3）に小さな赤い四角形、奥（距離 8）に大きな緑の四角形。ピントの合っていないほうの縁がぼける

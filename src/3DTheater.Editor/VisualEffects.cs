@@ -1,7 +1,7 @@
 namespace Theater3D.Editor;
 
 /// <summary>
-/// 映像効果（色調補正・ブルーム・周辺減光・被写界深度・環境光の遮り）。作品の描き方としてプロジェクトに保存し、プレビューと書き出しの両方にかける。
+/// 映像効果（色調補正・ブルーム・周辺減光・被写界深度・環境光の遮り・画面の中の反射）。作品の描き方としてプロジェクトに保存し、プレビューと書き出しの両方にかける。
 /// それぞれ ON / OFF でき、OFF の間も値は覚えておく。値は <see cref="Normalized"/> で範囲に収める。
 /// 背景・格子・選択の枠・ボーン・ギズモには、色調補正とブルームはかからない（周辺減光は背景にもかかる）。
 /// 被写界深度はシーンのカメラの効果なので、カメラ視点の区画と書き出しにだけかける（ほかの視点では、ピントの距離に意味が無いため）。
@@ -18,6 +18,8 @@ public sealed record VisualEffects
     public const float MaxDofBlur = 32f;
     public const float MinAoRadius = 0.1f;
     public const float MaxAoRadius = 10f;
+    public const float MinSsrDistance = 1f;
+    public const float MaxSsrDistance = 200f;
 
     /// <summary>映像効果なし（新しいプロジェクト・前の版のファイル）。</summary>
     public static VisualEffects None { get; } = new();
@@ -79,8 +81,20 @@ public sealed record VisualEffects
     /// <summary>環境光の遮りの広がり（ワールドの長さ。これより離れた物は遮らない。人の大きさのモデルの背丈は 20 ほど）。</summary>
     public float AoRadius { get; init; } = 1f;
 
+    /// <summary>
+    /// 画面の中の反射（つやのある PBR の材質に、画面に映っている物を映す）を使う。トゥーンの材質と、粗い材質（粗さ 0.65 より上）は映さない。
+    /// 画面に映っていない物（画面の外・物の裏）は、今までどおり環境の映り込みになる。
+    /// </summary>
+    public bool SsrEnabled { get; init; }
+
+    /// <summary>画面の中の反射の強さ（0〜1）。</summary>
+    public float SsrStrength { get; init; } = 1f;
+
+    /// <summary>映る物を探す距離（ワールドの長さ。これより遠い物は映さない。人の大きさのモデルの背丈は 20 ほど）。</summary>
+    public float SsrDistance { get; init; } = 30f;
+
     /// <summary>どれかの効果を使うか。</summary>
-    public bool Any => ColorEnabled || BloomEnabled || VignetteEnabled || DofEnabled || AoEnabled;
+    public bool Any => ColorEnabled || BloomEnabled || VignetteEnabled || DofEnabled || AoEnabled || SsrEnabled;
 
     /// <summary>ピントの距離（注視点に合わせるときは、カメラの注視点までの距離）。</summary>
     public float FocusDistanceFor(float cameraTargetDistance) => DofFocusOnTarget ? cameraTargetDistance : DofFocusDistance;
@@ -107,6 +121,8 @@ public sealed record VisualEffects
             DofBlur = Fit(DofBlur, 0f, MaxDofBlur, d.DofBlur),
             AoStrength = Fit(AoStrength, 0f, 1f, d.AoStrength),
             AoRadius = Fit(AoRadius, MinAoRadius, MaxAoRadius, d.AoRadius),
+            SsrStrength = Fit(SsrStrength, 0f, 1f, d.SsrStrength),
+            SsrDistance = Fit(SsrDistance, MinSsrDistance, MaxSsrDistance, d.SsrDistance),
         };
     }
 

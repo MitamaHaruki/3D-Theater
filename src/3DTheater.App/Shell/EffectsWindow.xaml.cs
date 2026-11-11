@@ -6,7 +6,7 @@ using Theater3D.Editor;
 namespace Theater3D.App.Shell;
 
 /// <summary>
-/// 映像効果の設定（レンダリングのメニュー）。色調補正・ブルーム・周辺減光・環境光の遮り・被写界深度を ON / OFF し、値をつまみで変える。
+/// 映像効果の設定（レンダリングのメニュー）。色調補正・ブルーム・周辺減光・環境光の遮り・画面の中の反射・被写界深度を ON / OFF し、値をつまみで変える。
 /// 変えるたびに作品の描き方（<see cref="RenderSettings.Effects"/>）へ入れるので、すぐにプレビューへ反映し、プロジェクトは変更ありになる。
 /// </summary>
 public partial class EffectsWindow : Window
@@ -41,6 +41,9 @@ public partial class EffectsWindow : Window
             AoCheck.IsChecked = effects.AoEnabled;
             AoStrengthSlider.Value = effects.AoStrength;
             AoRadiusSlider.Value = effects.AoRadius;
+            SsrCheck.IsChecked = effects.SsrEnabled;
+            SsrStrengthSlider.Value = effects.SsrStrength;
+            SsrDistanceSlider.Value = effects.SsrDistance;
             DofCheck.IsChecked = effects.DofEnabled;
             FocusOnTargetCheck.IsChecked = effects.DofFocusOnTarget;
             FocusDistanceSlider.Value = effects.DofFocusDistance;
@@ -74,6 +77,9 @@ public partial class EffectsWindow : Window
             AoEnabled = AoCheck.IsChecked == true,
             AoStrength = Round(AoStrengthSlider),
             AoRadius = Round(AoRadiusSlider),
+            SsrEnabled = SsrCheck.IsChecked == true,
+            SsrStrength = Round(SsrStrengthSlider),
+            SsrDistance = (float)Math.Round(SsrDistanceSlider.Value, 0),
             DofEnabled = DofCheck.IsChecked == true,
             DofFocusOnTarget = FocusOnTargetCheck.IsChecked == true,
             DofFocusDistance = Round(FocusDistanceSlider),
@@ -95,6 +101,8 @@ public partial class EffectsWindow : Window
         VignetteText.Text = VignetteSlider.Value.ToString("0.00", c);
         AoStrengthText.Text = AoStrengthSlider.Value.ToString("0.00", c);
         AoRadiusText.Text = AoRadiusSlider.Value.ToString("0.00", c);
+        SsrStrengthText.Text = SsrStrengthSlider.Value.ToString("0.00", c);
+        SsrDistanceText.Text = SsrDistanceSlider.Value.ToString("0", c);
         FocusDistanceText.Text = FocusDistanceSlider.Value.ToString("0.0", c);
         FocusRangeText.Text = FocusRangeSlider.Value.ToString("0.0", c);
         DofBlurText.Text = DofBlurSlider.Value.ToString("0.0", c);

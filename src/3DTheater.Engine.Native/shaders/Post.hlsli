@@ -20,6 +20,7 @@ cbuffer PostConstants : register(b0)
     float4 FogColor;         // 霧: rgb = 色、a = 始まる距離
     float4 FogParams;        // 霧: x = 濃さ、y = 高さの尺度（0 なら高さに関係なく同じ）
     float4 FogHeightAxis;    // 見る向きの座標からワールドの高さを出す値: 高さ = dot(位置, xyz) + w（w はカメラの高さ）
+    float4 SsrParams;        // 画面の中の反射: x = 強さ（0 なら分けて書いた環境の映り込みを戻すだけ）、y = 映る物を探す距離
 };
 
 Texture2D Source : register(t0);
@@ -43,6 +44,7 @@ static const uint kPostPaper = 64;
 static const uint kPostDof = 128;
 static const uint kPostAo = 256;
 static const uint kPostFog = 512;
+static const uint kPostSsr = 1024;
 
 // 何も描かれていない所の距離
 static const float kNothing = 1e30;
