@@ -39,6 +39,9 @@ public interface IRenderTarget
 
     /// <summary>GPU の完了を待った後に呼ばれる。<paramref name="succeeded"/> が false なら表示を更新しない。</summary>
     void Complete(bool succeeded);
+
+    /// <summary>1 回の描画に GPU が掛けた時間（ミリ秒。数回前の描画の値）。まだ測れていなければ null。</summary>
+    double? GpuMilliseconds { get; }
 }
 
 /// <summary>
@@ -73,6 +76,7 @@ public sealed class RenderLoop(NativeEngine? engine, PlaybackService playback)
     private readonly FrameTimer _submitTimer = new();
     private readonly FrameTimer _waitTimer = new();
     private readonly FrameTimer _presentTimer = new();
+    private readonly FrameTimer _gpuTimer = new();
 
     public event EventHandler<RenderFailedEventArgs>? RenderFailed;
 
@@ -99,9 +103,12 @@ public sealed class RenderLoop(NativeEngine? engine, PlaybackService playback)
     /// <summary>1 回の描画（全区画）にかかった UI スレッドの時間の平均。</summary>
     public double AverageFrameMilliseconds => _frameTimer.AverageMilliseconds;
 
-    /// <summary>1 回の描画の内訳（モデルの変形・描画の依頼・GPU の完了待ち・表示への反映）の平均。</summary>
+    /// <summary>
+    /// 1 回の描画の内訳（モデルの変形・描画の依頼・GPU の完了待ち・表示への反映）と、GPU が描くのに掛けた時間（全区画の合計）の平均。
+    /// </summary>
     public RenderBreakdown Breakdown => new(
-        _prepareTimer.AverageMilliseconds, _submitTimer.AverageMilliseconds, _waitTimer.AverageMilliseconds, _presentTimer.AverageMilliseconds);
+        _prepareTimer.AverageMilliseconds, _submitTimer.AverageMilliseconds, _waitTimer.AverageMilliseconds, _presentTimer.AverageMilliseconds,
+        _gpuTimer.AverageMilliseconds);
 
     public bool IsRunning => _subscribed;
 
@@ -269,6 +276,7 @@ public sealed class RenderLoop(NativeEngine? engine, PlaybackService playback)
             }
         }
         Lap(_submitTimer, phase);
+        RecordGpuTime();
 
         // 3. 表示の面を作り直した直後の区画は、出しておける前の絵が無いので、待って同じ更新の中で出す
         if (lost is null)
@@ -352,6 +360,32 @@ public sealed class RenderLoop(NativeEngine? engine, PlaybackService playback)
         presentMilliseconds += Stopwatch.GetElapsedTime(start, published).TotalMilliseconds
             + Stopwatch.GetElapsedTime(waited).TotalMilliseconds;
         return lost;
+    }
+
+    /// <summary>描いた区画の、GPU が描くのに掛けた時間（測れた分）を足して記録する。</summary>
+    private void RecordGpuTime()
+    {
+        double sum = 0;
+        bool any = false;
+        foreach (IRenderTarget target in _submitted)
+        {
+            try
+            {
+                if (target.GpuMilliseconds is double milliseconds)
+                {
+                    sum += milliseconds;
+                    any = true;
+                }
+            }
+            catch (NativeEngineException)
+            {
+                // 測れなくても描画は続ける
+            }
+        }
+        if (any)
+        {
+            _gpuTimer.Add(TimeSpan.FromMilliseconds(sum));
+        }
     }
 
     private void RecordWaitAndPresent(double waitMilliseconds, double presentMilliseconds)
@@ -497,8 +531,8 @@ public enum DeviceState
     Failed,
 }
 
-/// <summary>1 回の描画の内訳（ミリ秒）。</summary>
-public readonly record struct RenderBreakdown(double Prepare, double Submit, double Wait, double Present);
+/// <summary>1 回の描画の内訳（ミリ秒）。Prepare〜Present は UI スレッドの時間、Gpu は GPU が描くのに掛けた時間（全区画の合計）。</summary>
+public readonly record struct RenderBreakdown(double Prepare, double Submit, double Wait, double Present, double Gpu);
 
 /// <summary>かかった時間の移動平均。</summary>
 public sealed class FrameTimer

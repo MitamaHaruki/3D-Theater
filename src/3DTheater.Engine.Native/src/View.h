@@ -30,6 +30,8 @@ public:
     void ReadPixels(void* buffer, int stride, int bufferSize);
     // TT_VIEW_FLAG_DEFERRED_PUBLISH のとき、最後に描いた絵を見える面へ写す（GPU へ頼むだけ）。そのほかは何もしない
     void Publish();
+    // 測れた中でいちばん新しい、1 回の描画に GPU が掛けた時間（ミリ秒）。まだ測れていなければ負（待たずに結果を読む）
+    float GpuMilliseconds() noexcept;
 
     // GPU の作り直し。D3DImage 用の面は別の物になるので、呼び出し側は面を取り直すこと
     void ReleaseDeviceResources() noexcept override;
@@ -51,6 +53,20 @@ private:
     // 映像効果の画像（使うときに作る。大きさが変わったら作り直す）
     void EnsurePostResources(bool bloom, bool depth, bool dof, bool ao, bool fog, bool ssr);
     void ReleaseSwapChain() noexcept;
+
+    // GPU の時刻の記録 1 回分（描画の始めと終わり。disjoint は、間で時計の速さが変わらなかったか）
+    struct GpuTiming {
+        ComPtr<ID3D11Query> disjoint;
+        ComPtr<ID3D11Query> start;
+        ComPtr<ID3D11Query> end;
+        bool pending = false; // 記録を頼んで、まだ結果を読んでいない
+    };
+    static constexpr int kGpuTimings = 4;
+    // 描画の始めに時刻の記録を頼む（使える記録が無ければ null。その回は測らない）
+    GpuTiming* BeginGpuTiming() noexcept;
+    void EndGpuTiming(GpuTiming& timing) noexcept;
+    // 結果が出た記録を、古い順に待たずに読む
+    void CollectGpuTimings() noexcept;
 
     uint32_t magic_ = kMagic;
     Engine& engine_;
@@ -91,6 +107,10 @@ private:
 
     ComPtr<IDirect3DTexture9> d3d9Texture_;
     ComPtr<IDirect3DSurface9> d3d9Surface_;
+
+    GpuTiming gpuTimings_[kGpuTimings];
+    int nextGpuTiming_ = 0;
+    float gpuMilliseconds_ = -1.0f; // まだ測れていなければ負
 };
 
 } // namespace tt

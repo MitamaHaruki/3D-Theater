@@ -371,6 +371,23 @@ public sealed class NativeEngineTests
     }
 
     [TestMethod]
+    public void GpuTimeIsReadWithoutWaiting()
+    {
+        using var engine = NativeEngine.Create(NativeEngineOptions.UseWarp);
+        using var view = engine.CreateOffscreenView(32, 24);
+        Assert.IsNull(view.GpuMilliseconds, "まだ描いていなければ測れていない");
+        float? measured = null;
+        for (int i = 0; i < 4 && measured is null; i++)
+        {
+            Assert.IsTrue(view.Render(DefaultFrame));
+            engine.WaitForGpu();
+            measured = view.GpuMilliseconds;
+        }
+        Assert.IsNotNull(measured, "描いて GPU が終えれば、時間が読める");
+        Assert.IsGreaterThanOrEqualTo(0f, measured.Value);
+    }
+
+    [TestMethod]
     public void SharedViewIsNotSupportedOnWarp()
     {
         using var engine = NativeEngine.Create(NativeEngineOptions.UseWarp);

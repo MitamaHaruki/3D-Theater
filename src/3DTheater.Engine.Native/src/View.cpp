@@ -15,6 +15,13 @@ namespace {
 
 constexpr wchar_t kViewportClassName[] = L"3DTheaterViewportWindow";
 
+// 抜けるときに必ず呼ぶ（例外で抜けても）
+template <class F>
+struct ScopeExit {
+    F action;
+    ~ScopeExit() { action(); }
+};
+
 // Present で UI スレッドが止まらないよう、表示完了の合図を待てるスワップチェーンにする
 constexpr UINT kSwapChainFlags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
 
@@ -382,6 +389,13 @@ bool View::Render(const TtFrameParams& params)
     if (kind_ == Kind::Window && WaitForSingleObjectEx(frameLatencyWaitable_, 0, FALSE) != WAIT_OBJECT_0) {
         return false; // 前の表示がまだ終わっていない。待たずに次の機会に描く
     }
+    // GPU の時刻を、描画の始めと終わりで記録する（途中で失敗しても、終わりの記録は必ず頼む）
+    GpuTiming* timing = BeginGpuTiming();
+    ScopeExit endTiming{[this, timing]() noexcept {
+        if (timing) {
+            EndGpuTiming(*timing);
+        }
+    }};
 
     const bool multisampled = sampleCount_ > 1;
     ID3D11RenderTargetView* target = multisampled ? msaaRtv_.Get() : rtv_.Get();
@@ -493,6 +507,77 @@ void View::ReadPixels(void* buffer, int stride, int bufferSize)
     ctx->Unmap(staging.Get(), 0);
 }
 
+View::GpuTiming* View::BeginGpuTiming() noexcept
+{
+    ID3D11DeviceContext* ctx = engine_.Context();
+    if (!ctx) {
+        return nullptr;
+    }
+    CollectGpuTimings();
+    GpuTiming& timing = gpuTimings_[nextGpuTiming_];
+    if (timing.pending) {
+        return nullptr; // GPU が 4 回分より遅れている。この回は測らない
+    }
+    if (!timing.disjoint) {
+        D3D11_QUERY_DESC disjoint{D3D11_QUERY_TIMESTAMP_DISJOINT, 0};
+        D3D11_QUERY_DESC stamp{D3D11_QUERY_TIMESTAMP, 0};
+        ID3D11Device* device = engine_.Device();
+        if (FAILED(device->CreateQuery(&disjoint, &timing.disjoint)) || FAILED(device->CreateQuery(&stamp, &timing.start))
+            || FAILED(device->CreateQuery(&stamp, &timing.end))) {
+            timing = GpuTiming{};
+            return nullptr; // 時刻を記録できない GPU（測らずに描く）
+        }
+    }
+    ctx->Begin(timing.disjoint.Get());
+    ctx->End(timing.start.Get());
+    return &timing;
+}
+
+void View::EndGpuTiming(GpuTiming& timing) noexcept
+{
+    ID3D11DeviceContext* ctx = engine_.Context();
+    if (!ctx || !timing.disjoint) {
+        return;
+    }
+    ctx->End(timing.end.Get());
+    ctx->End(timing.disjoint.Get());
+    timing.pending = true;
+    nextGpuTiming_ = (nextGpuTiming_ + 1) % kGpuTimings;
+}
+
+void View::CollectGpuTimings() noexcept
+{
+    ID3D11DeviceContext* ctx = engine_.Context();
+    if (!ctx || engine_.IsDeviceLost()) {
+        return;
+    }
+    // 古い順（次に使う記録から）に読む。まだ結果が出ていない記録があれば、それより新しいものもまだ
+    for (int k = 0; k < kGpuTimings; ++k) {
+        GpuTiming& timing = gpuTimings_[(nextGpuTiming_ + k) % kGpuTimings];
+        if (!timing.pending) {
+            continue;
+        }
+        D3D11_QUERY_DATA_TIMESTAMP_DISJOINT disjoint{};
+        UINT64 start = 0;
+        UINT64 end = 0;
+        if (ctx->GetData(timing.disjoint.Get(), &disjoint, sizeof(disjoint), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK
+            || ctx->GetData(timing.start.Get(), &start, sizeof(start), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK
+            || ctx->GetData(timing.end.Get(), &end, sizeof(end), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK) {
+            break;
+        }
+        timing.pending = false;
+        if (!disjoint.Disjoint && disjoint.Frequency > 0 && end >= start) {
+            gpuMilliseconds_ = static_cast<float>(static_cast<double>(end - start) * 1000.0 / static_cast<double>(disjoint.Frequency));
+        }
+    }
+}
+
+float View::GpuMilliseconds() noexcept
+{
+    CollectGpuTimings();
+    return gpuMilliseconds_;
+}
+
 void View::Publish()
 {
     if (!publishedTexture_ || !hasRendered_) {
@@ -504,6 +589,10 @@ void View::Publish()
 
 void View::ReleaseDeviceResources() noexcept
 {
+    for (GpuTiming& timing : gpuTimings_) {
+        timing = GpuTiming{}; // 古いデバイスの記録は読めない
+    }
+    nextGpuTiming_ = 0;
     ReleaseSizeDependentResources();
     ReleaseSwapChain();
 }

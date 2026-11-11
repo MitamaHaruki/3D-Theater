@@ -175,6 +175,19 @@ public sealed unsafe class NativeView : IDisposable
     public void Publish() => NativeError.Check(NativeMethods.ViewPublish(Handle));
 
     /// <summary>
+    /// 1 回の描画（<see cref="Render"/> の中で GPU に頼んだ分）に GPU が掛けた時間（ミリ秒）。待たずに読むので、数回前の描画の値。
+    /// まだ測れていなければ null。
+    /// </summary>
+    public float? GpuMilliseconds
+    {
+        get
+        {
+            float milliseconds;
+            return NativeError.Check(NativeMethods.ViewGetGpuTime(Handle, &milliseconds)) == NativeResult.Ok ? milliseconds : null;
+        }
+    }
+
+    /// <summary>
     /// 画面外ビューの内容を BGRA 8 ビットで読み出す。テスト・保存用と、共有できない環境での表示用。
     /// 見える面を分けたビューでは、最後に <see cref="Publish"/> した絵を読む。
     /// </summary>

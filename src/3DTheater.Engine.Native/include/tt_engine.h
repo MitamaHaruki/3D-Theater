@@ -27,7 +27,7 @@ extern "C" {
 
 // 上位 16 ビットが大きな版、下位 16 ビットが小さな版。大きな版が違う DLL とは組み合わせない。
 #define TT_API_VERSION_MAJOR 0
-#define TT_API_VERSION_MINOR 27
+#define TT_API_VERSION_MINOR 28
 #define TT_API_VERSION ((TT_API_VERSION_MAJOR << 16) | TT_API_VERSION_MINOR)
 
 // 0 以上は成功、負の値は失敗。
@@ -467,6 +467,11 @@ TT_API TtResult TT_CALL tt_view_read_pixels(TtView* view, void* buffer, int32_t 
 // D3DImage へ渡す前に tt_engine_wait_for_gpu で待つ）。大きさを変えた後にまだ描いていなければ何もしない。
 // そのほかのビューでは何もしない（TT_OK）
 TT_API TtResult TT_CALL tt_view_publish(TtView* view);
+
+// API 0.28: このビューの 1 回の描画（tt_view_render の中で GPU に頼んだ分。見える面へ写す分は含まない）に、GPU が掛けた時間（ミリ秒）。
+// GPU の時刻を描画の始めと終わりで記録し、結果が出たものを待たずに読むので、数回前の描画の値になる。まだ測れていなければ
+// out_milliseconds を 0 にして TT_S_NOT_READY。GPU が描くのに 4 回分より遅れている間は、その回は測らない
+TT_API TtResult TT_CALL tt_view_get_gpu_time(TtView* view, float* out_milliseconds);
 
 #ifdef __cplusplus
 }

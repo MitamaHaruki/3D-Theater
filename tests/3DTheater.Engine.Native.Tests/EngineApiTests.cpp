@@ -1899,6 +1899,48 @@ public:
         Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
     }
 
+    TEST_METHOD(GpuTimeIsMeasuredWithoutWaiting)
+    {
+        // 1 回の描画に GPU が掛けた時間: 描画の始めと終わりの GPU の時刻を記録し、結果が出たものを待たずに読む
+        TtEngine* engine = CreateWarpEngine();
+        TtView* view = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_view_create_offscreen(engine, 64, 48, 0, &view));
+        float milliseconds = -1.0f;
+        Assert::AreEqual<int>(TT_S_NOT_READY, tt_view_get_gpu_time(view, &milliseconds), L"まだ描いていなければ測れていない");
+        Assert::AreEqual(0.0f, milliseconds);
+
+        const TtFrameParams params = MakeParams();
+        auto measure = [&] {
+            for (int i = 0; i < 4; ++i) {
+                Assert::AreEqual<int>(TT_OK, tt_view_render(view, &params));
+                Assert::AreEqual<int>(TT_OK, tt_engine_wait_for_gpu(engine));
+                if (tt_view_get_gpu_time(view, &milliseconds) == TT_OK) {
+                    return true;
+                }
+            }
+            return false;
+        };
+        Assert::IsTrue(measure(), L"描いて GPU が終えれば、時間が読める");
+        Assert::IsTrue(milliseconds >= 0.0f && milliseconds < 10000.0f, L"読めた時間はミリ秒");
+
+        // 待たずに何度も描いても（記録が足りない回は測らない）、描画は続けられる
+        for (int i = 0; i < 12; ++i) {
+            Assert::AreEqual<int>(TT_OK, tt_view_render(view, &params));
+        }
+        Assert::AreEqual<int>(TT_OK, tt_engine_wait_for_gpu(engine));
+        Assert::AreEqual<int>(TT_OK, tt_view_get_gpu_time(view, &milliseconds));
+
+        // GPU を作り直した後も測れる
+        Assert::AreEqual<int>(TT_OK, tt_engine_simulate_device_lost(engine));
+        Assert::AreEqual<int>(TT_OK, tt_engine_recover(engine));
+        Assert::IsTrue(measure(), L"作り直した後も測れる");
+
+        Assert::AreEqual<int>(TT_E_INVALID_ARG, tt_view_get_gpu_time(view, nullptr));
+        Assert::AreEqual<int>(TT_E_INVALID_ARG, tt_view_get_gpu_time(nullptr, &milliseconds));
+        Assert::AreEqual<int>(TT_OK, tt_view_destroy(view));
+        Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
+    }
+
     TEST_METHOD(DeferredPublishShowsOnlyPublishedFrames)
     {
         // 見える面を分けたビュー: 描いても、写す（tt_view_publish）までは見える面（読み出し）は変わらない。

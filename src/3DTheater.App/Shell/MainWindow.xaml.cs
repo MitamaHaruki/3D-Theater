@@ -635,7 +635,8 @@ public partial class MainWindow : Window
             : "描画 待機中";
         RenderBreakdown b = loop.Breakdown;
         FrameRateText.ToolTip =
-            $"1 回の描画の内訳（UI スレッドの時間）: 変形 {b.Prepare:F1} ms・描画の依頼 {b.Submit:F1} ms・GPU 待ち {b.Wait:F1} ms・表示 {b.Present:F1} ms";
+            $"1 回の描画の内訳（UI スレッドの時間）: 変形 {b.Prepare:F1} ms・描画の依頼 {b.Submit:F1} ms・GPU 待ち {b.Wait:F1} ms・表示 {b.Present:F1} ms"
+            + $"\nGPU が描くのに掛けた時間（全区画の合計。UI スレッドは待たない）: {b.Gpu:F1} ms";
         VideoMemoryText.Text = FormatVideoMemory(engine);
     }
 
