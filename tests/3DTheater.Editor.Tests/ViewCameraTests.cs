@@ -28,6 +28,42 @@ public sealed class ViewCameraTests
     }
 
     [TestMethod]
+    [DataRow(0.6f, DisplayName = "区画が書き出しより縦長（枠は横いっぱい）")]
+    [DataRow(2.5f, DisplayName = "区画が書き出しより横長（枠は左右の真ん中）")]
+    public void CameraViewShowsTheExportFrameExactly(float paneAspect)
+    {
+        // 書き出し（16:9）の画面の端に写る点が、区画の中の書き出しの枠の端に写る
+        const float frameAspect = 16f / 9f;
+        var sceneCamera = new CameraNode("カメラ");
+        sceneCamera.ApplyPose(new CameraPose(new Vector3(0, 10, 0), new Vector3(10, 30, 0), 40, 30));
+        ViewMatrices export = ViewCamera.SceneCameraMatrices(sceneCamera, frameAspect);
+        var camera = new ViewCamera(ViewKind.Camera);
+        ViewMatrices pane = camera.GetMatrices(paneAspect, sceneCamera, frameAspect);
+        var (left, top, width, height) = ViewCamera.ExportFrame(paneAspect, 1f, frameAspect);
+
+        Matrix4x4.Invert(export.View * export.Projection, out Matrix4x4 inverse);
+        foreach (Vector2 ndc in new[] { new Vector2(1, 1), new Vector2(-1, 0.5f), new Vector2(0.3f, -1) })
+        {
+            Vector4 world = Vector4.Transform(new Vector4(ndc, 0.5f, 1f), inverse);
+            Vector4 clip = Vector4.Transform(world / world.W, pane.View * pane.Projection);
+            var inPane = new Vector2(clip.X / clip.W, clip.Y / clip.W);
+            // 区画の座標（左上 0・右下 区画の大きさ、Y は下向き）へ
+            float x = (inPane.X + 1f) / 2f * paneAspect;
+            float y = (1f - inPane.Y) / 2f;
+            Assert.AreEqual(left + ((ndc.X + 1f) / 2f * width), x, 1e-3f, "横の位置");
+            Assert.AreEqual(top + ((1f - ndc.Y) / 2f * height), y, 1e-3f, "縦の位置");
+        }
+    }
+
+    [TestMethod]
+    public void ExportFrameFitsInsideThePane()
+    {
+        Assert.AreEqual((0f, 75f, 800f, 450f), ViewCamera.ExportFrame(800, 600, 16f / 9f), "縦長の区画: 横いっぱい、上下は帯");
+        Assert.AreEqual((100f, 0f, 400f, 300f), ViewCamera.ExportFrame(600, 300, 4f / 3f), "横長の区画: 縦いっぱい、左右は帯");
+        Assert.AreEqual((0f, 0f, 640f, 480f), ViewCamera.ExportFrame(640, 480, 0f), "比が無ければ区画そのもの");
+    }
+
+    [TestMethod]
     public void FreeViewStartsInPerspective()
     {
         var camera = new ViewCamera(ViewKind.Free);

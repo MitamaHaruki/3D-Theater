@@ -54,9 +54,9 @@
 
       <TextBlock Grid.Row="2" Style="{StaticResource LabelStyle}" Text="大きさ" />
       <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" Margin="0,4">
-        <TextBox x:Name="WidthBox" Width="72" ToolTip="幅（ピクセル）" />
+        <TextBox x:Name="WidthBox" Width="72" ToolTip="幅（ピクセル）" TextChanged="OnSizeTextChanged" />
         <TextBlock Margin="6,0" VerticalAlignment="Center" Text="×" />
-        <TextBox x:Name="HeightBox" Width="72" ToolTip="高さ（ピクセル）" />
+        <TextBox x:Name="HeightBox" Width="72" ToolTip="高さ（ピクセル）" TextChanged="OnSizeTextChanged" />
         <ComboBox x:Name="SizePresetBox" Margin="10,0,0,0" Width="170" MinHeight="0" Height="28" SelectionChanged="OnSizePresetChanged"
                   ToolTip="よく使う大きさ" />
       </StackPanel>
@@ -118,6 +118,8 @@
     </StackPanel>
 
     <DockPanel Margin="0,16,0,0" LastChildFill="False">
+      <Button x:Name="SampleButton" DockPanel.Dock="Left" MinWidth="110" Content="見本を描く" Click="OnSampleClick"
+              ToolTip="今の設定で、書き出すフレーム（連番・動画は最初のフレーム）を 1 枚描いて見せます（保存はしません）" />
       <Button x:Name="CloseButton" DockPanel.Dock="Right" MinWidth="88" Margin="8,0,0,0" Content="閉じる" IsCancel="True" Click="OnCloseClick" />
       <Button x:Name="ExportButton" DockPanel.Dock="Right" MinWidth="88" Content="書き出す" IsDefault="True" Click="OnExportClick" />
     </DockPanel>

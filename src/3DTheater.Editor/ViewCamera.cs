@@ -151,13 +151,17 @@ public sealed class ViewCamera
         RaiseChanged();
     }
 
-    public ViewMatrices GetMatrices(float aspectRatio, CameraNode? sceneCamera)
+    /// <param name="frameAspect">
+    /// カメラ視点のときの、書き出しの縦横の比（0 なら区画の形のまま）。区画の中に、この比の枠が書き出しと同じ写り方で入るようにする
+    /// （<see cref="SceneCameraMatrices"/>）。
+    /// </param>
+    public ViewMatrices GetMatrices(float aspectRatio, CameraNode? sceneCamera, float frameAspect = 0f)
     {
         float aspect = aspectRatio > 0f && float.IsFinite(aspectRatio) ? aspectRatio : 1f;
 
         if (Kind == ViewKind.Camera && sceneCamera is not null)
         {
-            return SceneCameraMatrices(sceneCamera, aspect);
+            return SceneCameraMatrices(sceneCamera, aspect, frameAspect);
         }
 
         CameraBasis basis = CameraBasis.FromAngles(Yaw, Pitch);
@@ -177,16 +181,42 @@ public sealed class ViewCamera
         return new ViewMatrices(basis.CreateViewMatrix(eye), perspective, basis, eye, false);
     }
 
-    /// <summary>シーンのカメラから見た行列（カメラ視点・書き出しで使う）。</summary>
-    public static ViewMatrices SceneCameraMatrices(CameraNode sceneCamera, float aspectRatio)
+    /// <summary>
+    /// シーンのカメラから見た行列（カメラ視点・書き出しで使う）。<paramref name="frameAspect"/> が正なら、縦横の比
+    /// <paramref name="aspectRatio"/> の区画の中に、書き出し（縦横の比 <paramref name="frameAspect"/>）の枠
+    /// （<see cref="ExportFrame"/>）が、書き出しとまったく同じ写り方で入るようにする:
+    /// 区画が書き出しより横長なら縦の画角はそのまま（枠は左右の真ん中）、縦長なら枠を横いっぱいにし、枠の高さがカメラの画角に
+    /// なるよう、区画の縦の画角を広げる。
+    /// </summary>
+    public static ViewMatrices SceneCameraMatrices(CameraNode sceneCamera, float aspectRatio, float frameAspect = 0f)
     {
         float aspect = aspectRatio > 0f && float.IsFinite(aspectRatio) ? aspectRatio : 1f;
         Vector3 radians = sceneCamera.Rotation * (MathF.PI / 180f);
         CameraBasis cameraBasis = CameraBasis.FromAngles(radians.Y, radians.X, radians.Z);
+        float fieldOfView = sceneCamera.FieldOfView * MathF.PI / 180f;
+        if (frameAspect > 0f && float.IsFinite(frameAspect) && aspect < frameAspect)
+        {
+            fieldOfView = 2f * MathF.Atan(MathF.Tan(fieldOfView / 2f) * (frameAspect / aspect));
+        }
         Matrix4x4 cameraProjection = Matrix4x4.CreatePerspectiveFieldOfViewLeftHanded(
-            sceneCamera.FieldOfView * MathF.PI / 180f, aspect, sceneCamera.NearClip, sceneCamera.FarClip);
+            fieldOfView, aspect, sceneCamera.NearClip, sceneCamera.FarClip);
         return new ViewMatrices(
             cameraBasis.CreateViewMatrix(sceneCamera.Position), cameraProjection, cameraBasis, sceneCamera.Position, false);
+    }
+
+    /// <summary>
+    /// 幅 <paramref name="width"/>・高さ <paramref name="height"/> の区画の中の、書き出し（縦横の比 <paramref name="frameAspect"/>）の枠
+    /// （左上と大きさ）。区画に収まるいちばん大きな枠を、真ん中に置く。<paramref name="frameAspect"/> が 0 以下なら区画そのもの。
+    /// </summary>
+    public static (float Left, float Top, float Width, float Height) ExportFrame(float width, float height, float frameAspect)
+    {
+        if (!(frameAspect > 0f) || !float.IsFinite(frameAspect) || width <= 0f || height <= 0f)
+        {
+            return (0f, 0f, Math.Max(width, 0f), Math.Max(height, 0f));
+        }
+        float frameWidth = Math.Min(width, height * frameAspect);
+        float frameHeight = frameWidth / frameAspect;
+        return ((width - frameWidth) / 2f, (height - frameHeight) / 2f, frameWidth, frameHeight);
     }
 
     private void LeaveCameraView(CameraNode? sceneCamera)

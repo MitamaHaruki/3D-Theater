@@ -8,6 +8,11 @@
     <Grid ClipToBounds="True">
       <Border x:Name="SurfaceHost" />
 
+      <!-- カメラ視点: 書き出しの枠（枠の外を暗くし、枠の線を引く。マウスは下の 3D へ通す） -->
+      <Path x:Name="ExportFrameShade" IsHitTestVisible="False" Fill="#80000000" Visibility="Collapsed" />
+      <Rectangle x:Name="ExportFrameLine" IsHitTestVisible="False" HorizontalAlignment="Left" VerticalAlignment="Top"
+                 Stroke="#C0FFFFFF" StrokeThickness="1" Visibility="Collapsed" />
+
       <local:AxisIndicator x:Name="Axes" Width="62" Height="62" Margin="4" HorizontalAlignment="Left" VerticalAlignment="Bottom" />
 
       <!-- 3D の上に重ねる見出し（方式 B なので WPF の部品をそのまま重ねられる） -->

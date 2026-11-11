@@ -42,6 +42,9 @@ public partial class ViewportControl : UserControl, IDisposable
         SurfaceHost.Child = _surface;
 
         Camera.Changed += (_, _) => OnCameraChanged();
+        SizeChanged += (_, _) => UpdateExportFrame();
+        Loaded += (_, _) => context.ExportSizeChanged += OnExportSizeChanged;
+        Unloaded += (_, _) => context.ExportSizeChanged -= OnExportSizeChanged;
         _surface.MouseDown += OnSurfaceMouseDown;
         _surface.MouseMove += OnSurfaceMouseMove;
         _surface.MouseUp += OnSurfaceMouseUp;
@@ -224,8 +227,12 @@ public partial class ViewportControl : UserControl, IDisposable
 
     private FrameParameters BuildFrame(int pixelWidth, int pixelHeight)
     {
-        ViewMatrices matrices = Camera.GetMatrices(pixelWidth / (float)pixelHeight, _context.MainCamera);
+        ViewMatrices matrices = Camera.GetMatrices(pixelWidth / (float)pixelHeight, _context.MainCamera, _context.ExportAspect);
         Axes.SetBasis(matrices.Basis);
+        // 輪郭線の太さ・映像効果の大きさは、書き出しと同じ見え方になるよう、カメラ視点では書き出しの枠の高さで決める
+        int effectHeight = Camera.Kind == ViewKind.Camera
+            ? Math.Max(1, (int)MathF.Round(ViewCamera.ExportFrame(pixelWidth, pixelHeight, _context.ExportAspect).Height))
+            : pixelHeight;
 
         FrameFlags flags = FrameFlags.None;
         GridPlane plane = Camera.Kind.GridPlaneFor();
@@ -301,8 +308,8 @@ public partial class ViewportControl : UserControl, IDisposable
             flags |= FrameFlags.EnvironmentBackground; // 固定の視点（平行投影）には、描画エンジンが描かない
         }
         return new FrameParameters(flags, matrices.View, matrices.Projection, gridWorld, testWorld, _drawItems, _lines.Memory,
-            lightDirection, lightColor, SceneLighting.EdgePixelScale(pixelHeight), _context.Rendering.ShadowStyle.GroundColor,
-            ShadowMapSize: _context.PreviewQuality.Profile.ShadowMapSize, Effects: _context.Rendering.ToNative(pixelHeight, Camera.Kind == ViewKind.Camera ? _context.MainCamera : null),
+            lightDirection, lightColor, SceneLighting.EdgePixelScale(effectHeight), _context.Rendering.ShadowStyle.GroundColor,
+            ShadowMapSize: _context.PreviewQuality.Profile.ShadowMapSize, Effects: _context.Rendering.ToNative(effectHeight, Camera.Kind == ViewKind.Camera ? _context.MainCamera : null),
             Lights: EffectsMapping.LightsOf(_context.Scene), ReflectionStrength: reflection.Strength, ReflectionFade: reflection.Fade,
             ShadowSoftness: _context.Rendering.ShadowStyle.SoftnessTangent, Environment: environmentImage,
             EnvironmentIntensity: environment.Intensity, EnvironmentRotation: environment.RotationRadians);
@@ -316,7 +323,7 @@ public partial class ViewportControl : UserControl, IDisposable
     private GizmoController.ViewInfo CurrentView()
     {
         var size = new Vector2((float)Math.Max(1, _surface.ActualWidth), (float)Math.Max(1, _surface.ActualHeight));
-        ViewMatrices matrices = Camera.GetMatrices(size.X / size.Y, _context.MainCamera);
+        ViewMatrices matrices = Camera.GetMatrices(size.X / size.Y, _context.MainCamera, _context.ExportAspect);
         return new GizmoController.ViewInfo(matrices.View, matrices.Projection, size);
     }
 
@@ -325,7 +332,42 @@ public partial class ViewportControl : UserControl, IDisposable
     private void OnCameraChanged()
     {
         UpdateHeader();
+        UpdateExportFrame();
         Redraw();
+    }
+
+    private void OnExportSizeChanged(object? sender, EventArgs e)
+    {
+        UpdateHeader();
+        UpdateExportFrame();
+        Redraw();
+    }
+
+    /// <summary>カメラ視点のときだけ、書き出しの枠を出す（枠の外を暗くする）。</summary>
+    private void UpdateExportFrame()
+    {
+        double width = SurfaceHost.ActualWidth;
+        double height = SurfaceHost.ActualHeight;
+        bool show = Camera.Kind == ViewKind.Camera && width > 0 && height > 0;
+        ExportFrameShade.Visibility = ExportFrameLine.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        if (!show)
+        {
+            return;
+        }
+        var (left, top, frameWidth, frameHeight) = ViewCamera.ExportFrame((float)width, (float)height, _context.ExportAspect);
+        var frame = new Rect(left, top, frameWidth, frameHeight);
+        ExportFrameShade.Data = new System.Windows.Media.GeometryGroup
+        {
+            FillRule = System.Windows.Media.FillRule.EvenOdd,
+            Children =
+            {
+                new System.Windows.Media.RectangleGeometry(new Rect(0, 0, width, height)),
+                new System.Windows.Media.RectangleGeometry(frame),
+            },
+        };
+        ExportFrameLine.Margin = new Thickness(frame.Left, frame.Top, 0, 0);
+        ExportFrameLine.Width = Math.Max(0, frame.Width);
+        ExportFrameLine.Height = Math.Max(0, frame.Height);
     }
 
     private void Redraw()
@@ -338,7 +380,7 @@ public partial class ViewportControl : UserControl, IDisposable
     {
         ViewNameText.Text = Camera.Kind.DisplayName();
         ProjectionText.Text = Camera.Kind == ViewKind.Camera
-            ? _context.MainCamera?.Name ?? string.Empty
+            ? $"{_context.MainCamera?.Name}・書き出し {_context.ExportSize.Width} x {_context.ExportSize.Height} の枠"
             : Camera.IsOrthographic ? "平行投影" : "透視投影";
     }
 
@@ -460,7 +502,7 @@ public partial class ViewportControl : UserControl, IDisposable
         {
             return;
         }
-        ViewMatrices matrices = Camera.GetMatrices(size.X / size.Y, _context.MainCamera);
+        ViewMatrices matrices = Camera.GetMatrices(size.X / size.Y, _context.MainCamera, _context.ExportAspect);
         Ray ray = Picking.CreateRay(new Vector2((float)point.X, (float)point.Y), size, matrices.View, matrices.Projection);
 
         // 視線に当たったもののうち、いちばん手前を選ぶ

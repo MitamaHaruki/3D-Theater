@@ -5,7 +5,9 @@ using System.IO;
 using System.Numerics;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using Theater3D.App.Logging;
 using Theater3D.App.Shell;
 using Theater3D.Domain;
@@ -138,6 +140,68 @@ public partial class ExportWindow : Window
     }
 
     private void OnTransparentChanged(object sender, RoutedEventArgs e) => UpdateBackground();
+
+    /// <summary>大きさを変えたら、カメラ視点の区画の書き出しの枠もすぐに変える。</summary>
+    private void OnSizeTextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (TryReadSize(out int width, out int height))
+        {
+            _context.SetExportSize(width, height);
+        }
+    }
+
+    private bool TryReadSize(out int width, out int height)
+    {
+        height = 0;
+        return int.TryParse(WidthBox.Text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out width)
+            && int.TryParse(HeightBox.Text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out height)
+            && width is >= 1 and <= ExportOptions.MaxRenderSize && height is >= 1 and <= ExportOptions.MaxRenderSize;
+    }
+
+    /// <summary>見本: 今の設定で 1 枚描いて見せる（書き出し先は使わない）。</summary>
+    private void OnSampleClick(object sender, RoutedEventArgs e)
+    {
+        if (!TryReadOptions(out ExportOptions? options, out string? problem))
+        {
+            MessageBox.Show(this, problem, Title, MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        IReadOnlyList<string> errors = (options with { OutputPath = "見本.png" }).Validate(_context.Playback.EndFrame);
+        if (errors.Count > 0)
+        {
+            MessageBox.Show(this, string.Join("\n", errors), Title, MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        BitmapSource image;
+        Mouse.OverrideCursor = Cursors.Wait;
+        try
+        {
+            image = ImageExporter.RenderSample(_context, options);
+        }
+        catch (Exception ex) when (ex is NativeEngineException or InvalidOperationException or OutOfMemoryException)
+        {
+            MessageBox.Show(this, "見本を描けませんでした: " + ex.Message, Title, MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        finally
+        {
+            Mouse.OverrideCursor = null;
+        }
+        var parts = new List<string> { $"フレーム {options.FirstFrame}", $"{options.Width} x {options.Height}" };
+        if (options.Smooth)
+        {
+            parts.Add("なめらかにする");
+        }
+        if (options.UsesMotionBlur)
+        {
+            parts.Add($"モーションブラー {options.MotionBlurSamples} 回");
+        }
+        parts.Add(options.UsesTransparency ? "背景は透明（市松模様の所）" : "背景 " + ImageExport.FormatColor(options.Background));
+        string description = "書き出すときと同じ設定で描いた見本です（保存はしていません）。" + string.Join("・", parts);
+        var window = new SampleWindow(image, description, options.UsesTransparency) { Owner = this };
+        WindowMemory.Track(window);
+        window.ShowDialog();
+    }
 
     // モーションブラーの選び方（画面の並びと同じ順）
     private static readonly float[] ShutterChoices = [0.25f, 0.5f, 1f];
@@ -412,7 +476,12 @@ public partial class ExportWindow : Window
             base.OnClosing(e);
             return;
         }
-        // 書き出さずに閉じても、入れた書き出し先は覚えておく
+        // 書き出さずに閉じても、入れた大きさ（カメラ視点の書き出しの枠と同じ）と書き出し先は覚えておく
+        if (TryReadSize(out int width, out int height))
+        {
+            _preferences.Width = width;
+            _preferences.Height = height;
+        }
         if (PathBox.Text.Trim() is { Length: > 0 } path)
         {
             switch (_kind)

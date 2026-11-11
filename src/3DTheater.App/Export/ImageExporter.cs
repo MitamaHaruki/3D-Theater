@@ -53,16 +53,7 @@ internal static class ImageExporter
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(options.Paths[0]))!);
-            view = engine.CreateOffscreenView(options.RenderWidth, options.RenderHeight);
-            int samples = RenderQuality.FitSampleCount(RenderQuality.Export.SampleCount, options.RenderWidth, options.RenderHeight);
-            try
-            {
-                view.SetSampleCount(samples);
-            }
-            catch (NativeEngineException ex) when (ex.Result == NativeResult.OutOfMemory)
-            {
-                Logging.AppLog.Warning("書き出しをなめらかに描くための描画先を作れなかったため、なめらかさなし（MSAA なし）で描きます", ex);
-            }
+            view = CreateView(engine, options);
             sink = options.IsVideo ? new VideoSink(options, context.Playback.FrameRate, audio) : new PngSink(options);
             for (int i = 0; i < frames.Count; i++)
             {
@@ -94,15 +85,73 @@ internal static class ImageExporter
                 await sink.AbortAsync(); // やめた・失敗した: 書きかけの保存を待って片付ける（書きかけの動画は消す）
             }
             view?.Dispose();
-            context.RenderLoop.IsSuspended = false;
-            context.Physics.ForceBaked = false;
-            context.Playback.Seek(originalFrame);
-            foreach (LoadedModel model in context.Models.Values)
-            {
-                model.IsPoseDirty = true;
-            }
-            context.RenderLoop.InvalidateAll();
+            Restore(context, originalFrame);
         }
+    }
+
+    /// <summary>
+    /// 見本: 書き出しと同じ設定で <see cref="ExportOptions.FirstFrame"/> を 1 枚描き、書き出す大きさの画像にして返す（保存はしない）。
+    /// 透明な背景のときは、透明度をかけ合わせた色（Pbgra32）で返す。
+    /// </summary>
+    public static BitmapSource RenderSample(EditorContext context, ExportOptions options)
+    {
+        NativeEngine engine = context.Engine ?? throw new InvalidOperationException("描画エンジンが使えないため、描けません");
+        CameraNode camera = context.MainCamera ?? throw new InvalidOperationException("シーンのカメラがありません");
+        int originalFrame = context.Playback.CurrentFrame;
+        NativeView? view = null;
+        byte[]? pixels = null;
+        context.Playback.Pause();
+        context.Physics.ForceBaked = true;
+        context.RenderLoop.IsSuspended = true;
+        try
+        {
+            view = CreateView(engine, options);
+            pixels = RenderFrame(context, view, camera, options, options.FirstFrame);
+            byte[]? scratch = null;
+            byte[] image = Shrink(pixels, options, ref scratch);
+            var bitmap = BitmapSource.Create(options.Width, options.Height, 96, 96,
+                options.UsesTransparency ? PixelFormats.Pbgra32 : PixelFormats.Bgra32, null, image, options.Width * 4);
+            bitmap.Freeze();
+            return bitmap;
+        }
+        finally
+        {
+            if (pixels is not null)
+            {
+                ArrayPool<byte>.Shared.Return(pixels);
+            }
+            view?.Dispose();
+            Restore(context, originalFrame);
+        }
+    }
+
+    /// <summary>書き出しの大きさの、画面外の描画先（なめらかさは書き出しの品質。足りなければ MSAA なし）。</summary>
+    private static NativeView CreateView(NativeEngine engine, ExportOptions options)
+    {
+        NativeView view = engine.CreateOffscreenView(options.RenderWidth, options.RenderHeight);
+        int samples = RenderQuality.FitSampleCount(RenderQuality.Export.SampleCount, options.RenderWidth, options.RenderHeight);
+        try
+        {
+            view.SetSampleCount(samples);
+        }
+        catch (NativeEngineException ex) when (ex.Result == NativeResult.OutOfMemory)
+        {
+            Logging.AppLog.Warning("書き出しをなめらかに描くための描画先を作れなかったため、なめらかさなし（MSAA なし）で描きます", ex);
+        }
+        return view;
+    }
+
+    /// <summary>書き出しの前の状態（再生位置・画面の物理・描き直し）に戻す。</summary>
+    private static void Restore(EditorContext context, int originalFrame)
+    {
+        context.RenderLoop.IsSuspended = false;
+        context.Physics.ForceBaked = false;
+        context.Playback.Seek(originalFrame);
+        foreach (LoadedModel model in context.Models.Values)
+        {
+            model.IsPoseDirty = true;
+        }
+        context.RenderLoop.InvalidateAll();
     }
 
     /// <summary>

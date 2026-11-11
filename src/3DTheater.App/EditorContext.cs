@@ -162,6 +162,29 @@ public sealed class EditorContext
     /// <summary>描き方の設定の、環境の画像を GPU に載せたもの。</summary>
     public EnvironmentImage EnvironmentImage { get; }
 
+    /// <summary>
+    /// 書き出しの大きさ（書き出しの画面で入れたもの）。カメラ視点の区画に、この縦横の比の枠を、書き出しと同じ写り方で出す。
+    /// </summary>
+    public (int Width, int Height) ExportSize { get; private set; } = (1920, 1080);
+
+    /// <summary>書き出しの縦横の比。</summary>
+    public float ExportAspect => ExportSize.Width / (float)ExportSize.Height;
+
+    /// <summary>書き出しの大きさが変わった。</summary>
+    public event EventHandler? ExportSizeChanged;
+
+    /// <summary>書き出しの大きさを変える（1 以上でなければ変えない）。</summary>
+    public void SetExportSize(int width, int height)
+    {
+        if (width < 1 || height < 1 || (width, height) == ExportSize)
+        {
+            return;
+        }
+        ExportSize = (width, height);
+        ExportSizeChanged?.Invoke(this, EventArgs.Empty);
+        RenderLoop.InvalidateAll();
+    }
+
     /// <summary>プレビューの品質（なめらかさ・影の細かさ。利用者ごとの設定で、プロジェクトには入れない）。</summary>
     public PreviewQualitySettings PreviewQuality { get; } = new();
 

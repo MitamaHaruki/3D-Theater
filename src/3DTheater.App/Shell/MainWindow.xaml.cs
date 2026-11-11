@@ -40,6 +40,7 @@ public partial class MainWindow : Window
         _project.StateChanged += (_, _) => UpdateTitle();
         _project.Opened += (_, _) => FocusViewsOnFirstModel();
         _settings = UserSettingsStore.Load();
+        _context.SetExportSize(_settings.Export.Width, _settings.Export.Height); // カメラ視点の書き出しの枠
         _renderFailure = engineError;
 
         Icon = AppIcon.CreateBitmap(64);
