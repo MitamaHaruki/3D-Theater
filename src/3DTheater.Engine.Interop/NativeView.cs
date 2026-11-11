@@ -147,6 +147,10 @@ public sealed unsafe class NativeView : IDisposable
                 DofTransition = frame.Effects.DofTransition,
                 AoStrength = frame.Effects.AoStrength,
                 AoRadius = frame.Effects.AoRadius,
+                FogColor = frame.Effects.FogColor,
+                FogStart = frame.Effects.FogStart,
+                FogDensity = frame.Effects.FogDensity,
+                FogHeight = frame.Effects.FogHeight,
             };
             return NativeError.Check(NativeMethods.ViewRender(Handle, &parameters)) == NativeResult.Ok;
         }

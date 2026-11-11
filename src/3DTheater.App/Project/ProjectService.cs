@@ -27,7 +27,7 @@ internal sealed class ProjectService
     private readonly DispatcherTimer _autosaveTimer;
     private int _suppressDirty;
     private (int FrameRate, int EndFrame, bool Loop, bool Physics, bool SelfShadow, bool GroundShadow, VisualEffects Effects, IllustrationStyle Illustration,
-        FloorReflection Reflection) _playbackSettings;
+        FloorReflection Reflection, SceneFog Fog) _playbackSettings;
 
     public ProjectService(EditorContext context, Window owner)
     {
@@ -451,10 +451,10 @@ internal sealed class ProjectService
         }
     }
 
-    private (int, int, bool, bool, bool, bool, VisualEffects, IllustrationStyle, FloorReflection) PlaybackSettings() =>
+    private (int, int, bool, bool, bool, bool, VisualEffects, IllustrationStyle, FloorReflection, SceneFog) PlaybackSettings() =>
         (_context.Playback.FrameRate, _context.Playback.EndFrame, _context.Playback.Loop, _context.Physics.Enabled,
             _context.Rendering.SelfShadow, _context.Rendering.GroundShadow, _context.Rendering.Effects, _context.Rendering.Illustration,
-            _context.Rendering.Reflection);
+            _context.Rendering.Reflection, _context.Rendering.Fog);
 
     private void ShowReport(string path, LoadReport report)
     {

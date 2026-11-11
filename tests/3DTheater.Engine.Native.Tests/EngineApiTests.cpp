@@ -1463,6 +1463,97 @@ public:
         Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
     }
 
+    TEST_METHOD(FogBlendsDistantObjectsIntoTheFogColor)
+    {
+        // 赤い板を 2 枚。左は近く（カメラから 3）、右は遠く（カメラから 10）。霧の色は青
+        TtEngine* engine = CreateWarpEngine();
+        constexpr int width = 64;
+        constexpr int height = 48;
+        TtView* view = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_view_create_offscreen(engine, width, height, 0, &view));
+        TtTexture* texture = CreateSolidTexture(engine, 0, 0, 255);
+        const TtMeshMaterial material = QuadMaterial(texture);
+        const TtMeshDesc desc = QuadDesc(kClockwise, &material);
+        TtMesh* mesh = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_mesh_create(engine, &desc, &mesh));
+        Assert::AreEqual<int>(TT_OK, tt_texture_destroy(texture));
+
+        auto render = [&](uint32_t flags, float start, float density, float fogHeight, float backgroundAlpha, bool orthographic = false) {
+            TtFrameParams params = MakeFrontParams();
+            if (orthographic) {
+                DirectX::XMStoreFloat4x4(reinterpret_cast<DirectX::XMFLOAT4X4*>(params.projection),
+                    DirectX::XMMatrixOrthographicLH(8.0f, 6.0f, 0.1f, 100.0f));
+            }
+            params.flags = TT_FRAME_CLEAR_COLOR;
+            params.clear_color[3] = backgroundAlpha;
+            TtDrawItem items[2] = {DrawItem(mesh), DrawItem(mesh)};
+            DirectX::XMStoreFloat4x4(reinterpret_cast<DirectX::XMFLOAT4X4*>(items[0].world),
+                DirectX::XMMatrixScaling(0.5f, 0.5f, 1.0f) * DirectX::XMMatrixTranslation(-1.0f, 0.0f, -2.0f));
+            DirectX::XMStoreFloat4x4(reinterpret_cast<DirectX::XMFLOAT4X4*>(items[1].world),
+                DirectX::XMMatrixScaling(1.5f, 1.5f, 1.0f) * DirectX::XMMatrixTranslation(3.0f, 0.0f, 5.0f));
+            params.items = items;
+            params.item_count = 2;
+            params.post_flags = flags;
+            params.contrast = 1.0f;
+            params.saturation = 1.0f;
+            params.fog_color[2] = 1.0f;
+            params.fog_start = start;
+            params.fog_density = density;
+            params.fog_height = fogHeight;
+            return RenderAndRead(engine, view, params, width, height);
+        };
+        auto at = [&](const std::vector<uint8_t>& pixels, int x, int y, int channel) {
+            return static_cast<int>(pixels[(static_cast<size_t>(y) * width + x) * 4 + channel]);
+        };
+        constexpr int kBlue = 0;
+        constexpr int kRed = 2;
+        constexpr int kAlpha = 3;
+        const int nearX = 13;
+        const int farX = 49;
+        const int middle = height / 2;
+
+        const std::vector<uint8_t> plain = render(0, 0.0f, 0.1f, 0.0f, 1.0f);
+        Assert::AreEqual(255, at(plain, nearX, middle, kRed));
+        Assert::AreEqual(255, at(plain, farX, middle, kRed));
+        Assert::AreEqual(0, at(plain, 2, 2, kBlue));
+
+        // 霧の量 = 1 - exp(-0.1 × 距離): 近く 0.26、遠く 0.63、背景 1
+        const std::vector<uint8_t> foggy = render(TT_POST_FOG, 0.0f, 0.1f, 0.0f, 1.0f);
+        const int nearBlue = at(foggy, nearX, middle, kBlue);
+        const int farBlue = at(foggy, farX, middle, kBlue);
+        Assert::IsTrue(nearBlue > 50 && nearBlue < 85, L"近くの板は少しだけ霧の色になる");
+        Assert::IsTrue(farBlue > 145 && farBlue < 180, L"遠くの板はより霧の色になる");
+        Assert::IsTrue(at(foggy, farX, middle, kRed) < at(foggy, nearX, middle, kRed), L"遠くほど元の色が薄い");
+        Assert::IsTrue(at(foggy, 2, 2, kBlue) > 250, L"不透明な背景は霧の色になる");
+
+        const std::vector<uint8_t> transparent = render(TT_POST_FOG, 0.0f, 0.1f, 0.0f, 0.0f);
+        Assert::AreEqual(0, at(transparent, 2, 2, kAlpha), L"透明な背景は透明のまま");
+        Assert::AreEqual(255, at(transparent, farX, middle, kAlpha), L"物は不透明のまま");
+        Assert::IsTrue(std::abs(farBlue - at(transparent, farX, middle, kBlue)) <= 2, L"物の霧は背景によらない");
+
+        const std::vector<uint8_t> late = render(TT_POST_FOG, 20.0f, 0.1f, 0.0f, 0.0f);
+        Assert::AreEqual(255, at(late, farX, middle, kRed), L"霧の始まりより近い物は変わらない");
+        Assert::AreEqual(0, at(late, farX, middle, kBlue));
+
+        const std::vector<uint8_t> none = render(TT_POST_FOG, 0.0f, 0.0f, 0.0f, 1.0f);
+        Assert::AreEqual(0, at(none, farX, middle, kBlue), L"濃さ 0 なら何もしない");
+
+        // 高さで薄くする: カメラは高さ 0。板の下（地面より下）は濃さそのまま、上は薄い
+        const std::vector<uint8_t> ground = render(TT_POST_FOG, 0.0f, 0.1f, 0.5f, 1.0f);
+        const int top = at(ground, farX, middle - 7, kBlue);
+        const int bottom = at(ground, farX, middle + 7, kBlue);
+        Assert::IsTrue(bottom > top + 40, L"地面の近く（下）ほど霧が濃い");
+        Assert::IsTrue(std::abs(bottom - at(foggy, farX, middle + 7, kBlue)) <= 3, L"地面より下は、高さによらない霧と同じ");
+
+        const std::vector<uint8_t> fixedView = render(TT_POST_FOG, 0.0f, 0.1f, 0.0f, 1.0f, true);
+        Assert::AreEqual(255, at(fixedView, farX, middle, kRed), L"平行投影（固定の視点）には霧をかけない");
+        Assert::AreEqual(0, at(fixedView, 2, 2, kBlue));
+
+        Assert::AreEqual<int>(TT_OK, tt_mesh_destroy(mesh));
+        Assert::AreEqual<int>(TT_OK, tt_view_destroy(view));
+        Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
+    }
+
     TEST_METHOD(GridCanBeDrawnBehindModels)
     {
         // 正面の視点と同じく、格子を画面に平行な面（Z = 0）に置き、その奥（Z = 0.5）に赤い四角形を置く。

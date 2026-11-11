@@ -105,6 +105,9 @@ public sealed class RenderingEntry
     /// <summary>床の映り込み（初期のままなら書かない）。</summary>
     public FloorReflection? Reflection { get; set; }
 
+    /// <summary>霧（初期のままなら書かない）。</summary>
+    public SceneFog? Fog { get; set; }
+
     public static RenderingEntry From(RenderSettings settings) => new()
     {
         SelfShadow = settings.SelfShadow,
@@ -112,6 +115,7 @@ public sealed class RenderingEntry
         Effects = settings.Effects == VisualEffects.None ? null : settings.Effects,
         Illustration = settings.Illustration == IllustrationStyle.None ? null : settings.Illustration,
         Reflection = settings.Reflection == FloorReflection.Off ? null : settings.Reflection,
+        Fog = settings.Fog == SceneFog.Off ? null : settings.Fog,
     };
 
     public void ApplyTo(RenderSettings settings)
@@ -121,6 +125,7 @@ public sealed class RenderingEntry
         settings.Effects = Effects ?? VisualEffects.None;
         settings.Illustration = Illustration ?? IllustrationStyle.None;
         settings.Reflection = Reflection ?? FloorReflection.Off;
+        settings.Fog = Fog ?? SceneFog.Off;
     }
 }
 

@@ -266,7 +266,7 @@ uint32_t View::SetSampleCount(uint32_t requested)
     return actual;
 }
 
-void View::EnsurePostResources(bool bloom, bool depth, bool dof, bool ao)
+void View::EnsurePostResources(bool bloom, bool depth, bool dof, bool ao, bool fog)
 {
     if (!scene_.texture) {
         engine_.CreatePostSurface(scene_, static_cast<UINT>(width_), static_cast<UINT>(height_), Engine::kColorFormat);
@@ -281,6 +281,9 @@ void View::EnsurePostResources(bool bloom, bool depth, bool dof, bool ao)
         engine_.CreatePostSurface(ao_, static_cast<UINT>(width_), static_cast<UINT>(height_), DXGI_FORMAT_R8_UNORM);
         engine_.CreatePostSurface(aoBlur_, static_cast<UINT>(width_), static_cast<UINT>(height_), DXGI_FORMAT_R8_UNORM);
         engine_.CreatePostSurface(aoScene_, static_cast<UINT>(width_), static_cast<UINT>(height_), Engine::kColorFormat);
+    }
+    if (fog && !fog_.texture) {
+        engine_.CreatePostSurface(fog_, static_cast<UINT>(width_), static_cast<UINT>(height_), Engine::kColorFormat);
     }
     if (!bloom || !bloomDown_.empty()) {
         return;
@@ -314,6 +317,7 @@ void View::ReleaseSizeDependentResources() noexcept
     ao_ = PostSurface{};
     aoBlur_ = PostSurface{};
     aoScene_ = PostSurface{};
+    fog_ = PostSurface{};
     bloomDown_.clear();
     bloomUp_.clear();
     ReleaseSampleResources();
@@ -365,8 +369,9 @@ bool View::Render(const TtFrameParams& params)
         // MSAA の描画先へ書いた効果の結果は、どの点も同じ色なので、重ね描きの線だけがなめらかに混ざる
         const bool dof = (params.post_flags & TT_POST_DOF) != 0;
         const bool ao = (params.post_flags & TT_POST_AO) != 0;
-        const bool lines = (params.post_flags & TT_POST_LINES) != 0 || dof || ao; // 奥行きを使う効果
-        EnsurePostResources((params.post_flags & TT_POST_BLOOM) != 0, lines, dof, ao);
+        const bool fog = (params.post_flags & TT_POST_FOG) != 0;
+        const bool lines = (params.post_flags & TT_POST_LINES) != 0 || dof || ao || fog; // 奥行きを使う効果
+        EnsurePostResources((params.post_flags & TT_POST_BLOOM) != 0, lines, dof, ao, fog);
         engine_.DrawScene(multisampled ? msaaRtv_.Get() : scene_.rtv.Get(), dsv_.Get(), width_, height_, params, multisampled,
             Engine::ScenePart::Scene);
         if (multisampled) {
@@ -383,6 +388,7 @@ bool View::Render(const TtFrameParams& params)
         inputs.ao = ao ? &ao_ : nullptr;
         inputs.aoBlur = ao ? &aoBlur_ : nullptr;
         inputs.aoScene = ao ? &aoScene_ : nullptr;
+        inputs.fog = fog ? &fog_ : nullptr;
         engine_.ApplyPostEffects(params, inputs, target, width_, height_);
         engine_.DrawScene(target, dsv_.Get(), width_, height_, params, multisampled, Engine::ScenePart::Overlays);
     }

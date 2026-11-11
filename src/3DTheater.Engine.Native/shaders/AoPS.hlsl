@@ -5,13 +5,6 @@
 // 面の表の側にある点ほど（そして近いほど）光を遮ると数える。平らな面の上の点は、どれも面の上にあるので遮らない。
 // 点ごとに見る向きを 4 x 4 の模様で回し、次の段（AoBlurPS・AoApplyPS）で横と縦にならして模様を消す
 
-float3 ViewPosition(int2 pixel, float z)
-{
-    float2 ndc = float2((pixel.x + 0.5) * SourceTexel.x * 2.0 - 1.0, 1.0 - (pixel.y + 0.5) * SourceTexel.y * 2.0);
-    float2 xy = (ndc - AoProjection.zw) / AoProjection.xy;
-    return float3(ProjectionParams.z > 0.5 ? xy : xy * z, z);
-}
-
 float DepthAt(int2 pixel)
 {
     int2 size = int2(SourceTexel.zw);
@@ -32,15 +25,15 @@ float main(PostVertex input) : SV_Target
     if (z >= kNothing) {
         return 1.0; // 何も無い
     }
-    float3 center = ViewPosition(pixel, z);
+    float3 center = ViewPositionAt(pixel, z);
 
     // 面の向き: 左右・上下のうち、奥行きの差の小さいほうの隣との差から作る（物の縁で、奥の物の側を使わないように）
     float zl = DepthAt(pixel - int2(1, 0));
     float zr = DepthAt(pixel + int2(1, 0));
     float zu = DepthAt(pixel - int2(0, 1));
     float zd = DepthAt(pixel + int2(0, 1));
-    float3 dx = abs(zr - z) < abs(z - zl) ? ViewPosition(pixel + int2(1, 0), zr) - center : center - ViewPosition(pixel - int2(1, 0), zl);
-    float3 dy = abs(zd - z) < abs(z - zu) ? ViewPosition(pixel + int2(0, 1), zd) - center : center - ViewPosition(pixel - int2(0, 1), zu);
+    float3 dx = abs(zr - z) < abs(z - zl) ? ViewPositionAt(pixel + int2(1, 0), zr) - center : center - ViewPositionAt(pixel - int2(1, 0), zl);
+    float3 dy = abs(zd - z) < abs(z - zu) ? ViewPositionAt(pixel + int2(0, 1), zd) - center : center - ViewPositionAt(pixel - int2(0, 1), zu);
     float3 normal = cross(dx, dy);
     float length2 = dot(normal, normal);
     if (!(length2 > 1e-20 && length2 < 1e20)) {
@@ -52,7 +45,7 @@ float main(PostVertex input) : SV_Target
     // 広がりを画面の画素に直す（遠いほど小さい）。大きすぎると点がまばらになるので、上限（画像の高さの 15%）で止め、
     // そのときは広がりも同じ割合で縮める（ごく近くから見ると、遮りも狭くなる）
     float radius = AoParams.y;
-    float pixels = radius * AoProjection.y * 0.5 * SourceTexel.w / (ProjectionParams.z > 0.5 ? 1.0 : z);
+    float pixels = radius * ScreenToView.y * 0.5 * SourceTexel.w / (ProjectionParams.z > 0.5 ? 1.0 : z);
     if (pixels > AoParams.z) {
         radius *= AoParams.z / pixels;
         pixels = AoParams.z;
@@ -76,7 +69,7 @@ float main(PostVertex input) : SV_Target
         if (sz >= kNothing) {
             continue;
         }
-        float3 v = ViewPosition(at, sz) - center;
+        float3 v = ViewPositionAt(at, sz) - center;
         float vv = dot(v, v);
         float cosine = dot(v, normal) * rsqrt(max(vv, 1e-8));
         float falloff = saturate(1.0 - vv / radius2);

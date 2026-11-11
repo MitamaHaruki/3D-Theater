@@ -95,6 +95,9 @@ public enum PostEffectFlags : uint
 
     /// <summary>環境光の遮り（奥行きから、物の隙間や接する所を暗くする）。</summary>
     AmbientOcclusion = 1u << 8,
+
+    /// <summary>霧（遠くの物ほど霧の色に溶けこませる。平行投影では使わない）。</summary>
+    Fog = 1u << 9,
 }
 
 /// <summary>
@@ -106,6 +109,7 @@ public enum PostEffectFlags : uint
 /// 紙の質感は強さ（0〜1）と粒の大きさ（画素）。線画・塗り・影の色は背景にかからない。
 /// 被写界深度は、ピントの距離・ピントの合う幅（前後の合計）・ぼけの最大（画素）・最大になるまでの距離（カメラから見る向きの距離）。
 /// 環境光の遮りは、強さ（0〜2）と広がり（ワールドの長さ。これより離れた物は遮らない）。
+/// 霧は、色・始まる距離（カメラから）・濃さ（霧の量 = 1 - exp(-濃さ × 長さ)）・高さの尺度（0 なら高さに関係なく同じ濃さ）。
 /// </summary>
 public readonly record struct PostEffects(
     PostEffectFlags Flags,
@@ -131,7 +135,11 @@ public readonly record struct PostEffects(
     float DofMaxBlur = 0f,
     float DofTransition = 20f,
     float AoStrength = 0f,
-    float AoRadius = 1f)
+    float AoRadius = 1f,
+    Vector3 FogColor = default,
+    float FogStart = 0f,
+    float FogDensity = 0f,
+    float FogHeight = 0f)
 {
     /// <summary>映像効果なし。</summary>
     public static PostEffects None => new(PostEffectFlags.None);

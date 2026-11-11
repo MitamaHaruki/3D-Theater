@@ -16,7 +16,10 @@ cbuffer PostConstants : register(b0)
     float4 ProjectionParams; // x = 投影の (3,3)、y = 投影の (4,3)、z = 1 なら平行投影
     float4 DofParams;        // 被写界深度: x = ピントの距離、y = ピントの合う幅の半分、z = ぼけの最大（画素）、w = 最大になるまでの距離
     float4 AoParams;         // 環境光の遮り: x = 強さ、y = 広がり（ワールドの長さ）、z = 広がりの上限（画素）
-    float4 AoProjection;     // 画面の位置を見る向きの座標に戻す値: x = 投影の (1,1)、y = (2,2)、zw = 中心のずれ
+    float4 ScreenToView;     // 画面の位置を見る向きの座標に戻す値: x = 投影の (1,1)、y = (2,2)、zw = 中心のずれ
+    float4 FogColor;         // 霧: rgb = 色、a = 始まる距離
+    float4 FogParams;        // 霧: x = 濃さ、y = 高さの尺度（0 なら高さに関係なく同じ）
+    float4 FogHeightAxis;    // 見る向きの座標からワールドの高さを出す値: 高さ = dot(位置, xyz) + w（w はカメラの高さ）
 };
 
 Texture2D Source : register(t0);
@@ -39,6 +42,16 @@ static const uint kPostShadowTint = 32;
 static const uint kPostPaper = 64;
 static const uint kPostDof = 128;
 static const uint kPostAo = 256;
+static const uint kPostFog = 512;
 
 // 何も描かれていない所の距離
 static const float kNothing = 1e30;
+
+// 画素と見る向きの距離 z から、見る向きの座標での位置（カメラが原点）。SourceTexel.xy が書く画像の 1 画素の大きさであること。
+// 透視投影で z = 1 なら、その画素を通る光の向き（長さは 1 でない）
+float3 ViewPositionAt(int2 pixel, float z)
+{
+    float2 ndc = float2((pixel.x + 0.5) * SourceTexel.x * 2.0 - 1.0, 1.0 - (pixel.y + 0.5) * SourceTexel.y * 2.0);
+    float2 xy = (ndc - ScreenToView.zw) / ScreenToView.xy;
+    return float3(ProjectionParams.z > 0.5 ? xy : xy * z, z);
+}

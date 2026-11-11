@@ -82,6 +82,7 @@ public:
         const PostSurface* ao = nullptr;                   // 環境光の遮りの、光の届く割合を書く画像
         const PostSurface* aoBlur = nullptr;               // 光の届く割合を横にならしたものを書く画像
         const PostSurface* aoScene = nullptr;              // 環境光の遮りをかけた場面を書く画像
+        const PostSurface* fog = nullptr;                  // 霧をかけた場面を書く画像
     };
     // 映像効果をかける: 場面から output（width x height）へ。背景も置く
     void ApplyPostEffects(const TtFrameParams& params, const PostInputs& inputs, ID3D11RenderTargetView* output, int width, int height);
@@ -210,6 +211,7 @@ private:
     ComPtr<ID3D11PixelShader> aoShader_;
     ComPtr<ID3D11PixelShader> aoBlurShader_;
     ComPtr<ID3D11PixelShader> aoApplyShader_;
+    ComPtr<ID3D11PixelShader> fogShader_;
     ComPtr<ID3D11Buffer> postConstantBuffer_;
 
     // モデル（MMD と同じトゥーンの色の計算と輪郭線）

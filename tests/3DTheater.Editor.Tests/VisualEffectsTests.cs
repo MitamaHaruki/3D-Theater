@@ -120,6 +120,41 @@ public sealed class VisualEffectsTests
     }
 
     [TestMethod]
+    public void FogIsKeptInRangeAndSaved()
+    {
+        Assert.IsFalse(SceneFog.Off.Enabled, "初期値は OFF");
+        Assert.AreEqual(0f, SceneFog.Off.HeightScale, "地面の近くだけでなければ、高さに関係なく同じ濃さ");
+        Assert.AreEqual(8f, (SceneFog.Off with { GroundOnly = true }).HeightScale);
+        Assert.AreEqual(0.95f, 1f - MathF.Exp(-SceneFog.Off.Density * SceneFog.Off.Visibility), 0.001f, "見通せる距離で 95% が霧の色");
+
+        SceneFog wild = new SceneFog { Enabled = true, Color = "まちがい", Start = -5f, Visibility = 0f, Height = float.NaN }.Normalized();
+        Assert.AreEqual(SceneFog.Off.Color, wild.Color, "読めない色は初期値");
+        Assert.AreEqual(0f, wild.Start);
+        Assert.AreEqual(SceneFog.MinVisibility, wild.Visibility);
+        Assert.AreEqual(SceneFog.Off.Height, wild.Height, "数でない値は初期値");
+        Assert.AreEqual("#FF8000", (SceneFog.Off with { Color = " #ff8000 " }).Normalized().Color, "色は大文字の #RRGGBB にそろえる");
+
+        var settings = new RenderSettings();
+        int changes = 0;
+        settings.Changed += (_, _) => changes++;
+        settings.Fog = SceneFog.Off with { Enabled = true, Color = "#102030", GroundOnly = true, Height = 3f };
+        settings.Fog = SceneFog.Off with { Enabled = true, Color = "#102030", GroundOnly = true, Height = 3f };
+        Assert.AreEqual(1, changes, "同じ値では知らせない");
+
+        string plain = ProjectSerializer.Serialize(new ProjectFile { Rendering = RenderingEntry.From(new RenderSettings()) });
+        Assert.IsFalse(plain.Contains("fog", StringComparison.OrdinalIgnoreCase), "使っていなければ書かない");
+        string saved = ProjectSerializer.Serialize(new ProjectFile { Rendering = RenderingEntry.From(settings) });
+        Assert.IsFalse(saved.Contains("density", StringComparison.OrdinalIgnoreCase), "計算で出す値は書かない");
+        ProjectFile read = ProjectSerializer.Deserialize(saved, new Formats.LoadReport())!;
+        var restored = new RenderSettings();
+        read.Rendering.ApplyTo(restored);
+        Assert.AreEqual(settings.Fog, restored.Fog);
+
+        restored.Reset();
+        Assert.AreEqual(SceneFog.Off, restored.Fog, "新しいプロジェクトは霧なし");
+    }
+
+    [TestMethod]
     public void FloorReflectionIsKeptInRangeAndSaved()
     {
         Assert.IsFalse(FloorReflection.Off.Enabled);

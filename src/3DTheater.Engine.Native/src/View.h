@@ -47,7 +47,7 @@ private:
     void CreateSampleResources();
     void ReleaseSampleResources() noexcept;
     // 映像効果の画像（使うときに作る。大きさが変わったら作り直す）
-    void EnsurePostResources(bool bloom, bool depth, bool dof, bool ao);
+    void EnsurePostResources(bool bloom, bool depth, bool dof, bool ao, bool fog);
     void ReleaseSwapChain() noexcept;
 
     uint32_t magic_ = kMagic;
@@ -75,6 +75,7 @@ private:
     PostSurface ao_;                      // 環境光の遮りの、光の届く割合
     PostSurface aoBlur_;                  // 光の届く割合を横にならしたもの
     PostSurface aoScene_;                 // 環境光の遮りをかけた場面
+    PostSurface fog_;                     // 霧をかけた場面
     ComPtr<ID3D11Texture2D> depthTexture_;
     ComPtr<ID3D11DepthStencilView> dsv_;
     ComPtr<ID3D11ShaderResourceView> depthSrv_; // 奥行きを読む（線画に使う）

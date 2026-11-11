@@ -27,7 +27,7 @@ extern "C" {
 
 // 上位 16 ビットが大きな版、下位 16 ビットが小さな版。大きな版が違う DLL とは組み合わせない。
 #define TT_API_VERSION_MAJOR 0
-#define TT_API_VERSION_MINOR 17
+#define TT_API_VERSION_MINOR 18
 #define TT_API_VERSION ((TT_API_VERSION_MAJOR << 16) | TT_API_VERSION_MINOR)
 
 // 0 以上は成功、負の値は失敗。
@@ -122,6 +122,8 @@ enum {
     TT_POST_DOF = 1u << 7, // 被写界深度（ピントの距離の前後をぼかす。dof_*。背景もぼかす。格子・重ね描きの線はぼかさない）
     // ここから API 0.17
     TT_POST_AO = 1u << 8, // 環境光の遮り（奥行きから、物の隙間や接する所を暗くする。ao_*。被写界深度・ブルームより先にかける）
+    // ここから API 0.18
+    TT_POST_FOG = 1u << 9, // 霧（遠くの物ほど fog_color に溶けこませる。fog_*。背景が不透明なら背景にも。平行投影では使わない）
 };
 
 // ---- モデルの形（メッシュ）と材質 ----
@@ -314,6 +316,13 @@ typedef struct TtFrameParams {
     // ここから API 0.17（環境光の遮り。TT_POST_AO のとき）
     float ao_strength; // 強さ（0〜2。0 なら何もしない）
     float ao_radius;   // 広がり（ワールドの長さ。これより離れた物は遮らない。0.01 以上）
+    // ここから API 0.18（霧。TT_POST_FOG のとき）。距離はカメラからのまっすぐの距離。
+    // 霧の量 = 1 - exp(-濃さ × 霧の中を通る長さ)。fog_height が正なら、濃さを高さで薄くする（高さ 0 で fog_density、
+    // fog_height 上がるごとに 1/e。地面より下は fog_density のまま）
+    float fog_color[3]; // 霧の色（0〜1）
+    float fog_start;    // 霧が始まる距離（0 以上）
+    float fog_density;  // 濃さ（0 以上。0 なら何もしない）
+    float fog_height;   // 高さの尺度（0 なら高さに関係なく同じ濃さ）
 } TtFrameParams;
 
 TT_API uint32_t TT_CALL tt_get_api_version(void);

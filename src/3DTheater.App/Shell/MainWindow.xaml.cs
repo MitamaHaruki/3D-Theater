@@ -564,6 +564,12 @@ public partial class MainWindow : Window
         window.ShowDialog();
     }
 
+    private void OnFogClick(object sender, RoutedEventArgs e)
+    {
+        var window = new FogWindow(_context.Rendering) { Owner = this };
+        window.ShowDialog();
+    }
+
     private void OnEffectsClick(object sender, RoutedEventArgs e)
     {
         var window = new EffectsWindow(_context.Rendering) { Owner = this };

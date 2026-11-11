@@ -3,7 +3,7 @@ using Theater3D.Engine.Interop;
 
 namespace Theater3D.App.Rendering;
 
-/// <summary>映像効果とイラスト風の表現の設定（プロジェクトの値）と足した照明を、描画エンジンへ渡す形にする。</summary>
+/// <summary>映像効果・イラスト風の表現・霧の設定（プロジェクトの値）と足した照明を、描画エンジンへ渡す形にする。</summary>
 public static class EffectsMapping
 {
     /// <summary>シーンの足した照明（見えているもの）。</summary>
@@ -36,6 +36,8 @@ public static class EffectsMapping
         Add(style.PaperEnabled, PostEffectFlags.Paper);
         Add(effects.DofEnabled && sceneCamera is not null, PostEffectFlags.DepthOfField);
         Add(effects.AoEnabled, PostEffectFlags.AmbientOcclusion);
+        SceneFog fog = settings.Fog;
+        Add(fog.Enabled, PostEffectFlags.Fog);
 
         float heightScale = Math.Max(1, pixelHeight) / 1080f;
         float focus = effects.FocusDistanceFor(sceneCamera?.TargetDistance ?? effects.DofFocusDistance);
@@ -55,7 +57,11 @@ public static class EffectsMapping
             DofMaxBlur: effects.DofBlur * heightScale,
             DofTransition: VisualEffects.DofTransitionFor(focus),
             AoStrength: effects.AoStrength,
-            AoRadius: effects.AoRadius);
+            AoRadius: effects.AoRadius,
+            FogColor: fog.ColorValue,
+            FogStart: fog.Start,
+            FogDensity: fog.Density,
+            FogHeight: fog.HeightScale);
 
         void Add(bool enabled, PostEffectFlags flag)
         {

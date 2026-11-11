@@ -24,6 +24,7 @@
 #include "AoPS.h"
 #include "AoBlurPS.h"
 #include "AoApplyPS.h"
+#include "FogPS.h"
 #include "GroundShadowPS.h"
 #include "LinearDepthMsPS.h"
 #include "LinearDepthPS.h"
@@ -90,11 +91,14 @@ struct PostConstants {
     DirectX::XMFLOAT4 projectionParams;
     DirectX::XMFLOAT4 dofParams;
     DirectX::XMFLOAT4 aoParams;
-    DirectX::XMFLOAT4 aoProjection;
+    DirectX::XMFLOAT4 screenToView;
+    DirectX::XMFLOAT4 fogColor;
+    DirectX::XMFLOAT4 fogParams;
+    DirectX::XMFLOAT4 fogHeightAxis;
 };
 
 constexpr uint32_t kKnownPostFlags = TT_POST_COLOR | TT_POST_BLOOM | TT_POST_VIGNETTE | TT_POST_LINES | TT_POST_POSTERIZE
-    | TT_POST_SHADOW_TINT | TT_POST_PAPER | TT_POST_DOF | TT_POST_AO;
+    | TT_POST_SHADOW_TINT | TT_POST_PAPER | TT_POST_DOF | TT_POST_AO | TT_POST_FOG;
 
 // 数でない値は fallback に、範囲の外は範囲に収める
 float Sanitize(float value, float fallback, float minimum, float maximum) noexcept
@@ -230,6 +234,7 @@ void Engine::ReleaseDevice() noexcept
     aoShader_.Reset();
     aoBlurShader_.Reset();
     aoApplyShader_.Reset();
+    fogShader_.Reset();
     linearDepthMsShader_.Reset();
     linearDepthShader_.Reset();
     postConstantBuffer_.Reset();
@@ -776,10 +781,25 @@ void Engine::ApplyPostEffects(const TtFrameParams& params, const PostInputs& inp
     const float aoStrength = Sanitize(params.ao_strength, 0.0f, 0.0f, 2.0f);
     constants.aoParams = {aoStrength, Sanitize(params.ao_radius, 1.0f, 0.01f, 1e4f), std::max(static_cast<float>(height) * 0.15f, 2.0f), 0.0f};
     const bool orthographic = constants.projectionParams.z > 0.5f;
-    constants.aoProjection = {params.projection[0], params.projection[5], orthographic ? params.projection[12] : params.projection[8],
+    constants.screenToView = {params.projection[0], params.projection[5], orthographic ? params.projection[12] : params.projection[8],
         orthographic ? params.projection[13] : params.projection[9]};
-    if (aoStrength <= 0.0f || constants.aoProjection.x == 0.0f || constants.aoProjection.y == 0.0f) {
+    const bool screenToViewValid = constants.screenToView.x != 0.0f && constants.screenToView.y != 0.0f;
+    if (aoStrength <= 0.0f || !screenToViewValid) {
         flags &= ~static_cast<uint32_t>(TT_POST_AO);
+    }
+    // 霧: 高さは、見る向きの座標の位置にビュー行列の逆を掛けて出す（行ベクトル × 行列なので、2 列目）。
+    // 平行投影（固定の視点）では、カメラからの距離に意味が無いので使わない
+    const float fogDensity = Sanitize(params.fog_density, 0.0f, 0.0f, 1e3f);
+    constants.fogColor = {Sanitize(params.fog_color[0], 0.7f, 0.0f, 1.0f), Sanitize(params.fog_color[1], 0.7f, 0.0f, 1.0f),
+        Sanitize(params.fog_color[2], 0.7f, 0.0f, 1.0f), Sanitize(params.fog_start, 0.0f, 0.0f, 1e6f)};
+    constants.fogParams = {fogDensity, Sanitize(params.fog_height, 0.0f, 0.0f, 1e6f), 0.0f, 0.0f};
+    XMMATRIX view = XMLoadFloat4x4(reinterpret_cast<const XMFLOAT4X4*>(params.view));
+    XMVECTOR determinant;
+    XMFLOAT4X4 inverseView;
+    XMStoreFloat4x4(&inverseView, XMMatrixInverse(&determinant, view));
+    constants.fogHeightAxis = {inverseView._12, inverseView._22, inverseView._32, inverseView._42};
+    if (fogDensity <= 0.0f || orthographic || !screenToViewValid || XMVectorGetX(determinant) == 0.0f) {
+        flags &= ~static_cast<uint32_t>(TT_POST_FOG);
     }
 
     ctx->OMSetBlendState(nullptr, nullptr, 0xFFFFFFFF);
@@ -814,7 +834,7 @@ void Engine::ApplyPostEffects(const TtFrameParams& params, const PostInputs& inp
     };
 
     // 線画・被写界深度・環境光の遮りの準備: 奥行きを見る向きの距離に直す
-    constexpr uint32_t kDepthEffects = TT_POST_LINES | TT_POST_DOF | TT_POST_AO;
+    constexpr uint32_t kDepthEffects = TT_POST_LINES | TT_POST_DOF | TT_POST_AO | TT_POST_FOG;
     if ((flags & kDepthEffects) && inputs.depth && inputs.linearDepth && inputs.linearDepth->rtv) {
         fourth = inputs.depth;
         pass(inputs.depthMultisampled ? linearDepthMsShader_.Get() : linearDepthShader_.Get(), inputs.linearDepth->rtv.Get(),
@@ -834,6 +854,13 @@ void Engine::ApplyPostEffects(const TtFrameParams& params, const PostInputs& inp
         pass(aoApplyShader_.Get(), inputs.aoScene->rtv.Get(), static_cast<UINT>(width), static_cast<UINT>(height), scene,
             inputs.aoBlur->srv.Get(), static_cast<UINT>(width), static_cast<UINT>(height));
         scene = inputs.aoScene->srv.Get();
+    }
+
+    // 霧: 遠くの物ほど霧の色に溶けこませる（被写界深度でぼかす前に。遠くの霧もぼける）
+    if ((flags & TT_POST_FOG) && inputs.fog && inputs.fog->rtv) {
+        pass(fogShader_.Get(), inputs.fog->rtv.Get(), static_cast<UINT>(width), static_cast<UINT>(height), scene, nullptr,
+            static_cast<UINT>(width), static_cast<UINT>(height));
+        scene = inputs.fog->srv.Get();
     }
 
     // 被写界深度: 場面をぼかしてから、そのあとの効果（ブルーム・仕上げ）にかける
@@ -891,6 +918,7 @@ void Engine::CreatePostResources()
     CheckHr(device_->CreatePixelShader(g_DofPS, sizeof(g_DofPS), nullptr, &dofShader_), L"被写界深度のシェーダーの作成");
     CheckHr(device_->CreatePixelShader(g_AoPS, sizeof(g_AoPS), nullptr, &aoShader_), L"環境光の遮りのシェーダーの作成");
     CheckHr(device_->CreatePixelShader(g_AoBlurPS, sizeof(g_AoBlurPS), nullptr, &aoBlurShader_), L"環境光の遮りをならすシェーダーの作成");
+    CheckHr(device_->CreatePixelShader(g_FogPS, sizeof(g_FogPS), nullptr, &fogShader_), L"霧のシェーダーの作成");
     CheckHr(device_->CreatePixelShader(g_AoApplyPS, sizeof(g_AoApplyPS), nullptr, &aoApplyShader_), L"環境光の遮りをかけるシェーダーの作成");
 
     D3D11_BUFFER_DESC desc{};
