@@ -126,4 +126,14 @@ TP_API TpResult TP_CALL tp_world_set_floor(TpWorld* world, const TpFloorDesc* fl
     });
 }
 
+TP_API TpResult TP_CALL tp_world_set_obstacles(TpWorld* world, const TpBodyDesc* obstacles, int32_t count)
+{
+    return Guard([&] { ToWorld(world).SetObstacles(obstacles, count); });
+}
+
+TP_API TpResult TP_CALL tp_world_set_obstacle_targets(TpWorld* world, const TpTransform* targets, int32_t count, int32_t snap)
+{
+    return Guard([&] { ToWorld(world).SetObstacleTargets(targets, count, snap != 0); });
+}
+
 } // extern "C"

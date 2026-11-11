@@ -108,6 +108,8 @@
                       ToolTip="剛体とジョイントで、髪・スカートなどを揺らします（初期値は ON。プロジェクトに保存します）" />
             <MenuItem x:Name="PhysicsFloorMenuItem" Header="物理を床に当てる" IsCheckable="True" Click="OnPhysicsFloorClick"
                       ToolTip="髪・スカートなど物理で動く部分が、床（高さ 0）をすり抜けないようにします（初期値は ON。プロジェクトに保存します）" />
+            <MenuItem x:Name="PhysicsBetweenModelsMenuItem" Header="物理をモデルどうしで当てる" IsCheckable="True" Click="OnPhysicsBetweenModelsClick"
+                      ToolTip="髪・スカートなど物理で動く部分が、ほかのモデルの体をすり抜けないようにします（ほかのモデルの髪どうしは当たりません。初期値は ON。プロジェクトに保存します）" />
             <MenuItem Header="物理をリセット" Click="OnResetPhysicsClick"
                       ToolTip="剛体を今の姿勢に置き直して、落ち着かせます（揺れが暴れたときなど）" />
             <Separator />

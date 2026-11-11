@@ -24,7 +24,7 @@ extern "C" {
 #endif
 
 #define TP_API_VERSION_MAJOR 0
-#define TP_API_VERSION_MINOR 3
+#define TP_API_VERSION_MINOR 4
 #define TP_API_VERSION ((TP_API_VERSION_MAJOR << 16) | TP_API_VERSION_MINOR)
 
 typedef int32_t TpResult;
@@ -140,6 +140,12 @@ TP_API TpResult TP_CALL tp_world_get_transforms(TpWorld* world, TpTransform* out
 TP_API TpResult TP_CALL tp_world_apply_impulses(TpWorld* world, const TpImpulse* impulses, int32_t count);
 // 床を置く・置き直す・外す（API 0.3）。剛体の数・番号は変わらない
 TP_API TpResult TP_CALL tp_world_set_floor(TpWorld* world, const TpFloorDesc* floor);
+// 障害物（ほかのモデルの体など、外から置き方を与える剛体。API 0.4）を置き直す（前の障害物は外す）。剛体の数・番号には入らない。
+// desc の kind・mass は使わない（いつも外から置き方を与える）。group・mask は剛体と同じ決まり
+TP_API TpResult TP_CALL tp_world_set_obstacles(TpWorld* world, const TpBodyDesc* obstacles, int32_t count);
+// 障害物の目標の置き方（count は障害物の数と同じ）。snap が 0 でなければ、すぐその置き方に置く（tp_world_reset の前など）。
+// 0 なら、次の tp_world_step で前の目標から少しずつ動かす（外から置き方を与える剛体と同じ）
+TP_API TpResult TP_CALL tp_world_set_obstacle_targets(TpWorld* world, const TpTransform* targets, int32_t count, int32_t snap);
 
 #ifdef __cplusplus
 }

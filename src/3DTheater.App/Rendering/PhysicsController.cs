@@ -31,6 +31,7 @@ public sealed class PhysicsController
     private readonly PhysicsClock _clock = new();
     private bool _enabled = true;
     private bool _floorEnabled = true;
+    private bool _betweenModels = true;
     private bool _bakeScheduled;
     private bool _wasSettling;
     private long _bakeStarted;
@@ -79,6 +80,95 @@ public sealed class PhysicsController
 
     /// <summary>このモデルの今の床（床と当てる設定のとき）。</summary>
     public PhysicsFloor FloorFor(ModelNode node) => FloorFor(node, _floorEnabled);
+
+    /// <summary>
+    /// 物理で動く剛体（髪・スカートなど）を、ほかのモデルの体（ボーン追従の剛体）にも当てるか（初期値は ON。プロジェクトに保存する）。
+    /// ほかのモデルの体は、そのモデルの動きどおりに置く障害物になる（ほかのモデルの髪どうしは当たらない）。変えると、剛体を置き直して
+    /// 焼き込みも作り直す。
+    /// </summary>
+    public bool BetweenModels
+    {
+        get => _betweenModels;
+        set
+        {
+            if (_betweenModels == value)
+            {
+                return;
+            }
+            _betweenModels = value;
+            AppLog.Info(value ? "物理のモデルどうしの当たりを ON にしました" : "物理のモデルどうしの当たりを OFF にしました");
+            Reset();
+            Changed?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    /// <summary>モデルの置き方（物理の座標の行き来に使う）。</summary>
+    internal static ModelPlacement PlacementOf(ModelNode node) => new(node.Position, SceneRotation.ToQuaternion(node.Rotation), node.Scale.Y);
+
+    // このモデルの物理に障害物として置く、ほかのモデル（見えていて、ボーン追従の剛体のあるもの）
+    private IEnumerable<(ModelNode Node, LoadedModel Model)> ObstacleModels(ModelNode node) =>
+        _betweenModels
+            ? PhysicsModels.Where(p => p.Node != node && p.Node.IsEffectivelyVisible && p.Model.Physics!.FollowBodyCount > 0)
+            : [];
+
+    /// <summary>障害物の組み合わせの目印（どのモデルの体を、どの大きさで置くか）。</summary>
+    internal string ObstacleSignature(ModelNode node)
+    {
+        ModelPlacement placement = PlacementOf(node);
+        return string.Join(";", ObstacleModels(node).Select(o => $"{o.Node.Id}:{placement.ScaleFrom(PlacementOf(o.Node)):R}"));
+    }
+
+    /// <summary>障害物の形とグループ（このモデルの座標で）。</summary>
+    internal PhysicsBodyDesc[] ObstacleDescs(ModelNode node)
+    {
+        ModelPlacement placement = PlacementOf(node);
+        return [.. ObstacleModels(node).SelectMany(o => o.Model.Physics!.FollowBodyDescs(placement.ScaleFrom(PlacementOf(o.Node))))];
+    }
+
+    /// <summary>画面の物理: 障害物の今の置き方（ほかのモデルの今の姿勢から。このモデルの座標で）。</summary>
+    internal void ObstacleTargetsNow(ModelNode node, Span<PhysicsTransform> destination)
+    {
+        ModelPlacement placement = PlacementOf(node);
+        int offset = 0;
+        foreach (var (other, loaded) in ObstacleModels(node))
+        {
+            int count = loaded.Physics!.FollowBodyCount;
+            Span<PhysicsTransform> part = destination.Slice(offset, count);
+            loaded.Physics.FollowBodyTransforms(loaded.State, part);
+            ToThisModel(part, placement, PlacementOf(other));
+            offset += count;
+        }
+    }
+
+    /// <summary>
+    /// 焼き込み: <paramref name="frame"/> の障害物の置き方。ほかのモデルの、そのフレームのキーの姿勢から求める（ほかのモデルの揺れは
+    /// 使わないので、どの順に焼き込んでも、何度焼き直しても同じになる）。
+    /// </summary>
+    private void ObstacleTargetsAt(ModelNode node, int frame, Span<PhysicsTransform> destination)
+    {
+        ModelPlacement placement = PlacementOf(node);
+        int offset = 0;
+        foreach (var (other, loaded) in ObstacleModels(node))
+        {
+            int count = loaded.Physics!.FollowBodyCount;
+            PoseInput input = loaded.ObstacleInput ??= new PoseInput(loaded.Rig);
+            PoseState state = loaded.ObstacleState ??= new PoseState(loaded.Rig);
+            PoseSampler.Sample(other, frame, input.Translations, input.Rotations, input.MorphWeights, input.IkEnabled);
+            PoseEvaluator.EvaluateBeforePhysics(loaded.Rig, input, state);
+            Span<PhysicsTransform> part = destination.Slice(offset, count);
+            loaded.Physics.FollowBodyTransforms(state, part);
+            ToThisModel(part, placement, PlacementOf(other));
+            offset += count;
+        }
+    }
+
+    private static void ToThisModel(Span<PhysicsTransform> transforms, ModelPlacement self, ModelPlacement other)
+    {
+        for (int i = 0; i < transforms.Length; i++)
+        {
+            transforms[i] = self.FromModel(transforms[i], other);
+        }
+    }
 
     /// <summary>ON/OFF（物理演算・床との当たり）が変わった。</summary>
     public event EventHandler? Changed;
@@ -235,7 +325,8 @@ public sealed class PhysicsController
         }
         try
         {
-            model.Bake.Invalidate(_context.Playback.FrameRate, GravityFor(node), FloorFor(node));
+            model.BakeObstacleSignature = ObstacleSignature(node);
+            model.Bake.Invalidate(_context.Playback.FrameRate, GravityFor(node), FloorFor(node), ObstacleDescs(node));
         }
         catch (PhysicsException ex)
         {
@@ -247,12 +338,32 @@ public sealed class PhysicsController
         ScheduleBake();
     }
 
-    private static void BakeOne(ModelNode node, LoadedModel model, PhysicsBake bake)
+    private void BakeOne(ModelNode node, LoadedModel model, PhysicsBake bake)
     {
+        if (model.BakeObstacleSignature != ObstacleSignature(node))
+        {
+            Invalidate(node, model); // ほかのモデルを足した・外した・隠した（障害物の組み合わせが変わった）
+        }
         PoseInput input = model.BakeInput!;
         PoseSampler.Sample(node, bake.Count, input.Translations, input.Rotations, input.MorphWeights, input.IkEnabled);
-        bake.BakeNext(input);
+        PhysicsTransform[] obstacles = ObstacleBuffer(model, ObstacleDescsCount(node));
+        ObstacleTargetsAt(node, bake.Count, obstacles);
+        bake.BakeNext(input, obstacles);
     }
+
+    private int ObstacleDescsCount(ModelNode node) => ObstacleModels(node).Sum(o => o.Model.Physics!.FollowBodyCount);
+
+    internal static PhysicsTransform[] ObstacleBuffer(LoadedModel model, int count)
+    {
+        if (model.ObstacleBuffer.Length != count)
+        {
+            model.ObstacleBuffer = new PhysicsTransform[count];
+        }
+        return model.ObstacleBuffer;
+    }
+
+    /// <summary>画面の物理に置く障害物の数（<see cref="ObstacleTargetsNow"/> の入れ物の大きさ）。</summary>
+    internal int ObstacleCount(ModelNode node) => ObstacleDescsCount(node);
 
     private static void FailBake(ModelNode node, LoadedModel model, Exception ex)
     {
@@ -381,6 +492,16 @@ public sealed class PhysicsController
     {
         // 手で姿勢・キーを変えた（ほかのフレームの姿勢も変わる）ときだけ反応する。
         // 再生位置を動かしたときのキーの当てはめには反応しない（焼き込みの結果をそのまま見せる）
+        bool modelsChanged = e.Node == _context.Scene.ModelsGroup && e.PropertyName == nameof(SceneNode.Children)
+            || e.Node is ModelNode && e.PropertyName == nameof(SceneNode.IsVisible);
+        if (_betweenModels && modelsChanged)
+        {
+            // ほかのモデルの体を障害物にしているので、モデルを足した・外した・隠したら、全部の焼き込みを作り直す
+            foreach (var (node, model) in PhysicsModels.Where(p => p.Model.Bake is not null))
+            {
+                Invalidate(node, model);
+            }
+        }
         if (PoseSampler.ModelAffectedBy(e) is not { } changed)
         {
             return;
@@ -388,6 +509,14 @@ public sealed class PhysicsController
         if (_context.GetLoaded(changed) is { Bake: not null } loaded)
         {
             Invalidate(changed, loaded); // 焼き込みを作り直す
+        }
+        if (_betweenModels)
+        {
+            // このモデルの体は、ほかのモデルの物理の障害物なので、ほかのモデルの焼き込みも作り直す
+            foreach (var (node, model) in PhysicsModels.Where(p => p.Node != changed && p.Model.Bake is not null))
+            {
+                Invalidate(node, model);
+            }
         }
         if (_enabled && !_context.Playback.IsPlaying && HasPhysicsModels)
         {

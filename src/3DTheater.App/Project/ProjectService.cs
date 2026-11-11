@@ -26,8 +26,9 @@ internal sealed class ProjectService
     private readonly Window _owner;
     private readonly DispatcherTimer _autosaveTimer;
     private int _suppressDirty;
-    private (int FrameRate, int EndFrame, bool Loop, bool Physics, bool PhysicsFloor, bool SelfShadow, bool GroundShadow, VisualEffects Effects,
-        IllustrationStyle Illustration, FloorReflection Reflection, SceneFog Fog, ShadowStyle Shadows, SceneEnvironment Environment) _playbackSettings;
+    private (int FrameRate, int EndFrame, bool Loop, bool Physics, bool PhysicsFloor, bool PhysicsBetweenModels, bool SelfShadow, bool GroundShadow,
+        VisualEffects Effects, IllustrationStyle Illustration, FloorReflection Reflection, SceneFog Fog, ShadowStyle Shadows, SceneEnvironment Environment)
+        _playbackSettings;
 
     public ProjectService(EditorContext context, Window owner)
     {
@@ -152,6 +153,7 @@ internal sealed class ProjectService
             ProjectApply.ApplyScene(_context.Scene, _context.Playback, _context.Animation, project, report);
             _context.Physics.Enabled = project.Physics;
             _context.Physics.FloorEnabled = project.PhysicsFloor;
+            _context.Physics.BetweenModels = project.PhysicsBetweenModels;
             // 自動保存のファイルは別の場所にあるので、モデル・環境の画像の場所は元のプロジェクトのフォルダーから探す
             string? baseDirectory = Path.GetDirectoryName(recoveredFrom is not null && project.AutosaveOf is { } original ? original : fullPath);
             using (_context.Animation.SuspendTracking())
@@ -304,6 +306,7 @@ internal sealed class ProjectService
                 Path.GetDirectoryName(fullPath), _context.MissingModels, _context.MissingAudio);
             project.Physics = _context.Physics.Enabled;
             project.PhysicsFloor = _context.Physics.FloorEnabled;
+            project.PhysicsBetweenModels = _context.Physics.BetweenModels;
             project.Rendering = RenderingEntry.From(_context.Rendering, Path.GetDirectoryName(fullPath));
             SafeFile.WriteAllText(fullPath, ProjectSerializer.Serialize(project));
             SetClean(fullPath);
@@ -349,6 +352,7 @@ internal sealed class ProjectService
             ProjectFile project = ProjectCapture.Capture(_context.Scene, _context.Playback, _context.Animation, directory, _context.MissingModels, _context.MissingAudio);
             project.Physics = _context.Physics.Enabled;
             project.PhysicsFloor = _context.Physics.FloorEnabled;
+            project.PhysicsBetweenModels = _context.Physics.BetweenModels;
             project.Rendering = RenderingEntry.From(_context.Rendering, directory);
             project.AutosaveOf = CurrentPath;
             SafeFile.WriteAllText(OwnAutosaveFile, ProjectSerializer.Serialize(project));
@@ -461,8 +465,9 @@ internal sealed class ProjectService
         }
     }
 
-    private (int, int, bool, bool, bool, bool, bool, VisualEffects, IllustrationStyle, FloorReflection, SceneFog, ShadowStyle, SceneEnvironment) PlaybackSettings() =>
+    private (int, int, bool, bool, bool, bool, bool, bool, VisualEffects, IllustrationStyle, FloorReflection, SceneFog, ShadowStyle, SceneEnvironment) PlaybackSettings() =>
         (_context.Playback.FrameRate, _context.Playback.EndFrame, _context.Playback.Loop, _context.Physics.Enabled, _context.Physics.FloorEnabled,
+            _context.Physics.BetweenModels,
             _context.Rendering.SelfShadow, _context.Rendering.GroundShadow, _context.Rendering.Effects, _context.Rendering.Illustration,
             _context.Rendering.Reflection, _context.Rendering.Fog, _context.Rendering.ShadowStyle, _context.Rendering.Environment);
 

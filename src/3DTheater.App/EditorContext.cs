@@ -61,6 +61,19 @@ public sealed class LoadedModel : IDisposable
     /// <summary>焼き込みに失敗した（作り直さない）。</summary>
     internal bool BakeFailed { get; set; }
 
+    /// <summary>画面の物理・焼き込みに置いた障害物（ほかのモデルの体）の組み合わせ（変わったら置き直す目印）。</summary>
+    internal string? LiveObstacleSignature { get; set; }
+
+    internal string? BakeObstacleSignature { get; set; }
+
+    /// <summary>障害物の置き方を入れる入れ物。</summary>
+    internal Theater3D.Physics.PhysicsTransform[] ObstacleBuffer { get; set; } = [];
+
+    /// <summary>このモデルを、ほかのモデルの焼き込みの障害物にするときに、そのフレームの姿勢を求める入れ物。</summary>
+    internal PoseInput? ObstacleInput { get; set; }
+
+    internal PoseState? ObstacleState { get; set; }
+
     /// <summary>今の表示が焼き込みの結果か（焼き込みから画面の物理に移るとき、画面の物理を今の姿勢から始め直すため）。</summary>
     internal bool ShowingBakedPhysics { get; set; }
 
@@ -281,6 +294,7 @@ public sealed class EditorContext
         Animation.AutoKey = false;
         Physics.Enabled = true;
         Physics.FloorEnabled = true;
+        Physics.BetweenModels = true;
         Rendering.Reset();
         Animation.NotifyStateChanged();
         Undo.Clear();

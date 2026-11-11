@@ -7,7 +7,8 @@ namespace Theater3D.Physics;
 /// モデル 1 体の物理の焼き込み。0 フレーム目から 1 フレームずつ順に計算した全剛体の置き方を、フレームごとに覚えておく。
 /// 覚えたフレームを表示するときは計算せずに当てはめるので、再生位置をどう動かしても、同じフレームなら同じ姿勢になる
 /// （スクラブ整合性）。画面の物理（<see cref="ModelPhysics"/>）とは別の世界で計算する。
-/// 入力（フレームごとのボーン・モーフの値、フレームの速さ、重力、床）が変わったら <see cref="Invalidate"/> で捨てて、やり直す。
+/// 入力（フレームごとのボーン・モーフの値、フレームの速さ、重力、床、障害物（ほかのモデルの体）とその動き）が変わったら
+/// <see cref="Invalidate"/> で捨てて、やり直す。
 /// </summary>
 public sealed class PhysicsBake : IDisposable
 {
@@ -47,7 +48,7 @@ public sealed class PhysicsBake : IDisposable
     public int Version { get; private set; }
 
     /// <summary>覚えた結果を捨てる。次に <see cref="BakeNext"/> を呼ぶと 0 フレーム目から計算し直す。</summary>
-    public void Invalidate(int frameRate, Vector3 gravity, PhysicsFloor floor = default)
+    public void Invalidate(int frameRate, Vector3 gravity, PhysicsFloor floor = default, PhysicsBodyDesc[]? obstacles = null)
     {
         _frames.Clear();
         FrameRate = Math.Max(1, frameRate);
@@ -59,16 +60,25 @@ public sealed class PhysicsBake : IDisposable
         }
         _physics.SetGravity(gravity);
         _physics.SetFloor(floor.Normal == Vector3.Zero ? PhysicsFloor.None : floor); // 渡さなければ床なし
+        if (obstacles is not null || _physics.ObstacleCount > 0)
+        {
+            _physics.SetObstacles(obstacles ?? []);
+        }
         _physics.NeedsReset = true;
         Version++;
     }
 
     /// <summary>
-    /// 次のフレーム（<see cref="Count"/> フレーム目）を計算して覚える。<paramref name="input"/> はそのフレームのボーン・モーフの値。
+    /// 次のフレーム（<see cref="Count"/> フレーム目）を計算して覚える。<paramref name="input"/> はそのフレームのボーン・モーフの値、
+    /// <paramref name="obstacles"/> はそのフレームの障害物の置き方（障害物があるとき。数は障害物の数）。
     /// 0 フレーム目は剛体を置き直して落ち着かせ、それ以降は 1 フレーム分ずつ進める（再生と同じ）。
     /// </summary>
-    public void BakeNext(PoseInput input)
+    public void BakeNext(PoseInput input, ReadOnlySpan<PhysicsTransform> obstacles = default)
     {
+        if (_physics.ObstacleCount > 0)
+        {
+            _physics.SetObstacleTargets(obstacles);
+        }
         PoseEvaluator.EvaluateBeforePhysics(_rig, input, _state);
         if (_frames.Count == 0)
         {

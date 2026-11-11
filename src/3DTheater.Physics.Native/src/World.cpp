@@ -95,6 +95,7 @@ World::~World()
         world_->removeRigidBody(body.body.get());
     }
     bodies_.clear();
+    RemoveObstacles();
     if (floor_) {
         world_->removeRigidBody(floor_.get());
         floor_.reset();
@@ -189,6 +190,76 @@ void World::SetFloor(const TpFloorDesc& desc)
     info.m_restitution = std::max(desc.restitution, 0.0f);
     floor_ = std::make_unique<btRigidBody>(info);
     world_->addRigidBody(floor_.get(), kFloorGroup, kBodyGroups);
+}
+
+void World::RemoveObstacles()
+{
+    for (Obstacle& obstacle : obstacles_) {
+        world_->removeRigidBody(obstacle.body.get());
+    }
+    obstacles_.clear();
+}
+
+void World::SetObstacles(const TpBodyDesc* descs, int count)
+{
+    if (count < 0 || (count > 0 && !descs)) {
+        throw Error(TP_E_INVALID_ARG, L"障害物の一覧が正しくありません");
+    }
+    // 先に全部を作る（途中で失敗して、半分だけ置き直したままにならないように）
+    std::vector<Obstacle> created;
+    created.reserve(static_cast<size_t>(count));
+    for (int i = 0; i < count; ++i) {
+        const TpBodyDesc& desc = descs[i];
+        if (!IsFinite(desc.size, 3) || !std::isfinite(desc.restitution) || !std::isfinite(desc.friction)) {
+            throw Error(TP_E_INVALID_ARG, std::format(L"障害物 {} 番に数でない値があります", i));
+        }
+        Obstacle obstacle;
+        obstacle.shape = CreateShape(desc);
+        const btTransform transform = ToTransform(desc.transform);
+        btRigidBody::btRigidBodyConstructionInfo info(0, nullptr, obstacle.shape.get(), btVector3(0, 0, 0));
+        info.m_startWorldTransform = transform;
+        info.m_restitution = desc.restitution;
+        info.m_friction = desc.friction;
+        obstacle.body = std::make_unique<btRigidBody>(info);
+        obstacle.body->setCollisionFlags(obstacle.body->getCollisionFlags() | btCollisionObject::CF_KINEMATIC_OBJECT);
+        obstacle.body->setActivationState(DISABLE_DEACTIVATION);
+        obstacle.previous = transform;
+        obstacle.goal = transform;
+        created.push_back(std::move(obstacle));
+    }
+    RemoveObstacles();
+    for (size_t i = 0; i < created.size(); ++i) {
+        const TpBodyDesc& desc = descs[i];
+        world_->addRigidBody(created[i].body.get(), static_cast<int>(desc.group & kBodyGroups), static_cast<int>(desc.mask & kBodyGroups));
+    }
+    obstacles_ = std::move(created);
+}
+
+void World::SetObstacleTargets(const TpTransform* targets, int count, bool snap)
+{
+    if (count != static_cast<int>(obstacles_.size())) {
+        throw Error(TP_E_INVALID_ARG, std::format(L"障害物の目標の数（{}）が障害物の数（{}）と違います", count, obstacles_.size()));
+    }
+    if (count > 0 && !targets) {
+        throw Error(TP_E_INVALID_ARG, L"障害物の目標の配列が NULL です");
+    }
+    std::vector<btTransform> goals(static_cast<size_t>(count));
+    for (int i = 0; i < count; ++i) {
+        goals[static_cast<size_t>(i)] = ToTransform(targets[i]);
+    }
+    for (int i = 0; i < count; ++i) {
+        Obstacle& obstacle = obstacles_[static_cast<size_t>(i)];
+        obstacle.goal = goals[static_cast<size_t>(i)];
+        if (snap) {
+            obstacle.previous = obstacle.goal;
+            obstacle.body->setWorldTransform(obstacle.goal);
+            obstacle.body->setInterpolationWorldTransform(obstacle.goal);
+            world_->getBroadphase()->getOverlappingPairCache()->cleanProxyFromPairs(obstacle.body->getBroadphaseHandle(), dispatcher_.get());
+        }
+    }
+    if (snap && count > 0) {
+        world_->updateAabbs();
+    }
 }
 
 void World::AddJoints(const TpJointDesc* descs, int count)
@@ -291,7 +362,13 @@ void World::Step(const TpTransform* targets, int count, float timeStep, int subs
                 body.body->setWorldTransform(Interpolate(body.previousTarget, goals[static_cast<size_t>(i)], t));
             }
         }
+        for (Obstacle& obstacle : obstacles_) {
+            obstacle.body->setWorldTransform(Interpolate(obstacle.previous, obstacle.goal, t));
+        }
         world_->stepSimulation(h, 0); // 0 = 渡した時間でちょうど 1 回進める
+    }
+    for (Obstacle& obstacle : obstacles_) {
+        obstacle.previous = obstacle.goal;
     }
     for (int i = 0; i < count; ++i) {
         Body& body = bodies_[static_cast<size_t>(i)];

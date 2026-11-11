@@ -115,7 +115,7 @@ public sealed class PoseUpdater
                     model.ShowingBakedPhysics = false;
                     step = PhysicsStep.Reset;
                 }
-                if (!TryPhysics(node, model, physics, step, _context.Playback.FrameRate, _context.Physics.FloorFor(node)))
+                if (!TryPhysics(node, model, physics, step, _context.Playback.FrameRate, _context.Physics))
                 {
                     PoseEvaluator.EvaluateBeforePhysics(model.Rig, input, model.State); // 物理の途中の結果を捨てる
                 }
@@ -175,13 +175,27 @@ public sealed class PoseUpdater
         _timer.Add(Stopwatch.GetElapsedTime(start));
     }
 
-    private static bool TryPhysics(ModelNode node, LoadedModel model, ModelPhysics physics, PhysicsStep step, int frameRate, PhysicsFloor floor)
+    private static bool TryPhysics(ModelNode node, LoadedModel model, ModelPhysics physics, PhysicsStep step, int frameRate,
+        PhysicsController controller)
     {
         try
         {
             // 物理はモデルの座標で計算するので、モデルを傾けて置いたときは重力も傾ける。床もモデルの座標で置く
             physics.SetGravity(PhysicsController.GravityFor(node));
-            physics.SetFloor(floor);
+            physics.SetFloor(controller.FloorFor(node));
+            // ほかのモデルの体（障害物）: 組み合わせが変わったら置き直し、今の姿勢の置き方を渡す（後で計算するモデルの体は、前の画面の姿勢）
+            string signature = controller.ObstacleSignature(node);
+            if (signature != model.LiveObstacleSignature)
+            {
+                physics.SetObstacles(controller.ObstacleDescs(node));
+                model.LiveObstacleSignature = signature;
+            }
+            if (physics.ObstacleCount > 0)
+            {
+                PhysicsTransform[] targets = PhysicsController.ObstacleBuffer(model, physics.ObstacleCount);
+                controller.ObstacleTargetsNow(node, targets);
+                physics.SetObstacleTargets(targets);
+            }
             switch (step.Kind)
             {
                 case PhysicsStepKind.Reset:

@@ -12,8 +12,11 @@ public sealed class PhysicsFloorSettingTests
     {
         ProjectFile old = ProjectSerializer.Deserialize("""{"format":"3DTheater.Project","version":1}""", new LoadReport())!;
         Assert.IsTrue(old.PhysicsFloor, "床との当たりの無い前の版のファイルは、床に当てる");
-        ProjectFile off = ProjectSerializer.Deserialize(ProjectSerializer.Serialize(new ProjectFile { PhysicsFloor = false }), new LoadReport())!;
+        Assert.IsTrue(old.PhysicsBetweenModels, "モデルどうしの当たりの無い前の版のファイルは、モデルどうしで当てる");
+        ProjectFile off = ProjectSerializer.Deserialize(
+            ProjectSerializer.Serialize(new ProjectFile { PhysicsFloor = false, PhysicsBetweenModels = false }), new LoadReport())!;
         Assert.IsFalse(off.PhysicsFloor, "当てないことも保存する");
+        Assert.IsFalse(off.PhysicsBetweenModels);
 
         var (_, _, _, model) = AnimationFixtures.Create();
         foreach (string property in new[] { nameof(SceneNode.Position), nameof(SceneNode.Rotation), nameof(SceneNode.Scale) })

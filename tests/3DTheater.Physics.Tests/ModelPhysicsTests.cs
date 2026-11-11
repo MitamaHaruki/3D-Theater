@@ -17,7 +17,7 @@ public sealed class ModelPhysicsTests
     /// 剛体: 0 頭（ボーン追従）、1 髪（中心 (2,10,0)、物理）。ジョイントは (0,10,0) で、位置は固定・回転は自由
     /// </summary>
     private static PmxDocument Hair(PmxPhysicsMode hairMode = PmxPhysicsMode.Physics, PmxJointType jointType = PmxJointType.Spring6Dof,
-        PmxMorph[]? morphs = null) => new()
+        PmxMorph[]? morphs = null, ushort headMask = 0, ushort hairMask = 0) => new()
     {
         Morphs = morphs ?? [],
         Bones =
@@ -36,12 +36,12 @@ public sealed class ModelPhysicsTests
             new PmxRigidBody
             {
                 Name = "頭", BoneIndex = 0, Shape = PmxRigidShape.Sphere, Size = new Vector3(1, 0, 0), Position = new Vector3(0, 10, 0),
-                Mass = 1, Mode = PmxPhysicsMode.FollowBone, Group = 0, CollisionMask = 0,
+                Mass = 1, Mode = PmxPhysicsMode.FollowBone, Group = 0, CollisionMask = headMask,
             },
             new PmxRigidBody
             {
                 Name = "髪", BoneIndex = 1, Shape = PmxRigidShape.Sphere, Size = new Vector3(0.3f, 0, 0), Position = new Vector3(2, 10, 0),
-                Mass = 1, LinearDamping = 0.9f, AngularDamping = 0.9f, Mode = hairMode, Group = 1, CollisionMask = 0,
+                Mass = 1, LinearDamping = 0.9f, AngularDamping = 0.9f, Mode = hairMode, Group = 1, CollisionMask = hairMask,
             },
         ],
         Joints =
@@ -139,6 +139,68 @@ public sealed class ModelPhysicsTests
         PoseEvaluator.EvaluateBeforePhysics(bakeRig, bakeInput, bakedState);
         Assert.IsTrue(bake.TryApply(29, bakedState));
         Assert.IsGreaterThan(7.5f, bakedState.Global[2].Translation.Y, "焼き込みでも床に止まり、髪の先は床が無いとき（高さ 6）より上にある");
+    }
+
+    [TestMethod]
+    public void HairIsPushedAsideByAnotherModelsBody()
+    {
+        // ほかのモデル（同じ形）を 2 下げて置くと、その頭（ボーン追従の剛体・半径 1）が、このモデルの髪の垂れる所（高さ 8）に来る
+        var (otherRig, otherPhysics, otherInput, otherState) = Create(Hair(headMask: 0xFFFF));
+        using (otherPhysics)
+        {
+            Assert.AreEqual(1, otherPhysics.FollowBodyCount, "ボーン追従の剛体は頭だけ");
+            PhysicsBodyDesc[] descs = otherPhysics.FollowBodyDescs();
+            Assert.AreEqual(PhysicsBodyKind.Kinematic, descs[0].Kind);
+            Assert.AreEqual(2f, otherPhysics.FollowBodyDescs(2f)[0].Size.X, "大きさを掛けられる");
+            PoseEvaluator.EvaluateBeforePhysics(otherRig, otherInput, otherState);
+            var head = new PhysicsTransform[1];
+            otherPhysics.FollowBodyTransforms(otherState, head);
+            Assert.AreEqual(0f, Vector3.Distance(new Vector3(0, 10, 0), head[0].Position), 1e-5f, "ボーンの置き方での剛体の置き方");
+            PhysicsTransform there = new ModelPlacement(Vector3.Zero, Quaternion.Identity, 1f)
+                .FromModel(head[0], new ModelPlacement(new Vector3(0, -2, 0), Quaternion.Identity, 1f));
+
+            float HairDown(ushort hairMask, bool withObstacle)
+            {
+                var (rig, physics, input, state) = Create(Hair(hairMask: hairMask));
+                using (physics)
+                {
+                    if (withObstacle)
+                    {
+                        physics.SetObstacles(descs);
+                        physics.SetObstacleTargets([there]);
+                        Assert.AreEqual(1, physics.ObstacleCount);
+                    }
+                    PoseEvaluator.EvaluateBeforePhysics(rig, input, state);
+                    physics.Reset(state, warmupSeconds: 3);
+                    for (int frame = 0; frame < 30; frame++)
+                    {
+                        PoseEvaluator.EvaluateBeforePhysics(rig, input, state);
+                        physics.Step(state, 1f / 30f);
+                    }
+                    return Vector3.Dot(HairDirection(state), -Vector3.UnitY);
+                }
+            }
+
+            Assert.IsGreaterThan(0.95f, HairDown(0xFFFF, withObstacle: false), "障害物が無ければ真下へ垂れる");
+            Assert.IsLessThan(0.9f, HairDown(0xFFFF, withObstacle: true), "ほかのモデルの頭に当たって、真下へは垂れない");
+            Assert.IsGreaterThan(0.95f, HairDown(0, withObstacle: true), "髪のぶつかる相手に入っていなければ、すり抜ける");
+
+            // 焼き込みでも、各フレームの障害物の置き方を使う
+            PmxDocument document = Hair(hairMask: 0xFFFF);
+            ModelRig bakeRig = ModelRig.FromPmx(document);
+            using var bake = new PhysicsBake(() => ModelPhysics.Create(document, bakeRig)!, bakeRig);
+            bake.Invalidate(30, new Vector3(0, -ModelPhysics.GravityStrength, 0), default, descs);
+            var bakeInput = new PoseInput(bakeRig);
+            for (int frame = 0; frame < 30; frame++)
+            {
+                bake.BakeNext(bakeInput, [there]);
+            }
+            var bakedState = new PoseState(bakeRig);
+            PoseEvaluator.EvaluateBeforePhysics(bakeRig, bakeInput, bakedState);
+            Assert.IsTrue(bake.TryApply(29, bakedState));
+            PoseEvaluator.EvaluateAfterPhysics(bakeRig, bakedState);
+            Assert.IsLessThan(0.9f, Vector3.Dot(HairDirection(bakedState), -Vector3.UnitY), "焼き込みでも、ほかのモデルの頭に当たる");
+        }
     }
 
     [TestMethod]

@@ -31,12 +31,17 @@ public sealed class ModelPhysics : IDisposable
     private readonly ImpulseSum[] _impulseSums;
     private readonly int[] _impulseBodies;
     private readonly PhysicsImpulse[] _impulses;
+    private readonly PhysicsBodyDesc[] _descs;
+    private readonly int[] _followBodies;
+    private PhysicsTransform[] _obstacleTargets = [];
 
-    private ModelPhysics(PhysicsWorld world, ModelRig rig, Body[] bodies, int joints)
+    private ModelPhysics(PhysicsWorld world, ModelRig rig, Body[] bodies, int joints, PhysicsBodyDesc[] descs)
     {
         _world = world;
         _rig = rig;
         _bodies = bodies;
+        _descs = descs;
+        _followBodies = [.. Enumerable.Range(0, bodies.Length).Where(i => bodies[i].Kinematic)];
         _buffer = new PhysicsTransform[bodies.Length];
         JointCount = joints;
         _impulseMorphs = [.. rig.Morphs.Where(m => m.ImpulseOffsets.Length > 0)];
@@ -145,7 +150,7 @@ public sealed class ModelPhysics : IDisposable
             world.Dispose();
             throw;
         }
-        return new ModelPhysics(world, rig, bodies, joints.Count);
+        return new ModelPhysics(world, rig, bodies, joints.Count, descs);
     }
 
     /// <summary>重力（モデルの座標で）。モデルを傾けて置いたときは、傾きに合わせて回したものを渡す。</summary>
@@ -165,6 +170,49 @@ public sealed class ModelPhysics : IDisposable
     /// <summary>今の床。</summary>
     public PhysicsFloor Floor { get; private set; } = PhysicsFloor.None;
 
+    /// <summary>ボーン追従の剛体（体など）の数。ほかのモデルの物理に、障害物として置くのに使う。</summary>
+    public int FollowBodyCount => _followBodies.Length;
+
+    /// <summary>ボーン追従の剛体の形・グループ（モデルの座標で。障害物として置くとき）。<paramref name="scale"/> で大きさを掛ける。</summary>
+    public PhysicsBodyDesc[] FollowBodyDescs(float scale = 1f) =>
+        [.. _followBodies.Select(i => _descs[i] with { Size = _descs[i].Size * scale, Kind = PhysicsBodyKind.Kinematic })];
+
+    /// <summary>ボーン追従の剛体の、今のボーンの置き方での置き方（モデルの座標で）。<paramref name="state"/> は物理の前まで求めたもの。</summary>
+    public void FollowBodyTransforms(PoseState state, Span<PhysicsTransform> destination)
+    {
+        for (int k = 0; k < _followBodies.Length && k < destination.Length; k++)
+        {
+            destination[k] = PhysicsTransform.FromMatrix(BodyFromBone(state, _followBodies[k]));
+        }
+    }
+
+    /// <summary>障害物（ほかのモデルの体など。このモデルの座標で）の数。</summary>
+    public int ObstacleCount => _obstacleTargets.Length;
+
+    /// <summary>障害物を置き直す（前の障害物は外す）。置き方は <see cref="SetObstacleTargets"/> で与える。</summary>
+    public void SetObstacles(ReadOnlySpan<PhysicsBodyDesc> obstacles)
+    {
+        _world.SetObstacles(obstacles);
+        _obstacleTargets = new PhysicsTransform[obstacles.Length];
+        for (int i = 0; i < obstacles.Length; i++)
+        {
+            _obstacleTargets[i] = obstacles[i].Transform;
+        }
+    }
+
+    /// <summary>
+    /// 障害物の目標の置き方（このモデルの座標で。数は <see cref="ObstacleCount"/>）。次の <see cref="Reset"/> ではすぐ置き、
+    /// <see cref="Step"/> では前の置き方から少しずつ動かす。
+    /// </summary>
+    public void SetObstacleTargets(ReadOnlySpan<PhysicsTransform> targets)
+    {
+        if (targets.Length != _obstacleTargets.Length)
+        {
+            throw new ArgumentException($"障害物の目標の数（{targets.Length}）が障害物の数（{_obstacleTargets.Length}）と違います", nameof(targets));
+        }
+        targets.CopyTo(_obstacleTargets);
+    }
+
     /// <summary>
     /// 全剛体を今のボーンの置き方に合わせて置き直し、速さを 0 にしてから、<paramref name="warmupSeconds"/> 秒だけ
     /// ボーンを止めたまま計算して落ち着かせる（フレームを飛ばしたとき・最初）。
@@ -174,6 +222,10 @@ public sealed class ModelPhysics : IDisposable
         for (int i = 0; i < _bodies.Length; i++)
         {
             _buffer[i] = PhysicsTransform.FromMatrix(BodyFromBone(state, i));
+        }
+        if (_obstacleTargets.Length > 0)
+        {
+            _world.SetObstacleTargets(_obstacleTargets, snap: true);
         }
         _world.Reset(_buffer);
         if (warmupSeconds > 0)
@@ -203,6 +255,10 @@ public sealed class ModelPhysics : IDisposable
         if (seconds > 0)
         {
             ApplyImpulseMorphs(state, impulseFrames);
+            if (_obstacleTargets.Length > 0)
+            {
+                _world.SetObstacleTargets(_obstacleTargets, snap: false);
+            }
             _world.Step(_buffer, seconds, Substeps(seconds));
         }
         Apply(state);

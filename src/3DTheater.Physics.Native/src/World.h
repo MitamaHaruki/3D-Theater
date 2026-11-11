@@ -43,6 +43,8 @@ public:
     void GetTransforms(TpTransform* out, int count) const;
     void ApplyImpulses(const TpImpulse* impulses, int count);
     void SetFloor(const TpFloorDesc& desc);
+    void SetObstacles(const TpBodyDesc* descs, int count);
+    void SetObstacleTargets(const TpTransform* targets, int count, bool snap);
 
 private:
     static constexpr uint32_t kMagic = 0x44575054; // "TPWD"
@@ -66,6 +68,16 @@ private:
     std::vector<std::unique_ptr<btTypedConstraint>> joints_;
     std::unique_ptr<btCollisionShape> floorShape_; // 床（無ければ null）
     std::unique_ptr<btRigidBody> floor_;
+
+    // 障害物（外から置き方を与える。剛体の数に入らない）
+    struct Obstacle {
+        std::unique_ptr<btCollisionShape> shape;
+        std::unique_ptr<btRigidBody> body;
+        btTransform previous; // 前の目標
+        btTransform goal;     // 次の tp_world_step で着く目標
+    };
+    void RemoveObstacles();
+    std::vector<Obstacle> obstacles_;
 };
 
 } // namespace tp

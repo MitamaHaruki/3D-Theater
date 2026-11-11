@@ -125,7 +125,7 @@ public sealed class PhysicsException(int result, string message) : Exception($"{
 public sealed unsafe partial class PhysicsWorld : IDisposable
 {
     public const int ExpectedApiVersionMajor = 0;
-    public const int ExpectedApiVersionMinor = 3;
+    public const int ExpectedApiVersionMinor = 4;
 
     private const string Library = "3DTheater.Physics.Native";
     private nint _handle;
@@ -184,6 +184,30 @@ public sealed unsafe partial class PhysicsWorld : IDisposable
     }
 
     public void SetGravity(Vector3 gravity) => Check(tp_world_set_gravity(Handle, &gravity));
+
+    /// <summary>
+    /// 障害物（ほかのモデルの体など、外から置き方を与える剛体）を置き直す（前の障害物は外す）。剛体の数・番号には入らない。
+    /// <see cref="PhysicsBodyDesc.Kind"/>・<see cref="PhysicsBodyDesc.Mass"/> は使わない。
+    /// </summary>
+    public void SetObstacles(ReadOnlySpan<PhysicsBodyDesc> obstacles)
+    {
+        fixed (PhysicsBodyDesc* p = obstacles)
+        {
+            Check(tp_world_set_obstacles(Handle, p, obstacles.Length));
+        }
+    }
+
+    /// <summary>
+    /// 障害物の目標の置き方（数は障害物の数と同じ）。<paramref name="snap"/> ならすぐ置き、そうでなければ次の <see cref="Step"/> で
+    /// 前の目標から少しずつ動かす。
+    /// </summary>
+    public void SetObstacleTargets(ReadOnlySpan<PhysicsTransform> targets, bool snap)
+    {
+        fixed (PhysicsTransform* p = targets)
+        {
+            Check(tp_world_set_obstacle_targets(Handle, p, targets.Length, snap ? 1 : 0));
+        }
+    }
 
     /// <summary>床を置く・置き直す・外す（<see cref="PhysicsFloor.Enabled"/> が false なら外す）。動く剛体だけが当たる。</summary>
     public void SetFloor(PhysicsFloor floor)
@@ -323,6 +347,14 @@ public sealed unsafe partial class PhysicsWorld : IDisposable
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     private static partial int tp_world_set_floor(nint world, TpFloorDesc* floor);
 
+    [LibraryImport(Library)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    private static partial int tp_world_set_obstacles(nint world, PhysicsBodyDesc* obstacles, int count);
+
+    [LibraryImport(Library)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    private static partial int tp_world_set_obstacle_targets(nint world, PhysicsTransform* targets, int count, int snap);
+
     [StructLayout(LayoutKind.Sequential)]
     private struct TpFloorDesc
     {
@@ -344,6 +376,8 @@ public readonly record struct PhysicsFloor(bool Enabled, Vector3 Point, Vector3 
     /// <summary>床なし。</summary>
     public static PhysicsFloor None { get; } = new(false, Vector3.Zero, Vector3.UnitY);
 
+    // 置き方の写し（シーンの座標 ↔ モデルの座標）は ModelPlacement
+
     /// <summary>
     /// シーンの床（高さ 0 の水平な面）を、モデルの座標（物理の世界の座標）で表したもの。モデルは「拡大 → 回転 → 移動」の順に置く
     /// （シーンの決まり）。拡大は 1 つの倍率で直す（縦横で違う拡大は考えない）。
@@ -355,4 +389,26 @@ public readonly record struct PhysicsFloor(bool Enabled, Vector3 Point, Vector3 
         Vector3 point = Vector3.Transform(new Vector3(0f, -modelPosition.Y, 0f), inverse) / scale;
         return new PhysicsFloor(true, point, Vector3.Transform(Vector3.UnitY, inverse));
     }
+}
+
+/// <summary>
+/// モデルの置き方（シーンの決まりで「拡大 → 回転 → 移動」。拡大は 1 つの倍率）。物理はモデルの座標で計算するので、
+/// ほかのモデルの剛体をこのモデルの座標へ直すのに使う。
+/// </summary>
+public readonly record struct ModelPlacement(Vector3 Position, Quaternion Rotation, float Scale)
+{
+    private float SafeScale => MathF.Abs(Scale) > 1e-6f && float.IsFinite(Scale) ? Scale : 1f;
+
+    public Vector3 ToScene(Vector3 point) => Vector3.Transform(point * SafeScale, Quaternion.Normalize(Rotation)) + Position;
+
+    public Vector3 FromScene(Vector3 point) => Vector3.Transform(point - Position, Quaternion.Inverse(Quaternion.Normalize(Rotation))) / SafeScale;
+
+    /// <summary><paramref name="from"/> のモデルの座標の置き方を、このモデルの座標へ直す。</summary>
+    public PhysicsTransform FromModel(in PhysicsTransform transform, in ModelPlacement from) => new(
+        FromScene(from.ToScene(transform.Position)),
+        Quaternion.Normalize(Quaternion.Concatenate(Quaternion.Concatenate(transform.Rotation, Quaternion.Normalize(from.Rotation)),
+            Quaternion.Inverse(Quaternion.Normalize(Rotation)))));
+
+    /// <summary><paramref name="from"/> のモデルの長さ 1 が、このモデルの座標でいくつになるか。</summary>
+    public float ScaleFrom(in ModelPlacement from) => from.SafeScale / SafeScale;
 }

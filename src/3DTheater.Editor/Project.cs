@@ -36,6 +36,9 @@ public sealed class ProjectFile
     /// <summary>物理で動く剛体を床（高さ 0）に当てるか（無い古いファイルは当てる）。</summary>
     public bool PhysicsFloor { get; set; } = true;
 
+    /// <summary>物理で動く剛体を、ほかのモデルの体にも当てるか（無い古いファイルは当てる）。</summary>
+    public bool PhysicsBetweenModels { get; set; } = true;
+
     /// <summary>描き方（無い古いファイルは初期の設定）。</summary>
     public RenderingEntry Rendering { get; set; } = new();
 

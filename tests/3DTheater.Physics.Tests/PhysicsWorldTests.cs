@@ -150,6 +150,46 @@ public sealed class PhysicsWorldTests
     }
 
     [TestMethod]
+    public void ObstaclesStopDynamicBodiesWithoutBeingCounted()
+    {
+        float Drop(uint obstacleMask, float obstacleY = 0f)
+        {
+            using var world = PhysicsWorld.Create(new Vector3(0, -Gravity, 0));
+            world.AddBodies([Body(PhysicsShape.Sphere, PhysicsBodyKind.Dynamic, new Vector3(1f), new Vector3(0, 5, 0), group: 1 << 1)]);
+            world.SetObstacles([Body(PhysicsShape.Box, PhysicsBodyKind.Kinematic, new Vector3(4, 1, 4), Vector3.Zero, group: 1 << 2, mask: obstacleMask)]);
+            world.SetObstacleTargets([new PhysicsTransform(new Vector3(0, obstacleY, 0), Quaternion.Identity)], snap: true);
+            world.Step([Identity], 2f, 240);
+            Assert.AreEqual(1, world.BodyCount, "障害物は剛体の数に入らない");
+            return Read(world)[0].Position.Y;
+        }
+
+        Assert.AreEqual(2f, Drop(0xFFFF), 0.1f, "障害物（厚さの半分 1）の上に止まる（半径 1 の球）");
+        Assert.IsLessThan(-5f, Drop(0), "障害物のぶつかる相手に入っていなければ、すり抜ける");
+        Assert.AreEqual(-48f, Drop(0xFFFF, obstacleY: -50f), 0.2f, "障害物は与えた置き方の所で当たる");
+
+        using var empty = PhysicsWorld.Create(new Vector3(0, -Gravity, 0));
+        empty.SetObstacles([Body(PhysicsShape.Sphere, PhysicsBodyKind.Kinematic, new Vector3(1f), Vector3.Zero)]);
+        Assert.ThrowsExactly<PhysicsException>(() => empty.SetObstacleTargets([], snap: false), "目標の数は障害物の数と同じ");
+        empty.SetObstacles([]);
+        empty.SetObstacleTargets([], snap: false);
+    }
+
+    [TestMethod]
+    public void TransformsMoveBetweenModelCoordinates()
+    {
+        // ほかのモデル: (5, 0, 0) に Y 軸まわりに 90° 回して 2 倍で置いた。このモデル: 原点にそのまま
+        var other = new ModelPlacement(new Vector3(5, 0, 0), Quaternion.CreateFromAxisAngle(Vector3.UnitY, MathF.PI / 2), 2f);
+        var self = new ModelPlacement(Vector3.Zero, Quaternion.Identity, 1f);
+        PhysicsTransform moved = self.FromModel(new PhysicsTransform(new Vector3(1, 0, 0), Quaternion.Identity), other);
+
+        Assert.AreEqual(0f, Vector3.Distance(new Vector3(5, 0, -2), moved.Position), 1e-5f, "拡大 → 回転 → 移動の順に置く");
+        Assert.AreEqual(0f, Vector3.Distance(new Vector3(0, 0, -1), Vector3.Transform(Vector3.UnitX, moved.Rotation)), 1e-5f, "向きも回る");
+        Assert.AreEqual(2f, self.ScaleFrom(other), "ほかのモデルの長さ 1 は、このモデルの座標で 2");
+        PhysicsTransform back = other.FromModel(moved, self);
+        Assert.AreEqual(0f, Vector3.Distance(new Vector3(1, 0, 0), back.Position), 1e-5f, "戻すと元の置き方");
+    }
+
+    [TestMethod]
     public void SceneFloorIsExpressedInModelCoordinates()
     {
         // モデルを高さ 3 に置けば、モデルの座標では床は高さ -3。2 倍に拡大していれば -1.5

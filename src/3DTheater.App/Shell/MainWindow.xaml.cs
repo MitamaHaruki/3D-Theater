@@ -795,6 +795,12 @@ public partial class MainWindow : Window
         UpdatePhysicsControls();
     }
 
+    private void OnPhysicsBetweenModelsClick(object sender, RoutedEventArgs e)
+    {
+        _context.Physics.BetweenModels = PhysicsBetweenModelsMenuItem.IsChecked;
+        UpdatePhysicsControls();
+    }
+
     private void OnResetPhysicsClick(object sender, RoutedEventArgs e)
     {
         _context.Physics.Reset();
@@ -907,6 +913,7 @@ public partial class MainWindow : Window
         PhysicsMenuItem.IsChecked = enabled;
         PhysicsButton.IsChecked = enabled;
         PhysicsFloorMenuItem.IsChecked = _context.Physics.FloorEnabled;
+        PhysicsBetweenModelsMenuItem.IsChecked = _context.Physics.BetweenModels;
     }
 
     /// <summary>選んだモデル（ボーン・モーフを選んでいればその持ち主）か音声を、シーンから外す（Ctrl+Z で戻せる）。</summary>
