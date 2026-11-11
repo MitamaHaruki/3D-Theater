@@ -554,6 +554,13 @@ public partial class MainWindow : Window
         window.ShowDialog();
     }
 
+    private void OnEnvironmentClick(object sender, RoutedEventArgs e)
+    {
+        var window = new EnvironmentWindow(_context.Rendering, _context.EnvironmentImage) { Owner = this };
+        WindowMemory.Track(window);
+        window.ShowDialog();
+    }
+
     private void OnFogClick(object sender, RoutedEventArgs e)
     {
         var window = new FogWindow(_context.Rendering) { Owner = this };

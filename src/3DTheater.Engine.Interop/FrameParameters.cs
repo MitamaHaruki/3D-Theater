@@ -31,6 +31,9 @@ public enum FrameFlags : uint
 
     /// <summary>床の映り込み（<see cref="FrameParameters.ReflectionStrength"/>・<see cref="FrameParameters.ReflectionFade"/>）。</summary>
     FloorReflection = 1u << 11,
+
+    /// <summary>環境の画像（<see cref="FrameParameters.Environment"/>）を背景に描く（平行投影では描かない）。</summary>
+    EnvironmentBackground = 1u << 12,
 }
 
 /// <summary>tt_engine.h の TT_LIGHT_* と同じ値（足す照明の種類）。</summary>
@@ -152,6 +155,7 @@ public readonly record struct PostEffects(
 /// <see cref="EdgePixelScale"/> は材質の輪郭線の太さ 1 を何ピクセルにするか（0 なら輪郭線を描かない）。
 /// <see cref="ShadowMapSize"/> はセルフシャドウの奥行きの画像の 1 辺（0 なら 2048）。<see cref="ShadowSoftness"/> は柔らかな影の
 /// 光源の見かけの半径の tan（0〜0.5。0 ならくっきり）。
+/// <see cref="Environment"/> は環境の画像（PBR の材質の環境光と映り込み。トゥーンには使わない）。明るさと、Y 軸のまわりの回転（ラジアン）。
 /// <see cref="ClearColor"/> は <see cref="FrameFlags.ClearColor"/> のときの背景の色。透明で描くと、読み出した色は透明度をかけ合わせた値になる。
 /// </summary>
 public readonly record struct FrameParameters(
@@ -172,4 +176,7 @@ public readonly record struct FrameParameters(
     IReadOnlyList<LightSource>? Lights = null,
     float ReflectionStrength = 0f,
     float ReflectionFade = 10f,
-    float ShadowSoftness = 0f);
+    float ShadowSoftness = 0f,
+    NativeEnvironment? Environment = null,
+    float EnvironmentIntensity = 1f,
+    float EnvironmentRotation = 0f);

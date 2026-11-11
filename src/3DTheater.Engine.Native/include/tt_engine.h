@@ -27,7 +27,7 @@ extern "C" {
 
 // 上位 16 ビットが大きな版、下位 16 ビットが小さな版。大きな版が違う DLL とは組み合わせない。
 #define TT_API_VERSION_MAJOR 0
-#define TT_API_VERSION_MINOR 19
+#define TT_API_VERSION_MINOR 20
 #define TT_API_VERSION ((TT_API_VERSION_MAJOR << 16) | TT_API_VERSION_MINOR)
 
 // 0 以上は成功、負の値は失敗。
@@ -59,6 +59,7 @@ typedef void(TT_CALL* TtLogCallback)(int32_t level, const wchar_t* message, void
 typedef struct TtEngine TtEngine;
 typedef struct TtView TtView;
 typedef struct TtTexture TtTexture;
+typedef struct TtEnvironment TtEnvironment; // 環境の画像（API 0.20）
 typedef struct TtMesh TtMesh;
 
 enum {
@@ -105,6 +106,7 @@ enum {
     TT_FRAME_GRID_BEHIND = 1u << 9,          // 格子と座標軸を、奥行きに関係なくいちばん奥に描く（モデルの後ろ。固定視点用。API 0.8）
     TT_FRAME_CLEAR_COLOR = 1u << 10,         // 背景を clear_color で消す（a = 0 で透明。書き出し用。API 0.9）。無ければ編集画面の背景色
     TT_FRAME_FLOOR_REFLECTION = 1u << 11,    // 床の映り込み（高さ 0 の床に、モデルを鏡のように映す。reflection_*。API 0.15）
+    TT_FRAME_ENVIRONMENT_BACKGROUND = 1u << 12, // 環境の画像を背景に描く（environment があるとき。平行投影では描かない。API 0.20）
 };
 
 // 映像効果（TtFrameParams.post_flags。API 0.11）。どれかを使うと、場面を背景なしで描いてから効果をかけ、背景を後ろに置く。
@@ -329,6 +331,11 @@ typedef struct TtFrameParams {
     // 地面の影も「地面影」の材質で照明から見た奥行きの画像を作り、床に描いた 1 枚の四角形で読む（押しつぶす描き方ではぼかせないため）
     float shadow_softness;
     uint32_t reserved11;
+    // ここから API 0.20（環境の画像。全方向の景色。PBR の材質の環境光と映り込みに使い、TT_FRAME_ENVIRONMENT_BACKGROUND なら
+    // 背景にも描く。トゥーンの材質には使わない。NULL なら今までどおり、照明の色から作る空と地面の 2 色）
+    TtEnvironment* environment;
+    float environment_intensity; // 明るさ（0 以上）
+    float environment_rotation;  // 景色を Y 軸のまわりに回す角度（ラジアン。XMMatrixRotationY と同じ向き）
 } TtFrameParams;
 
 TT_API uint32_t TT_CALL tt_get_api_version(void);
@@ -356,6 +363,13 @@ TT_API TtResult TT_CALL tt_engine_simulate_device_lost(TtEngine* engine);
 TT_API TtResult TT_CALL tt_texture_create(
     TtEngine* engine, int32_t width, int32_t height, const void* bgra_pixels, int32_t stride, TtTexture** out_texture);
 TT_API TtResult TT_CALL tt_texture_destroy(TtTexture* texture); // NULL なら何もせず TT_OK
+
+// 環境の画像を作る（API 0.20）。rgb_pixels は光の強さそのまま（直線の値。1 より明るくてよい）の RGB を float 3 つずつ、
+// 上の行から隙間なく（幅 × 高さ × 3 個）。全方向の景色を横 360 度・縦 180 度に広げた画像で、真ん中が +Z、右へ 4 分の 1 が +X、
+// 上の端が真上。大きさは 1〜16384。数でない値・負の値は 0 にする
+TT_API TtResult TT_CALL tt_environment_create(
+    TtEngine* engine, int32_t width, int32_t height, const float* rgb_pixels, TtEnvironment** out_environment);
+TT_API TtResult TT_CALL tt_environment_destroy(TtEnvironment* environment); // NULL なら何もせず TT_OK
 
 // メッシュ。頂点番号と材質の範囲は作るときに確かめ、範囲外なら TT_E_INVALID_ARG
 TT_API TtResult TT_CALL tt_mesh_create(TtEngine* engine, const TtMeshDesc* desc, TtMesh** out_mesh);

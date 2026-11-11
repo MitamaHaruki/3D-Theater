@@ -294,11 +294,18 @@ public partial class ViewportControl : UserControl, IDisposable
         {
             flags |= FrameFlags.FloorReflection;
         }
+        SceneEnvironment environment = _context.Rendering.Environment;
+        NativeEnvironment? environmentImage = _context.EnvironmentImage.Current;
+        if (environmentImage is not null && environment.ShowBackground)
+        {
+            flags |= FrameFlags.EnvironmentBackground; // 固定の視点（平行投影）には、描画エンジンが描かない
+        }
         return new FrameParameters(flags, matrices.View, matrices.Projection, gridWorld, testWorld, _drawItems, _lines.Memory,
             lightDirection, lightColor, SceneLighting.EdgePixelScale(pixelHeight), _context.Rendering.ShadowStyle.GroundColor,
             ShadowMapSize: _context.PreviewQuality.Profile.ShadowMapSize, Effects: _context.Rendering.ToNative(pixelHeight, Camera.Kind == ViewKind.Camera ? _context.MainCamera : null),
             Lights: EffectsMapping.LightsOf(_context.Scene), ReflectionStrength: reflection.Strength, ReflectionFade: reflection.Fade,
-            ShadowSoftness: _context.Rendering.ShadowStyle.SoftnessTangent);
+            ShadowSoftness: _context.Rendering.ShadowStyle.SoftnessTangent, Environment: environmentImage,
+            EnvironmentIntensity: environment.Intensity, EnvironmentRotation: environment.RotationRadians);
     }
 
     private static float MaxScale(SceneNode node) => Math.Max(Math.Abs(node.Scale.X), Math.Max(Math.Abs(node.Scale.Y), Math.Abs(node.Scale.Z)));

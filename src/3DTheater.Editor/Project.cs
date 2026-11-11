@@ -111,7 +111,11 @@ public sealed class RenderingEntry
     /// <summary>影の見え方（初期のままなら書かない）。</summary>
     public ShadowStyle? ShadowStyle { get; set; }
 
-    public static RenderingEntry From(RenderSettings settings) => new()
+    /// <summary>環境の画像（初期のままなら書かない）。</summary>
+    public EnvironmentEntry? Environment { get; set; }
+
+    /// <param name="projectDirectory">環境の画像の場所を相対で書くときの基準（無題なら null で、絶対パスで書く）。</param>
+    public static RenderingEntry From(RenderSettings settings, string? projectDirectory = null) => new()
     {
         SelfShadow = settings.SelfShadow,
         GroundShadow = settings.GroundShadow,
@@ -120,9 +124,11 @@ public sealed class RenderingEntry
         Reflection = settings.Reflection == FloorReflection.Off ? null : settings.Reflection,
         Fog = settings.Fog == SceneFog.Off ? null : settings.Fog,
         ShadowStyle = settings.ShadowStyle == ShadowStyle.Default ? null : settings.ShadowStyle,
+        Environment = EnvironmentEntry.From(settings.Environment, projectDirectory),
     };
 
-    public void ApplyTo(RenderSettings settings)
+    /// <param name="projectDirectory">環境の画像を探す基準（プロジェクトのフォルダー）。</param>
+    public void ApplyTo(RenderSettings settings, string? projectDirectory = null)
     {
         settings.SelfShadow = SelfShadow;
         settings.GroundShadow = GroundShadow;
@@ -131,6 +137,59 @@ public sealed class RenderingEntry
         settings.Reflection = Reflection ?? FloorReflection.Off;
         settings.Fog = Fog ?? SceneFog.Off;
         settings.ShadowStyle = ShadowStyle ?? Editor.ShadowStyle.Default;
+        settings.Environment = Environment?.ToSetting(projectDirectory) ?? SceneEnvironment.Off;
+    }
+}
+
+/// <summary>環境の画像の設定（<see cref="SceneEnvironment"/>）。画像の場所は、モデル・音声と同じく相対と絶対の両方で書く。</summary>
+public sealed class EnvironmentEntry
+{
+    public bool Enabled { get; set; }
+
+    /// <summary>画像のファイル。プロジェクトのフォルダーから見た場所（ドライブが違えば絶対パス）。</summary>
+    public string? File { get; set; }
+
+    /// <summary>保存したときの絶対パス（フォルダーごと動かしていないときの予備）。</summary>
+    public string? AbsoluteFile { get; set; }
+
+    public float Intensity { get; set; } = 1f;
+
+    public float Rotation { get; set; }
+
+    public bool ShowBackground { get; set; } = true;
+
+    public static EnvironmentEntry? From(SceneEnvironment environment, string? projectDirectory) =>
+        environment == SceneEnvironment.Off
+            ? null
+            : new EnvironmentEntry
+            {
+                Enabled = environment.Enabled,
+                File = environment.File is { } file ? ProjectCapture.RelativeOrAbsolute(file, projectDirectory) : null,
+                AbsoluteFile = environment.File,
+                Intensity = environment.Intensity,
+                Rotation = environment.Rotation,
+                ShowBackground = environment.ShowBackground,
+            };
+
+    /// <summary>
+    /// 設定に戻す。画像はプロジェクトのフォルダーから見た場所 → 保存したときの絶対パスの順に探し、
+    /// どちらにも無ければ前者のまま（画面に「見つかりません」と出す）。
+    /// </summary>
+    public SceneEnvironment ToSetting(string? projectDirectory)
+    {
+        string? relative = string.IsNullOrWhiteSpace(File) ? null
+            : Path.IsPathRooted(File) || projectDirectory is null ? File : Path.GetFullPath(Path.Combine(projectDirectory, File));
+        string? file = relative is not null && System.IO.File.Exists(relative) ? relative
+            : !string.IsNullOrWhiteSpace(AbsoluteFile) && System.IO.File.Exists(AbsoluteFile) ? AbsoluteFile
+            : relative ?? AbsoluteFile;
+        return new SceneEnvironment
+        {
+            Enabled = Enabled,
+            File = file,
+            Intensity = Intensity,
+            Rotation = Rotation,
+            ShowBackground = ShowBackground,
+        };
     }
 }
 

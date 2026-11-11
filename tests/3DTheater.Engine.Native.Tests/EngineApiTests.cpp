@@ -1908,6 +1908,106 @@ public:
         Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
     }
 
+    TEST_METHOD(EnvironmentLightsPbrMaterialsAndDrawsTheBackground)
+    {
+        TtEngine* engine = CreateWarpEngine();
+        constexpr int width = 64;
+        constexpr int height = 48;
+        TtView* view = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_view_create_offscreen(engine, width, height, 0, &view));
+
+        // 作るときの確かめ
+        TtEnvironment* bad = reinterpret_cast<TtEnvironment*>(1);
+        const float one[3] = {1.0f, 1.0f, 1.0f};
+        Assert::AreEqual<int>(TT_E_INVALID_ARG, tt_environment_create(engine, 0, 1, one, &bad), L"大きさ 0");
+        Assert::IsNull(bad);
+        Assert::AreEqual<int>(TT_E_INVALID_ARG, tt_environment_create(engine, 1, 1, nullptr, &bad), L"画素が無い");
+        Assert::AreEqual<int>(TT_OK, tt_environment_destroy(nullptr));
+
+        // 一様な赤の景色と、真ん中の半分（+Z の側）が赤・残り（-Z の側）が青の景色
+        constexpr int envWidth = 8;
+        constexpr int envHeight = 4;
+        std::vector<float> red(envWidth * envHeight * 3, 0.0f);
+        std::vector<float> halves(envWidth * envHeight * 3, 0.0f);
+        for (int y = 0; y < envHeight; ++y) {
+            for (int x = 0; x < envWidth; ++x) {
+                const size_t i = (static_cast<size_t>(y) * envWidth + x) * 3;
+                red[i] = 1.0f;
+                halves[i + ((x >= 2 && x < 6) ? 0 : 2)] = 1.0f;
+            }
+        }
+        TtEnvironment* redSky = nullptr;
+        TtEnvironment* halfSky = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_environment_create(engine, envWidth, envHeight, red.data(), &redSky));
+        Assert::AreEqual<int>(TT_OK, tt_environment_create(engine, envWidth, envHeight, halves.data(), &halfSky));
+
+        TtTexture* texture = CreateSolidTexture(engine, 128, 128, 128);
+        const TtMeshMaterial material = QuadMaterial(texture);
+        const TtMeshDesc desc = QuadDesc(kClockwise, &material);
+        TtMesh* mesh = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_mesh_create(engine, &desc, &mesh));
+        Assert::AreEqual<int>(TT_OK, tt_texture_destroy(texture));
+        auto setShading = [&](uint32_t shading) {
+            TtMaterialState s{};
+            s.diffuse[0] = s.diffuse[1] = s.diffuse[2] = s.diffuse[3] = 1.0f;
+            s.ambient[0] = s.ambient[1] = s.ambient[2] = 1.0f;
+            for (float* v : {s.texture_multiply, s.sphere_multiply, s.toon_multiply, s.base_tint}) {
+                v[0] = v[1] = v[2] = v[3] = 1.0f;
+            }
+            s.edge_color[3] = 1.0f;
+            s.shading = shading;
+            s.roughness = 0.5f;
+            Assert::AreEqual<int>(TT_OK, tt_mesh_update_materials(mesh, &s, 1));
+        };
+        auto render = [&](TtEnvironment* environment, float intensity, float rotation, uint32_t flags, bool orthographic = false) {
+            TtFrameParams params = MakeFrontParams();
+            params.flags = TT_FRAME_USE_LIGHT | TT_FRAME_CLEAR_COLOR | flags; // 照明は消す（黒）
+            params.clear_color[3] = 1.0f;
+            if (orthographic) {
+                DirectX::XMStoreFloat4x4(reinterpret_cast<DirectX::XMFLOAT4X4*>(params.projection),
+                    DirectX::XMMatrixOrthographicLH(8.0f, 6.0f, 0.1f, 100.0f));
+            }
+            params.light_direction[2] = 1.0f;
+            params.environment = environment;
+            params.environment_intensity = intensity;
+            params.environment_rotation = rotation;
+            TtDrawItem item = DrawItem(mesh);
+            params.items = &item;
+            params.item_count = 1;
+            return RenderAndRead(engine, view, params, width, height);
+        };
+        const size_t center = (static_cast<size_t>(height / 2) * width + width / 2) * 4;
+        const size_t corner = (static_cast<size_t>(2) * width + 2) * 4;
+
+        setShading(TT_SHADING_PBR);
+        std::vector<uint8_t> dark = render(nullptr, 1.0f, 0.0f, 0);
+        Assert::IsTrue(dark[center + 2] < 5, L"照明も景色も無ければ、PBR は暗い");
+        std::vector<uint8_t> lit = render(redSky, 1.0f, 0.0f, 0);
+        Assert::IsTrue(lit[center + 2] > 100 && lit[center + 1] < 10 && lit[center] < 10, L"赤い景色に囲まれると、赤く照らされる");
+        std::vector<uint8_t> dim = render(redSky, 0.5f, 0.0f, 0);
+        Assert::IsTrue(std::abs(dim[center + 2] * 2 - lit[center + 2]) <= 6, L"明るさ 0.5 なら半分");
+        Assert::AreEqual(0, static_cast<int>(lit[corner + 2]), L"背景に描かなければ、背景は消した色のまま");
+
+        setShading(TT_SHADING_TOON);
+        std::vector<uint8_t> toonPlain = render(nullptr, 1.0f, 0.0f, 0);
+        std::vector<uint8_t> toonEnv = render(redSky, 1.0f, 0.0f, 0);
+        Assert::IsTrue(std::abs(toonPlain[center + 1] - toonEnv[center + 1]) <= 1, L"トゥーンの材質には景色を使わない（MMD と同じ見え方）");
+
+        // 背景: カメラは +Z を向くので、左上の隅も +Z の側（赤）。180 度回すと青になる
+        std::vector<uint8_t> sky = render(halfSky, 1.0f, 0.0f, TT_FRAME_ENVIRONMENT_BACKGROUND);
+        Assert::IsTrue(sky[corner + 2] > 245 && sky[corner] < 10, L"背景に、見る向きの景色（赤）を描く");
+        std::vector<uint8_t> turned = render(halfSky, 1.0f, DirectX::XM_PI, TT_FRAME_ENVIRONMENT_BACKGROUND);
+        Assert::IsTrue(turned[corner] > 245 && turned[corner + 2] < 10, L"景色を 180 度回すと、反対側（青）が見える");
+        std::vector<uint8_t> fixedView = render(halfSky, 1.0f, 0.0f, TT_FRAME_ENVIRONMENT_BACKGROUND, true);
+        Assert::IsTrue(fixedView[corner] < 5 && fixedView[corner + 2] < 5, L"平行投影（固定の視点）には背景を描かない");
+
+        Assert::AreEqual<int>(TT_OK, tt_mesh_destroy(mesh));
+        Assert::AreEqual<int>(TT_OK, tt_environment_destroy(redSky));
+        Assert::AreEqual<int>(TT_OK, tt_environment_destroy(halfSky));
+        Assert::AreEqual<int>(TT_OK, tt_view_destroy(view));
+        Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
+    }
+
     TEST_METHOD(MeshCreationRejectsInvalidData)
     {
         TtEngine* engine = CreateWarpEngine();

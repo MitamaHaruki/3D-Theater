@@ -27,6 +27,7 @@
 #include "FogPS.h"
 #include "GroundSoftShadowVS.h"
 #include "GroundSoftShadowPS.h"
+#include "SkyPS.h"
 #include "GroundShadowPS.h"
 #include "LinearDepthMsPS.h"
 #include "LinearDepthPS.h"
@@ -86,6 +87,14 @@ struct LightConstants {
         DirectX::XMFLOAT4 color;     // w = スポットの外側の cos
         DirectX::XMFLOAT4 spot;      // x = スポットの内側の cos
     } lights[TT_MAX_LIGHTS];
+    DirectX::XMFLOAT4 environment;              // x = 1 なら環境の画像を使う、y = 明るさ、z = 回転、w = 縮小版の数
+    DirectX::XMFLOAT4 environmentIrradiance[9]; // 拡散の明るさの球面調和関数の係数
+};
+
+// 背景（空）を描く定数（シェーダーの SkyConstants と同じ並び）
+struct SkyConstants {
+    DirectX::XMFLOAT4X4 inverseViewProj;
+    DirectX::XMFLOAT4 params; // y = 明るさ、z = 回転
 };
 
 struct PostConstants {
@@ -269,6 +278,10 @@ void Engine::ReleaseDevice() noexcept
     groundShadowMapSize_ = 0;
     groundSoftShadowVertexShader_.Reset();
     groundSoftShadowPixelShader_.Reset();
+    environmentSampler_.Reset();
+    skyPixelShader_.Reset();
+    skyConstantBuffer_.Reset();
+    currentEnvironment_ = nullptr;
     whiteTexture_.Reset();
     clampSampler_.Reset();
     textureSampler_.Reset();
@@ -563,6 +576,9 @@ void Engine::DrawScene(ID3D11RenderTargetView* rtv, ID3D11DepthStencilView* dsv,
     basicState_ = multisampled ? multisampleLineState_.Get() : rasterizerState_.Get();
     const bool drawScene = part != ScenePart::Overlays;
 
+    // 環境の画像（PBR の材質と背景で使う）
+    currentEnvironment_ = params.environment ? reinterpret_cast<const Environment*>(params.environment)->View() : nullptr;
+
     // モデルの描き方（照明・カメラの位置・輪郭線の太さ・影）は、1 枚の中で共通
     ModelFrame frame{};
     XMStoreFloat4x4(&frame.view, load(params.view));
@@ -616,6 +632,11 @@ void Engine::DrawScene(ID3D11RenderTargetView* rtv, ID3D11DepthStencilView* dsv,
     }
     if (drawScene) {
         ctx->ClearDepthStencilView(dsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+    }
+
+    // 環境の画像を背景に描く（ほかの物はすべてこの上に描く）
+    if (drawScene && (params.flags & TT_FRAME_ENVIRONMENT_BACKGROUND)) {
+        DrawSky(params, viewProj);
     }
 
     SetBasicPipeline();
@@ -944,6 +965,7 @@ void Engine::CreatePostResources()
     CheckHr(device_->CreatePixelShader(g_AoPS, sizeof(g_AoPS), nullptr, &aoShader_), L"環境光の遮りのシェーダーの作成");
     CheckHr(device_->CreatePixelShader(g_AoBlurPS, sizeof(g_AoBlurPS), nullptr, &aoBlurShader_), L"環境光の遮りをならすシェーダーの作成");
     CheckHr(device_->CreatePixelShader(g_FogPS, sizeof(g_FogPS), nullptr, &fogShader_), L"霧のシェーダーの作成");
+    CheckHr(device_->CreatePixelShader(g_SkyPS, sizeof(g_SkyPS), nullptr, &skyPixelShader_), L"背景（環境の画像）のシェーダーの作成");
     CheckHr(device_->CreatePixelShader(g_AoApplyPS, sizeof(g_AoApplyPS), nullptr, &aoApplyShader_), L"環境光の遮りをかけるシェーダーの作成");
 
     D3D11_BUFFER_DESC desc{};
@@ -952,6 +974,8 @@ void Engine::CreatePostResources()
     desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
     desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
     CheckHr(device_->CreateBuffer(&desc, nullptr, &postConstantBuffer_), L"映像効果の定数バッファーの作成");
+    desc.ByteWidth = sizeof(SkyConstants);
+    CheckHr(device_->CreateBuffer(&desc, nullptr, &skyConstantBuffer_), L"背景の定数バッファーの作成");
 }
 
 void Engine::SetBasicPipeline()
@@ -1047,6 +1071,17 @@ void Engine::WriteLightConstants(const TtFrameParams& params, bool mirrored)
         entry.spot = {std::cos(half * (1.0f - std::max(softness, 0.02f))), 0.0f, 0.0f, 0.0f};
     }
     constants.count[0] = count;
+    // 環境の画像（床の映り込みでは、シェーダーで景色も上下に映して読む）
+    if (params.environment) {
+        const auto& environment = *reinterpret_cast<const Environment*>(params.environment);
+        if (environment.View()) {
+            constants.environment = {1.0f, Sanitize(params.environment_intensity, 1.0f, 0.0f, 100.0f),
+                Sanitize(params.environment_rotation, 0.0f, -1e4f, 1e4f), environment.MipCount()};
+            for (int k = 0; k < 9; ++k) {
+                constants.environmentIrradiance[k] = environment.Irradiance()[k];
+            }
+        }
+    }
     D3D11_MAPPED_SUBRESOURCE mapped{};
     CheckHr(context_->Map(lightConstantBuffer_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped), L"足す照明の定数バッファーの更新");
     std::memcpy(mapped.pData, &constants, sizeof(constants));
@@ -1079,13 +1114,14 @@ void Engine::DrawMesh(const Mesh& mesh, DirectX::FXMMATRIX world, const ModelFra
     BindMesh(mesh);
     ctx->VSSetShader(modelVertexShader_.Get(), nullptr, 0);
     ctx->PSSetShader(modelPixelShader_.Get(), nullptr, 0);
-    ID3D11SamplerState* samplers[] = {textureSampler_.Get(), clampSampler_.Get(), shadowSampler_.Get()};
-    ctx->PSSetSamplers(0, 3, samplers);
+    ID3D11SamplerState* samplers[] = {textureSampler_.Get(), clampSampler_.Get(), shadowSampler_.Get(), environmentSampler_.Get()};
+    ctx->PSSetSamplers(0, 4, samplers);
     ctx->OMSetDepthStencilState(modelDepthState_.Get(), 0);
     ctx->OMSetBlendState(alphaBlendState_.Get(), nullptr, 0xFFFFFFFF);
     const bool selfShadow = frame.shadowParams.z > 0.5f;
     ID3D11ShaderResourceView* shadowMap = selfShadow && shadowMapSrv_ ? shadowMapSrv_.Get() : noShadowMap_.Get();
     ctx->PSSetShaderResources(3, 1, &shadowMap);
+    ctx->PSSetShaderResources(4, 1, &currentEnvironment_);
     D3D11_MAPPED_SUBRESOURCE mapped{};
 
     auto view = [&](const std::shared_ptr<TextureImage>& image) {
@@ -1358,6 +1394,41 @@ bool Engine::RenderGroundShadowMap(const TtFrameParams& params, const ModelFrame
     return true;
 }
 
+void Engine::DrawSky(const TtFrameParams& params, DirectX::CXMMATRIX viewProj)
+{
+    using namespace DirectX;
+    if (!currentEnvironment_ || params.projection[11] == 0.0f) {
+        return; // 環境の画像が無い・平行投影（固定の視点。どの点も同じ向きになる）
+    }
+    XMVECTOR determinant;
+    const XMMATRIX inverse = XMMatrixInverse(&determinant, viewProj);
+    if (XMVectorGetX(determinant) == 0.0f) {
+        return;
+    }
+    SkyConstants constants{};
+    XMStoreFloat4x4(&constants.inverseViewProj, inverse);
+    constants.params = {0.0f, Sanitize(params.environment_intensity, 1.0f, 0.0f, 100.0f), Sanitize(params.environment_rotation, 0.0f, -1e4f, 1e4f),
+        0.0f};
+    ID3D11DeviceContext* ctx = context_.Get();
+    D3D11_MAPPED_SUBRESOURCE mapped{};
+    CheckHr(ctx->Map(skyConstantBuffer_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped), L"背景の定数の更新");
+    std::memcpy(mapped.pData, &constants, sizeof(constants));
+    ctx->Unmap(skyConstantBuffer_.Get(), 0);
+    ctx->IASetInputLayout(nullptr);
+    ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ctx->VSSetShader(postVertexShader_.Get(), nullptr, 0);
+    ctx->PSSetShader(skyPixelShader_.Get(), nullptr, 0);
+    ctx->PSSetConstantBuffers(0, 1, skyConstantBuffer_.GetAddressOf());
+    ctx->PSSetShaderResources(0, 1, &currentEnvironment_);
+    ctx->PSSetSamplers(0, 1, environmentSampler_.GetAddressOf());
+    ctx->RSSetState(rasterizerState_.Get());
+    ctx->OMSetDepthStencilState(overlayDepthState_.Get(), 0); // 奥行きは比べず、書かない
+    ctx->OMSetBlendState(nullptr, nullptr, 0xFFFFFFFF);
+    ctx->Draw(3, 0);
+    ID3D11ShaderResourceView* none = nullptr;
+    ctx->PSSetShaderResources(0, 1, &none);
+}
+
 void Engine::DrawSoftGroundShadow(const ModelFrame& groundFrame, const DirectX::XMFLOAT4X4& floorWorld)
 {
     using namespace DirectX;
@@ -1371,8 +1442,8 @@ void Engine::DrawSoftGroundShadow(const ModelFrame& groundFrame, const DirectX::
     ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
     ctx->VSSetShader(groundSoftShadowVertexShader_.Get(), nullptr, 0);
     ctx->PSSetShader(groundSoftShadowPixelShader_.Get(), nullptr, 0);
-    ID3D11SamplerState* samplers[] = {textureSampler_.Get(), clampSampler_.Get(), shadowSampler_.Get()};
-    ctx->PSSetSamplers(0, 3, samplers);
+    ID3D11SamplerState* samplers[] = {textureSampler_.Get(), clampSampler_.Get(), shadowSampler_.Get(), environmentSampler_.Get()};
+    ctx->PSSetSamplers(0, 4, samplers);
     ID3D11ShaderResourceView* map = groundShadowMapSrv_.Get();
     ctx->PSSetShaderResources(3, 1, &map);
     ctx->RSSetState(cullNoneState_.Get());
@@ -1571,6 +1642,9 @@ void Engine::CreateModelResources()
     sampler.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
     sampler.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
     CheckHr(device_->CreateSamplerState(&sampler, &clampSampler_), L"端で止めるテクスチャの読み方の設定の作成");
+    // 環境の画像: 横（経度）はつながっているので繰り返し、縦（真上・真下）は端で止める
+    sampler.AddressU = D3D11_TEXTURE_ADDRESS_WRAP;
+    CheckHr(device_->CreateSamplerState(&sampler, &environmentSampler_), L"環境の画像の読み方の設定の作成");
     // セルフシャドウ: 奥行きを比べる（範囲の外は「影なし」）
     D3D11_SAMPLER_DESC shadowSampler{};
     shadowSampler.Filter = D3D11_FILTER_COMPARISON_MIN_MAG_LINEAR_MIP_POINT;

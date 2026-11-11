@@ -48,15 +48,19 @@ cbuffer LightConstants : register(b2)
 {
     uint4 LightCount; // x = 数
     ExtraLight Lights[8];
+    float4 Environment;              // 環境の画像: x = 1 なら使う、y = 明るさ、z = Y 軸のまわりの回転（ラジアン）、w = 縮小版の数
+    float4 EnvironmentIrradiance[9]; // 拡散の明るさの球面調和関数の係数（rgb）
 };
 
 Texture2D DiffuseTexture : register(t0);
 Texture2D ToonTexture : register(t1);
 Texture2D SphereTexture : register(t2);
 Texture2D<float> ShadowMap : register(t3);
+Texture2D EnvironmentMap : register(t4);
 SamplerState TextureSampler : register(s0);         // 繰り返す
 SamplerState ClampSampler : register(s1);           // 端で止める（トゥーン・スフィア）
 SamplerComparisonState ShadowSampler : register(s2); // 奥行きを比べて、手前なら 1（範囲の外も 1）
+SamplerState EnvironmentSampler : register(s3);     // 環境の画像（横は繰り返し、縦は端で止める）
 
 struct ModelVSInput
 {

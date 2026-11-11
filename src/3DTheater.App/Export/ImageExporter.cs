@@ -136,10 +136,18 @@ internal static class ImageExporter
             flags |= FrameFlags.FloorReflection;
         }
         Vector4 clear = options.UsesTransparency ? Vector4.Zero : new Vector4(options.Background, 1f);
+        // 環境の画像は、色の背景のときだけ背景に描く（透明な背景は透明のまま）
+        SceneEnvironment environment = context.Rendering.Environment;
+        NativeEnvironment? environmentImage = context.EnvironmentImage.Current;
+        if (environmentImage is not null && environment.ShowBackground && !options.UsesTransparency)
+        {
+            flags |= FrameFlags.EnvironmentBackground;
+        }
         var parameters = new FrameParameters(flags, matrices.View, matrices.Projection, Matrix4x4.Identity, Matrix4x4.Identity, items, default,
             lightDirection, lightColor, SceneLighting.EdgePixelScale(height), context.Rendering.ShadowStyle.GroundColor,
             RenderQuality.Export.ShadowMapSize, clear, context.Rendering.ToNative(height, camera), EffectsMapping.LightsOf(context.Scene),
-            reflection.Strength, reflection.Fade, context.Rendering.ShadowStyle.SoftnessTangent);
+            reflection.Strength, reflection.Fade, context.Rendering.ShadowStyle.SoftnessTangent, environmentImage, environment.Intensity,
+            environment.RotationRadians);
         view.Render(parameters);
 
         int bytes = width * height * 4;

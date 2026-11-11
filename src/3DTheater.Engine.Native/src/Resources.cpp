@@ -1,5 +1,7 @@
 #include "Resources.h"
 
+#include <DirectXPackedVector.h>
+
 #include <algorithm>
 #include <cfloat>
 #include <cmath>
@@ -53,6 +55,86 @@ void TextureImage::EnsureCreated(Engine& engine)
     CheckHr(engine.Device()->CreateShaderResourceView(texture.Get(), nullptr, &srv_), L"テクスチャのビューの作成");
     engine.Context()->GenerateMips(srv_.Get());
     generation_ = engine.DeviceGeneration();
+}
+
+Environment::Environment(Engine& engine, int width, int height, const float* rgb)
+    : engine_(engine), width_(width), height_(height)
+{
+    using namespace DirectX;
+    if (width < 1 || height < 1 || width > kMaxTextureSize || height > kMaxTextureSize) {
+        throw Error(TT_E_INVALID_ARG, std::format(L"環境の画像の大きさ（{} x {}）が範囲外です", width, height));
+    }
+    if (!rgb) {
+        throw Error(TT_E_INVALID_ARG, L"環境の画像の画素が NULL です");
+    }
+    // 画素を 16 ビットの浮動小数点にしながら、球面調和関数の係数を足し合わせる（点ごとの向きと、受け持つ立体角の重み）
+    constexpr double kPi = 3.14159265358979323846;
+    pixels_.resize(static_cast<size_t>(width) * height * 4);
+    double sh[3][9] = {};
+    for (int y = 0; y < height; ++y) {
+        const double theta = (y + 0.5) / height * kPi;
+        const double sinTheta = std::sin(theta);
+        const double cosTheta = std::cos(theta);
+        const double solidAngle = (2.0 * kPi / width) * (kPi / height) * sinTheta;
+        for (int x = 0; x < width; ++x) {
+            const double phi = ((x + 0.5) / width - 0.5) * 2.0 * kPi;
+            const double dx = std::sin(phi) * sinTheta;
+            const double dy = cosTheta;
+            const double dz = std::cos(phi) * sinTheta;
+            const double basis[9] = {0.282095, 0.488603 * dy, 0.488603 * dz, 0.488603 * dx, 1.092548 * dx * dy, 1.092548 * dy * dz,
+                0.315392 * (3.0 * dy * dy - 1.0), 1.092548 * dx * dz, 0.546274 * (dx * dx - dz * dz)};
+            const size_t i = static_cast<size_t>(y) * width + x;
+            for (int c = 0; c < 3; ++c) {
+                float value = rgb[i * 3 + c];
+                value = std::isfinite(value) ? std::clamp(value, 0.0f, 65000.0f) : 0.0f;
+                pixels_[i * 4 + c] = PackedVector::XMConvertFloatToHalf(value);
+                for (int k = 0; k < 9; ++k) {
+                    sh[c][k] += value * basis[k] * solidAngle;
+                }
+            }
+            pixels_[i * 4 + 3] = PackedVector::XMConvertFloatToHalf(1.0f);
+        }
+    }
+    // 照度へ（帯 0 は π、帯 1 は 2π/3、帯 2 は π/4 を掛ける）。さらに π で割り、拡散の明るさにする
+    constexpr double kBand[9] = {1.0, 2.0 / 3.0, 2.0 / 3.0, 2.0 / 3.0, 0.25, 0.25, 0.25, 0.25, 0.25};
+    for (int k = 0; k < 9; ++k) {
+        irradiance_[k] = {static_cast<float>(sh[0][k] * kBand[k]), static_cast<float>(sh[1][k] * kBand[k]),
+            static_cast<float>(sh[2][k] * kBand[k]), 0.0f};
+    }
+    mipCount_ = static_cast<UINT>(std::floor(std::log2(std::max(width, height)))) + 1;
+    engine.ThrowIfDeviceLost();
+    EnsureCreated();
+    engine_.Register(*this);
+}
+
+Environment::~Environment()
+{
+    engine_.Unregister(*this);
+    magic_ = 0;
+}
+
+void Environment::EnsureCreated()
+{
+    if (srv_ && generation_ == engine_.DeviceGeneration()) {
+        return;
+    }
+    srv_.Reset();
+    D3D11_TEXTURE2D_DESC desc{};
+    desc.Width = static_cast<UINT>(width_);
+    desc.Height = static_cast<UINT>(height_);
+    desc.MipLevels = 0;
+    desc.ArraySize = 1;
+    desc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+    desc.SampleDesc.Count = 1;
+    desc.Usage = D3D11_USAGE_DEFAULT;
+    desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
+    desc.MiscFlags = D3D11_RESOURCE_MISC_GENERATE_MIPS;
+    ComPtr<ID3D11Texture2D> texture;
+    CheckHr(engine_.Device()->CreateTexture2D(&desc, nullptr, &texture), L"環境の画像の作成");
+    engine_.Context()->UpdateSubresource(texture.Get(), 0, nullptr, pixels_.data(), static_cast<UINT>(width_) * 8, 0);
+    CheckHr(engine_.Device()->CreateShaderResourceView(texture.Get(), nullptr, &srv_), L"環境の画像のビューの作成");
+    engine_.Context()->GenerateMips(srv_.Get());
+    generation_ = engine_.DeviceGeneration();
 }
 
 Texture::Texture(Engine& engine, int width, int height, const void* pixels, int stride)

@@ -1,5 +1,6 @@
 #include "Model.hlsli"
 #include "Shadow.hlsli"
+#include "Environment.hlsli"
 
 static const float kPi = 3.14159265;
 
@@ -161,14 +162,40 @@ float4 PbrColor(ModelPSInput input, float3 n)
         direct += PbrDirect(n, v, toLight, radiance * kPbrLightScale, base.rgb, metallic, roughness, f0);
     }
 
-    float3 sky = LightColor.rgb * kSkyScale;
-    float3 ground = LightColor.rgb * kGroundScale;
-    float3 ambient = lerp(ground, sky, n.y * 0.5 + 0.5) * base.rgb * (1.0 - metallic);
     float3 r = reflect(-v, n);
-    float3 reflectionSky = LightColor.rgb * kReflectionSkyScale;
-    float3 reflectionGround = LightColor.rgb * kReflectionGroundScale;
-    float3 environment = lerp(reflectionGround, reflectionSky, smoothstep(-0.25, 0.25, r.y));
-    environment = lerp(environment, (reflectionSky + reflectionGround) * 0.5, roughness);
+    float3 ambient;
+    float3 environment;
+    if (Environment.x > 0.5)
+    {
+        // 環境の画像: 拡散は球面調和関数、映り込みは粗いほど縮小した画像を読む。床の映り込みでは景色も上下に映す
+        float3 nEnv = EnvironmentDirection(n, Environment.z);
+        float3 rEnv = EnvironmentDirection(r, Environment.z);
+        if (ReflectionParams.x > 0.5)
+        {
+            nEnv.y = -nEnv.y;
+            rEnv.y = -rEnv.y;
+        }
+        float basis[9];
+        EnvironmentBasis(nEnv, basis);
+        float3 irradiance = 0.0;
+        [unroll] for (int k = 0; k < 9; k++)
+        {
+            irradiance += EnvironmentIrradiance[k].rgb * basis[k];
+        }
+        ambient = max(irradiance, 0.0) * Environment.y * base.rgb * (1.0 - metallic);
+        float lod = roughness * max(Environment.w - 1.0, 0.0);
+        environment = EnvironmentMap.SampleLevel(EnvironmentSampler, EnvironmentUv(rEnv), lod).rgb * Environment.y;
+    }
+    else
+    {
+        float3 sky = LightColor.rgb * kSkyScale;
+        float3 ground = LightColor.rgb * kGroundScale;
+        ambient = lerp(ground, sky, n.y * 0.5 + 0.5) * base.rgb * (1.0 - metallic);
+        float3 reflectionSky = LightColor.rgb * kReflectionSkyScale;
+        float3 reflectionGround = LightColor.rgb * kReflectionGroundScale;
+        environment = lerp(reflectionGround, reflectionSky, smoothstep(-0.25, 0.25, r.y));
+        environment = lerp(environment, (reflectionSky + reflectionGround) * 0.5, roughness);
+    }
     float3 ambientFresnel = f0 + (max(float3(1.0 - roughness, 1.0 - roughness, 1.0 - roughness), f0) - f0) * pow(1.0 - nv, 5.0);
     return float4(direct + ambient + environment * ambientFresnel, base.a);
 }

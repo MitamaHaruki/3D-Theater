@@ -153,6 +153,8 @@ private:
     bool RenderGroundShadowMap(const TtFrameParams& params, const ModelFrame& frame, ModelFrame& groundFrame,
         DirectX::XMFLOAT4X4& floorWorld);
     void DrawSoftGroundShadow(const ModelFrame& groundFrame, const DirectX::XMFLOAT4X4& floorWorld);
+    // 環境の画像を背景（空）に描く（平行投影では描かない）
+    void DrawSky(const TtFrameParams& params, DirectX::CXMMATRIX viewProj);
     // 照明から見た奥行きを dsv（size × size）へ描く。groundCasters なら「地面影」、でなければ「セルフ影マップ」の材質を描く
     void DrawLightDepth(const TtFrameParams& params, DirectX::CXMMATRIX lightViewProj, const ModelFrame& frame,
         ID3D11DepthStencilView* dsv, UINT size, bool groundCasters);
@@ -257,6 +259,10 @@ private:
     ComPtr<ID3D11DepthStencilView> groundShadowMapDsv_; // 柔らかな地面の影の奥行きの画像
     ComPtr<ID3D11ShaderResourceView> groundShadowMapSrv_;
     UINT groundShadowMapSize_ = 0;
+    ComPtr<ID3D11SamplerState> environmentSampler_; // 環境の画像（横は繰り返し、縦は端で止める）
+    ComPtr<ID3D11PixelShader> skyPixelShader_;
+    ComPtr<ID3D11Buffer> skyConstantBuffer_;
+    ID3D11ShaderResourceView* currentEnvironment_ = nullptr; // 今描いている 1 枚の環境の画像（無ければ null）
     ComPtr<ID3D11VertexShader> groundSoftShadowVertexShader_;
     ComPtr<ID3D11PixelShader> groundSoftShadowPixelShader_;
 

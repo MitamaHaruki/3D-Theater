@@ -95,6 +95,9 @@ internal unsafe struct TtFrameParams
     public float FogHeight;
     public float ShadowSoftness;
     public uint Reserved11;
+    public nint Environment;
+    public float EnvironmentIntensity;
+    public float EnvironmentRotation;
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -191,6 +194,14 @@ internal static unsafe partial class NativeMethods
     [LibraryImport(Library, EntryPoint = "tt_texture_destroy")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial int TextureDestroy(nint texture);
+
+    [LibraryImport(Library, EntryPoint = "tt_environment_create")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial int EnvironmentCreate(nint engine, int width, int height, float* rgbPixels, nint* outEnvironment);
+
+    [LibraryImport(Library, EntryPoint = "tt_environment_destroy")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial int EnvironmentDestroy(nint environment);
 
     [LibraryImport(Library, EntryPoint = "tt_mesh_create")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]

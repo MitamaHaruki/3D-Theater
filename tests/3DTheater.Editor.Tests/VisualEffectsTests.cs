@@ -120,6 +120,51 @@ public sealed class VisualEffectsTests
     }
 
     [TestMethod]
+    public void EnvironmentIsKeptInRangeAndSavedRelativeToTheProject()
+    {
+        Assert.IsFalse(SceneEnvironment.Off.IsActive, "初期値は使わない");
+        Assert.IsFalse((SceneEnvironment.Off with { Enabled = true }).IsActive, "ファイルが無ければ使わない");
+        SceneEnvironment wild = new SceneEnvironment { Enabled = true, File = "  ", Intensity = 9f, Rotation = 270f }.Normalized();
+        Assert.IsNull(wild.File, "空のファイル名は無し");
+        Assert.AreEqual(SceneEnvironment.MaxIntensity, wild.Intensity);
+        Assert.AreEqual(-90f, wild.Rotation, "回転は -180〜180 に回し込む");
+        Assert.AreEqual(MathF.PI / 2f, (SceneEnvironment.Off with { Rotation = 90f }).RotationRadians, 1e-6f);
+
+        // プロジェクトのフォルダーの中の画像は、相対で書き、フォルダーごと動かしても見つかる
+        string root = Path.Combine(Path.GetTempPath(), "3dt_env_" + Guid.NewGuid().ToString("N"));
+        string before = Path.Combine(root, "before");
+        string after = Path.Combine(root, "after");
+        Directory.CreateDirectory(Path.Combine(before, "hdri"));
+        try
+        {
+            string image = Path.Combine(before, "hdri", "sky.hdr");
+            File.WriteAllText(image, "#?RADIANCE");
+            var settings = new RenderSettings
+            {
+                Environment = new SceneEnvironment { Enabled = true, File = image, Intensity = 1.5f, Rotation = 30f, ShowBackground = false },
+            };
+            string plain = ProjectSerializer.Serialize(new ProjectFile { Rendering = RenderingEntry.From(new RenderSettings(), before) });
+            Assert.IsFalse(plain.Contains("environment", StringComparison.OrdinalIgnoreCase), "使っていなければ書かない");
+            string json = ProjectSerializer.Serialize(new ProjectFile { Rendering = RenderingEntry.From(settings, before) });
+            StringAssert.Contains(json, "hdri\\\\sky.hdr", "フォルダーから見た場所で書く");
+
+            Directory.Move(before, after);
+            ProjectFile read = ProjectSerializer.Deserialize(json, new Formats.LoadReport())!;
+            var restored = new RenderSettings();
+            read.Rendering.ApplyTo(restored, after);
+            Assert.AreEqual(Path.Combine(after, "hdri", "sky.hdr"), restored.Environment.File, "動かした先で見つける");
+            Assert.AreEqual(settings.Environment with { File = restored.Environment.File }, restored.Environment);
+
+            restored.Reset();
+            Assert.AreEqual(SceneEnvironment.Off, restored.Environment, "新しいプロジェクトは環境の画像なし");
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public void ShadowStyleIsKeptInRangeAndSaved()
     {
         Assert.AreEqual(0f, ShadowStyle.Default.SoftnessTangent, "初期値は、今までどおりのくっきりした影");

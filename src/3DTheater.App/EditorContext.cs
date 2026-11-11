@@ -144,6 +144,7 @@ public sealed class EditorContext
         Audio = new Audio.AudioService(this);
         Poses = new PoseUpdater(this);
         MorphPresets = Shell.MorphPresetStore.Load();
+        EnvironmentImage = new EnvironmentImage(engine, Rendering);
         Rendering.Changed += (_, _) => RenderLoop.InvalidateAll();
         PreviewQuality.Changed += (_, _) => RenderLoop.InvalidateAll();
 
@@ -157,6 +158,9 @@ public sealed class EditorContext
 
     /// <summary>作品の描き方（セルフシャドウ・地面の影。プロジェクトに保存する）。</summary>
     public RenderSettings Rendering { get; } = new();
+
+    /// <summary>描き方の設定の、環境の画像を GPU に載せたもの。</summary>
+    public EnvironmentImage EnvironmentImage { get; }
 
     /// <summary>プレビューの品質（なめらかさ・影の細かさ。利用者ごとの設定で、プロジェクトには入れない）。</summary>
     public PreviewQualitySettings PreviewQuality { get; } = new();
@@ -253,13 +257,14 @@ public sealed class EditorContext
         RenderLoop.InvalidateAll();
     }
 
-    /// <summary>GPU に載せたモデルを破棄する（エンジンを破棄する前に呼ぶ）。</summary>
+    /// <summary>GPU に載せたモデルと環境の画像を破棄する（エンジンを破棄する前に呼ぶ）。</summary>
     public void DisposeModels()
     {
         foreach (LoadedModel model in Models.Values)
         {
             model.Dispose();
         }
+        EnvironmentImage.Dispose();
     }
 
     /// <summary>

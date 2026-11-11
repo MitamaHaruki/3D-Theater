@@ -2,7 +2,7 @@ namespace Theater3D.Editor;
 
 /// <summary>
 /// 作品の描き方の設定（プロジェクトに保存する）。セルフシャドウと地面の影の ON / OFF（初期値はどちらも ON。MMD と同じ）と、
-/// 影の見え方（やわらかさ・地面の影の濃さ）、映像効果・イラスト風の表現・床の映り込み・霧（初期値はどれもなし）。
+/// 影の見え方（やわらかさ・地面の影の濃さ）、映像効果・イラスト風の表現・床の映り込み・霧・環境の画像（初期値はどれもなし）。
 /// </summary>
 public sealed class RenderSettings
 {
@@ -13,6 +13,7 @@ public sealed class RenderSettings
     private FloorReflection _reflection = FloorReflection.Off;
     private SceneFog _fog = SceneFog.Off;
     private ShadowStyle _shadowStyle = ShadowStyle.Default;
+    private SceneEnvironment _environment = SceneEnvironment.Off;
 
     /// <summary>どれかの設定が変わった。</summary>
     public event EventHandler? Changed;
@@ -95,6 +96,22 @@ public sealed class RenderSettings
         }
     }
 
+    /// <summary>環境の画像（HDRI）。値は範囲に収めて持つ。</summary>
+    public SceneEnvironment Environment
+    {
+        get => _environment;
+        set
+        {
+            SceneEnvironment normalized = (value ?? SceneEnvironment.Off).Normalized();
+            if (normalized == _environment)
+            {
+                return;
+            }
+            _environment = normalized;
+            Changed?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
     /// <summary>霧。値は範囲に収めて持つ。</summary>
     public SceneFog Fog
     {
@@ -121,6 +138,7 @@ public sealed class RenderSettings
         Reflection = FloorReflection.Off;
         Fog = SceneFog.Off;
         ShadowStyle = ShadowStyle.Default;
+        Environment = SceneEnvironment.Off;
     }
 
     private void Set(ref bool field, bool value)

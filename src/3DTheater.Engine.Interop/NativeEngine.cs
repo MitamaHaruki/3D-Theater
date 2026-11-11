@@ -26,7 +26,7 @@ public readonly record struct VideoMemoryInfo(ulong Usage, ulong Budget);
 public sealed unsafe class NativeEngine : IDisposable
 {
     public const int ExpectedApiVersionMajor = 0;
-    public const int ExpectedApiVersionMinor = 19;
+    public const int ExpectedApiVersionMinor = 20;
 
     private nint _handle;
 
@@ -96,6 +96,24 @@ public sealed unsafe class NativeEngine : IDisposable
             NativeError.Check(NativeMethods.TextureCreate(Handle, width, height, pixels, stride, &texture));
         }
         return new NativeTexture(texture);
+    }
+
+    /// <summary>
+    /// 環境の画像を GPU に載せる。画素は光の強さそのまま（直線の値）の RGB を float 3 つずつ、上の行から隙間なく。
+    /// 全方向の景色を横 360 度・縦 180 度に広げた画像で、真ん中が +Z、右へ 4 分の 1 が +X、上の端が真上。
+    /// </summary>
+    public NativeEnvironment CreateEnvironment(int width, int height, ReadOnlySpan<float> rgbPixels)
+    {
+        if (width < 1 || height < 1 || (long)width * height * 3 > rgbPixels.Length)
+        {
+            throw new ArgumentException("環境の画像の画素の量が大きさに足りません", nameof(rgbPixels));
+        }
+        nint environment;
+        fixed (float* pixels = rgbPixels)
+        {
+            NativeError.Check(NativeMethods.EnvironmentCreate(Handle, width, height, pixels, &environment));
+        }
+        return new NativeEnvironment(environment, width, height);
     }
 
     /// <summary>

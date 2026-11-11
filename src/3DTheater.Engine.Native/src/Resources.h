@@ -4,6 +4,7 @@
 
 #include <DirectXMath.h>
 
+#include <array>
 #include <memory>
 #include <vector>
 
@@ -52,6 +53,43 @@ private:
     uint32_t magic_ = kMagic;
     Engine& engine_;
     std::shared_ptr<TextureImage> image_;
+};
+
+// 環境の画像（全方向の景色を、横 360 度・縦 180 度に広げた HDR 画像）。PBR の材質の環境光と映り込み、背景に使う。
+// GPU には 16 ビットの浮動小数点で載せ、縮小版（ミップマップ）を作る（粗い面ほど縮小版を読む）。
+// 拡散の光は、作るときに画像から求めた球面調和関数（9 個の係数）で出す（面の向きごとに、全方向からの光を足し合わせた明るさ）
+class Environment final : public DeviceObject {
+public:
+    Environment(Engine& engine, int width, int height, const float* rgb);
+    ~Environment() override;
+
+    Environment(const Environment&) = delete;
+    Environment& operator=(const Environment&) = delete;
+
+    bool IsValid() const noexcept { return magic_ == kMagic; }
+    Engine& OwnerEngine() const noexcept { return engine_; }
+    ID3D11ShaderResourceView* View() const noexcept { return srv_.Get(); }
+    float MipCount() const noexcept { return static_cast<float>(mipCount_); }
+    // 拡散の明るさ（照度 ÷ π）の球面調和関数の係数（rgb を 9 個）。面の向き n の明るさ = Σ 係数 × 基底(n)
+    const std::array<DirectX::XMFLOAT4, 9>& Irradiance() const noexcept { return irradiance_; }
+
+    void ReleaseDeviceResources() noexcept override { srv_.Reset(); }
+    void RestoreDeviceResources() override { EnsureCreated(); }
+
+private:
+    void EnsureCreated();
+
+    static constexpr uint32_t kMagic = 0x564E4554; // "TENV"
+
+    uint32_t magic_ = kMagic;
+    Engine& engine_;
+    int width_;
+    int height_;
+    std::vector<uint16_t> pixels_; // RGBA 16 ビットの浮動小数点
+    UINT mipCount_ = 1;
+    std::array<DirectX::XMFLOAT4, 9> irradiance_{};
+    ComPtr<ID3D11ShaderResourceView> srv_;
+    uint32_t generation_ = 0;
 };
 
 class Mesh final : public DeviceObject {

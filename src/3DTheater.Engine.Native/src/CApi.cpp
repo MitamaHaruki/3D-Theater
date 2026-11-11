@@ -67,6 +67,15 @@ tt::Texture& ToTexture(TtTexture* handle)
     return *texture;
 }
 
+tt::Environment& ToEnvironment(TtEnvironment* handle)
+{
+    Require(handle != nullptr, L"environment が NULL です");
+    auto* environment = reinterpret_cast<tt::Environment*>(handle);
+    Require(environment->IsValid(), L"environment が正しくありません（破棄済みの可能性があります）");
+    environment->OwnerEngine().CheckThread();
+    return *environment;
+}
+
 tt::Mesh& ToMesh(TtMesh* handle)
 {
     Require(handle != nullptr, L"mesh が NULL です");
@@ -151,6 +160,26 @@ TT_API TtResult TT_CALL tt_texture_destroy(TtTexture* texture)
         return TT_OK;
     }
     return Guard([&] { delete &ToTexture(texture); });
+}
+
+TT_API TtResult TT_CALL tt_environment_create(
+    TtEngine* engine, int32_t width, int32_t height, const float* rgb_pixels, TtEnvironment** out_environment)
+{
+    return Guard([&] {
+        Require(out_environment != nullptr, L"out_environment が NULL です");
+        *out_environment = nullptr;
+        tt::Engine& e = ToEngine(engine);
+        auto* environment = new tt::Environment(e, width, height, rgb_pixels);
+        *out_environment = reinterpret_cast<TtEnvironment*>(environment);
+    });
+}
+
+TT_API TtResult TT_CALL tt_environment_destroy(TtEnvironment* environment)
+{
+    if (!environment) {
+        return TT_OK;
+    }
+    return Guard([&] { delete &ToEnvironment(environment); });
 }
 
 TT_API TtResult TT_CALL tt_mesh_create(TtEngine* engine, const TtMeshDesc* desc, TtMesh** out_mesh)
@@ -321,6 +350,9 @@ TT_API TtResult TT_CALL tt_view_render(TtView* view, const TtFrameParams* params
         for (uint32_t i = 0; i < params->item_count; ++i) {
             tt::Mesh& mesh = ToMesh(params->items[i].mesh);
             Require(&mesh.OwnerEngine() == &v.OwnerEngine(), L"別のエンジンで作ったメッシュは描けません");
+        }
+        if (params->environment) {
+            Require(&ToEnvironment(params->environment).OwnerEngine() == &v.OwnerEngine(), L"別のエンジンで作った環境の画像は使えません");
         }
         rendered = v.Render(*params);
     });
