@@ -120,6 +120,16 @@ public sealed class SceneInfoPlugin : IPlugin
             CanExecute = () => renderer is not null && tasks is not null,
         });
 
+        // 編集の道具の見本: センターを床の上でドラッグして動かす（SDK 1.5）
+        context.GetService<IEditToolRegistry>()?.Register(new PluginEditTool
+        {
+            Id = "center-drag",
+            Title = "センターを床の上で動かす",
+            Glyph = "\uE707", // 地図の印の絵（Segoe Fluent Icons）
+            Description = "選んだモデルの「センター」を、プレビューの床の上でドラッグして前後左右に動かします（ドラッグ 1 回が 1 つの「元に戻す」。Esc・右クリックで取り消し）",
+            Activate = () => new CenterDragTool(scene),
+        });
+
         context.GetService<IFileFormatRegistry>()?.Register(new PluginFileFormat
         {
             Id = "key-csv",

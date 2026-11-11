@@ -205,6 +205,9 @@ public sealed class EditorContext
     /// <summary>シーンの項目の編集の入口（元に戻せるように変える前後の値を残す）。画面からの編集はすべてここを通す。</summary>
     public EditService Edits { get; }
 
+    /// <summary>プレビューの道具（プラグインの編集の道具を選んでいるか）。</summary>
+    public Shell.ViewportTools Tools { get; } = new();
+
     /// <summary>右クリックのメニューに外から足す項目（プラグイン）。</summary>
     public Shell.ContextMenuExtensions ContextMenus { get; } = new();
 

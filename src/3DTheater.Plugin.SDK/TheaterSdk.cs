@@ -14,8 +14,9 @@ public static class TheaterSdk
     /// 1.2: ツールバー・右クリックのメニュー（<see cref="TheaterMenuPlaces"/>）・状態表示（Plugin.UI.Wpf）。
     /// 1.3: 時間のかかる処理（進み具合と取り消し）・ファイルの形式の追加（Plugin.Core の IPluginTasks・IFileFormatRegistry）。
     /// 1.4: シーンを絵にする（<see cref="ITheaterRenderer"/>）。
+    /// 1.5: 編集の道具（Plugin.UI.Wpf の IEditToolRegistry）と、その区画の情報（<see cref="ITheaterView"/>）。
     /// </summary>
-    public static Version Version { get; } = new(1, 4);
+    public static Version Version { get; } = new(1, 5);
 }
 
 /// <summary>プラグインの項目を足せる右クリックのメニュー（Plugin.UI.Wpf の PluginContextMenuItem.Place に書く。SDK 1.2 から）。</summary>
@@ -60,6 +61,28 @@ public interface ITheaterRenderer
     /// <see cref="InvalidOperationException"/>。
     /// </summary>
     RenderedImage RenderFrame(RenderRequest request);
+}
+
+/// <summary>
+/// 編集の道具（Plugin.UI.Wpf）に渡す、3D Theater のプレビューの区画の情報（<c>pointer.GetView&lt;ITheaterView&gt;()</c>。SDK 1.5 から）。
+/// </summary>
+public interface ITheaterView
+{
+    /// <summary>マウスの位置を通る視線の始点（ワールドの座標）。</summary>
+    Vector3 RayOrigin { get; }
+
+    /// <summary>マウスの位置を通る視線の向き（長さ 1）。</summary>
+    Vector3 RayDirection { get; }
+
+    /// <summary>ワールドの点が、区画のどこに見えるか（区画の左上から、WPF の画面の単位）。視点の後ろなら null。</summary>
+    Vector2? Project(Vector3 world);
+
+    /// <summary>
+    /// このドラッグの編集（左ボタンを押してから放すまでの間だけ使える。<c>Pressed</c> の中からも使える。それ以外は null）。
+    /// ドラッグ 1 回の編集は、放したときに 1 つの「元に戻す」になる（名前は道具の名前）。<c>Pressed</c> が false を返したときと、
+    /// 取り消したときは元に戻る。使うには requires に scene.edit。
+    /// </summary>
+    ISceneEdit? DragEdit { get; }
 }
 
 /// <summary>描き方の指定（<see cref="ITheaterRenderer.RenderFrame"/>）。</summary>

@@ -26,6 +26,8 @@ public partial class ViewportControl : UserControl, IDisposable
     private readonly LineBuffer _lines = new();
     private readonly GizmoController _gizmo;
     private DragMode _drag;
+    private Shell.IViewportTool? _dragTool;
+    private Shell.ViewportPointer _lastToolPointer;
     private Point _lastMouse;
     private bool _showGrid = true;
     private bool _showBones = true;
@@ -43,8 +45,18 @@ public partial class ViewportControl : UserControl, IDisposable
 
         Camera.Changed += (_, _) => OnCameraChanged();
         SizeChanged += (_, _) => UpdateExportFrame();
-        Loaded += (_, _) => context.ExportSizeChanged += OnExportSizeChanged;
-        Unloaded += (_, _) => context.ExportSizeChanged -= OnExportSizeChanged;
+        Loaded += (_, _) =>
+        {
+            context.ExportSizeChanged += OnExportSizeChanged;
+            context.Tools.ActiveChanged += OnToolChanged;
+            context.Tools.DragCancelRequested += OnToolDragCancelRequested;
+        };
+        Unloaded += (_, _) =>
+        {
+            context.ExportSizeChanged -= OnExportSizeChanged;
+            context.Tools.ActiveChanged -= OnToolChanged;
+            context.Tools.DragCancelRequested -= OnToolDragCancelRequested;
+        };
         _surface.MouseDown += OnSurfaceMouseDown;
         _surface.MouseMove += OnSurfaceMouseMove;
         _surface.MouseUp += OnSurfaceMouseUp;
@@ -55,6 +67,10 @@ public partial class ViewportControl : UserControl, IDisposable
             if (_drag == DragMode.Gizmo)
             {
                 _gizmo.EndDrag();
+            }
+            else if (_drag == DragMode.Tool)
+            {
+                EndToolDrag(release: true);
             }
             _drag = DragMode.None;
         };
@@ -75,6 +91,9 @@ public partial class ViewportControl : UserControl, IDisposable
         Gizmo,
         Orbit,
         Pan,
+
+        /// <summary>プラグインの編集の道具のドラッグ。</summary>
+        Tool,
     }
 
     /// <summary>区画をクリックなどで操作した。ショートカットの対象にする。</summary>
@@ -132,6 +151,11 @@ public partial class ViewportControl : UserControl, IDisposable
     public bool HandleKey(Key key, ModifierKeys modifiers)
     {
         bool ctrl = modifiers.HasFlag(ModifierKeys.Control);
+        if (key == Key.Escape && _drag == DragMode.Tool)
+        {
+            CancelToolDrag();
+            return true;
+        }
         if (key == Key.Escape && _drag == DragMode.Gizmo)
         {
             _gizmo.CancelDrag();
@@ -285,7 +309,10 @@ public partial class ViewportControl : UserControl, IDisposable
             BoneOverlay.AppendTo(_lines, _context);
         }
         LightOverlay.AppendTo(_lines, _context);
-        _gizmo.Append(_lines, new GizmoController.ViewInfo(matrices.View, matrices.Projection, new Vector2(pixelWidth, pixelHeight) / DpiScale()));
+        if (_context.Tools.Active is null) // プラグインの道具を選んでいる間は、ギズモを出さない（道具を持ちかえたのと同じ）
+        {
+            _gizmo.Append(_lines, new GizmoController.ViewInfo(matrices.View, matrices.Projection, new Vector2(pixelWidth, pixelHeight) / DpiScale()));
+        }
         // 照明はシーンの照明の項目から、輪郭線の太さは画面の高さから決める（どちらもトゥーン描画で使う）
         var (lightDirection, lightColor) = SceneLighting.From(_context.MainLight);
         flags |= FrameFlags.UseLight;
@@ -399,7 +426,12 @@ public partial class ViewportControl : UserControl, IDisposable
                 _surface.CaptureMouse();
                 e.Handled = true;
                 break;
-            case MouseButton.Left when _gizmo.TryBeginDrag(_lastMouse, CurrentView()):
+            case MouseButton.Left when _context.Tools.Active is { } tool && TryBeginToolDrag(tool, _lastMouse):
+                _drag = DragMode.Tool;
+                _surface.CaptureMouse();
+                e.Handled = true;
+                break;
+            case MouseButton.Left when _context.Tools.Active is null && _gizmo.TryBeginDrag(_lastMouse, CurrentView()):
                 // ギズモの取っ手をつかんだときは、選択より先にギズモを動かす
                 _drag = DragMode.Gizmo;
                 _surface.CaptureMouse();
@@ -411,6 +443,11 @@ public partial class ViewportControl : UserControl, IDisposable
                 break;
             case MouseButton.Left:
                 SelectAt(_lastMouse, Keyboard.Modifiers.HasFlag(ModifierKeys.Control));
+                e.Handled = true;
+                break;
+            case MouseButton.Right when _drag == DragMode.Tool:
+                CancelToolDrag();
+                _cancelledByRightClick = true;
                 e.Handled = true;
                 break;
             case MouseButton.Right when _drag == DragMode.Gizmo:
@@ -427,6 +464,15 @@ public partial class ViewportControl : UserControl, IDisposable
 
     private void OnSurfaceMouseMove(object sender, MouseEventArgs e)
     {
+        if (_drag == DragMode.Tool && _dragTool is { } tool)
+        {
+            _lastToolPointer = ToolPointer(e.GetPosition(_surface));
+            if (!tool.Move(_lastToolPointer))
+            {
+                EndToolDrag(release: false); // 道具がやめた（取り消しは道具の側で済んでいる）
+            }
+            return;
+        }
         if (_drag == DragMode.Gizmo)
         {
             _gizmo.Move(e.GetPosition(_surface), CurrentView());
@@ -434,7 +480,7 @@ public partial class ViewportControl : UserControl, IDisposable
         }
         if (_drag == DragMode.None)
         {
-            if (_gizmo.UpdateHover(e.GetPosition(_surface), CurrentView()))
+            if (_context.Tools.Active is null && _gizmo.UpdateHover(e.GetPosition(_surface), CurrentView()))
             {
                 Redraw();
             }
@@ -455,6 +501,13 @@ public partial class ViewportControl : UserControl, IDisposable
 
     private void OnSurfaceMouseUp(object sender, MouseButtonEventArgs e)
     {
+        if (e.ChangedButton == MouseButton.Left && _drag == DragMode.Tool)
+        {
+            _lastToolPointer = ToolPointer(e.GetPosition(_surface));
+            EndToolDrag(release: true);
+            e.Handled = true;
+            return;
+        }
         if (e.ChangedButton == MouseButton.Left && _drag == DragMode.Gizmo)
         {
             _gizmo.EndDrag();
@@ -487,6 +540,67 @@ public partial class ViewportControl : UserControl, IDisposable
                 e.Handled = true;
             }
         }
+    }
+
+    // プラグインの道具に押したことを渡し、受け取ったらドラッグを始める
+    private bool TryBeginToolDrag(Shell.IViewportTool tool, Point point)
+    {
+        _lastToolPointer = ToolPointer(point);
+        if (!tool.Press(_lastToolPointer))
+        {
+            return false;
+        }
+        _dragTool = tool;
+        _context.Tools.IsDragging = true;
+        return true;
+    }
+
+    // 道具のドラッグを終える（release なら放したことを道具に渡す。そうでなければ渡さない）
+    private void EndToolDrag(bool release)
+    {
+        Shell.IViewportTool? tool = _dragTool;
+        _dragTool = null;
+        _drag = DragMode.None;
+        _context.Tools.IsDragging = false;
+        if (release)
+        {
+            tool?.Release(_lastToolPointer);
+        }
+        if (_surface.IsMouseCaptured)
+        {
+            _surface.ReleaseMouseCapture();
+        }
+        Redraw();
+    }
+
+    private void CancelToolDrag()
+    {
+        Shell.IViewportTool? tool = _dragTool;
+        EndToolDrag(release: false);
+        tool?.Cancel();
+    }
+
+    private void OnToolDragCancelRequested(object? sender, EventArgs e)
+    {
+        if (_drag == DragMode.Tool)
+        {
+            CancelToolDrag();
+        }
+    }
+
+    private void OnToolChanged(object? sender, EventArgs e)
+    {
+        _gizmo.ClearHover();
+        Redraw(); // ギズモを出す・隠す
+    }
+
+    // 道具に渡すマウスの位置と視点（選ぶときと同じ視線）
+    private Shell.ViewportPointer ToolPointer(Point point)
+    {
+        var size = new Vector2((float)Math.Max(1, _surface.ActualWidth), (float)Math.Max(1, _surface.ActualHeight));
+        ViewMatrices matrices = Camera.GetMatrices(size.X / size.Y, _context.MainCamera, _context.ExportAspect);
+        Ray ray = Picking.CreateRay(new Vector2((float)point.X, (float)point.Y), size, matrices.View, matrices.Projection);
+        return new Shell.ViewportPointer(point, new Size(size.X, size.Y), Keyboard.Modifiers, ray, matrices.View * matrices.Projection);
     }
 
     private void OnSurfaceMouseWheel(object sender, MouseWheelEventArgs e)

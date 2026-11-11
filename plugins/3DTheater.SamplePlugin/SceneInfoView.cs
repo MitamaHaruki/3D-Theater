@@ -74,7 +74,10 @@ internal sealed class SceneInfoView : ScrollViewer
         int morphKeys = _scene.GetMorphNames(modelId).Sum(m => _scene.GetMorphKeys(modelId, m).Count);
         IReadOnlyList<MorphKeyInfo> blink = _scene.GetMorphKeys(modelId, SceneInfoPlugin.BlinkMorph);
         _keys.Text = $"ボーン {boneKeys} 個・モーフ {morphKeys} 個\n"
-            + $"「{SceneInfoPlugin.BlinkMorph}」: {(blink.Count == 0 ? "キーなし" : string.Join("・", blink.Select(k => $"{k.Frame}（{k.Weight:0.##}）")))}";
+            + $"「{SceneInfoPlugin.BlinkMorph}」: {(blink.Count == 0 ? "キーなし" : string.Join("・", blink.Select(k => $"{k.Frame}（{k.Weight:0.##}）")))}"
+            + (_scene.GetBonePose(modelId, CenterDragTool.CenterBone) is { } center
+                ? $"\n「{CenterDragTool.CenterBone}」の移動: {center.Translation.X:0.00}, {center.Translation.Y:0.00}, {center.Translation.Z:0.00}"
+                : string.Empty);
     }
 
     /// <summary>知らせの受け取りをやめる（プラグインを止めたとき）。</summary>

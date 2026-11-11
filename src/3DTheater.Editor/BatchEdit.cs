@@ -162,3 +162,59 @@ public sealed class BatchEdit
     private static Quaternion Normalize(Quaternion q) =>
         MathF.Abs(q.LengthSquared() - 1f) <= 1e-6f ? q : Quaternion.Normalize(q);
 }
+
+/// <summary>
+/// 開いたままのまとめた編集（<see cref="EditService.BeginBatch"/>）。<see cref="Edit"/> で何度も変えてから、
+/// <see cref="Commit"/> で 1 つの操作として積むか、<see cref="Cancel"/> で始める前に戻す。Dispose は、まだ終わっていなければ取り消す。
+/// </summary>
+public sealed class BatchSession : IDisposable
+{
+    private readonly EditTransaction _transaction;
+    private Action? _close;
+
+    internal BatchSession(BatchEdit edit, EditTransaction transaction, Action close)
+    {
+        Edit = edit;
+        _transaction = transaction;
+        _close = close;
+    }
+
+    /// <summary>変える入口（<see cref="Commit"/>・<see cref="Cancel"/> の後は使えない）。</summary>
+    public BatchEdit Edit { get; }
+
+    /// <summary>まだ終わっていない。</summary>
+    public bool IsOpen => _close is not null;
+
+    /// <summary>変えた結果を 1 つの操作として積む（何も変わっていなければ積まずに false）。</summary>
+    public bool Commit()
+    {
+        if (!Close())
+        {
+            return false;
+        }
+        return _transaction.Commit();
+    }
+
+    /// <summary>始める前の値とキーに戻し、何も積まない。</summary>
+    public void Cancel()
+    {
+        if (Close())
+        {
+            _transaction.Cancel();
+        }
+    }
+
+    public void Dispose() => Cancel();
+
+    private bool Close()
+    {
+        if (_close is not { } close)
+        {
+            return false;
+        }
+        _close = null;
+        Edit.Close();
+        close();
+        return true;
+    }
+}

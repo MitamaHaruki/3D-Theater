@@ -28,6 +28,7 @@ public partial class MainWindow : Window
     private string? _notice;
     private bool _noticeIsError;
     private DateTime _noticeUntil;
+    private bool _updatingPluginToolButtons;
     private readonly bool _safeMode;
     private readonly DispatcherTimer _statusTimer;
     private PreviewPanel? _activePreview;
@@ -79,6 +80,12 @@ public partial class MainWindow : Window
         _plugins.ToolbarChanged += (_, _) => BuildPluginToolbar();
         _plugins.StatusBarChanged += (_, _) => BuildPluginStatus();
         _plugins.FormatsChanged += (_, _) => BuildPluginFileMenus();
+        _plugins.EditToolsChanged += (_, _) => BuildPluginToolbar();
+        _context.Tools.ActiveChanged += (_, _) =>
+        {
+            UpdatePluginToolButtons();
+            UpdateGizmoControls();
+        };
         _plugins.ShowStatus = ShowNotice;
         _layout.PluginPanelsChanged += (_, _) => BuildPluginPanelItems();
         _layout.LoadOrDefault(_settings);
@@ -262,7 +269,8 @@ public partial class MainWindow : Window
             case Key.Q when modifiers == ModifierKeys.None:
             case Key.W when modifiers == ModifierKeys.None:
             case Key.E when modifiers == ModifierKeys.None:
-                // 道具の切り替え（Blender 方式で使う。MMD 方式なら Blender 方式に切り替える）
+                // 道具の切り替え（Blender 方式で使う。MMD 方式なら Blender 方式に切り替える。プラグインの道具は外す）
+                _context.Tools.Activate(null);
                 _context.Gizmo.Style = GizmoStyle.Blender;
                 _context.Gizmo.Tool = key switch { Key.Q => GizmoTool.Select, Key.W => GizmoTool.Move, _ => GizmoTool.Rotate };
                 e.Handled = true;
@@ -419,7 +427,54 @@ public partial class MainWindow : Window
             System.Windows.Automation.AutomationProperties.SetName(button, entry.Source.Command.Title);
             PluginToolbar.Children.Add(button);
         }
+        // 編集の道具（選ぶとプレビューの左ボタンの操作を受け取る。押している間は選んでいる）
+        foreach (Plugins.PluginHost.EditTool tool in _plugins.EditTools)
+        {
+            var button = new System.Windows.Controls.Primitives.ToggleButton
+            {
+                Style = (Style)FindResource(tool.Tool.Glyph is null ? "TextButtonStyle" : "IconToggleButtonStyle"),
+                Content = tool.Tool.Glyph ?? tool.Tool.Title,
+                ToolTip = tool.ToolTip,
+                Tag = tool,
+                IsChecked = _plugins.IsActive(tool),
+            };
+            // 押した状態で切り替える（マウス・キーボード・UI Automation のどれで押しても同じに）
+            button.Checked += (_, _) => OnPluginToolToggled(tool, on: true);
+            button.Unchecked += (_, _) => OnPluginToolToggled(tool, on: false);
+            System.Windows.Automation.AutomationProperties.SetName(button, tool.Tool.Title);
+            PluginToolbar.Children.Add(button);
+        }
         PluginToolbarSeparator.Visibility = PluginToolbar.Children.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void OnPluginToolToggled(Plugins.PluginHost.EditTool tool, bool on)
+    {
+        if (_updatingPluginToolButtons)
+        {
+            return;
+        }
+        if (on != _plugins.IsActive(tool))
+        {
+            _plugins.ToggleEditTool(tool);
+        }
+        UpdatePluginToolButtons(); // 選べなかったとき（エラー）は押していない状態に戻す
+    }
+
+    /// <summary>編集の道具のボタンの押した状態を、選んでいる道具に合わせる。</summary>
+    private void UpdatePluginToolButtons()
+    {
+        _updatingPluginToolButtons = true;
+        try
+        {
+            foreach (System.Windows.Controls.Primitives.ToggleButton button in PluginToolbar.Children.OfType<System.Windows.Controls.Primitives.ToggleButton>())
+            {
+                button.IsChecked = button.Tag is Plugins.PluginHost.EditTool tool && _plugins.IsActive(tool);
+            }
+        }
+        finally
+        {
+            _updatingPluginToolButtons = false;
+        }
     }
 
     /// <summary>状態表示の、プラグインの欄を作り直す。</summary>
@@ -976,9 +1031,10 @@ public partial class MainWindow : Window
         GizmoStyleCombo.SelectedIndex = g.Style == GizmoStyle.Mmd ? 0 : 1;
         GizmoSpaceCombo.SelectedIndex = g.LocalSpace ? 1 : 0;
         bool blender = g.Style == GizmoStyle.Blender;
+        bool pluginTool = _context.Tools.Active is not null; // プラグインの道具を選んでいる間は、アプリの道具は選んでいない
         foreach (var (button, tool) in new[] { (SelectToolButton, GizmoTool.Select), (MoveToolButton, GizmoTool.Move), (RotateToolButton, GizmoTool.Rotate) })
         {
-            button.IsChecked = blender && g.Tool == tool;
+            button.IsChecked = blender && g.Tool == tool && !pluginTool;
             button.IsEnabled = blender;
         }
         _updatingGizmoControls = false;
@@ -988,6 +1044,7 @@ public partial class MainWindow : Window
     {
         if (!_updatingGizmoControls && GizmoStyleCombo.SelectedIndex >= 0)
         {
+            _context.Tools.Activate(null); // ギズモの方式を選んだら、アプリの道具に戻す
             _context.Gizmo.Style = GizmoStyleCombo.SelectedIndex == 0 ? GizmoStyle.Mmd : GizmoStyle.Blender;
         }
     }
@@ -1004,6 +1061,7 @@ public partial class MainWindow : Window
     {
         if (sender is FrameworkElement { Tag: string tag } && Enum.TryParse(tag, out GizmoTool tool))
         {
+            _context.Tools.Activate(null); // アプリの道具に持ちかえる
             _context.Gizmo.Tool = tool;
         }
         UpdateGizmoControls();
@@ -1015,6 +1073,10 @@ public partial class MainWindow : Window
 
     private void UndoOnce()
     {
+        if (_context.Edits.HasOpenBatch)
+        {
+            return; // プラグインの道具のドラッグの途中（放すか取り消してから）
+        }
         string? what = _context.Undo.UndoDescription;
         if (_context.Undo.Undo())
         {
@@ -1024,6 +1086,10 @@ public partial class MainWindow : Window
 
     private void RedoOnce()
     {
+        if (_context.Edits.HasOpenBatch)
+        {
+            return;
+        }
         string? what = _context.Undo.RedoDescription;
         if (_context.Undo.Redo())
         {

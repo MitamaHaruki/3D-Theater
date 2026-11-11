@@ -235,6 +235,31 @@ public sealed class EditService(UndoService undo, AnimationService animation, Pl
         return transaction.Commit();
     }
 
+    /// <summary>開いたままのまとめた編集（<see cref="BeginBatch"/>）か、<see cref="Batch"/> の途中か。</summary>
+    public bool HasOpenBatch => _inBatch;
+
+    /// <summary>
+    /// ドラッグのように、何度も変えてから 1 つの操作として残すまとめた編集を始める（プラグインの編集の道具）。
+    /// <see cref="BatchSession.Commit"/> で積み、<see cref="BatchSession.Cancel"/> で始める前に戻す。どちらかをするまで、
+    /// ほかのまとめた編集は始められない。再生中なら止めてから始める。
+    /// </summary>
+    public BatchSession BeginBatch(string description)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        if (_inBatch)
+        {
+            throw new InvalidOperationException("まとめた編集の途中では、もう一度まとめた編集は始められません");
+        }
+        if (Undo.IsReplaying)
+        {
+            throw new InvalidOperationException("元に戻す・やり直しの途中では編集できません");
+        }
+        playback.Pause();
+        EditTransaction transaction = Begin(description, [], includeKeys: true);
+        _inBatch = true;
+        return new BatchSession(new BatchEdit(transaction), transaction, () => _inBatch = false);
+    }
+
     /// <summary>
     /// 作品のフレームの速さを変える（元に戻せる）。<paramref name="rescaleKeys"/> なら、<paramref name="keyedNodes"/> のキー・
     /// 終わりのフレーム・今のフレームを同じ割合で動かし、動きの秒数を保つ。false ならフレームの番号のまま（動きの速さが変わる）。

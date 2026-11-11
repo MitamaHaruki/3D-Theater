@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Input;
 
 namespace Plugin.UI.Wpf;
 
@@ -71,6 +72,77 @@ public static class UiCapabilities
 
     /// <summary>状態表示の欄（<see cref="IStatusBarRegistry"/>。3D Theater は SDK 1.2 から）。</summary>
     public const string StatusBar = "ui.statusbar";
+
+    /// <summary>編集の道具（<see cref="IEditToolRegistry"/>。3D Theater は SDK 1.5 から）。</summary>
+    public const string EditTools = "ui.edittools";
+}
+
+/// <summary>
+/// 編集の道具（アプリの絵の区画の中で、マウスの左ボタンのドラッグで使う道具）を足す（<c>context.GetService&lt;IEditToolRegistry&gt;()</c>）。
+/// 道具はツールバーに並び、選ぶと、区画の左ボタンの操作が道具に渡る（視点の操作・右クリックはアプリのまま）。
+/// アプリの道具を選ぶか、もう一度押すと外れる。プラグインを無効にすると外れる。
+/// </summary>
+public interface IEditToolRegistry
+{
+    /// <summary>登録する（同じ Id は登録できない）。返したものを Dispose すると、その道具だけ外す。</summary>
+    IDisposable Register(PluginEditTool tool);
+}
+
+/// <summary>編集の道具 1 つ。</summary>
+public sealed class PluginEditTool
+{
+    /// <summary>プラグインの中で一意の名前（英数字・. _ -）。</summary>
+    public required string Id { get; init; }
+
+    /// <summary>道具の名前（ボタンの説明と、ドラッグ 1 回の「元に戻す」の名前に出す）。</summary>
+    public required string Title { get; init; }
+
+    /// <summary>ボタンの絵の文字（Segoe Fluent Icons の 1 文字）。無ければ <see cref="Title"/> を出す。</summary>
+    public string? Glyph { get; init; }
+
+    /// <summary>ボタンの説明に出す使い方。</summary>
+    public string? Description { get; init; }
+
+    /// <summary>道具を選んだときに呼ぶ。返した受け取り手に、左ボタンの操作を渡す（道具を外すと <see cref="IEditToolHandler.Deactivated"/>）。</summary>
+    public required Func<IEditToolHandler> Activate { get; init; }
+}
+
+/// <summary>
+/// 編集の道具の、左ボタンの操作の受け取り手（プラグインが作る）。どれも画面のスレッドで呼ぶ。例外はアプリが受け止めて記録し、そのドラッグを取り消す。
+/// </summary>
+public interface IEditToolHandler
+{
+    /// <summary>左ボタンを押した。true を返すとドラッグを受け取る（以後 <see cref="Moved"/>・<see cref="Released"/> か <see cref="Cancelled"/>）。
+    /// false ならアプリの操作（クリックでの選択）に任せる。</summary>
+    bool Pressed(EditToolPointer pointer);
+
+    /// <summary>ドラッグ中にマウスが動いた。</summary>
+    void Moved(EditToolPointer pointer);
+
+    /// <summary>左ボタンを放した（ドラッグの終わり。アプリはそこまでの編集を 1 つの「元に戻す」として残す）。</summary>
+    void Released(EditToolPointer pointer);
+
+    /// <summary>ドラッグを取り消した（Esc・ドラッグ中の右クリック・道具を外したとき。アプリはドラッグ中の編集を元に戻してから呼ぶ）。</summary>
+    void Cancelled();
+
+    /// <summary>道具を外した（ほかの道具を選んだ・プラグインを無効にした）。</summary>
+    void Deactivated();
+}
+
+/// <summary>編集の道具に渡すマウスの位置。</summary>
+public sealed class EditToolPointer(Point position, Size viewSize, ModifierKeys modifiers, object? view)
+{
+    /// <summary>区画の左上から見た位置（WPF の画面の単位）。</summary>
+    public Point Position { get; } = position;
+
+    /// <summary>区画の大きさ（WPF の画面の単位）。</summary>
+    public Size ViewSize { get; } = viewSize;
+
+    /// <summary>押していた Ctrl・Shift・Alt。</summary>
+    public ModifierKeys Modifiers { get; } = modifiers;
+
+    /// <summary>アプリの区画の情報（3D Theater は SDK の ITheaterView: 視線・ドラッグの編集）。無ければ null。</summary>
+    public T? GetView<T>() where T : class => view as T;
 }
 
 /// <summary>

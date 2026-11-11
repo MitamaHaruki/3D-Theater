@@ -31,7 +31,7 @@ public sealed partial class PluginHost
     [
         CoreCapabilities.Commands, CoreCapabilities.Settings, CoreCapabilities.Tasks, CoreCapabilities.Files,
         UiCapabilities.Panels, UiCapabilities.Dialogs,
-        UiCapabilities.Toolbar, UiCapabilities.ContextMenus, UiCapabilities.StatusBar,
+        UiCapabilities.Toolbar, UiCapabilities.ContextMenus, UiCapabilities.StatusBar, UiCapabilities.EditTools,
         TheaterCapabilities.SceneRead, TheaterCapabilities.SceneSeek, TheaterCapabilities.SceneEdit, TheaterCapabilities.RenderImage,
     ]);
 
@@ -202,6 +202,7 @@ public sealed partial class PluginHost
             : serviceType == typeof(IToolbarRegistry) ? this
             : serviceType == typeof(IContextMenuRegistry) ? this
             : serviceType == typeof(IStatusBarRegistry) ? this
+            : serviceType == typeof(IEditToolRegistry) ? this
             : serviceType == typeof(IPluginTasks) ? this
             : serviceType == typeof(IFileFormatRegistry) ? this
             : serviceType == typeof(ITheaterScene) ? _scene

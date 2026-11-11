@@ -26,8 +26,10 @@ internal sealed class TheaterEditService(EditorContext context) : ITheaterEditor
     /// <summary>もう編集させない。</summary>
     public void Detach() => _attached = false;
 
-    /// <summary>1 回の <see cref="Edit"/> の間だけ使える入口（名前を項目に直して <see cref="BatchEdit"/> に渡す）。</summary>
-    private sealed class Session(EditorContext context, BatchEdit batch) : ISceneEdit
+    /// <summary>
+    /// まとめた編集の間だけ使える入口（名前を項目に直して <see cref="BatchEdit"/> に渡す）。<see cref="Edit"/> と、編集の道具のドラッグで使う。
+    /// </summary>
+    internal sealed class Session(EditorContext context, BatchEdit batch) : ISceneEdit
     {
         public bool SetBonePose(string modelId, string bone, BonePose pose) =>
             SceneLookup.Bone(context, modelId, bone) is { } node ? batch.SetBonePose(node, pose.Translation, pose.Rotation) : Missing();

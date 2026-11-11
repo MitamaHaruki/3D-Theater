@@ -190,4 +190,68 @@ public sealed class BatchEditTests
 
         Assert.IsFalse(playback.IsPlaying);
     }
+
+    [TestMethod]
+    public void AnOpenSessionBecomesOneUndoStepWhenCommitted()
+    {
+        var (model, _, _, edits) = Create();
+        BoneNode center = model.Bones[0];
+
+        BatchSession session = edits.BeginBatch("センターを動かす");
+        Assert.IsTrue(edits.HasOpenBatch);
+        for (int i = 1; i <= 5; i++)
+        {
+            session.Edit.SetBonePose(center, new Vector3(i, 0, 0), Quaternion.Identity); // ドラッグのように何度も変える
+        }
+        Assert.IsTrue(session.Commit());
+
+        Assert.IsFalse(edits.HasOpenBatch);
+        Assert.IsFalse(session.IsOpen);
+        Assert.AreEqual(1, edits.Undo.UndoCount, "ドラッグ 1 回が 1 つの操作");
+        Assert.AreEqual("センターを動かす", edits.Undo.UndoDescription);
+        edits.Undo.Undo();
+        Assert.AreEqual(Vector3.Zero, center.Position);
+        edits.Undo.Redo();
+        Assert.AreEqual(new Vector3(5, 0, 0), center.Position);
+    }
+
+    [TestMethod]
+    public void CancellingOrDisposingAnOpenSessionRestoresEverything()
+    {
+        var (model, _, _, edits) = Create();
+        BoneNode center = model.Bones[0];
+        MorphNode blink = model.Morphs[0];
+
+        BatchSession cancelled = edits.BeginBatch("取り消す");
+        cancelled.Edit.SetBonePose(center, Vector3.One, Quaternion.Identity);
+        cancelled.Edit.SetMorphKey(blink, 0, 1f);
+        cancelled.Cancel();
+
+        using (BatchSession disposed = edits.BeginBatch("捨てる"))
+        {
+            disposed.Edit.SetMorphWeight(blink, 0.5f);
+        }
+
+        Assert.AreEqual(Vector3.Zero, center.Position);
+        Assert.AreEqual(0, blink.Keys.Count);
+        Assert.AreEqual(0f, blink.Weight, "終えずに Dispose したら取り消す");
+        Assert.IsFalse(edits.Undo.CanUndo);
+        Assert.IsFalse(edits.HasOpenBatch);
+        Assert.IsFalse(cancelled.Commit(), "取り消した後は積めない");
+        Assert.ThrowsExactly<InvalidOperationException>(() => cancelled.Edit.SetMorphKey(blink, 0, 1f));
+    }
+
+    [TestMethod]
+    public void OtherBatchesWaitUntilTheOpenSessionEnds()
+    {
+        var (model, _, _, edits) = Create();
+        BatchSession session = edits.BeginBatch("開いたまま");
+
+        Assert.ThrowsExactly<InvalidOperationException>(() => edits.BeginBatch("もう 1 つ"));
+        Assert.ThrowsExactly<InvalidOperationException>(() => edits.Batch("まとめた編集", _ => { }));
+
+        Assert.IsFalse(session.Commit(), "何も変えなければ積まない");
+        Assert.IsFalse(edits.Undo.CanUndo);
+        Assert.IsTrue(edits.Batch("終わった後は使える", b => b.SetMorphKey(model.Morphs[0], 0, 1f)));
+    }
 }
