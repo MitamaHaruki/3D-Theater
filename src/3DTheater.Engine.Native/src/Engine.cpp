@@ -33,6 +33,7 @@
 #include "FogPS.h"
 #include "GroundSoftShadowVS.h"
 #include "GroundSoftShadowPS.h"
+#include "GroundRayShadowPS.h"
 #include "SkyPS.h"
 #include "GroundShadowPS.h"
 #include "LinearDepthMsPS.h"
@@ -350,6 +351,7 @@ void Engine::ReleaseDevice() noexcept
     groundShadowMapSize_ = 0;
     groundSoftShadowVertexShader_.Reset();
     groundSoftShadowPixelShader_.Reset();
+    groundRayShadowPixelShader_.Reset();
     environmentSampler_.Reset();
     skyPixelShader_.Reset();
     skyConstantBuffer_.Reset();
@@ -655,11 +657,13 @@ void Engine::DrawScene(ID3D11RenderTargetView* rtv, ID3D11DepthStencilView* dsv,
     basicState_ = multisampled ? multisampleLineState_.Get() : rasterizerState_.Get();
     const bool drawScene = part != ScenePart::Overlays;
 
-    // セルフシャドウ。レイトレーシングで求めるときは、光線を当てる物を先に GPU へ送り、モデルを描く間ずっと読めるようにしておく
+    // 影（セルフシャドウ・地面の影）。レイトレーシングで求めるときは、光線を当てる物を先に GPU へ送り、場面を描く間ずっと読めるようにしておく
     // （テクスチャを縮めて並べるために描くので、場面を描き始める前に）
     const bool selfShadow = drawScene && (params.flags & TT_FRAME_SELF_SHADOW) && params.item_count > 0;
-    const bool rayShadows = selfShadow && (params.flags & TT_FRAME_RAYTRACED_SHADOWS) && rayScene_->Prepare(params);
-    if (rayShadows) {
+    const bool groundShadow = drawScene && (params.flags & TT_FRAME_GROUND_SHADOW) && params.item_count > 0;
+    const bool shadowRays = (selfShadow || groundShadow) && (params.flags & TT_FRAME_RAYTRACED_SHADOWS) && rayScene_->Prepare(params);
+    const bool rayShadows = shadowRays && selfShadow;
+    if (shadowRays) {
         rayScene_->Bind(ctx, 5);
         ctx->PSSetSamplers(4, 1, textureSampler_.GetAddressOf());
     }
@@ -701,11 +705,18 @@ void Engine::DrawScene(ID3D11RenderTargetView* rtv, ID3D11DepthStencilView* dsv,
     } else if (selfShadow) {
         RenderShadowMap(params, frame); // 影を落とすものが無ければ、セルフシャドウなしのまま
     }
-    // 柔らかな影のときは、地面の影も照明から見た奥行きで描く（押しつぶす描き方では、境目をぼかせないため）
+    // 柔らかな影のときは、地面の影も照明から見た奥行きで描く（押しつぶす描き方では、境目をぼかせないため）。
+    // レイトレーシングでは、床の 1 枚の四角形の画素ごとに光線を出す（くっきりした影も、柔らかな影も）
     ModelFrame groundFrame{};
     XMFLOAT4X4 floorWorld{};
-    const bool softGroundShadow = drawScene && (params.flags & TT_FRAME_GROUND_SHADOW) && params.item_count > 0
-        && ShadowSoftnessOf(params) > 0.0f && RenderGroundShadowMap(params, frame, groundFrame, floorWorld);
+    const bool rayGroundShadow = shadowRays && groundShadow && RayGroundShadowArea(params, frame, floorWorld);
+    if (rayGroundShadow) {
+        groundFrame = frame;
+        groundFrame.shadowSoftness = {0.0f, ShadowSoftnessOf(params), 0.0f, 0.0f};
+        groundFrame.rayShadowParams = {0.0f, static_cast<float>(rayScene_->InstanceCount()), RaySamplesOf(params), 0.0f};
+    }
+    const bool softGroundShadow = groundShadow && !shadowRays && ShadowSoftnessOf(params) > 0.0f
+        && RenderGroundShadowMap(params, frame, groundFrame, floorWorld);
 
     // 床の映り込み。ぼかすときは、先に映り込みだけを別の画像へ描いて縮めた段を作っておき、背景の後に重ねる
     const bool floorReflection = drawScene && (params.flags & TT_FRAME_FLOOR_REFLECTION) && params.item_count > 0;
@@ -767,10 +778,12 @@ void Engine::DrawScene(ID3D11RenderTargetView* rtv, ID3D11DepthStencilView* dsv,
     }
 
     // 地面の影は、モデルより先に床へ描く（モデルの奥行きで隠れる所は、後から描くモデルが上書きする）
-    if (drawScene && (params.flags & TT_FRAME_GROUND_SHADOW) && params.item_count > 0) {
-        if (softGroundShadow) {
-            DrawSoftGroundShadow(groundFrame, floorWorld);
-        } else {
+    if (groundShadow) {
+        if (rayGroundShadow) {
+            DrawSoftGroundShadow(groundFrame, floorWorld, groundRayShadowPixelShader_.Get());
+        } else if (softGroundShadow) {
+            DrawSoftGroundShadow(groundFrame, floorWorld, groundSoftShadowPixelShader_.Get());
+        } else if (!shadowRays) {
             DrawGroundShadows(params, frame);
         }
     }
@@ -836,7 +849,7 @@ void Engine::DrawScene(ID3D11RenderTargetView* rtv, ID3D11DepthStencilView* dsv,
 
     ctx->OMSetBlendState(nullptr, nullptr, 0xFFFFFFFF);
     ctx->OMSetRenderTargets(0, nullptr, nullptr);
-    if (rayShadows) {
+    if (shadowRays) {
         ID3D11ShaderResourceView* const noRays[6] = {};
         ctx->PSSetShaderResources(5, 6, noRays); // テクスチャの配列へ描き足すとき、読む側に残っていないように
     }
@@ -1894,7 +1907,54 @@ void Engine::DrawSky(const TtFrameParams& params, DirectX::CXMMATRIX viewProj)
     ctx->PSSetShaderResources(0, 1, &none);
 }
 
-void Engine::DrawSoftGroundShadow(const ModelFrame& groundFrame, const DirectX::XMFLOAT4X4& floorWorld)
+bool Engine::RayGroundShadowArea(const TtFrameParams& params, const ModelFrame& frame, DirectX::XMFLOAT4X4& floorWorld) const
+{
+    using namespace DirectX;
+    // 下から・真横から照らすときは、床に影を落とさない（押しつぶす描き方と同じ）
+    const XMVECTOR direction = XMLoadFloat4(&frame.lightDirection);
+    const float down = -XMVectorGetY(direction);
+    if (down < 0.05f || frame.groundShadowColor.w <= 0.0f) {
+        return false;
+    }
+    // 範囲: 地面の影を落とす物の囲みの箱の角から、照明の向きに進んで床（高さ 0）に届いた点が全部入るように
+    float minX = FLT_MAX;
+    float maxX = -FLT_MAX;
+    float minZ = FLT_MAX;
+    float maxZ = -FLT_MAX;
+    float height = 0.0f;
+    bool any = false;
+    for (uint32_t i = 0; i < params.item_count; ++i) {
+        const auto& mesh = *reinterpret_cast<const Mesh*>(params.items[i].mesh);
+        if (mesh.IsEmpty() || !mesh.HasGroundShadow()) {
+            continue;
+        }
+        const XMMATRIX world = XMLoadFloat4x4(reinterpret_cast<const XMFLOAT4X4*>(params.items[i].world));
+        const XMFLOAT3& a = mesh.BoundsMin();
+        const XMFLOAT3& b = mesh.BoundsMax();
+        for (int corner = 0; corner < 8; ++corner) {
+            const XMVECTOR p = XMVector3Transform(
+                XMVectorSet((corner & 1) ? b.x : a.x, (corner & 2) ? b.y : a.y, (corner & 4) ? b.z : a.z, 1.0f), world);
+            const float y = std::max(XMVectorGetY(p), 0.0f);
+            const XMVECTOR onFloor = XMVectorAdd(p, XMVectorScale(direction, y / down));
+            minX = std::min({minX, XMVectorGetX(onFloor), XMVectorGetX(p)});
+            maxX = std::max({maxX, XMVectorGetX(onFloor), XMVectorGetX(p)});
+            minZ = std::min({minZ, XMVectorGetZ(onFloor), XMVectorGetZ(p)});
+            maxZ = std::max({maxZ, XMVectorGetZ(onFloor), XMVectorGetZ(p)});
+            height = std::max(height, y);
+            any = true;
+        }
+    }
+    if (!any) {
+        return false;
+    }
+    // ぼけの分だけ広げる（物の高さ × 光源の見かけの半径の tan。斜めから照らすほど、床の上のぼけは長く伸びる）
+    const float margin = 0.05f + height * ShadowSoftnessOf(params) * 2.0f / std::max(down, 0.2f);
+    XMStoreFloat4x4(&floorWorld, XMMatrixScaling(maxX - minX + 2.0f * margin, 1.0f, maxZ - minZ + 2.0f * margin)
+        * XMMatrixTranslation(minX - margin, kGroundShadowLift, minZ - margin));
+    return true;
+}
+
+void Engine::DrawSoftGroundShadow(const ModelFrame& groundFrame, const DirectX::XMFLOAT4X4& floorWorld, ID3D11PixelShader* pixelShader)
 {
     using namespace DirectX;
     ID3D11DeviceContext* ctx = context_.Get();
@@ -1906,7 +1966,7 @@ void Engine::DrawSoftGroundShadow(const ModelFrame& groundFrame, const DirectX::
     ctx->IASetInputLayout(nullptr);
     ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
     ctx->VSSetShader(groundSoftShadowVertexShader_.Get(), nullptr, 0);
-    ctx->PSSetShader(groundSoftShadowPixelShader_.Get(), nullptr, 0);
+    ctx->PSSetShader(pixelShader, nullptr, 0);
     ID3D11SamplerState* samplers[] = {textureSampler_.Get(), clampSampler_.Get(), shadowSampler_.Get(), environmentSampler_.Get()};
     ctx->PSSetSamplers(0, 4, samplers);
     ID3D11ShaderResourceView* map = groundShadowMapSrv_.Get();
@@ -2028,6 +2088,8 @@ void Engine::CreateModelResources()
         L"柔らかな地面の影の頂点シェーダーの作成");
     CheckHr(device_->CreatePixelShader(g_GroundSoftShadowPS, sizeof(g_GroundSoftShadowPS), nullptr, &groundSoftShadowPixelShader_),
         L"柔らかな地面の影のピクセルシェーダーの作成");
+    CheckHr(device_->CreatePixelShader(g_GroundRayShadowPS, sizeof(g_GroundRayShadowPS), nullptr, &groundRayShadowPixelShader_),
+        L"レイトレーシングでの地面の影のピクセルシェーダーの作成");
     CheckHr(device_->CreatePixelShader(g_GroundShadowPS, sizeof(g_GroundShadowPS), nullptr, &groundShadowPixelShader_),
         L"地面の影のピクセルシェーダーの作成");
     // 輪郭線の頂点シェーダーは全部の要素を使うので、そちらに合わせて作る（モデルの頂点シェーダーにも使える）

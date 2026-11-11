@@ -1968,7 +1968,8 @@ public:
                 bodyIndices.insert(bodyIndices.end(), {a, c + 1, a + 1, a, c, c + 1});
             }
         }
-        TtMesh* body = makeMesh(bodyVertices, bodyIndices, white, TT_MATERIAL_CAST_SHADOW | TT_MATERIAL_RECEIVE_SHADOW | TT_MATERIAL_DOUBLE_SIDED);
+        TtMesh* body = makeMesh(bodyVertices, bodyIndices, white,
+            TT_MATERIAL_CAST_SHADOW | TT_MATERIAL_RECEIVE_SHADOW | TT_MATERIAL_GROUND_SHADOW | TT_MATERIAL_DOUBLE_SIDED);
         // 髪: 球の上半分を覆う、細長い板 3,000 枚（透明な所のあるテクスチャ）
         std::vector<TtMeshVertex> hairVertices;
         std::vector<uint32_t> hairIndices;
@@ -2001,7 +2002,7 @@ public:
             hairIndices.insert(hairIndices.end(), {first, first + 1, first + 2, first, first + 2, first + 3});
         }
         TtMesh* hair = makeMesh(hairVertices, hairIndices, hairTexture,
-            TT_MATERIAL_CAST_SHADOW | TT_MATERIAL_RECEIVE_SHADOW | TT_MATERIAL_DOUBLE_SIDED);
+            TT_MATERIAL_CAST_SHADOW | TT_MATERIAL_RECEIVE_SHADOW | TT_MATERIAL_GROUND_SHADOW | TT_MATERIAL_DOUBLE_SIDED);
         // 床: つやのある金属（PBR）の大きな板
         const TtMeshMaterial floorMaterial = QuadMaterial(white, TT_MATERIAL_RECEIVE_SHADOW | TT_MATERIAL_DOUBLE_SIDED);
         const TtMeshDesc floorDesc = QuadDesc(kClockwise, &floorMaterial);
@@ -2035,6 +2036,7 @@ public:
         params.ssr_max_distance = 30.0f;
         params.ao_strength = 1.0f;
         params.ao_radius = 0.5f;
+        params.ground_shadow_color[3] = 0.5f;
 
         auto measure = [&](uint32_t frameFlags, uint32_t postFlags, float softness, uint32_t raySamples) {
             params.flags = TT_FRAME_USE_LIGHT | frameFlags;
@@ -2073,6 +2075,10 @@ public:
             {L"影（レイトレーシング・やわらかさ 0.05・光線 4）", TT_FRAME_SELF_SHADOW | TT_FRAME_RAYTRACED_SHADOWS, 0, 0.05f, 4},
             {L"影（レイトレーシング・やわらかさ 0.05・光線 8）", TT_FRAME_SELF_SHADOW | TT_FRAME_RAYTRACED_SHADOWS, 0, 0.05f, 0},
             {L"影（レイトレーシング・やわらかさ 0.05・光線 16）", TT_FRAME_SELF_SHADOW | TT_FRAME_RAYTRACED_SHADOWS, 0, 0.05f, 16},
+            {L"地面の影（押しつぶす）", TT_FRAME_GROUND_SHADOW, 0, 0.0f, 0},
+            {L"地面の影（奥行きの画像・やわらかさ 0.05）", TT_FRAME_GROUND_SHADOW, 0, 0.05f, 0},
+            {L"地面の影（レイトレーシング）", TT_FRAME_GROUND_SHADOW | TT_FRAME_RAYTRACED_SHADOWS, 0, 0.0f, 0},
+            {L"地面の影（レイトレーシング・やわらかさ 0.05・光線 8）", TT_FRAME_GROUND_SHADOW | TT_FRAME_RAYTRACED_SHADOWS, 0, 0.05f, 0},
             {L"環境光の遮り（画面の奥行き）", 0, TT_POST_VIGNETTE | TT_POST_AO, 0.0f, 0},
             {L"環境光の遮り（レイトレーシング・光線 4）", 0, TT_POST_VIGNETTE | TT_POST_AO | TT_POST_RAYTRACED_AO, 0.0f, 4},
             {L"環境光の遮り（レイトレーシング・光線 8）", 0, TT_POST_VIGNETTE | TT_POST_AO | TT_POST_RAYTRACED_AO, 0.0f, 0},
@@ -2584,6 +2590,117 @@ public:
         Assert::IsTrue(IsBackground(pixel(render(TT_MATERIAL_GROUND_SHADOW, 0, -1.0f), 45, 24), 1), L"地面の影を使わない描画");
         Assert::IsTrue(IsBackground(pixel(render(TT_MATERIAL_GROUND_SHADOW, TT_FRAME_GROUND_SHADOW, 1.0f), 45, 24), 1),
             L"下から照らすときは床に影を落とさない");
+
+        Assert::AreEqual<int>(TT_OK, tt_view_destroy(view));
+        Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
+    }
+
+    TEST_METHOD(RayTracedGroundShadowsFallWhereTheProjectedShadowFalls)
+    {
+        // 地面の影の確かめ（GroundShadowDarkensTheFloorOnce）と同じ場面を、レイトレーシングで描く。影の落ちる所・濃さ（重なっても
+        // 二重に暗くしない）は押しつぶす描き方と同じ。地面影の無い材質・下からの光・地面の影を使わない描画では影が無い。
+        // やわらかさでは境目がぼけ、テクスチャの透明な所は影を落とさない
+        TtEngine* engine = CreateWarpEngine();
+        constexpr int width = 64;
+        constexpr int height = 48;
+        TtView* view = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_view_create_offscreen(engine, width, height, 0, &view));
+
+        std::vector<TtMeshVertex> vertices;
+        std::vector<uint32_t> indices;
+        auto addFlatQuad = [&](float centerX, float y, float half) {
+            const uint32_t base = static_cast<uint32_t>(vertices.size());
+            const float xs[] = {-half, half, half, -half};
+            const float zs[] = {half, half, -half, -half};
+            for (int i = 0; i < 4; ++i) {
+                vertices.push_back(TtMeshVertex{{centerX + xs[i], y, zs[i]}, {0.0f, 1.0f, 0.0f}, {(xs[i] + half) / (2.0f * half), 0.0f}});
+            }
+            indices.insert(indices.end(), {base, base + 1, base + 2, base, base + 2, base + 3}); // 上から見て時計回り
+        };
+        addFlatQuad(0.0f, 1.0f, 0.5f);
+        addFlatQuad(0.25f, 1.25f, 0.5f);
+
+        auto render = [&](uint32_t materialFlags, uint32_t frameFlags, float lightY, float softness, TtTexture* texture) {
+            TtMeshMaterial material = QuadMaterial(texture, materialFlags | TT_MATERIAL_DOUBLE_SIDED);
+            material.index_count = static_cast<uint32_t>(indices.size());
+            TtMeshDesc desc{};
+            desc.struct_size = sizeof(desc);
+            desc.vertex_count = static_cast<uint32_t>(vertices.size());
+            desc.vertices = vertices.data();
+            desc.index_count = static_cast<uint32_t>(indices.size());
+            desc.indices = indices.data();
+            desc.material_count = 1;
+            desc.materials = &material;
+            TtMesh* mesh = nullptr;
+            Assert::AreEqual<int>(TT_OK, tt_mesh_create(engine, &desc, &mesh));
+            TtFrameParams params = MakeParams(frameFlags | TT_FRAME_USE_LIGHT);
+            DirectX::XMStoreFloat4x4(reinterpret_cast<DirectX::XMFLOAT4X4*>(params.view),
+                DirectX::XMMatrixLookAtLH(DirectX::XMVectorSet(0, 8, 0, 1), DirectX::XMVectorZero(), DirectX::XMVectorSet(0, 0, 1, 0)));
+            params.light_direction[0] = 2.0f;
+            params.light_direction[1] = lightY;
+            params.light_color[0] = params.light_color[1] = params.light_color[2] = 0.6f;
+            params.ground_shadow_color[3] = 0.5f; // 半透明の黒
+            params.shadow_softness = softness;
+            const TtDrawItem item = DrawItem(mesh);
+            params.items = &item;
+            params.item_count = 1;
+            std::vector<uint8_t> pixels = RenderAndRead(engine, view, params, width, height);
+            Assert::AreEqual<int>(TT_OK, tt_mesh_destroy(mesh));
+            return pixels;
+        };
+        auto pixel = [&](const std::vector<uint8_t>& pixels, int x, int y) { return &pixels[(static_cast<size_t>(y) * width + x) * 4]; };
+        auto isHalfBackground = [](const uint8_t* p) {
+            return IsNear(p[0], kBackgroundB / 2, 3) && IsNear(p[1], kBackgroundG / 2, 3) && IsNear(p[2], kBackgroundR / 2, 3);
+        };
+        constexpr uint32_t kRay = TT_FRAME_GROUND_SHADOW | TT_FRAME_RAYTRACED_SHADOWS;
+
+        // 床（距離 8）の X = 1.86 → 45 ピクセル目、X = 2.42（重なり）→ 49、X = 2.97 → 53
+        const std::vector<uint8_t> traced = render(TT_MATERIAL_GROUND_SHADOW, kRay, -1.0f, 0.0f, nullptr);
+        Assert::IsTrue(isHalfBackground(pixel(traced, 45, 24)), L"影は床を半透明の黒で暗くする");
+        Assert::IsTrue(isHalfBackground(pixel(traced, 49, 24)), L"2 つの物の影が重なっても二重に暗くしない");
+        Assert::IsTrue(isHalfBackground(pixel(traced, 53, 24)));
+        Assert::IsTrue(IsBackground(pixel(traced, 62, 24), 1), L"影の外は床のまま");
+        // 床の全体で、押しつぶす描き方と同じ所に落ちる（はっきり逆の画素が無い）
+        const std::vector<uint8_t> projected = render(TT_MATERIAL_GROUND_SHADOW, TT_FRAME_GROUND_SHADOW, -1.0f, 0.0f, nullptr);
+        int shadowPixels = 0;
+        int opposite = 0;
+        for (int y = 0; y < height; ++y) {
+            for (int x = 0; x < width; ++x) {
+                const bool a = isHalfBackground(pixel(traced, x, y));
+                const bool b = isHalfBackground(pixel(projected, x, y));
+                shadowPixels += b ? 1 : 0;
+                opposite += (a && IsBackground(pixel(projected, x, y), 1)) || (b && IsBackground(pixel(traced, x, y), 1)) ? 1 : 0;
+            }
+        }
+        Assert::IsTrue(shadowPixels > 40, L"影がある程度の広さに落ちる");
+        Assert::AreEqual(0, opposite, L"影の落ちる所は、押しつぶす描き方と同じ");
+
+        Assert::IsTrue(IsBackground(pixel(render(0, kRay, -1.0f, 0.0f, nullptr), 45, 24), 1), L"地面影の無い材質は影を落とさない");
+        Assert::IsTrue(IsBackground(pixel(render(TT_MATERIAL_GROUND_SHADOW, TT_FRAME_RAYTRACED_SHADOWS, -1.0f, 0.0f, nullptr), 45, 24), 1),
+            L"地面の影を使わなければ、レイトレーシングだけでは何もしない");
+        Assert::IsTrue(IsBackground(pixel(render(TT_MATERIAL_GROUND_SHADOW, kRay, 1.0f, 0.0f, nullptr), 45, 24), 1),
+            L"下から照らすときは床に影を落とさない");
+
+        // やわらかさ: 影の端に、影と床の間の色が並ぶ（くっきりした影には無い）。影を落とす板（X = 0.75 → 37 ピクセル目まで）は数えない
+        auto between = [&](const std::vector<uint8_t>& pixels) {
+            int count = 0;
+            for (int x = 39; x < width; ++x) {
+                const uint8_t* p = pixel(pixels, x, 24);
+                count += !isHalfBackground(p) && !IsBackground(p, 1) ? 1 : 0;
+            }
+            return count;
+        };
+        Assert::AreEqual(0, between(traced), L"くっきりした地面の影の境目は 2 色だけ");
+        Assert::IsTrue(between(render(TT_MATERIAL_GROUND_SHADOW, kRay, -1.0f, 0.1f, nullptr)) >= 2, L"やわらかな地面の影の境目は、間の色");
+
+        // テクスチャの透明な所（四角形の左半分 = u が 0.5 より小さい所）は影を落とさない。左半分の影は X = 1.5〜2.0 の辺り
+        const uint8_t halves[] = {255, 255, 255, 0, 255, 255, 255, 255};
+        TtTexture* texture = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_texture_create(engine, 2, 1, halves, 8, &texture));
+        const std::vector<uint8_t> holes = render(TT_MATERIAL_GROUND_SHADOW, kRay, -1.0f, 0.0f, texture);
+        Assert::IsTrue(IsBackground(pixel(holes, 44, 30), 1), L"透明な所は影を落とさない");
+        Assert::IsTrue(isHalfBackground(pixel(holes, 53, 24)), L"不透明な所は影を落とす");
+        Assert::AreEqual<int>(TT_OK, tt_texture_destroy(texture));
 
         Assert::AreEqual<int>(TT_OK, tt_view_destroy(view));
         Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));

@@ -157,6 +157,7 @@
     <None Include="shaders\Reflection.hlsli" />
     <None Include="shaders\RayTrace.hlsli" />
     <None Include="shaders\RayShade.hlsli" />
+    <None Include="shaders\RayShadow.hlsli" />
     <None Include="shaders\Ao.hlsli" />
     <FxCompile Include="shaders\LinearDepthPS.hlsl">
       <ShaderType>Pixel</ShaderType>
@@ -183,6 +184,9 @@
       <ShaderType>Vertex</ShaderType>
     </FxCompile>
     <FxCompile Include="shaders\GroundSoftShadowPS.hlsl">
+      <ShaderType>Pixel</ShaderType>
+    </FxCompile>
+    <FxCompile Include="shaders\GroundRayShadowPS.hlsl">
       <ShaderType>Pixel</ShaderType>
     </FxCompile>
     <FxCompile Include="shaders\SkyPS.hlsl">

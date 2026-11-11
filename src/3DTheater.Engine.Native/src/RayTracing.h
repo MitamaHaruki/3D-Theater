@@ -117,7 +117,8 @@ public:
     static constexpr uint32_t kMaterialDoubleSided = 1u;
     static constexpr uint32_t kMaterialAlphaTest = 2u; // テクスチャに透明な所がある（当たった所の透明度を読む）
     static constexpr uint32_t kMaterialPbr = 4u;
-    static constexpr uint32_t kMaterialCastShadow = 8u; // セルフシャドウを落とす（影を調べる光線を遮る）
+    static constexpr uint32_t kMaterialCastShadow = 8u;    // セルフシャドウを落とす（影を調べる光線を遮る）
+    static constexpr uint32_t kMaterialGroundShadow = 16u; // 地面の影を落とす
 
 private:
     // まとめたバッファー（構造体の並び。足りなくなったら大きく作り直す）

@@ -48,13 +48,13 @@
               AutomationProperties.Name="地面の影の濃さ" ValueChanged="OnSliderChanged" />
       <TextBlock x:Name="GroundOpacityText" Grid.Row="1" Grid.Column="2" Style="{StaticResource ValueStyle}" />
       <CheckBox x:Name="RayTracedCheck" Grid.Row="2" Grid.ColumnSpan="3" Margin="0,8,0,0"
-                Content="セルフシャドウをレイトレーシングで求める（くっきり正確。重い）"
-                ToolTip="照明から見た奥行きの画像の代わりに、影を受ける面から照明の向きへ光線を出して、影を落とす物に当たるかを調べます。顔のアップなどでも影の縁がぎざぎざになりません。地面の影は変わりません"
+                Content="影をレイトレーシングで求める（セルフシャドウと地面の影。くっきり正確。重い）"
+                ToolTip="照明から見た奥行きの画像の代わりに、影を受ける面（地面の影は床）から照明の向きへ光線を出して、影を落とす物に当たるかを調べます。顔のアップなどでも影の縁がぎざぎざにならず、髪の透けた所は影を落としません"
                 Checked="OnCheckChanged" Unchecked="OnCheckChanged" />
     </Grid>
 
     <TextBlock Margin="0,14,0,0" TextWrapping="Wrap" Foreground="{StaticResource SubTextBrush}" FontSize="11.5"
-               Text="セルフシャドウと地面の影の ON / OFF は、レンダリングのメニューで切り替えます。やわらかさは、照明を大きさのある光源として扱い、影を落とす物と受ける面が離れているほど境目をぼかします（足元の床の影はくっきり、頭や腕の影ほどぼけます。セルフシャドウと地面の影の両方にかかります）。セルフシャドウをレイトレーシングで求めると、奥行きの画像の細かさによらず影がくっきり正確になります（重くなります）。変えるとすぐにプレビューへ反映し、書き出しにもかかります。設定はプロジェクトに保存します（元に戻す・やり直しの対象ではありません）。" />
+               Text="セルフシャドウと地面の影の ON / OFF は、レンダリングのメニューで切り替えます。やわらかさは、照明を大きさのある光源として扱い、影を落とす物と受ける面が離れているほど境目をぼかします（足元の床の影はくっきり、頭や腕の影ほどぼけます。セルフシャドウと地面の影の両方にかかります）。影をレイトレーシングで求めると、奥行きの画像の細かさによらず、セルフシャドウも地面の影もくっきり正確になります（重くなります）。変えるとすぐにプレビューへ反映し、書き出しにもかかります。設定はプロジェクトに保存します（元に戻す・やり直しの対象ではありません）。" />
 
     <DockPanel Margin="0,16,0,0" LastChildFill="False">
       <Button DockPanel.Dock="Left" MinWidth="110" Content="初期値に戻す" Click="OnResetClick" ToolTip="くっきりした影・地面の影の濃さ 0.5・レイトレーシングを使わない に戻します" />

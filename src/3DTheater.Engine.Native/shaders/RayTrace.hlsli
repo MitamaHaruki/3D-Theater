@@ -2,8 +2,8 @@
 // 物ごとに、光線をモデルの座標へ移し、箱の入れ子（BVH）を手前の箱から順にたどる。
 // - 見える面を探す光線（TraceRay）: いちばん近くで当たった所を探す。材質の不透明度が 0.5 より小さい所（テクスチャの透明な所も）と、
 //   両面でない材質の裏の面は通り抜ける（モデルを描くときに見えない所）
-// - 影を調べる光線（TraceShadowRay）: 影を落とす材質（「セルフ影マップ」）のどれかに当たるか。表も裏も遮る（奥行きの画像に
-//   両面を描くのと同じ）。透明な所は通り抜ける。当たったらすぐやめる
+// - 影を調べる光線（TraceShadowRay）: 影を落とす材質（セルフシャドウは「セルフ影マップ」、地面の影は「地面影」の印を持つ材質）の
+//   どれかに当たるか。表も裏も遮る（奥行きの画像に両面を描くのと同じ）。透明な所は通り抜ける。当たったらすぐやめる
 
 struct RayNode
 {
@@ -58,7 +58,8 @@ static const uint kRayNoTexture = 0xFFFFFFFF;
 static const uint kRayDoubleSided = 1;
 static const uint kRayAlphaTest = 2;
 static const uint kRayPbr = 4;
-static const uint kRayCastShadow = 8;
+static const uint kRayCastShadow = 8;    // セルフシャドウを落とす
+static const uint kRayGroundShadow = 16; // 地面の影を落とす
 static const int kRayStackSize = 40;
 static const uint kRayMaxVisits = 4096; // 1 本の光線で調べる箱の上限（とても込み入った所で止まらないように）
 static const float kRayTextureSize = 256.0;
@@ -136,12 +137,13 @@ bool RayTriangleHit(float3 origin, float3 direction, float3 p0, float3 p1, float
     return true;
 }
 
-// 当たった所を通り抜けるか（見える面を探す光線: 両面でない材質の裏・透明な所。影を調べる光線: 影を落とさない材質・透明な所）
-bool RayPassesThrough(RayMaterial material, uint4 tri, uint vertexOffset, float2 weights, bool front, bool shadow)
+// 当たった所を通り抜けるか（見える面を探す光線（shadowMask が 0）: 両面でない材質の裏・透明な所。
+// 影を調べる光線: shadowMask の印を持たない材質・透明な所）
+bool RayPassesThrough(RayMaterial material, uint4 tri, uint vertexOffset, float2 weights, bool front, uint shadowMask)
 {
-    if (shadow)
+    if (shadowMask != 0)
     {
-        if ((material.info.z & kRayCastShadow) == 0)
+        if ((material.info.z & shadowMask) == 0)
         {
             return true;
         }
@@ -162,8 +164,8 @@ bool RayPassesThrough(RayMaterial material, uint4 tri, uint vertexOffset, float2
 }
 
 // ワールドの光線（direction は長さ 1）を、tMax までの間の三角形に当てる（instanceCount は物の数）。
-// shadow が false なら、いちばん近くで当たる所を探す。true なら、影を落とす材質に当たった時点でやめる
-bool RayTraverse(float3 origin, float3 direction, float tMax, uint instanceCount, bool shadow, out RayHit hit)
+// shadowMask が 0 なら、いちばん近くで当たる所を探す。0 でなければ、その印を持つ材質に当たった時点でやめる
+bool RayTraverse(float3 origin, float3 direction, float tMax, uint instanceCount, uint shadowMask, out RayHit hit)
 {
     hit.t = tMax;
     hit.barycentric = 0.0;
@@ -211,14 +213,14 @@ bool RayTraverse(float3 origin, float3 direction, float tMax, uint instanceCount
                     if (RayTriangleHit(o, d, p0, p1, p2, t, weights, front) && t > 0.0 && t < hit.t)
                     {
                         RayMaterial material = RayMaterials[instance.offsets.w + tri.w];
-                        if (!RayPassesThrough(material, tri, instance.offsets.z, weights, front, shadow))
+                        if (!RayPassesThrough(material, tri, instance.offsets.z, weights, front, shadowMask))
                         {
                             hit.t = t;
                             hit.barycentric = weights;
                             hit.instance = i;
                             hit.triangleIndex = index;
                             found = true;
-                            if (shadow)
+                            if (shadowMask != 0)
                             {
                                 return true; // 影は、どれかに当たれば十分
                             }
@@ -283,12 +285,12 @@ bool RayTraverse(float3 origin, float3 direction, float tMax, uint instanceCount
 // 見える面を探す光線: いちばん近くで当たる所
 bool TraceRay(float3 origin, float3 direction, float tMax, uint instanceCount, out RayHit hit)
 {
-    return RayTraverse(origin, direction, tMax, instanceCount, false, hit);
+    return RayTraverse(origin, direction, tMax, instanceCount, 0u, hit);
 }
 
-// 影を調べる光線: 影を落とす材質のどれかに当たるか
-bool TraceShadowRay(float3 origin, float3 direction, float tMax, uint instanceCount)
+// 影を調べる光線: casterMask の印を持つ材質（影を落とす材質）のどれかに当たるか
+bool TraceShadowRay(float3 origin, float3 direction, float tMax, uint instanceCount, uint casterMask)
 {
     RayHit hit;
-    return RayTraverse(origin, direction, tMax, instanceCount, true, hit);
+    return RayTraverse(origin, direction, tMax, instanceCount, casterMask, hit);
 }

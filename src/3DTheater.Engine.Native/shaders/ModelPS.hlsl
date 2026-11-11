@@ -2,6 +2,7 @@
 #include "Shadow.hlsli"
 #include "Environment.hlsli"
 #include "RayTrace.hlsli"
+#include "RayShadow.hlsli"
 
 static const float kPi = 3.14159265;
 
@@ -25,7 +26,6 @@ static const float kReflectionGroundScale = 0.45;
 // 全部が同じ（影の中・光の中）ならそれで決める。違えば影の境目なので、さらに RayShadowParams.z 本出す（境目だけ多く出す）
 static const float kRayShadowBias = 0.04;     // 照明の向きに進める長さ・大きく浮かせる長さ（ワールド。人の大きさのモデルの背丈は 20 ほど）
 static const float kRayShadowLift = 0.005;    // ふつうに浮かせる長さ
-static const float kRayShadowReach = 10000.0; // 照明の向きに調べる長さ
 
 // 描いている三角形の向き（画素の間のワールドの位置の差から。main の始めで求める。分かれ道の中では差を求められないため）
 static float3 g_faceNormal = float3(0.0, 0.0, 0.0);
@@ -53,45 +53,8 @@ float RayTracedShadow(ModelPSInput input, float3 n)
     face = dot(face, side) >= 0.0 ? face : -face;
     float lift = dot(face, toLight) > 0.05 ? kRayShadowLift : kRayShadowBias;
     float3 origin = position + side * lift + toLight * kRayShadowBias;
-    uint count = (uint)(RayShadowParams.y + 0.5);
-    float softness = ShadowSoftness.y;
-    if (softness <= 0.0)
-    {
-        return TraceShadowRay(origin, toLight, kRayShadowReach, count) ? 0.0 : 1.0;
-    }
-    float3 helper = abs(toLight.y) < 0.99 ? float3(0.0, 1.0, 0.0) : float3(1.0, 0.0, 0.0);
-    float3 tangent = normalize(cross(helper, toLight));
-    float3 bitangent = cross(toLight, tangent);
-    float rotation = ShadowNoise(input.position.xy) * 6.2831853;
-    int samples = clamp((int)(RayShadowParams.z + 0.5), 1, 64);
-    int first = min(samples, 4);
-    float lit = 0.0;
-    [loop]
-    for (int i = 0; i < first; i++)
-    {
-        float2 d = ShadowSpiral(i, first, rotation) * softness;
-        float3 direction = normalize(toLight + tangent * d.x + bitangent * d.y);
-        if (!TraceShadowRay(origin, direction, kRayShadowReach, count))
-        {
-            lit += 1.0;
-        }
-    }
-    if (samples <= 4 || lit == 0.0 || lit == (float)first)
-    {
-        return lit / first; // 全部が同じ: 影の境目ではない
-    }
-    float more = 0.0;
-    [loop]
-    for (int j = 0; j < samples; j++)
-    {
-        float2 d = ShadowSpiral(j, samples, rotation + 1.7) * softness;
-        float3 direction = normalize(toLight + tangent * d.x + bitangent * d.y);
-        if (!TraceShadowRay(origin, direction, kRayShadowReach, count))
-        {
-            more += 1.0;
-        }
-    }
-    return (lit + more) / (first + samples);
+    return RayShadowVisibility(origin, toLight, ShadowSoftness.y, (int)(RayShadowParams.z + 0.5), (uint)(RayShadowParams.y + 0.5),
+        kRayCastShadow, input.position.xy);
 }
 
 // セルフシャドウの光の当たる割合（奥行きの画像か、レイトレーシング）

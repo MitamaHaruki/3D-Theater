@@ -216,7 +216,10 @@ private:
     // 柔らかな地面の影: 「地面影」の材質だけで照明から見た奥行きの画像を作り（床まで入るように）、床に描く四角形の範囲を決める
     bool RenderGroundShadowMap(const TtFrameParams& params, const ModelFrame& frame, ModelFrame& groundFrame,
         DirectX::XMFLOAT4X4& floorWorld);
-    void DrawSoftGroundShadow(const ModelFrame& groundFrame, const DirectX::XMFLOAT4X4& floorWorld);
+    // 床の 1 枚の四角形で地面の影を描く（pixelShader: 奥行きの画像で読む柔らかな地面の影か、レイトレーシングの地面の影）
+    void DrawSoftGroundShadow(const ModelFrame& groundFrame, const DirectX::XMFLOAT4X4& floorWorld, ID3D11PixelShader* pixelShader);
+    // レイトレーシングでの地面の影を描く床の四角形（地面の影を落とす物の影が届く範囲を、やわらかさの分だけ広げる）。床に影が落ちないときは false
+    bool RayGroundShadowArea(const TtFrameParams& params, const ModelFrame& frame, DirectX::XMFLOAT4X4& floorWorld) const;
     // 環境の画像を背景（空）に描く（平行投影では描かない）
     void DrawSky(const TtFrameParams& params, DirectX::CXMMATRIX viewProj);
     // 照明から見た奥行きを dsv（size × size）へ描く。groundCasters なら「地面影」、でなければ「セルフ影マップ」の材質を描く
@@ -338,6 +341,7 @@ private:
     ID3D11ShaderResourceView* currentEnvironment_ = nullptr; // 今描いている 1 枚の環境の画像（無ければ null）
     ComPtr<ID3D11VertexShader> groundSoftShadowVertexShader_;
     ComPtr<ID3D11PixelShader> groundSoftShadowPixelShader_;
+    ComPtr<ID3D11PixelShader> groundRayShadowPixelShader_; // レイトレーシングでの地面の影
 
     ComPtr<ID3D11Query> gpuDoneQuery_;
 };

@@ -240,14 +240,14 @@ internal static class ImageExporter
         if (context.Rendering.SelfShadow)
         {
             flags |= FrameFlags.SelfShadow;
-            if (context.Rendering.ShadowStyle.RayTraced)
-            {
-                flags |= FrameFlags.RayTracedShadows;
-            }
         }
         if (context.Rendering.GroundShadow)
         {
             flags |= FrameFlags.GroundShadow;
+        }
+        if ((context.Rendering.SelfShadow || context.Rendering.GroundShadow) && context.Rendering.ShadowStyle.RayTraced)
+        {
+            flags |= FrameFlags.RayTracedShadows; // セルフシャドウと地面の影の両方
         }
         FloorReflection reflection = context.Rendering.Reflection;
         if (reflection.Enabled)

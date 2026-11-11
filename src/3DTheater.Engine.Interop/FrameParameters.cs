@@ -39,8 +39,9 @@ public enum FrameFlags : uint
     EnvironmentBackground = 1u << 12,
 
     /// <summary>
-    /// セルフシャドウを、照明から見た奥行きの画像の代わりにレイトレーシングで求める（<see cref="SelfShadow"/> と一緒に使う）。
-    /// 影を受ける面から照明の向きへ光線を出し、影を落とす材質に当たれば影。くっきり正確になる（重い）。
+    /// 影を、照明から見た奥行きの画像（地面の影は押しつぶす描き方）の代わりにレイトレーシングで求める（<see cref="SelfShadow"/>・
+    /// <see cref="GroundShadow"/> と一緒に使う。両方にかかる）。影を受ける面（地面の影は床の点）から照明の向きへ光線を出し、
+    /// 影を落とす材質に当たれば影。くっきり正確になる（重い）。
     /// </summary>
     RayTracedShadows = 1u << 13,
 }

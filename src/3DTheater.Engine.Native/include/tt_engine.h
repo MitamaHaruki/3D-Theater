@@ -27,7 +27,7 @@ extern "C" {
 
 // 上位 16 ビットが大きな版、下位 16 ビットが小さな版。大きな版が違う DLL とは組み合わせない。
 #define TT_API_VERSION_MAJOR 0
-#define TT_API_VERSION_MINOR 29
+#define TT_API_VERSION_MINOR 30
 #define TT_API_VERSION ((TT_API_VERSION_MAJOR << 16) | TT_API_VERSION_MINOR)
 
 // 0 以上は成功、負の値は失敗。
@@ -113,8 +113,10 @@ enum {
     TT_FRAME_ENVIRONMENT_BACKGROUND = 1u << 12, // 環境の画像を背景に描く（environment があるとき。平行投影では描かない。API 0.20）
     // API 0.27: セルフシャドウを、照明から見た奥行きの画像の代わりにレイトレーシングで求める（TT_FRAME_SELF_SHADOW と一緒に使う）。
     // 影を受ける面から照明の向きへ光線を出し、影を落とす材質（TT_MATERIAL_CAST_SHADOW）に当たれば影。奥行きの画像の細かさに
-    // よらず、くっきり正確になる。shadow_softness が 0 より大きければ、照明の見かけの円の中の 8 つの向きへ出して境目をぼかす。
-    // 不透明度が 0.5 より小さい所は通り抜ける。物は先頭から 64 個まで（TT_POST_RAYTRACED_REFLECTIONS と同じ）。地面の影は変わらない
+    // よらず、くっきり正確になる。shadow_softness が 0 より大きければ、照明の見かけの円の中のいくつかの向きへ出して境目をぼかす
+    // （ray_samples）。不透明度が 0.5 より小さい所は通り抜ける。物は先頭から 64 個まで（TT_POST_RAYTRACED_REFLECTIONS と同じ）。
+    // API 0.30: 地面の影（TT_FRAME_GROUND_SHADOW）にもかかる。床（高さ 0）の点から照明へ光線を出し、地面の影を落とす材質
+    // （TT_MATERIAL_GROUND_SHADOW）に当たった割合で、地面の影の色を重ねる（押しつぶす描き方・奥行きの画像の代わり）
     TT_FRAME_RAYTRACED_SHADOWS = 1u << 13,
 };
 

@@ -346,14 +346,14 @@ public partial class ViewportControl : UserControl, IDisposable
         if (_context.Rendering.SelfShadow)
         {
             flags |= FrameFlags.SelfShadow;
-            if (_context.Rendering.ShadowStyle.RayTraced)
-            {
-                flags |= FrameFlags.RayTracedShadows;
-            }
         }
         if (_context.Rendering.GroundShadow)
         {
             flags |= FrameFlags.GroundShadow;
+        }
+        if ((_context.Rendering.SelfShadow || _context.Rendering.GroundShadow) && _context.Rendering.ShadowStyle.RayTraced)
+        {
+            flags |= FrameFlags.RayTracedShadows; // セルフシャドウと地面の影の両方
         }
         FloorReflection reflection = _context.Rendering.Reflection;
         if (reflection.Enabled)
