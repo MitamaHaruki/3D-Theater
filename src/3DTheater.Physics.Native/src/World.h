@@ -42,6 +42,7 @@ public:
     void Step(const TpTransform* targets, int count, float timeStep, int substeps);
     void GetTransforms(TpTransform* out, int count) const;
     void ApplyImpulses(const TpImpulse* impulses, int count);
+    void SetFloor(const TpFloorDesc& desc);
 
 private:
     static constexpr uint32_t kMagic = 0x44575054; // "TPWD"
@@ -63,6 +64,8 @@ private:
     std::unique_ptr<btDiscreteDynamicsWorld> world_;
     std::vector<Body> bodies_;
     std::vector<std::unique_ptr<btTypedConstraint>> joints_;
+    std::unique_ptr<btCollisionShape> floorShape_; // 床（無ければ null）
+    std::unique_ptr<btRigidBody> floor_;
 };
 
 } // namespace tp

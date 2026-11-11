@@ -280,6 +280,7 @@ public sealed class EditorContext
         Playback.Loop = true;
         Animation.AutoKey = false;
         Physics.Enabled = true;
+        Physics.FloorEnabled = true;
         Rendering.Reset();
         Animation.NotifyStateChanged();
         Undo.Clear();

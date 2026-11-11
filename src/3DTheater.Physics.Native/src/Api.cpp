@@ -116,4 +116,14 @@ TP_API TpResult TP_CALL tp_world_apply_impulses(TpWorld* world, const TpImpulse*
     return Guard([&] { ToWorld(world).ApplyImpulses(impulses, count); });
 }
 
+TP_API TpResult TP_CALL tp_world_set_floor(TpWorld* world, const TpFloorDesc* floor)
+{
+    return Guard([&] {
+        if (!floor || floor->struct_size != sizeof(TpFloorDesc)) {
+            throw tp::Error(TP_E_INVALID_ARG, L"TpFloorDesc が NULL か、struct_size が合いません");
+        }
+        ToWorld(world).SetFloor(*floor);
+    });
+}
+
 } // extern "C"

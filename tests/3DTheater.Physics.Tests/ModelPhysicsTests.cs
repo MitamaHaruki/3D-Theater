@@ -105,6 +105,43 @@ public sealed class ModelPhysicsTests
     }
 
     [TestMethod]
+    public void HairStopsOnTheFloorInsteadOfHangingThroughIt()
+    {
+        // 頭（高さ 10）から垂れる髪は、床が無ければ高さ 8 ほどまで垂れる。高さ 9 に床を置くと、床の上に止まる（焼き込みでも同じ）
+        float HairHeight(PhysicsFloor floor)
+        {
+            var (rig, physics, input, state) = Create(Hair());
+            using (physics)
+            {
+                physics.SetFloor(floor);
+                PoseEvaluator.EvaluateBeforePhysics(rig, input, state);
+                physics.Reset(state, warmupSeconds: 3);
+                var transforms = new PhysicsTransform[physics.BodyCount];
+                physics.CopyTransforms(transforms);
+                return transforms[1].Position.Y;
+            }
+        }
+
+        var floorAt9 = new PhysicsFloor(true, new Vector3(0, 9, 0), Vector3.UnitY);
+        Assert.AreEqual(8f, HairHeight(PhysicsFloor.None), 0.3f, "床が無ければ下へ垂れる");
+        Assert.IsGreaterThan(9.2f, HairHeight(floorAt9), "床の上に止まる（髪の剛体の半径 0.3）");
+
+        PmxDocument document = Hair();
+        ModelRig bakeRig = ModelRig.FromPmx(document);
+        using var bake = new PhysicsBake(() => ModelPhysics.Create(document, bakeRig)!, bakeRig);
+        bake.Invalidate(30, new Vector3(0, -ModelPhysics.GravityStrength, 0), floorAt9);
+        var bakeInput = new PoseInput(bakeRig);
+        for (int frame = 0; frame < 30; frame++)
+        {
+            bake.BakeNext(bakeInput);
+        }
+        var bakedState = new PoseState(bakeRig);
+        PoseEvaluator.EvaluateBeforePhysics(bakeRig, bakeInput, bakedState);
+        Assert.IsTrue(bake.TryApply(29, bakedState));
+        Assert.IsGreaterThan(7.5f, bakedState.Global[2].Translation.Y, "焼き込みでも床に止まり、髪の先は床が無いとき（高さ 6）より上にある");
+    }
+
+    [TestMethod]
     public void KinematicBodiesFollowTheBoneAndPullTheHair()
     {
         var (rig, physics, input, state) = Create(Hair());

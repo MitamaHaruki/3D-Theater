@@ -125,7 +125,7 @@ public sealed class PhysicsException(int result, string message) : Exception($"{
 public sealed unsafe partial class PhysicsWorld : IDisposable
 {
     public const int ExpectedApiVersionMajor = 0;
-    public const int ExpectedApiVersionMinor = 2;
+    public const int ExpectedApiVersionMinor = 3;
 
     private const string Library = "3DTheater.Physics.Native";
     private nint _handle;
@@ -184,6 +184,21 @@ public sealed unsafe partial class PhysicsWorld : IDisposable
     }
 
     public void SetGravity(Vector3 gravity) => Check(tp_world_set_gravity(Handle, &gravity));
+
+    /// <summary>床を置く・置き直す・外す（<see cref="PhysicsFloor.Enabled"/> が false なら外す）。動く剛体だけが当たる。</summary>
+    public void SetFloor(PhysicsFloor floor)
+    {
+        var desc = new TpFloorDesc
+        {
+            StructSize = (uint)sizeof(TpFloorDesc),
+            Enabled = floor.Enabled ? 1u : 0u,
+            Point = floor.Point,
+            Normal = floor.Normal,
+            Friction = floor.Friction,
+            Restitution = floor.Restitution,
+        };
+        Check(tp_world_set_floor(Handle, &desc));
+    }
 
     /// <summary>全剛体を与えた置き方へ動かし、速さを 0 にする。</summary>
     public void Reset(ReadOnlySpan<PhysicsTransform> transforms)
@@ -303,4 +318,41 @@ public sealed unsafe partial class PhysicsWorld : IDisposable
     [LibraryImport(Library)]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     private static partial int tp_world_apply_impulses(nint world, PhysicsImpulse* impulses, int count);
+
+    [LibraryImport(Library)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    private static partial int tp_world_set_floor(nint world, TpFloorDesc* floor);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct TpFloorDesc
+    {
+        public uint StructSize;
+        public uint Enabled;
+        public Vector3 Point;
+        public Vector3 Normal;
+        public float Friction;
+        public float Restitution;
+    }
+}
+
+/// <summary>
+/// 物理の床（無限に広い平面）。<see cref="Point"/> を通り、<see cref="Normal"/> の向きが表（剛体を押し返す側）。
+/// 座標は物理の世界の座標（モデルの座標）。
+/// </summary>
+public readonly record struct PhysicsFloor(bool Enabled, Vector3 Point, Vector3 Normal, float Friction = 0.5f, float Restitution = 0f)
+{
+    /// <summary>床なし。</summary>
+    public static PhysicsFloor None { get; } = new(false, Vector3.Zero, Vector3.UnitY);
+
+    /// <summary>
+    /// シーンの床（高さ 0 の水平な面）を、モデルの座標（物理の世界の座標）で表したもの。モデルは「拡大 → 回転 → 移動」の順に置く
+    /// （シーンの決まり）。拡大は 1 つの倍率で直す（縦横で違う拡大は考えない）。
+    /// </summary>
+    public static PhysicsFloor SceneFloorInModel(Quaternion modelRotation, Vector3 modelPosition, float modelScale)
+    {
+        Quaternion inverse = Quaternion.Inverse(Quaternion.Normalize(modelRotation));
+        float scale = MathF.Abs(modelScale) > 1e-6f && float.IsFinite(modelScale) ? modelScale : 1f;
+        Vector3 point = Vector3.Transform(new Vector3(0f, -modelPosition.Y, 0f), inverse) / scale;
+        return new PhysicsFloor(true, point, Vector3.Transform(Vector3.UnitY, inverse));
+    }
 }

@@ -118,6 +118,54 @@ public sealed class PhysicsWorldTests
     }
 
     [TestMethod]
+    public void DynamicBodiesRestOnTheFloorWhateverTheirMask()
+    {
+        float Drop(PhysicsFloor floor, uint mask = 0xFFFF, PhysicsBodyKind kind = PhysicsBodyKind.Dynamic, float startY = 5f)
+        {
+            using var world = PhysicsWorld.Create(new Vector3(0, -Gravity, 0));
+            world.AddBodies([Body(PhysicsShape.Sphere, kind, new Vector3(1f), new Vector3(0, startY, 0), group: 1 << 3, mask: mask)]);
+            world.SetFloor(floor);
+            var target = new PhysicsTransform(new Vector3(0, startY, 0), Quaternion.Identity);
+            world.Step([target], 2f, 240);
+            return Read(world)[0].Position.Y;
+        }
+
+        var level = new PhysicsFloor(true, Vector3.Zero, Vector3.UnitY);
+        Assert.AreEqual(1f, Drop(level), 0.1f, "動く剛体は床（高さ 0）の上に止まる（半径 1 の球）");
+        Assert.AreEqual(1f, Drop(level, mask: 0), 0.1f, "ぶつかる相手のビットに関わらず、床には当たる");
+        Assert.IsLessThan(-5f, Drop(PhysicsFloor.None), "床が無ければ落ちていく");
+        Assert.AreEqual(3f, Drop(new PhysicsFloor(true, new Vector3(5, 2, 7), new Vector3(0, 10, 0))), 0.1f,
+            "床は point を通る（向きの長さは問わない）");
+        Assert.AreEqual(-3f, Drop(level, kind: PhysicsBodyKind.Kinematic, startY: -3f), 1e-4f, "外から置き方を与える剛体は、床に押し返されない");
+
+        using var world = PhysicsWorld.Create(new Vector3(0, -Gravity, 0));
+        world.AddBodies([Body(PhysicsShape.Sphere, PhysicsBodyKind.Dynamic, new Vector3(1f), new Vector3(0, 5, 0))]);
+        world.SetFloor(level);
+        world.SetFloor(PhysicsFloor.None);
+        world.Step([Identity], 2f, 240);
+        Assert.IsLessThan(-5f, Read(world)[0].Position.Y, "床を外すと、すり抜ける");
+        Assert.AreEqual(1, world.BodyCount, "床は剛体の数に入らない");
+        Assert.ThrowsExactly<PhysicsException>(() => world.SetFloor(new PhysicsFloor(true, Vector3.Zero, Vector3.Zero)), "向きが 0 の床は誤り");
+        Assert.ThrowsExactly<PhysicsException>(() => world.SetFloor(new PhysicsFloor(true, new Vector3(float.NaN), Vector3.UnitY)));
+    }
+
+    [TestMethod]
+    public void SceneFloorIsExpressedInModelCoordinates()
+    {
+        // モデルを高さ 3 に置けば、モデルの座標では床は高さ -3。2 倍に拡大していれば -1.5
+        PhysicsFloor raised = PhysicsFloor.SceneFloorInModel(Quaternion.Identity, new Vector3(4, 3, 5), 2f);
+        Assert.AreEqual(0f, Vector3.Distance(new Vector3(0, -1.5f, 0), raised.Point), 1e-5f);
+        Assert.AreEqual(Vector3.UnitY, raised.Normal);
+        // 前へ 90° 倒したモデル（X 軸まわり）: モデルの座標では、床の向きはモデルの -Z か +Z を向く
+        Quaternion tilted = Quaternion.CreateFromAxisAngle(Vector3.UnitX, MathF.PI / 2);
+        PhysicsFloor floor = PhysicsFloor.SceneFloorInModel(tilted, new Vector3(0, 2, 0), 1f);
+        Vector3 worldNormal = Vector3.Transform(floor.Normal, tilted);
+        Assert.AreEqual(0f, Vector3.Distance(Vector3.UnitY, worldNormal), 1e-5f, "シーンに戻すと上向き");
+        Vector3 worldPoint = Vector3.Transform(floor.Point, tilted) + new Vector3(0, 2, 0);
+        Assert.AreEqual(0f, worldPoint.Y, 1e-5f, "シーンに戻すと高さ 0");
+    }
+
+    [TestMethod]
     public void ResetPlacesBodiesAndStopsThem()
     {
         using var world = PhysicsWorld.Create(new Vector3(0, -Gravity, 0));

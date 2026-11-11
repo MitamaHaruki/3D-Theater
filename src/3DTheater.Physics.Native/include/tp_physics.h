@@ -24,7 +24,7 @@ extern "C" {
 #endif
 
 #define TP_API_VERSION_MAJOR 0
-#define TP_API_VERSION_MINOR 2
+#define TP_API_VERSION_MINOR 3
 #define TP_API_VERSION ((TP_API_VERSION_MAJOR << 16) | TP_API_VERSION_MINOR)
 
 typedef int32_t TpResult;
@@ -66,8 +66,8 @@ typedef struct TpBodyDesc {
     float angular_damping;
     float restitution;
     float friction;
-    uint32_t group; // 自分のグループのビット（1 << 番号）
-    uint32_t mask;  // ぶつかる相手のグループのビット
+    uint32_t group; // 自分のグループのビット（1 << 番号。0〜15 番を使う）
+    uint32_t mask;  // ぶつかる相手のグループのビット（0〜15 番。動く剛体は、これとは別に床（tp_world_set_floor）にいつも当たる）
 } TpBodyDesc;
 
 // 6 自由度のばね付きジョイント（MMD の標準）。transform はジョイントの置き方（世界の座標）。
@@ -102,6 +102,17 @@ typedef struct TpWorldDesc {
     float gravity[3];
 } TpWorldDesc;
 
+// 床（無限に広い平面。API 0.3）。point を通り、normal の向きが表（剛体を押し返す側）。動く剛体だけが当たる
+// （外から置き方を与える剛体は当たらない）。剛体のグループ（0〜15 番）・ぶつかる相手の決まりには関わらない
+typedef struct TpFloorDesc {
+    uint32_t struct_size;
+    uint32_t enabled; // 0 なら床を外す
+    float point[3];
+    float normal[3]; // 長さは問わない（0 は誤り）
+    float friction;
+    float restitution;
+} TpFloorDesc;
+
 TP_API uint32_t TP_CALL tp_get_api_version(void);
 
 // 呼び出したスレッドで最後に起きたエラーの説明をコピーする。戻り値は説明の文字数（終端を含まない）。
@@ -127,6 +138,8 @@ TP_API TpResult TP_CALL tp_world_step(
 TP_API TpResult TP_CALL tp_world_get_transforms(TpWorld* world, TpTransform* out_transforms, int32_t count);
 // 剛体に勢いを与える（次の tp_world_step の前に呼ぶ）。並んだ順に、止める → 勢いを足す、を行う（API 0.2）
 TP_API TpResult TP_CALL tp_world_apply_impulses(TpWorld* world, const TpImpulse* impulses, int32_t count);
+// 床を置く・置き直す・外す（API 0.3）。剛体の数・番号は変わらない
+TP_API TpResult TP_CALL tp_world_set_floor(TpWorld* world, const TpFloorDesc* floor);
 
 #ifdef __cplusplus
 }

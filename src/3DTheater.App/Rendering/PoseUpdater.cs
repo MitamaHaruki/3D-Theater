@@ -115,7 +115,7 @@ public sealed class PoseUpdater
                     model.ShowingBakedPhysics = false;
                     step = PhysicsStep.Reset;
                 }
-                if (!TryPhysics(node, model, physics, step, _context.Playback.FrameRate))
+                if (!TryPhysics(node, model, physics, step, _context.Playback.FrameRate, _context.Physics.FloorFor(node)))
                 {
                     PoseEvaluator.EvaluateBeforePhysics(model.Rig, input, model.State); // 物理の途中の結果を捨てる
                 }
@@ -175,12 +175,13 @@ public sealed class PoseUpdater
         _timer.Add(Stopwatch.GetElapsedTime(start));
     }
 
-    private static bool TryPhysics(ModelNode node, LoadedModel model, ModelPhysics physics, PhysicsStep step, int frameRate)
+    private static bool TryPhysics(ModelNode node, LoadedModel model, ModelPhysics physics, PhysicsStep step, int frameRate, PhysicsFloor floor)
     {
         try
         {
-            // 物理はモデルの座標で計算するので、モデルを傾けて置いたときは重力も傾ける
+            // 物理はモデルの座標で計算するので、モデルを傾けて置いたときは重力も傾ける。床もモデルの座標で置く
             physics.SetGravity(PhysicsController.GravityFor(node));
+            physics.SetFloor(floor);
             switch (step.Kind)
             {
                 case PhysicsStepKind.Reset:

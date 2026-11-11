@@ -10,6 +10,10 @@ namespace {
 
 constexpr float kTiny = 1e-3f;
 
+// 床のグループのビット（剛体のグループ 0〜15 番の外。動く剛体は、いつもこのグループに当たる）
+constexpr int kFloorGroup = 1 << 16;
+constexpr int kBodyGroups = 0xFFFF;
+
 bool IsFinite(const float* values, int count) noexcept
 {
     for (int i = 0; i < count; ++i) {
@@ -91,6 +95,10 @@ World::~World()
         world_->removeRigidBody(body.body.get());
     }
     bodies_.clear();
+    if (floor_) {
+        world_->removeRigidBody(floor_.get());
+        floor_.reset();
+    }
     world_.reset();
     magic_ = 0;
 }
@@ -149,9 +157,38 @@ void World::AddBodies(const TpBodyDesc* descs, int count)
             body.body->setCollisionFlags(body.body->getCollisionFlags() | btCollisionObject::CF_KINEMATIC_OBJECT);
         }
         body.previousTarget = transform;
-        world_->addRigidBody(body.body.get(), static_cast<int>(desc.group & 0xFFFF), static_cast<int>(desc.mask & 0xFFFF));
+        // 動く剛体は、ぶつかる相手の決まりとは別に、床にいつも当たる（床を置いていなければ何も起きない）
+        const int mask = static_cast<int>(desc.mask & kBodyGroups) | (body.kinematic ? 0 : kFloorGroup);
+        world_->addRigidBody(body.body.get(), static_cast<int>(desc.group & kBodyGroups), mask);
         bodies_.push_back(std::move(body));
     }
+}
+
+void World::SetFloor(const TpFloorDesc& desc)
+{
+    if (desc.enabled && (!IsFinite(desc.point, 3) || !IsFinite(desc.normal, 3) || !std::isfinite(desc.friction)
+        || !std::isfinite(desc.restitution))) {
+        throw Error(TP_E_INVALID_ARG, L"床に数でない値があります");
+    }
+    btVector3 normal = ToVector(desc.normal);
+    if (desc.enabled && normal.length2() < btScalar(1e-12)) {
+        throw Error(TP_E_INVALID_ARG, L"床の向きが 0 です");
+    }
+    if (floor_) {
+        world_->removeRigidBody(floor_.get());
+        floor_.reset();
+        floorShape_.reset();
+    }
+    if (!desc.enabled) {
+        return;
+    }
+    normal.normalize();
+    floorShape_ = std::make_unique<btStaticPlaneShape>(normal, normal.dot(ToVector(desc.point)));
+    btRigidBody::btRigidBodyConstructionInfo info(0, nullptr, floorShape_.get(), btVector3(0, 0, 0));
+    info.m_friction = std::max(desc.friction, 0.0f);
+    info.m_restitution = std::max(desc.restitution, 0.0f);
+    floor_ = std::make_unique<btRigidBody>(info);
+    world_->addRigidBody(floor_.get(), kFloorGroup, kBodyGroups);
 }
 
 void World::AddJoints(const TpJointDesc* descs, int count)

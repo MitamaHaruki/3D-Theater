@@ -151,6 +151,20 @@ public sealed class ModelPhysics : IDisposable
     /// <summary>重力（モデルの座標で）。モデルを傾けて置いたときは、傾きに合わせて回したものを渡す。</summary>
     public void SetGravity(Vector3 gravity) => _world.SetGravity(gravity);
 
+    /// <summary>床を置く・外す（モデルの座標で。物理で動く剛体が、床をすり抜けないようにする）。同じ床なら何もしない。</summary>
+    public void SetFloor(PhysicsFloor floor)
+    {
+        if (floor == Floor)
+        {
+            return;
+        }
+        _world.SetFloor(floor);
+        Floor = floor;
+    }
+
+    /// <summary>今の床。</summary>
+    public PhysicsFloor Floor { get; private set; } = PhysicsFloor.None;
+
     /// <summary>
     /// 全剛体を今のボーンの置き方に合わせて置き直し、速さを 0 にしてから、<paramref name="warmupSeconds"/> 秒だけ
     /// ボーンを止めたまま計算して落ち着かせる（フレームを飛ばしたとき・最初）。

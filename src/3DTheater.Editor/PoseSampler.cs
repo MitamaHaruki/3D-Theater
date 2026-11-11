@@ -65,7 +65,8 @@ public static class PoseSampler
     /// <summary>
     /// この変更で、ほかのフレームの姿勢も変わるか（物理の焼き込みをやり直すか）。変わるならそのモデルを返す。
     /// キー・未登録の印の変更と、キーの無い項目・未登録の変更がある項目の値の変更が当たる。キーのある項目の値は、
-    /// 再生位置を動かしたときにキーから当てはめたもの（キーから決まる）なので当たらない。モデルの向きは重力の向きを変えるので当たる。
+    /// 再生位置を動かしたときにキーから当てはめたもの（キーから決まる）なので当たらない。モデルの向きは重力の向きを、
+    /// モデルの向き・位置・拡大は物理の床の場所を変えるので当たる。
     /// </summary>
     public static ModelNode? ModelAffectedBy(SceneNodeChangedEventArgs e) => e.Node switch
     {
@@ -74,7 +75,7 @@ public static class PoseSampler
             && (bone.HasUnregisteredChange || bone.Keys.Count == 0) => bone.Model,
         MorphNode morph when e.PropertyName is nameof(MorphNode.Keys) or nameof(MorphNode.HasUnregisteredChange) => morph.Model,
         MorphNode morph when e.PropertyName == nameof(MorphNode.Weight) && (morph.HasUnregisteredChange || morph.Keys.Count == 0) => morph.Model,
-        ModelNode model when e.PropertyName == nameof(SceneNode.Rotation) => model,
+        ModelNode model when e.PropertyName is nameof(SceneNode.Rotation) or nameof(SceneNode.Position) or nameof(SceneNode.Scale) => model,
         ModelDisplayNode display when e.PropertyName is nameof(ModelDisplayNode.Keys) or nameof(ModelDisplayNode.HasUnregisteredChange) => display.Model,
         ModelDisplayNode display when e.PropertyName == nameof(ModelDisplayNode.Ik) && (display.HasUnregisteredChange || display.Keys.Count == 0)
             => display.Model,

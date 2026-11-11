@@ -30,6 +30,7 @@ public sealed class PhysicsController
     private readonly EditorContext _context;
     private readonly PhysicsClock _clock = new();
     private bool _enabled = true;
+    private bool _floorEnabled = true;
     private bool _bakeScheduled;
     private bool _wasSettling;
     private long _bakeStarted;
@@ -63,8 +64,44 @@ public sealed class PhysicsController
     public static Vector3 GravityFor(ModelNode node) =>
         Vector3.Transform(new Vector3(0, -ModelPhysics.GravityStrength, 0), Quaternion.Inverse(SceneRotation.ToQuaternion(node.Rotation)));
 
-    /// <summary>ON/OFF が変わった。</summary>
+    /// <summary>
+    /// モデルの座標での床（物理はモデルの座標で計算するので、シーンの床（高さ 0）を、モデルの置き方の逆で直す）。
+    /// 拡大は縦（Y）の倍率で直す（縦横で違う拡大は考えない）。<paramref name="enabled"/> が false なら床なし。
+    /// </summary>
+    public static PhysicsFloor FloorFor(ModelNode node, bool enabled)
+    {
+        if (!enabled)
+        {
+            return PhysicsFloor.None;
+        }
+        return PhysicsFloor.SceneFloorInModel(SceneRotation.ToQuaternion(node.Rotation), node.Position, node.Scale.Y);
+    }
+
+    /// <summary>このモデルの今の床（床と当てる設定のとき）。</summary>
+    public PhysicsFloor FloorFor(ModelNode node) => FloorFor(node, _floorEnabled);
+
+    /// <summary>ON/OFF（物理演算・床との当たり）が変わった。</summary>
     public event EventHandler? Changed;
+
+    /// <summary>
+    /// 物理で動く剛体（髪・スカートなど）を、床（高さ 0）に当てるか（初期値は ON。プロジェクトに保存する）。
+    /// 変えると、剛体を置き直して焼き込みも作り直す。
+    /// </summary>
+    public bool FloorEnabled
+    {
+        get => _floorEnabled;
+        set
+        {
+            if (_floorEnabled == value)
+            {
+                return;
+            }
+            _floorEnabled = value;
+            AppLog.Info(value ? "物理の床との当たりを ON にしました" : "物理の床との当たりを OFF にしました");
+            Reset();
+            Changed?.Invoke(this, EventArgs.Empty);
+        }
+    }
 
     /// <summary>物理演算を使うか（初期値は ON。プロジェクトに保存する）。</summary>
     public bool Enabled
@@ -198,7 +235,7 @@ public sealed class PhysicsController
         }
         try
         {
-            model.Bake.Invalidate(_context.Playback.FrameRate, GravityFor(node));
+            model.Bake.Invalidate(_context.Playback.FrameRate, GravityFor(node), FloorFor(node));
         }
         catch (PhysicsException ex)
         {
