@@ -165,7 +165,7 @@ public sealed class TimelineCanvas : FrameworkElement
                 dc.DrawText(Text(chevron, 9, _subText, dip, _iconFace), new Point(x, y + 6));
             }
             Brush nameBrush = node is BoneNode { HasUnregisteredChange: true } or MorphNode { HasUnregisteredChange: true } or CameraNode { HasUnregisteredChange: true }
-                or LightNode { HasUnregisteredChange: true }
+                or LightNode { HasUnregisteredChange: true } or ModelDisplayNode { HasUnregisteredChange: true }
                 ? _unregistered
                 : node.IsEffectivelyVisible ? _text : _disabledText;
             var name = Text(node.Name, 12, nameBrush, dip);
@@ -531,6 +531,13 @@ public sealed class TimelineCanvas : FrameworkElement
                     yield return light.Keys.Keys[i].Frame;
                 }
                 break;
+            case ModelDisplayNode display:
+                var (ds, de) = display.Keys.Range(first, last);
+                for (int i = ds; i < de; i++)
+                {
+                    yield return display.Keys.Keys[i].Frame;
+                }
+                break;
             default:
                 int[] frames = SummaryFrames(node);
                 int start = Array.BinarySearch(frames, first);
@@ -697,6 +704,12 @@ public sealed class TimelineCanvas : FrameworkElement
                     break;
                 case LightNode light:
                     foreach (LightKey key in light.Keys.Keys)
+                    {
+                        frames.Add(key.Frame);
+                    }
+                    break;
+                case ModelDisplayNode display:
+                    foreach (DisplayKey key in display.Keys.Keys)
                     {
                         frames.Add(key.Frame);
                     }

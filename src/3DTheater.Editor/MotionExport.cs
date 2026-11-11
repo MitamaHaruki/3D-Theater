@@ -101,12 +101,36 @@ public static class MotionExport
         report.AddAggregated(LoadSeverity.Info, LoadIssueCategory.Note,
             "名前が VMD の長さ（15 バイト）に入らず、MMD と同じく途中で切って書いたボーン・モーフ",
             longNames, longNames.Count);
-        int unregistered = model.Bones.Count(b => b.HasUnregisteredChange) + model.Morphs.Count(m => m.HasUnregisteredChange);
+        // 表示・IK（段階なので、そのまま 30 fps の位置に書く。IK はモデルの IK ボーンすべての切り替えを書く。MMD と同じ）
+        var visibilityKeys = new List<VmdVisibilityKey>();
+        if (model.Display is { Keys.Count: > 0 } display)
+        {
+            var written = new SortedDictionary<int, VmdVisibilityKey>();
+            foreach (DisplayKey key in display.Keys.Keys)
+            {
+                int frame = Scale(key.Frame);
+                IkSwitchSet ik = key.Ik ?? IkSwitchSet.AllOn;
+                VmdIkState[] states = [.. display.IkBones.Select(b => new VmdIkState(VmdName.FromText(b.Name, VmdText.IkNameBytes), ik.IsEnabled(b.Index)))];
+                if (written.ContainsKey(frame))
+                {
+                    overlapped++;
+                }
+                written[frame] = new VmdVisibilityKey(frame, key.Shown, states);
+            }
+            visibilityKeys.AddRange(written.Values);
+            foreach (BoneNode ikBone in display.IkBones)
+            {
+                CheckLength(ikBone.Name, VmdText.IkNameBytes, longNames);
+            }
+        }
+
+        int unregistered = model.Bones.Count(b => b.HasUnregisteredChange) + model.Morphs.Count(m => m.HasUnregisteredChange)
+            + (model.Display is { HasUnregisteredChange: true } ? 1 : 0);
         if (unregistered > 0)
         {
             report.Warning(LoadIssueCategory.Note, $"キーに登録していない変更が {unregistered:N0} 件あり、書き出していません（書き出すには先に登録してください）");
         }
-        if (boneKeys.Count == 0 && morphKeys.Count == 0)
+        if (boneKeys.Count == 0 && morphKeys.Count == 0 && visibilityKeys.Count == 0)
         {
             report.Warning(LoadIssueCategory.Note, "書き出すキーがありません（空のモーションになります）");
         }
@@ -116,6 +140,7 @@ public static class MotionExport
             ModelName = VmdName.FromText(model.Name, VmdText.ModelNameBytes),
             BoneKeys = boneKeys,
             MorphKeys = morphKeys,
+            VisibilityKeys = visibilityKeys,
         };
     }
 

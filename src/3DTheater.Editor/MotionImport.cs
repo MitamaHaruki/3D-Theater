@@ -5,8 +5,8 @@ using Theater3D.Formats.Vmd;
 
 namespace Theater3D.Editor;
 
-/// <summary>モーションを当てはめた結果の数。</summary>
-public sealed record MotionImportResult(int BoneKeys, int MorphKeys, int Bones, int Morphs, int LastFrame);
+/// <summary>モーションを当てはめた結果の数（<see cref="DisplayKeys"/> は表示・IK のキー）。</summary>
+public sealed record MotionImportResult(int BoneKeys, int MorphKeys, int Bones, int Morphs, int LastFrame, int DisplayKeys = 0);
 
 /// <summary>ポーズを当てはめた結果の数。</summary>
 public sealed record PoseImportResult(int Bones, int Morphs);
@@ -14,7 +14,8 @@ public sealed record PoseImportResult(int Bones, int Morphs);
 /// <summary>
 /// 読み込んだ VMD・VPD を、シーンのモデルのボーン・モーフに当てはめる。元のファイルは書き換えない。
 /// 名前の対応は MMD と同じく、Shift-JIS にして決まった長さ（ボーン・モーフは 15 バイト）で切ったバイト列で比べる。
-/// モデルに無いボーン・モーフ、モデルには当てはめないキー（カメラ・照明）、まだ使えないキー（IK の切り替えなど）はレポートで知らせる。
+/// モデルに無いボーン・モーフ・IK、モデルには当てはめないキー（カメラ・照明）はレポートで知らせる。
+/// 表示・IK のキー（モデルを隠す・IK を切る）は、モデルの「表示・IK」へ当てはめる（IK の名前の長さは 20 バイト）。
 /// </summary>
 public static class MotionImport
 {
@@ -110,15 +111,53 @@ public static class MotionImport
             report.Info(LoadIssueCategory.Note,
                 $"カメラ {vmd.CameraKeys.Count:N0}・照明 {vmd.LightKeys.Count:N0}・セルフ影 {vmd.ShadowKeys.Count:N0} 個のキーは、モデルには当てはめません（カメラ・照明のキーは、カメラか照明を選んで読み込むか、カメラ・照明用のモーションを読み込むと当てはまります）");
         }
-        int ikOff = vmd.VisibilityKeys.Sum(k => k.IkStates.Count(s => !s.Enabled));
-        int hidden = vmd.VisibilityKeys.Count(k => !k.Visible);
-        if (ikOff > 0)
+        // 表示・IK（いつも段階。キーに無い IK ボーンは、IK を解く）
+        int displayKeyCount = 0;
+        if (vmd.VisibilityKeys.Count > 0 && model.Display is { } display)
         {
-            report.Warning(LoadIssueCategory.Unsupported, $"IK を切るキー（{ikOff:N0} 件）には、まだ対応していません。IK は常に効いたままです");
-        }
-        if (hidden > 0)
-        {
-            report.Info(LoadIssueCategory.Unsupported, $"モデルを隠すキー（{hidden:N0} 件）は、今は使いません");
+            var ikByName = new Dictionary<string, BoneNode>();
+            foreach (BoneNode ikBone in display.IkBones)
+            {
+                ikByName.TryAdd(NameKey(VmdText.Encode(ikBone.Name, VmdText.IkNameBytes)), ikBone);
+            }
+            var missingIk = new List<string>();
+            var keys = new List<DisplayKey>();
+            var frames = new HashSet<int>();
+            foreach (VmdVisibilityKey k in vmd.VisibilityKeys.OrderBy(k => k.Frame))
+            {
+                int frame = Scale(k.Frame);
+                if (!frames.Add(frame))
+                {
+                    overlapped++;
+                }
+                var disabled = new List<int>();
+                foreach (VmdIkState state in k.IkStates)
+                {
+                    if (!ikByName.TryGetValue(NameKey(state.Bone.Bytes), out BoneNode? ikBone))
+                    {
+                        if (!missingIk.Contains(state.Bone.Text))
+                        {
+                            missingIk.Add(state.Bone.Text);
+                        }
+                        continue;
+                    }
+                    if (!state.Enabled)
+                    {
+                        disabled.Add(ikBone.Index);
+                    }
+                }
+                keys.Add(new DisplayKey(frame, k.Visible, disabled.Count == 0 ? IkSwitchSet.AllOn : new IkSwitchSet(disabled)));
+            }
+            display.Keys.SetRange(keys);
+            displayKeyCount = keys.Count;
+            report.AddAggregated(LoadSeverity.Info, LoadIssueCategory.InvalidReference, "モデルに無いため使わない IK の切り替え", missingIk, missingIk.Count);
+            int ikOff = vmd.VisibilityKeys.Sum(k => k.IkStates.Count(s => !s.Enabled));
+            int hidden = vmd.VisibilityKeys.Count(k => !k.Visible);
+            if (ikOff > 0 || hidden > 0)
+            {
+                report.Info(LoadIssueCategory.Note,
+                    $"表示・IK のキー {keys.Count:N0} 個を当てはめました（IK を切る {ikOff:N0} 件・モデルを隠す {hidden:N0} 件。シーン一覧のモデルの「表示・IK」）");
+            }
         }
         if (scale != 1)
         {
@@ -128,17 +167,15 @@ public static class MotionImport
         {
             report.Info(LoadIssueCategory.Note, $"同じフレームに重なったキーが {overlapped:N0} 件あったため、後ろのキーを使いました");
         }
-        if (boneKeyCount == 0 && morphKeyCount == 0)
+        if (boneKeyCount == 0 && morphKeyCount == 0 && displayKeyCount == 0)
         {
             report.Warning(LoadIssueCategory.InvalidReference, vmd.IsCameraMotion
                 ? "このファイルはカメラ・照明のモーションです。モデルに当てはめるキーはありません"
                 : "モデルに当てはめられるキーがありませんでした（ボーン・モーフの名前が 1 つも合いません）");
         }
 
-        int lastFrame = Math.Max(
-            model.Bones.Select(b => b.Keys.LastFrame).DefaultIfEmpty(0).Max(),
-            model.Morphs.Select(m => m.Keys.LastFrame).DefaultIfEmpty(0).Max());
-        return new MotionImportResult(boneKeyCount, morphKeyCount, usedBones, usedMorphs, lastFrame);
+        int lastFrame = AnimationService.LastKeyFrame(model);
+        return new MotionImportResult(boneKeyCount, morphKeyCount, usedBones, usedMorphs, lastFrame, displayKeyCount);
     }
 
     /// <summary>

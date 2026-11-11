@@ -11,9 +11,28 @@ public static class PoseSampler
 {
     /// <summary>
     /// <paramref name="frame"/> の値を、ボーン・モーフの番号の位置に書く（番号が範囲外の項目は飛ばす）。
+    /// <paramref name="ikEnabled"/> を渡せば、表示・IK の IK の切り替えも、ボーンの番号の位置に書く（IK ボーン以外は true）。
     /// </summary>
-    public static void Sample(ModelNode model, float frame, Span<Vector3> translations, Span<Quaternion> rotations, Span<float> weights)
+    public static void Sample(ModelNode model, float frame, Span<Vector3> translations, Span<Quaternion> rotations, Span<float> weights,
+        Span<bool> ikEnabled = default)
     {
+        if (!ikEnabled.IsEmpty)
+        {
+            ikEnabled.Fill(true);
+            if (model.Display is { } display)
+            {
+                IkSwitchSet ik = !display.HasUnregisteredChange && KeyframeEvaluator.TryEvaluate(display.Keys, frame, out DisplayKey key)
+                    ? key.Ik ?? IkSwitchSet.AllOn
+                    : display.Ik;
+                foreach (int i in ik.Disabled)
+                {
+                    if ((uint)i < (uint)ikEnabled.Length)
+                    {
+                        ikEnabled[i] = false;
+                    }
+                }
+            }
+        }
         foreach (BoneNode bone in model.Bones)
         {
             int i = bone.Index;
@@ -56,6 +75,9 @@ public static class PoseSampler
         MorphNode morph when e.PropertyName is nameof(MorphNode.Keys) or nameof(MorphNode.HasUnregisteredChange) => morph.Model,
         MorphNode morph when e.PropertyName == nameof(MorphNode.Weight) && (morph.HasUnregisteredChange || morph.Keys.Count == 0) => morph.Model,
         ModelNode model when e.PropertyName == nameof(SceneNode.Rotation) => model,
+        ModelDisplayNode display when e.PropertyName is nameof(ModelDisplayNode.Keys) or nameof(ModelDisplayNode.HasUnregisteredChange) => display.Model,
+        ModelDisplayNode display when e.PropertyName == nameof(ModelDisplayNode.Ik) && (display.HasUnregisteredChange || display.Keys.Count == 0)
+            => display.Model,
         _ => null,
     };
 }

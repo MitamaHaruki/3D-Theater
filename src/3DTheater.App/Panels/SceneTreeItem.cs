@@ -46,6 +46,7 @@ public sealed class SceneTreeItem : ObservableObject
         SceneNodeKind.Bone => Node is BoneNode { Traits.IsIk: true } ? "" : "",
         SceneNodeKind.Morph => "",
         SceneNodeKind.Audio => "\uE8D6",
+        SceneNodeKind.Display => "\uE7B3",
         _ => Parent is null ? "" : "",
     };
 
@@ -85,7 +86,7 @@ public sealed class SceneTreeItem : ObservableObject
 
     /// <summary>キーに登録していない変更がある。</summary>
     public bool IsUnregistered => Node is BoneNode { HasUnregisteredChange: true } or MorphNode { HasUnregisteredChange: true } or CameraNode { HasUnregisteredChange: true }
-        or LightNode { HasUnregisteredChange: true };
+        or LightNode { HasUnregisteredChange: true } or ModelDisplayNode { HasUnregisteredChange: true };
 
     public bool IsExpanded
     {

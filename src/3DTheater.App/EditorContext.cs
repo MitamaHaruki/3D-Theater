@@ -247,10 +247,10 @@ public sealed class EditorContext
     /// <summary>読み込んだモデルの中身（シーンの <see cref="ModelNode"/> の Id で引く）。</summary>
     public Dictionary<Guid, LoadedModel> Models { get; } = [];
 
-    /// <summary>シーンの「モデル」の並び順で、見えていて GPU に載っているモデル。</summary>
+    /// <summary>シーンの「モデル」の並び順で、見えていて（目の印と表示・IK の表示の両方）GPU に載っているモデル。</summary>
     public IEnumerable<(ModelNode Node, LoadedModel Model)> VisibleModels =>
         Scene.ModelsGroup.Children.OfType<ModelNode>()
-            .Where(n => n.IsEffectivelyVisible && Models.TryGetValue(n.Id, out LoadedModel? m) && m.Mesh is not null)
+            .Where(n => n.IsEffectivelyVisible && n.IsShownByDisplay && Models.TryGetValue(n.Id, out LoadedModel? m) && m.Mesh is not null)
             .Select(n => (n, Models[n.Id]));
 
     /// <summary>プロジェクトを開いたときに見つからなかったモデル（保存し直しても消さずに、そのまま書き戻す）。</summary>

@@ -145,6 +145,30 @@ public sealed class PoseEvaluatorTests
     }
 
     [TestMethod]
+    public void DisabledIkLeavesTheLinksAtTheirOwnRotations()
+    {
+        // MMD の「表示・IK」で IK を切ると、IK を解かず、ひざなどは自分のキーの回転のまま（物理の前と後に分けても同じ）
+        ModelRig rig = TestRigs.Leg();
+        var input = new PoseInput(rig);
+        int ik = rig.FindBone("足ＩＫ"), ankle = rig.FindBone("足首"), knee = rig.FindBone("ひざ");
+        input.Translations[ik] = new Vector3(0, 3, 0);
+        input.Rotations[knee] = Quaternion.CreateFromAxisAngle(Vector3.UnitX, -0.4f);
+        Assert.IsTrue(input.IkEnabled[ik], "初めは IK を解く");
+
+        input.IkEnabled[ik] = false;
+        PoseState off = Evaluate(rig, input);
+        var split = new PoseState(rig);
+        PoseEvaluator.EvaluateBeforePhysics(rig, input, split);
+        PoseEvaluator.EvaluateAfterPhysics(rig, split);
+
+        Assert.AreEqual(Quaternion.Identity, off.IkRotation[knee], "IK を切ると、リンクを回さない");
+        Assert.IsGreaterThan(0.5f, Vector3.Distance(new Vector3(1, 4, 0), off.BonePosition(ankle)), "足首は IK の位置へ行かない");
+        AssertEx.AreClose(off.BonePosition(ankle), split.BonePosition(ankle), 1e-5f, "物理の前と後に分けても同じ");
+        input.IkEnabled[ik] = true;
+        AssertEx.AreClose(new Vector3(1, 4, 0), Evaluate(rig, input).BonePosition(ankle), 0.02f, "IK を戻すと届く");
+    }
+
+    [TestMethod]
     public void LegIkWithTargetOutOfReachStaysFinite()
     {
         ModelRig rig = TestRigs.Leg();

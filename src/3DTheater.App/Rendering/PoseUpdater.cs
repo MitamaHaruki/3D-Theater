@@ -63,6 +63,7 @@ public sealed class PoseUpdater
             BoneNode bone when e.PropertyName is nameof(SceneNode.Position) or nameof(SceneNode.Rotation) => bone.Model,
             MorphNode morph when e.PropertyName == nameof(MorphNode.Weight) => morph.Model,
             ModelNode overridden when e.PropertyName == nameof(ModelNode.MaterialOverrides) => overridden,
+            ModelDisplayNode display when e.PropertyName == nameof(ModelDisplayNode.Ik) => display.Model,
             _ => null,
         };
         if (_context.GetLoaded(owner) is { } model)
@@ -85,6 +86,18 @@ public sealed class PoseUpdater
         foreach (MorphNode morph in node.Morphs)
         {
             input.MorphWeights[morph.Index] = morph.Weight;
+        }
+        // 表示・IK で切った IK は解かない
+        Array.Fill(input.IkEnabled, true);
+        if (node.Display is { } display)
+        {
+            foreach (int i in display.Ik.Disabled)
+            {
+                if ((uint)i < (uint)input.IkEnabled.Length)
+                {
+                    input.IkEnabled[i] = false;
+                }
+            }
         }
 
         if (_context.Physics.Enabled && model.Physics is { } physics)

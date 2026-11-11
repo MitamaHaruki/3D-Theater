@@ -17,6 +17,8 @@ public enum SceneNodeKind
     Morph,
     /// <summary>音声（曲など）。再生に合わせて鳴らす。</summary>
     Audio,
+    /// <summary>モデルの「表示・IK」（モデルの下のいちばん上にある）。モデルの表示と IK の切り替えをキーで持つ。</summary>
+    Display,
 }
 
 /// <summary>
@@ -562,12 +564,19 @@ public sealed class ModelNode(string name, string filePath, ModelSummary summary
     /// <summary>ボーン（モデルのファイルの番号順）。一覧では表示枠ごとのまとまりの下に並ぶ。</summary>
     public IReadOnlyList<BoneNode> Bones { get; private set; } = [];
 
+    /// <summary>「表示・IK」（<see cref="AttachParts"/> で作る。まだ取り付けていなければ null）。</summary>
+    public ModelDisplayNode? Display { get; private set; }
+
+    /// <summary>「表示・IK」でモデルを表示するか（目の印とは別。両方が表示のときだけ描く）。</summary>
+    public bool IsShownByDisplay => Display?.Shown ?? true;
+
     /// <summary>モーフ（モデルのファイルの番号順）。一覧では種類（目・口など）ごとのまとまりの下に並ぶ。</summary>
     public IReadOnlyList<MorphNode> Morphs { get; private set; } = [];
 
     /// <summary>
     /// ボーンとモーフを、一覧での並び（まとまりの項目）ごと取り付ける。シーンに加える前に 1 回だけ呼ぶ。
     /// <paramref name="groups"/> はモデルの直下に置く項目（「ボーン」「表情」など）で、その下に各ボーン・モーフが入っていること。
+    /// いちばん上には「表示・IK」（<see cref="Display"/>）を作って置く。
     /// </summary>
     public void AttachParts(IEnumerable<SceneNode> groups, IReadOnlyList<BoneNode> bones, IReadOnlyList<MorphNode> morphs)
     {
@@ -575,6 +584,8 @@ public sealed class ModelNode(string name, string filePath, ModelSummary summary
         {
             throw new InvalidOperationException("ボーンとモーフは、シーンに加える前に 1 回だけ取り付けられます");
         }
+        Display = new ModelDisplayNode([.. bones.Where(b => b.Traits.IsIk)]);
+        AddChild(Display);
         foreach (SceneNode group in groups)
         {
             AddChild(group);
@@ -599,6 +610,83 @@ public sealed class ModelNode(string name, string filePath, ModelSummary summary
         foreach (MorphNode morph in Morphs.Where(m => m.CanEdit))
         {
             morph.Weight = 0;
+        }
+    }
+}
+
+/// <summary>
+/// モデルの「表示・IK」（MMD と同じ）。モデルを表示するか（<see cref="Shown"/>）と、IK ボーンごとに IK を解くか（<see cref="Ik"/>）を
+/// キーで切り替える（いつも段階）。目の印（<see cref="SceneNode.IsVisible"/>）とは別で、両方が表示のときだけモデルを描く。
+/// IK を切った IK ボーンは、リンクのボーンを動かさない（リンクのボーンは自分のキーの回転のまま）。
+/// </summary>
+public sealed class ModelDisplayNode : SceneNode
+{
+    public const string DefaultName = "表示・IK";
+
+    private bool _shown = true;
+    private IkSwitchSet _ik = IkSwitchSet.AllOn;
+    private bool _hasUnregisteredChange;
+
+    public ModelDisplayNode(IReadOnlyList<BoneNode> ikBones)
+        : base(SceneNodeKind.Display, DefaultName, canRename: false, hasTransform: false)
+    {
+        IkBones = ikBones;
+        CanToggleVisibility = false;
+        Keys.Changed += (_, _) => OnPropertyChanged(nameof(Keys));
+    }
+
+    public ModelNode? Model => Parent as ModelNode;
+
+    /// <summary>切り替えられる IK ボーン（モデルのファイルの番号順）。</summary>
+    public IReadOnlyList<BoneNode> IkBones { get; }
+
+    /// <summary>モデルを表示するか（MMD の「表示」）。</summary>
+    public bool Shown
+    {
+        get => _shown;
+        set => SetProperty(ref _shown, value);
+    }
+
+    /// <summary>切った IK。</summary>
+    public IkSwitchSet Ik
+    {
+        get => _ik;
+        set => SetProperty(ref _ik, value ?? IkSwitchSet.AllOn);
+    }
+
+    public bool IsIkEnabled(int boneIndex) => _ik.IsEnabled(boneIndex);
+
+    /// <summary>キーフレーム。</summary>
+    public KeyTrack<DisplayKey> Keys { get; } = new();
+
+    /// <summary>キーに登録していない変更がある（キーのある表示・IK を、自動キーが OFF のときに手で変えた）。</summary>
+    public bool HasUnregisteredChange
+    {
+        get => _hasUnregisteredChange;
+        set => SetProperty(ref _hasUnregisteredChange, value);
+    }
+
+    /// <summary>キーの値を当てはめる。</summary>
+    public void Apply(DisplayKey key)
+    {
+        Shown = key.Shown;
+        Ik = key.Ik ?? IkSwitchSet.AllOn;
+    }
+
+    protected override object? CaptureExtra(bool includeKeys) =>
+        new DisplayState(Shown, Ik, HasUnregisteredChange, includeKeys ? new KeySnapshot<DisplayKey>(Keys.ToArray()) : null);
+
+    protected override void RestoreExtra(object? extra)
+    {
+        if (extra is DisplayState s)
+        {
+            if (s.Keys is not null)
+            {
+                Keys.ReplaceAll(s.Keys.Keys);
+            }
+            Shown = s.Shown;
+            Ik = s.Ik;
+            HasUnregisteredChange = s.HasUnregisteredChange;
         }
     }
 }

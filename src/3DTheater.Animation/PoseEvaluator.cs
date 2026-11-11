@@ -11,6 +11,7 @@ public sealed class PoseInput
         Rotations = [.. Enumerable.Repeat(Quaternion.Identity, rig.Bones.Length)];
         Translations = new Vector3[rig.Bones.Length];
         MorphWeights = new float[rig.Morphs.Length];
+        IkEnabled = [.. Enumerable.Repeat(true, rig.Bones.Length)];
     }
 
     public Quaternion[] Rotations { get; }
@@ -18,6 +19,9 @@ public sealed class PoseInput
     public Vector3[] Translations { get; }
 
     public float[] MorphWeights { get; }
+
+    /// <summary>IK ボーンごとに IK を解くか（MMD の「表示・IK」の IK の切り替え）。false の IK ボーンは、リンクのボーンを動かさない。</summary>
+    public bool[] IkEnabled { get; }
 }
 
 /// <summary>計算の結果。毎回作り直さずに使い回す（フレームごとのごみを出さない）。</summary>
@@ -42,6 +46,7 @@ public sealed class PoseState
         Materials = new MaterialValues[rig.BaseMaterials.Length];
         PhysicsDriven = new bool[n];
         Refreshed = new bool[n];
+        IkEnabled = [.. Enumerable.Repeat(true, n)];
     }
 
     /// <summary>ボーンの置き方（モデルの座標で）。</summary>
@@ -82,6 +87,9 @@ public sealed class PoseState
     /// <summary>物理で動いたボーンにつながる子を求め直すときの作業用。</summary>
     internal bool[] Refreshed { get; }
 
+    /// <summary>IK を解くか（物理の前の計算で入力から写す。物理の後の IK にも使う）。</summary>
+    internal bool[] IkEnabled { get; }
+
     /// <summary><see cref="VertexOffsets"/> に 0 でない値が入っているかもしれない。</summary>
     internal bool HasVertexOffsets { get; set; }
 
@@ -105,6 +113,7 @@ public sealed class PoseState
 /// 3. 変形の順番（物理後 → 変形階層 → 番号）に、付与（回転・移動を分けてもらう）と IK を解く
 /// 4. 頂点モーフ・UV モーフ・材質モーフを求める
 /// IK は繰り返し法（CCD）で解き、ひざのように 1 軸だけ制限のあるリンクは、その軸まわりだけで回す。
+/// 入力で切った IK（<see cref="PoseInput.IkEnabled"/>）は解かない。
 /// 物理演算を使うときは、3 の「物理後」でないボーンまでを <see cref="EvaluateBeforePhysics"/> で求め、
 /// 物理の結果でボーンを置いて（<see cref="PoseState.SetPhysicsResult"/>、<see cref="RefreshPhysicsChildren"/>）から、
 /// 残りを <see cref="EvaluateAfterPhysics"/> で求める（MMD と同じ順番）。
@@ -140,6 +149,7 @@ public static class PoseEvaluator
             state.IkRotation[i] = Quaternion.Identity;
             state.InheritRotation[i] = Quaternion.Identity;
             state.InheritTranslation[i] = Vector3.Zero;
+            state.IkEnabled[i] = input.IkEnabled[i];
         }
 
         foreach (int i in rig.HierarchyOrder)
@@ -201,7 +211,7 @@ public static class PoseEvaluator
                 UpdateInherit(rig, state, i);
                 UpdateSubtree(rig, state, i);
             }
-            if (bone.IsIk)
+            if (bone.IsIk && state.IkEnabled[i])
             {
                 SolveIk(rig, state, i);
             }

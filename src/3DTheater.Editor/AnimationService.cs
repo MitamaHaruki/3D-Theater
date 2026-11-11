@@ -7,7 +7,8 @@ namespace Theater3D.Editor;
 /// 手で値を変えたときは、自動キーが OFF なら「未登録の変更」として残し、フレームを動かしても値を保つ（指示書 3.3「黙って失わない」）。
 /// 未登録の変更は <see cref="RegisterUnregistered"/> でキーにするか、<see cref="DiscardUnregistered"/> で捨てる。
 /// 自動キーが ON なら、変えたときに今のフレームへキーを登録する。
-/// カメラ・照明は、キーがあるときだけ手で動かした値を未登録の変更にする（キーの無いカメラ・照明を置くたびに未登録が残らないように）。
+/// カメラ・照明・モデルの表示・IK は、キーがあるときだけ手で変えた値を未登録の変更にする（キーの無いカメラ・照明を置くたびに
+/// 未登録が残らないように）。
 /// </summary>
 public sealed class AnimationService
 {
@@ -47,11 +48,13 @@ public sealed class AnimationService
         [.. Models.SelectMany(m => m.Bones.Where(b => b.HasUnregisteredChange).Cast<SceneNode>()
             .Concat(m.Morphs.Where(x => x.HasUnregisteredChange)))
             .Concat(Cameras.Where(c => c.HasUnregisteredChange))
-            .Concat(Lights.Where(l => l.HasUnregisteredChange))];
+            .Concat(Lights.Where(l => l.HasUnregisteredChange))
+            .Concat(Displays.Where(d => d.HasUnregisteredChange))];
 
     public int UnregisteredCount =>
         Models.Sum(m => m.Bones.Count(b => b.HasUnregisteredChange) + m.Morphs.Count(x => x.HasUnregisteredChange))
-        + Cameras.Count(c => c.HasUnregisteredChange) + Lights.Count(l => l.HasUnregisteredChange);
+        + Cameras.Count(c => c.HasUnregisteredChange) + Lights.Count(l => l.HasUnregisteredChange)
+        + Displays.Count(d => d.HasUnregisteredChange);
 
     /// <summary>
     /// この間は、値やキーが変わっても「手で変えた」とみなさず、キーの当てはめもしない（元に戻すで値を書き戻すときに使う）。
@@ -73,6 +76,8 @@ public sealed class AnimationService
 
     private IEnumerable<LightNode> Lights => _scene.AllNodes.OfType<LightNode>();
 
+    private IEnumerable<ModelDisplayNode> Displays => Models.Select(m => m.Display).OfType<ModelDisplayNode>();
+
     /// <summary>今のフレームの値を、キーのある項目に当てはめる（未登録の変更がある項目はそのまま）。</summary>
     public void ApplyFrame()
     {
@@ -89,6 +94,10 @@ public sealed class AnimationService
                 foreach (MorphNode morph in model.Morphs)
                 {
                     ApplyMorph(morph, frame, resetWithoutKeys: false);
+                }
+                if (model.Display is { } display)
+                {
+                    ApplyDisplay(display, frame);
                 }
             }
             foreach (CameraNode camera in Cameras)
@@ -126,6 +135,10 @@ public sealed class AnimationService
                 foreach (MorphNode morph in model.Morphs)
                 {
                     ApplyMorph(morph, SampleTime(morph.Keys, time, anchorFrame), resetWithoutKeys: false);
+                }
+                if (model.Display is { } display)
+                {
+                    ApplyDisplay(display, time); // 段階なので、途中の時刻でも混ざらない
                 }
             }
             foreach (CameraNode camera in Cameras)
@@ -168,7 +181,7 @@ public sealed class AnimationService
     }
 
     /// <summary>
-    /// 「登録」の対象: 選んだボーン・モーフ・カメラ・照明と、選んだモデルやまとまりの中の未登録の変更。
+    /// 「登録」の対象: 選んだボーン・モーフ・カメラ・照明・表示・IK と、選んだモデルやまとまりの中の未登録の変更。
     /// （モデルを選んで登録しても、動かしていない全ボーンにキーは作らない）
     /// </summary>
     public IReadOnlyList<SceneNode> RegistrationTargets(IEnumerable<SceneNode> selection)
@@ -177,7 +190,7 @@ public sealed class AnimationService
         var seen = new HashSet<SceneNode>();
         foreach (SceneNode node in selection)
         {
-            if (node is BoneNode or MorphNode or CameraNode or LightNode)
+            if (node is BoneNode or MorphNode or CameraNode or LightNode or ModelDisplayNode)
             {
                 if (seen.Add(node))
                 {
@@ -232,6 +245,11 @@ public sealed class AnimationService
                         light.Keys.Set(NewLightKey(light, frame));
                         count++;
                         break;
+                    case ModelDisplayNode display:
+                        ClearUnregistered(display);
+                        display.Keys.Set(new DisplayKey(frame, display.Shown, display.Ik));
+                        count++;
+                        break;
                 }
             }
         }
@@ -277,6 +295,9 @@ public sealed class AnimationService
                     case LightNode light:
                         ApplyLight(light, frame);
                         break;
+                    case ModelDisplayNode display:
+                        ApplyDisplay(display, frame);
+                        break;
                 }
             }
         }
@@ -287,10 +308,11 @@ public sealed class AnimationService
         StateChanged?.Invoke(this, EventArgs.Empty);
     }
 
-    /// <summary>モデルのいちばん後ろのキーのフレーム（キーが無ければ 0）。</summary>
-    public static int LastKeyFrame(ModelNode model) => Math.Max(
+    /// <summary>モデルのいちばん後ろのキーのフレーム（キーが無ければ 0。表示・IK のキーも含む）。</summary>
+    public static int LastKeyFrame(ModelNode model) => Math.Max(Math.Max(
         model.Bones.Select(b => b.Keys.LastFrame).DefaultIfEmpty(0).Max(),
-        model.Morphs.Select(m => m.Keys.LastFrame).DefaultIfEmpty(0).Max());
+        model.Morphs.Select(m => m.Keys.LastFrame).DefaultIfEmpty(0).Max()),
+        model.Display?.Keys.LastFrame ?? 0);
 
     private static BoneKey NewBoneKey(BoneNode bone, int frame)
     {
@@ -351,6 +373,14 @@ public sealed class AnimationService
             kind = existing.Kind;
         }
         return new LightKey(frame, light.Pose, curve, kind);
+    }
+
+    private static void ApplyDisplay(ModelDisplayNode display, float frame)
+    {
+        if (!display.HasUnregisteredChange && KeyframeEvaluator.TryEvaluate(display.Keys, frame, out DisplayKey key))
+        {
+            display.Apply(key);
+        }
     }
 
     private static void ApplyLight(LightNode light, float frame)
@@ -439,6 +469,15 @@ public sealed class AnimationService
             case LightNode light when e.PropertyName == nameof(LightNode.Keys):
                 Apply(() => ApplyLight(light, _playback.CurrentFrame));
                 break;
+            case ModelDisplayNode display when e.PropertyName is nameof(ModelDisplayNode.Shown) or nameof(ModelDisplayNode.Ik):
+                if (_autoKey || display.Keys.Count > 0)
+                {
+                    OnUserEdit(display);
+                }
+                break;
+            case ModelDisplayNode display when e.PropertyName == nameof(ModelDisplayNode.Keys):
+                Apply(() => ApplyDisplay(display, _playback.CurrentFrame));
+                break;
         }
     }
 
@@ -458,7 +497,7 @@ public sealed class AnimationService
 
     private static bool IsUnregistered(SceneNode node) =>
         node is BoneNode { HasUnregisteredChange: true } or MorphNode { HasUnregisteredChange: true } or CameraNode { HasUnregisteredChange: true }
-            or LightNode { HasUnregisteredChange: true };
+            or LightNode { HasUnregisteredChange: true } or ModelDisplayNode { HasUnregisteredChange: true };
 
     private static void ClearUnregistered(SceneNode node)
     {
@@ -483,6 +522,9 @@ public sealed class AnimationService
                 break;
             case LightNode light:
                 light.HasUnregisteredChange = value;
+                break;
+            case ModelDisplayNode display:
+                display.HasUnregisteredChange = value;
                 break;
         }
     }

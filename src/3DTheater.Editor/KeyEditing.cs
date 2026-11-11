@@ -2,7 +2,7 @@ using Theater3D.Domain;
 
 namespace Theater3D.Editor;
 
-/// <summary>キー 1 つを指す（どの項目の、どのフレームのキーか）。項目はボーン・モーフ・カメラ・照明。</summary>
+/// <summary>キー 1 つを指す（どの項目の、どのフレームのキーか）。項目はボーン・モーフ・カメラ・照明・モデルの表示・IK。</summary>
 public readonly record struct KeyRef(SceneNode Node, int Frame);
 
 /// <summary>補間の種類（右クリックのメニューで選ぶ）。</summary>
@@ -104,11 +104,12 @@ public static class KeyEditing
         MorphNode morph => morph.Keys.HasKeyAt(key.Frame),
         CameraNode camera => camera.Keys.HasKeyAt(key.Frame),
         LightNode light => light.Keys.HasKeyAt(key.Frame),
+        ModelDisplayNode display => display.Keys.HasKeyAt(key.Frame),
         _ => false,
     };
 
-    /// <summary>キーを持てる項目か（ボーン・モーフ・カメラ・照明）。</summary>
-    public static bool HasKeys(SceneNode node) => node is BoneNode or MorphNode or CameraNode or LightNode;
+    /// <summary>キーを持てる項目か（ボーン・モーフ・カメラ・照明・モデルの表示・IK）。</summary>
+    public static bool HasKeys(SceneNode node) => node is BoneNode or MorphNode or CameraNode or LightNode or ModelDisplayNode;
 
     /// <summary>項目のキーの数（キーを持てない項目は 0）。</summary>
     public static int CountKeys(SceneNode node) => node switch
@@ -117,6 +118,7 @@ public static class KeyEditing
         MorphNode morph => morph.Keys.Count,
         CameraNode camera => camera.Keys.Count,
         LightNode light => light.Keys.Count,
+        ModelDisplayNode display => display.Keys.Count,
         _ => 0,
     };
 
@@ -163,6 +165,9 @@ public static class KeyEditing
                     lost += Replace(light.Keys, scaled);
                     break;
                 }
+                case ModelDisplayNode display:
+                    lost += Replace(display.Keys, [.. display.Keys.Keys.Select(k => k with { Frame = Scale(k.Frame) })]);
+                    break;
             }
         }
         return lost;
@@ -198,6 +203,9 @@ public static class KeyEditing
                     break;
                 case LightNode light:
                     Collect(light, light.Keys);
+                    break;
+                case ModelDisplayNode display:
+                    Collect(display, display.Keys);
                     break;
             }
         }
@@ -242,6 +250,9 @@ public static class KeyEditing
                 case LightNode light:
                     MoveIn(light.Keys, frames, delta, duplicate, (k, f) => k with { Frame = f });
                     break;
+                case ModelDisplayNode display:
+                    MoveIn(display.Keys, frames, delta, duplicate, (k, f) => k with { Frame = f });
+                    break;
             }
             result.AddRange(frames.Select(f => new KeyRef(group.Key, f + delta)));
         }
@@ -269,6 +280,9 @@ public static class KeyEditing
                 case LightNode light:
                     light.Keys.ReplaceAll(light.Keys.Keys.Where(k => !frames.Contains(k.Frame)));
                     break;
+                case ModelDisplayNode display:
+                    display.Keys.ReplaceAll(display.Keys.Keys.Where(k => !frames.Contains(k.Frame)));
+                    break;
             }
         }
         return count;
@@ -295,6 +309,9 @@ public static class KeyEditing
                 case LightNode light when light.Keys.TryGet(k.Frame, out LightKey key):
                     items.Add((light, k.Frame - origin, key));
                     break;
+                case ModelDisplayNode display when display.Keys.TryGet(k.Frame, out DisplayKey key):
+                    items.Add((display, k.Frame - origin, key));
+                    break;
             }
         }
         return new KeyClipboard(items);
@@ -320,13 +337,16 @@ public static class KeyEditing
                 case LightNode light:
                     light.Keys.SetRange(group.Select(i => ((LightKey)i.Key) with { Frame = frame + i.Offset }));
                     break;
+                case ModelDisplayNode display:
+                    display.Keys.SetRange(group.Select(i => ((DisplayKey)i.Key) with { Frame = frame + i.Offset }));
+                    break;
             }
             result.AddRange(group.Select(i => new KeyRef(group.Key, frame + i.Offset)));
         }
         return result;
     }
 
-    /// <summary>キーの補間（前のキーからこのキーまでの動き方）を変える。</summary>
+    /// <summary>キーの補間（前のキーからこのキーまでの動き方）を変える。表示・IK のキーはいつも段階なので変えない。</summary>
     public static void SetInterpolation(IEnumerable<KeyRef> keys, InterpolationPreset preset)
     {
         BezierCurve curve = preset == InterpolationPreset.Smooth ? SmoothCurve : BezierCurve.Linear;

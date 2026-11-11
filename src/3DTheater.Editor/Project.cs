@@ -304,6 +304,33 @@ public sealed class ModelEntry
 
     /// <summary>材質の上書き（拡張材質）。上書きのある材質だけ。無ければ書かない。</summary>
     public List<MaterialEntry>? Materials { get; set; }
+
+    /// <summary>表示・IK（初期のまま＝表示・IK を全部解く・キーなしなら書かない。無い前の版のファイルは初期のまま）。</summary>
+    public DisplayEntry? Display { get; set; }
+}
+
+/// <summary>モデルの表示・IK。切った IK は IK ボーンの名前で書く。</summary>
+public sealed class DisplayEntry
+{
+    public bool Shown { get; set; } = true;
+
+    public string[]? IkOff { get; set; }
+
+    public bool Locked { get; set; }
+
+    public bool Unregistered { get; set; }
+
+    public List<DisplayKeyEntry>? Keys { get; set; }
+}
+
+/// <summary>表示・IK のキー 1 つ。</summary>
+public sealed class DisplayKeyEntry
+{
+    public int Frame { get; set; }
+
+    public bool Shown { get; set; } = true;
+
+    public string[]? IkOff { get; set; }
 }
 
 /// <summary>材質の上書き 1 つ。色は #RRGGBB。</summary>
@@ -604,7 +631,33 @@ public static class ProjectCapture
                 pair.Value))
             .ToList();
         entry.Materials = materials.Count > 0 ? materials : null;
+
+        if (model.Display is { } display
+            && (!display.Shown || !display.Ik.AllEnabled || display.IsLocked || display.HasUnregisteredChange || display.Keys.Count > 0))
+        {
+            entry.Display = new DisplayEntry
+            {
+                Shown = display.Shown,
+                IkOff = IkNames(display, display.Ik),
+                Locked = display.IsLocked,
+                Unregistered = display.HasUnregisteredChange,
+                Keys = display.Keys.Count > 0
+                    ? [.. display.Keys.Keys.Select(k => new DisplayKeyEntry { Frame = k.Frame, Shown = k.Shown, IkOff = IkNames(display, k.Ik) })]
+                    : null,
+            };
+        }
         return entry;
+    }
+
+    // 切った IK ボーンの名前（無ければ null）
+    private static string[]? IkNames(ModelDisplayNode display, IkSwitchSet? ik)
+    {
+        if (ik is null || ik.AllEnabled)
+        {
+            return null;
+        }
+        string[] names = [.. display.IkBones.Where(b => !ik.IsEnabled(b.Index)).Select(b => b.Name)];
+        return names.Length > 0 ? names : null;
     }
 
     /// <summary>モデルから見たまとまりの場所（「ボーン/腕」など）。</summary>
@@ -759,6 +812,7 @@ public static class ProjectApply
         var missingBones = new List<string>();
         var missingMorphs = new List<string>();
         var missingMaterials = new List<string>();
+        var missingIk = new List<string>();
         using (animation.SuspendTracking())
         {
             if (!string.IsNullOrWhiteSpace(entry.Name))
@@ -824,14 +878,49 @@ public static class ProjectApply
                 overrides.Add(new(index, m.ToOverride()));
             }
             model.MaterialOverrides = MaterialOverrideSet.From(overrides);
+            // 表示・IK（書いていなければ初期のまま。IK は名前で探す）
+            if (model.Display is { } display)
+            {
+                DisplayEntry d = entry.Display ?? new DisplayEntry();
+                display.Keys.ReplaceAll((d.Keys ?? []).Where(k => k.Frame >= 0)
+                    .Select(k => new DisplayKey(k.Frame, k.Shown, IkSet(display, k.IkOff, missingIk))));
+                display.Shown = d.Shown;
+                display.Ik = IkSet(display, d.IkOff, missingIk);
+                display.HasUnregisteredChange = d.Unregistered;
+                display.IsLocked = d.Locked;
+            }
             model.IsLocked = entry.Locked;
         }
+        report.AddAggregated(LoadSeverity.Warning, LoadIssueCategory.InvalidReference,
+            $"モデル「{model.Name}」に無いため戻せなかった IK の切り替え", missingIk, missingIk.Count);
         report.AddAggregated(LoadSeverity.Warning, LoadIssueCategory.InvalidReference,
             $"モデル「{model.Name}」に無いため戻せなかったボーン（モデルのファイルが保存したときと変わった可能性があります）", missingBones, missingBones.Count);
         report.AddAggregated(LoadSeverity.Warning, LoadIssueCategory.InvalidReference,
             $"モデル「{model.Name}」に無いため戻せなかった材質の上書き", missingMaterials, missingMaterials.Count);
         report.AddAggregated(LoadSeverity.Warning, LoadIssueCategory.InvalidReference,
             $"モデル「{model.Name}」に無いため戻せなかったモーフ", missingMorphs, missingMorphs.Count);
+    }
+
+    // 切った IK ボーンの名前から、切った IK の集まり（モデルに無い名前は missing へ）
+    private static IkSwitchSet IkSet(ModelDisplayNode display, string[]? names, List<string> missing)
+    {
+        if (names is not { Length: > 0 })
+        {
+            return IkSwitchSet.AllOn;
+        }
+        var disabled = new List<int>();
+        foreach (string name in names)
+        {
+            if (display.IkBones.FirstOrDefault(b => b.Name == name) is { } bone)
+            {
+                disabled.Add(bone.Index);
+            }
+            else if (!missing.Contains(name))
+            {
+                missing.Add(name);
+            }
+        }
+        return disabled.Count > 0 ? new IkSwitchSet(disabled) : IkSwitchSet.AllOn;
     }
 
     private static int IndexOfName(IReadOnlyList<string> names, string name)

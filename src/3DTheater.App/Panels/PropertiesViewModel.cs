@@ -39,6 +39,7 @@ public sealed class PropertiesViewModel : ObservableObject
         SceneNodeKind.Bone => "ボーン",
         SceneNodeKind.Morph => "モーフ",
         SceneNodeKind.Audio => "音声",
+        SceneNodeKind.Display => "表示・IK",
         _ => "グループ",
     };
 
@@ -67,6 +68,9 @@ public sealed class PropertiesViewModel : ObservableObject
     public bool CanRename => _node is { CanRename: true, CanEdit: true };
 
     public bool IsEditable => _node?.CanEdit ?? false;
+
+    /// <summary>名前の横に「表示」を出すか（目の印の無い項目＝表示・IK などには出さない）。</summary>
+    public bool CanToggleVisibility => _node?.CanToggleVisibility ?? false;
 
     public bool IsLockedNoteVisible => _node is not null && !_node.CanEdit;
 
@@ -106,6 +110,24 @@ public sealed class PropertiesViewModel : ObservableObject
     public bool IsModel => _node is ModelNode;
 
     public bool IsAudio => _node is AudioNode;
+
+    /// <summary>モデルの表示・IK か。</summary>
+    public bool IsDisplay => _node is ModelDisplayNode;
+
+    /// <summary>表示・IK の「モデルを表示する」（MMD の「表示」）。</summary>
+    public bool DisplayShown
+    {
+        get => (_node as ModelDisplayNode)?.Shown ?? false;
+        set => Edit("表示", n => ((ModelDisplayNode)n).Shown = value);
+    }
+
+    public bool HasIkSwitches => _node is ModelDisplayNode { IkBones.Count: > 0 };
+
+    /// <summary>表示・IK の IK ボーンごとの「IK を使う」。</summary>
+    public IReadOnlyList<IkSwitchItem> IkSwitches => _node is ModelDisplayNode display
+        ? [.. display.IkBones.Select(b => new IkSwitchItem(b.Name, display.IsIkEnabled(b.Index), IsEditable,
+            on => Edit($"{b.Name}の IK", n => ((ModelDisplayNode)n).Ik = ((ModelDisplayNode)n).Ik.With(b.Index, on))))]
+        : [];
 
     public string AudioFile => (_node as AudioNode)?.FilePath ?? string.Empty;
 
@@ -190,7 +212,7 @@ public sealed class PropertiesViewModel : ObservableObject
 
     /// <summary>選んだボーン・モーフ・カメラ・照明に、キーに登録していない変更がある。</summary>
     public bool HasUnregisteredChange => _node is BoneNode { HasUnregisteredChange: true } or MorphNode { HasUnregisteredChange: true } or CameraNode { HasUnregisteredChange: true }
-        or LightNode { HasUnregisteredChange: true };
+        or LightNode { HasUnregisteredChange: true } or ModelDisplayNode { HasUnregisteredChange: true };
 
     /// <summary>キーの数（ボーン・モーフ・カメラ・照明）。</summary>
     public string KeyCountText => _node switch
@@ -199,6 +221,7 @@ public sealed class PropertiesViewModel : ObservableObject
         MorphNode morph => morph.Keys.Count == 0 ? "キーなし" : $"キー {morph.Keys.Count:N0} 個（{morph.Keys.FirstFrame}〜{morph.Keys.LastFrame} フレーム）",
         CameraNode camera => camera.Keys.Count == 0 ? "キーなし" : $"キー {camera.Keys.Count:N0} 個（{camera.Keys.FirstFrame}〜{camera.Keys.LastFrame} フレーム）",
         LightNode light => light.Keys.Count == 0 ? "キーなし" : $"キー {light.Keys.Count:N0} 個（{light.Keys.FirstFrame}〜{light.Keys.LastFrame} フレーム）",
+        ModelDisplayNode display => display.Keys.Count == 0 ? "キーなし" : $"キー {display.Keys.Count:N0} 個（{display.Keys.FirstFrame}〜{display.Keys.LastFrame} フレーム）",
         _ => string.Empty,
     };
 

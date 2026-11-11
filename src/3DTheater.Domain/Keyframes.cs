@@ -117,6 +117,50 @@ public readonly record struct CameraKey(int Frame, Vector3 Target, Vector3 Rotat
 public readonly record struct MorphKey(int Frame, float Weight, BezierCurve Curve, KeyInterpolationKind Kind = KeyInterpolationKind.Curve) : IKeyframe;
 
 /// <summary>
+/// 切った IK の集まり（IK ボーンの、モデルのファイルでの番号）。値で比べる（同じ番号の集まりなら等しい）。
+/// 入っていない IK ボーンは、IK を解く。
+/// </summary>
+public sealed class IkSwitchSet : IEquatable<IkSwitchSet>
+{
+    private readonly int[] _disabled;
+
+    public IkSwitchSet(IEnumerable<int> disabled) => _disabled = [.. disabled.Distinct().Order()];
+
+    /// <summary>すべての IK を解く。</summary>
+    public static IkSwitchSet AllOn { get; } = new([]);
+
+    /// <summary>切った IK ボーンの番号（小さい順）。</summary>
+    public IReadOnlyList<int> Disabled => _disabled;
+
+    public bool AllEnabled => _disabled.Length == 0;
+
+    public bool IsEnabled(int boneIndex) => Array.BinarySearch(_disabled, boneIndex) < 0;
+
+    /// <summary>1 本の IK を切り替えた集まり（変わらなければ自分）。</summary>
+    public IkSwitchSet With(int boneIndex, bool enabled) =>
+        IsEnabled(boneIndex) == enabled ? this : new(enabled ? _disabled.Where(i => i != boneIndex) : _disabled.Append(boneIndex));
+
+    public bool Equals(IkSwitchSet? other) => other is not null && _disabled.AsSpan().SequenceEqual(other._disabled);
+
+    public override bool Equals(object? obj) => Equals(obj as IkSwitchSet);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        foreach (int i in _disabled)
+        {
+            hash.Add(i);
+        }
+        return hash.ToHashCode();
+    }
+}
+
+/// <summary>
+/// モデルの「表示・IK」のキー 1 つ（MMD と同じ）。モデルを表示するかと、切った IK。次のキーまで値を変えない（いつも段階）。
+/// </summary>
+public readonly record struct DisplayKey(int Frame, bool Shown, IkSwitchSet Ik) : IKeyframe;
+
+/// <summary>
 /// 照明の値（キーで動かすもの）。<see cref="Rotation"/> は度（シーンの項目と同じ。補間では成分ごとに直線で動く）、
 /// <see cref="Color"/> は各 0〜1。届く距離・広がり・ぼかしは、点光源・スポットライトだけが使う。
 /// </summary>
@@ -424,6 +468,18 @@ public static class KeyframeEvaluator
             float.Lerp(p.Range, q.Range, t),
             float.Lerp(p.SpotAngle, q.SpotAngle, t),
             float.Lerp(p.SpotSoftness, q.SpotSoftness, t));
+        return true;
+    }
+
+    /// <summary>表示・IK: <paramref name="frame"/> 以前のいちばん近いキーの値（最初のキーより前は最初のキー）。</summary>
+    public static bool TryEvaluate(KeyTrack<DisplayKey> track, float frame, out DisplayKey key)
+    {
+        key = default;
+        if (!track.FindSegment(frame, out int before, out _))
+        {
+            return false;
+        }
+        key = track.Keys[before];
         return true;
     }
 

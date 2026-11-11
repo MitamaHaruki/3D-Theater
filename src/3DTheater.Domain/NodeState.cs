@@ -20,6 +20,9 @@ public sealed record ModelState(MaterialOverrideSet MaterialOverrides);
 
 public sealed record AudioState(int StartFrame, float Volume);
 
+/// <summary>モデルの表示・IK の値。</summary>
+public sealed record DisplayState(bool Shown, IkSwitchSet Ik, bool HasUnregisteredChange, KeySnapshot<DisplayKey>? Keys);
+
 /// <summary>ボーンの値。<see cref="Keys"/> はキーも写したときだけ入る（値だけの編集ではキーを写さない）。</summary>
 public sealed record BoneState(Quaternion Orientation, bool HasUnregisteredChange, KeySnapshot<BoneKey>? Keys);
 

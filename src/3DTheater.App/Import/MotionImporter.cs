@@ -103,7 +103,12 @@ internal static class MotionImporter
             return;
         }
         MotionImportResult imported = null!;
-        context.Edits.Change($"モーションの読み込み（{Path.GetFileName(path)}）", [.. model.Bones, .. model.Morphs],
+        var targets = new List<SceneNode>([.. model.Bones, .. model.Morphs]);
+        if (model.Display is { } display)
+        {
+            targets.Add(display); // 表示・IK のキーも 1 回の元に戻すで戻す
+        }
+        context.Edits.Change($"モーションの読み込み（{Path.GetFileName(path)}）", targets,
             () => imported = MotionImport.ApplyVmd(motion.Document!, model, context.Playback.FrameRate, motion.Report), includeKeys: true);
         if (imported.LastFrame > context.Playback.EndFrame)
         {
@@ -112,7 +117,8 @@ internal static class MotionImporter
         }
         context.Animation.ApplyFrame();
         Finish(owner, path, motion.Report, "モーション",
-            $"モーションを「{model.Name}」に当てはめました（ボーン {imported.Bones:N0} 本のキー {imported.BoneKeys:N0}・モーフ {imported.Morphs:N0} 個のキー {imported.MorphKeys:N0}、" +
+            $"モーションを「{model.Name}」に当てはめました（ボーン {imported.Bones:N0} 本のキー {imported.BoneKeys:N0}・モーフ {imported.Morphs:N0} 個のキー {imported.MorphKeys:N0}" +
+            (imported.DisplayKeys > 0 ? $"・表示・IK のキー {imported.DisplayKeys:N0}、" : "、") +
             $"最後のキー {imported.LastFrame:N0} フレーム、{stopwatch.Elapsed.TotalMilliseconds:F0} ms）");
     }
 

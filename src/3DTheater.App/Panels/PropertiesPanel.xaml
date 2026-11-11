@@ -41,7 +41,8 @@
         <!-- 名前と表示 -->
         <TextBlock Text="{Binding KindName}" Style="{StaticResource SectionHeaderStyle}" Margin="0,0,0,4" />
         <DockPanel>
-          <CheckBox DockPanel.Dock="Right" Margin="8,0,0,0" MinWidth="0" Content="表示" IsChecked="{Binding NodeIsVisible}" />
+          <CheckBox DockPanel.Dock="Right" Margin="8,0,0,0" MinWidth="0" Content="表示" IsChecked="{Binding NodeIsVisible}"
+                    Visibility="{Binding CanToggleVisibility, Converter={StaticResource BoolToVisibility}}" />
           <TextBox MinHeight="0" Height="26" Padding="6,2" FontSize="13" IsEnabled="{Binding CanRename}"
                    Text="{Binding NodeName, UpdateSourceTrigger=LostFocus}" />
         </DockPanel>
@@ -342,6 +343,25 @@
                     ToolTip="「影の設定...」でセルフシャドウを使い、「影をレイトレーシングで求める」にしたとき、この照明もモデルに影を落とします（くっきりした影。照明ごとに少し重くなります）" />
           <TextBlock Margin="0,6,0,0" Style="{StaticResource PlannedNoteStyle}"
                      Text="MMD の照明は、向き（回転）・色・明るさで、モデルの陰影と影を描きます（隠すと、材質の環境色だけ）。足した照明（シーンのメニュー「照明を追加」）は、位置・向きと色でモデルを明るくします（影は、影をレイトレーシングで求めるときだけ落とします。プレビューに目印の線が出ます）。どちらの照明も、キーで動かせます（MMD のカメラ・照明のモーションの照明のキーは、MMD の照明に当てはまります）。" />
+        </StackPanel>
+
+        <!-- 表示・IK -->
+        <StackPanel Visibility="{Binding IsDisplay, Converter={StaticResource BoolToVisibility}}">
+          <TextBlock Text="表示・IK" Style="{StaticResource SectionHeaderStyle}" Margin="0,14,0,6" />
+          <CheckBox Content="モデルを表示する" IsChecked="{Binding DisplayShown}" IsEnabled="{Binding IsEditable}"
+                    ToolTip="MMD の「表示」。外すと、そのフレームからモデルを描きません（シーン一覧の目の印とは別です）" />
+          <TextBlock Margin="0,10,0,4" TextWrapping="Wrap" Text="IK を使う（外すと、そのフレームから IK を解かず、ひざなどはキーの回転のままになります）"
+                     Visibility="{Binding HasIkSwitches, Converter={StaticResource BoolToVisibility}}" />
+          <ItemsControl ItemsSource="{Binding IkSwitches}" Focusable="False">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate>
+                <CheckBox Margin="0,2" Content="{Binding Name}" IsChecked="{Binding IsEnabled}" IsEnabled="{Binding IsEditable}" />
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+          <TextBlock Margin="0,8,0,0" Text="{Binding KeyCountText}" />
+          <TextBlock Margin="0,6,0,0" Style="{StaticResource PlannedNoteStyle}"
+                     Text="MMD の「表示・IK」と同じく、モデルの表示と IK の切り替えをキーで持ちます（次のキーまで変えない）。タイムラインの「キーを登録」で今のフレームに置きます。MMD のモーションの表示・IK のキーも読み書きします。" />
         </StackPanel>
 
         <!-- 確認用の立方体 -->

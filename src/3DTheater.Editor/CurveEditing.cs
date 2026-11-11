@@ -112,6 +112,7 @@ public static class CurveEditing
             MorphNode morph => morph.Keys.Keys.Select(k => k.Frame),
             CameraNode camera => camera.Keys.Keys.Select(k => k.Frame),
             LightNode light => light.Keys.Keys.Select(k => k.Frame),
+            ModelDisplayNode display => display.Keys.Keys.Select(k => k.Frame),
             _ => [],
         };
         int? previous = null;
@@ -133,6 +134,7 @@ public static class CurveEditing
         MorphNode morph => [.. morph.Keys.Keys.Select(k => k.Frame)],
         CameraNode camera => [.. camera.Keys.Keys.Select(k => k.Frame)],
         LightNode light => [.. light.Keys.Keys.Select(k => k.Frame)],
+        ModelDisplayNode display => [.. display.Keys.Keys.Select(k => k.Frame)],
         _ => [],
     };
 

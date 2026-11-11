@@ -213,7 +213,7 @@ public sealed class PhysicsController
     private static void BakeOne(ModelNode node, LoadedModel model, PhysicsBake bake)
     {
         PoseInput input = model.BakeInput!;
-        PoseSampler.Sample(node, bake.Count, input.Translations, input.Rotations, input.MorphWeights);
+        PoseSampler.Sample(node, bake.Count, input.Translations, input.Rotations, input.MorphWeights, input.IkEnabled);
         bake.BakeNext(input);
     }
 
