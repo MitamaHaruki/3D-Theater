@@ -27,7 +27,7 @@ extern "C" {
 
 // 上位 16 ビットが大きな版、下位 16 ビットが小さな版。大きな版が違う DLL とは組み合わせない。
 #define TT_API_VERSION_MAJOR 0
-#define TT_API_VERSION_MINOR 28
+#define TT_API_VERSION_MINOR 29
 #define TT_API_VERSION ((TT_API_VERSION_MAJOR << 16) | TT_API_VERSION_MINOR)
 
 // 0 以上は成功、負の値は失敗。
@@ -387,7 +387,11 @@ typedef struct TtFrameParams {
     // トゥーンの材質は映さない
     float ssr_strength;     // 強さ（0〜1。0 なら何もしない）
     float ssr_max_distance; // 映る物を探す距離（ワールドの長さ。0.1 以上）
-    uint32_t reserved13[2];
+    // ここから API 0.29（レイトレーシングの光線の数。0 なら 8。1〜64 に収める）。環境光の遮りは 1 点あたりこの数を出す。
+    // やわらかなレイトレーシングの影は、まず 4 本（この数が 4 より少なければこの数）出し、全部が同じ（全部が遮られる・全部が当たらない）なら
+    // それで決め、違えば（影の境目）さらにこの数を出す
+    uint32_t ray_samples;
+    uint32_t reserved13;
 } TtFrameParams;
 
 TT_API uint32_t TT_CALL tt_get_api_version(void);

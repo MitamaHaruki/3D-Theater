@@ -301,6 +301,7 @@ private:
     // モデル（MMD と同じトゥーンの色の計算と輪郭線）
     ComPtr<ID3D11VertexShader> modelVertexShader_;
     ComPtr<ID3D11PixelShader> modelPixelShader_;
+    ComPtr<ID3D11PixelShader> modelOpaquePixelShader_; // ふつうの描画用（捨てる処理が無いので、隠れた所は先に奥行きで省ける）
     ComPtr<ID3D11VertexShader> edgeVertexShader_;
     ComPtr<ID3D11PixelShader> edgePixelShader_;
     ComPtr<ID3D11InputLayout> modelInputLayout_;

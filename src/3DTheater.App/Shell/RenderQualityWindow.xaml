@@ -24,26 +24,26 @@
     <RadioButton x:Name="LightRadio" AutomationProperties.Name="軽い" Style="{StaticResource ChoiceStyle}" GroupName="Quality" Checked="OnQualityChanged">
       <StackPanel>
         <TextBlock Text="軽い" />
-        <TextBlock Style="{StaticResource ChoiceNoteStyle}" Text="なめらかにしない・影は粗め（1024）。GPU が弱いときや、再生がかくつくときに" />
+        <TextBlock Style="{StaticResource ChoiceNoteStyle}" Text="なめらかにしない・影は粗め（1024）・レイトレーシングの光線は少なめ（4）。GPU が弱いときや、再生がかくつくときに" />
       </StackPanel>
     </RadioButton>
     <RadioButton x:Name="StandardRadio" AutomationProperties.Name="ふつう" Style="{StaticResource ChoiceStyle}" GroupName="Quality" Checked="OnQualityChanged">
       <StackPanel>
         <TextBlock Text="ふつう（初期値）" />
-        <TextBlock Style="{StaticResource ChoiceNoteStyle}" Text="4 倍のなめらかさ（MSAA。線や輪郭のギザギザを減らす）・ふつうの影（2048）" />
+        <TextBlock Style="{StaticResource ChoiceNoteStyle}" Text="4 倍のなめらかさ（MSAA。線や輪郭のギザギザを減らす）・ふつうの影（2048）・レイトレーシングの光線 8" />
       </StackPanel>
     </RadioButton>
     <RadioButton x:Name="HighRadio" AutomationProperties.Name="きれい" Style="{StaticResource ChoiceStyle}" GroupName="Quality" Checked="OnQualityChanged">
       <StackPanel>
         <TextBlock Text="きれい" />
-        <TextBlock Style="{StaticResource ChoiceNoteStyle}" Text="8 倍のなめらかさ・細かい影（4096）。GPU に余裕があるときに" />
+        <TextBlock Style="{StaticResource ChoiceNoteStyle}" Text="8 倍のなめらかさ・細かい影（4096）・レイトレーシングの光線 12。GPU に余裕があるときに" />
       </StackPanel>
     </RadioButton>
     <TextBlock x:Name="NoteText" Margin="0,8,0,0" Style="{StaticResource ChoiceNoteStyle}" />
 
     <TextBlock Style="{StaticResource SectionHeaderStyle}" Margin="0,16,0,4" Text="書き出しの品質" />
     <TextBlock Style="{StaticResource ChoiceNoteStyle}"
-               Text="書き出し（PNG・動画）は、プレビューの品質に関係なく、いつも 4 倍のなめらかさと細かい影（4096）で描きます。書き出しの画面で「なめらかにする」を選ぶと、さらに 2 倍の大きさで描いて縮めます。" />
+               Text="書き出し（PNG・動画）は、プレビューの品質に関係なく、いつも 4 倍のなめらかさと細かい影（4096）、レイトレーシングの光線 16 で描きます。書き出しの画面で「なめらかにする」を選ぶと、さらに 2 倍の大きさで描いて縮めます。" />
 
     <DockPanel Margin="0,18,0,0" LastChildFill="False">
       <Button x:Name="CloseButton" DockPanel.Dock="Right" MinWidth="88" Content="閉じる" IsCancel="True" IsDefault="True" Click="OnCloseClick" />

@@ -6,10 +6,10 @@ public sealed class RenderQualityTests
     [TestMethod]
     public void PresetsGoFromLightToHigh()
     {
-        Assert.AreEqual(new QualityProfile(1, 1024), RenderQuality.For(PreviewQuality.Light), "軽い: なめらかにしない・影は粗め");
-        Assert.AreEqual(new QualityProfile(4, 2048), RenderQuality.For(PreviewQuality.Standard), "ふつう: 4 点・今までの影");
-        Assert.AreEqual(new QualityProfile(8, 4096), RenderQuality.For(PreviewQuality.High), "きれい: 8 点・細かい影");
-        Assert.AreEqual(new QualityProfile(4, 4096), RenderQuality.Export, "書き出しはプレビューに関係なく 4 点・細かい影");
+        Assert.AreEqual(new QualityProfile(1, 1024, 4), RenderQuality.For(PreviewQuality.Light), "軽い: なめらかにしない・影は粗め・光線は少なめ");
+        Assert.AreEqual(new QualityProfile(4, 2048, 8), RenderQuality.For(PreviewQuality.Standard), "ふつう: 4 点・今までの影・光線 8");
+        Assert.AreEqual(new QualityProfile(8, 4096, 12), RenderQuality.For(PreviewQuality.High), "きれい: 8 点・細かい影・光線 12");
+        Assert.AreEqual(new QualityProfile(4, 4096, 16), RenderQuality.Export, "書き出しはプレビューに関係なく 4 点・細かい影・光線 16");
         Assert.AreEqual("ふつう", RenderQuality.Name(PreviewQuality.Standard));
     }
 

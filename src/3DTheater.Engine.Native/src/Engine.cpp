@@ -38,6 +38,7 @@
 #include "LinearDepthMsPS.h"
 #include "LinearDepthPS.h"
 #include "ModelPS.h"
+#include "ModelOpaquePS.h"
 #include "ModelVS.h"
 #include "ShadowVS.h"
 
@@ -185,6 +186,12 @@ struct MaterialConstants {
 bool IsFinite3(const float (&v)[3]) noexcept
 {
     return std::isfinite(v[0]) && std::isfinite(v[1]) && std::isfinite(v[2]);
+}
+
+// レイトレーシングの光線の数（0 なら 8。1〜64）
+float RaySamplesOf(const TtFrameParams& params) noexcept
+{
+    return static_cast<float>(params.ray_samples == 0 ? 8u : std::clamp<uint32_t>(params.ray_samples, 1, 64));
 }
 
 // メインの照明（光が進む向き（正規化済み）と色）。TT_FRAME_USE_LIGHT が無いか、値が正しくなければ MMD の初期の照明
@@ -363,6 +370,7 @@ void Engine::ReleaseDevice() noexcept
     edgePixelShader_.Reset();
     edgeVertexShader_.Reset();
     modelPixelShader_.Reset();
+    modelOpaquePixelShader_.Reset();
     modelVertexShader_.Reset();
     overlayDepthState_.Reset();
     overlayVertexBuffer_.Reset();
@@ -689,7 +697,7 @@ void Engine::DrawScene(ID3D11RenderTargetView* rtv, ID3D11DepthStencilView* dsv,
         // レイトレーシングでの影: 奥行きの画像は作らない（光線を当てる物は、始めに GPU へ送ってある）
         frame.shadowParams = {0.0f, 0.0f, 1.0f, 0.0f};
         frame.shadowSoftness = {0.0f, ShadowSoftnessOf(params), 0.0f, 0.0f};
-        frame.rayShadowParams = {1.0f, static_cast<float>(rayScene_->InstanceCount()), 0.0f, 0.0f};
+        frame.rayShadowParams = {1.0f, static_cast<float>(rayScene_->InstanceCount()), RaySamplesOf(params), 0.0f};
     } else if (selfShadow) {
         RenderShadowMap(params, frame); // 影を落とすものが無ければ、セルフシャドウなしのまま
     }
@@ -986,7 +994,8 @@ void Engine::ApplyPostEffects(const TtFrameParams& params, const PostInputs& inp
     XMStoreFloat4(&constants.rayLightColor, rayLightColor);
     const bool rayTracing = rays && XMVectorGetX(determinant) != 0.0f && params.projection[5] != 0.0f && std::isfinite(params.projection[5]);
     constants.rayParams = {0.0f, rays ? static_cast<float>(rayScene_->InstanceCount()) : 0.0f,
-        params.projection[5] != 0.0f ? 2.0f / (std::abs(params.projection[5]) * static_cast<float>(std::max(height, 1))) : 0.0f, 0.0f};
+        params.projection[5] != 0.0f ? 2.0f / (std::abs(params.projection[5]) * static_cast<float>(std::max(height, 1))) : 0.0f,
+        RaySamplesOf(params)};
 
     ctx->OMSetBlendState(nullptr, nullptr, 0xFFFFFFFF);
     ctx->OMSetDepthStencilState(overlayDepthState_.Get(), 0);
@@ -1564,7 +1573,9 @@ void Engine::DrawMesh(const Mesh& mesh, DirectX::FXMMATRIX world, const ModelFra
     WriteObjectConstants(world, world * XMLoadFloat4x4(&frame.viewProj), frame);
     BindMesh(mesh);
     ctx->VSSetShader(modelVertexShader_.Get(), nullptr, 0);
-    ctx->PSSetShader(modelPixelShader_.Get(), nullptr, 0);
+    // レンダーパスでも床の映り込みでもなければ、捨てる処理の無い方（隠れた所を、ピクセルシェーダーの前に奥行きで省ける）
+    const bool clipping = drawingReflection_ || frame.passParams.x > 0.5f;
+    ctx->PSSetShader(clipping ? modelPixelShader_.Get() : modelOpaquePixelShader_.Get(), nullptr, 0);
     ID3D11SamplerState* samplers[] = {textureSampler_.Get(), clampSampler_.Get(), shadowSampler_.Get(), environmentSampler_.Get()};
     ctx->PSSetSamplers(0, 4, samplers);
     ctx->OMSetDepthStencilState(modelDepthState_.Get(), 0);
@@ -2000,6 +2011,8 @@ void Engine::CreateModelResources()
 
     CheckHr(device_->CreateVertexShader(g_ModelVS, sizeof(g_ModelVS), nullptr, &modelVertexShader_), L"モデルの頂点シェーダーの作成");
     CheckHr(device_->CreatePixelShader(g_ModelPS, sizeof(g_ModelPS), nullptr, &modelPixelShader_), L"モデルのピクセルシェーダーの作成");
+    CheckHr(device_->CreatePixelShader(g_ModelOpaquePS, sizeof(g_ModelOpaquePS), nullptr, &modelOpaquePixelShader_),
+        L"モデルのピクセルシェーダー（捨てる処理なし）の作成");
     CheckHr(device_->CreateVertexShader(g_EdgeVS, sizeof(g_EdgeVS), nullptr, &edgeVertexShader_), L"輪郭線の頂点シェーダーの作成");
     CheckHr(device_->CreatePixelShader(g_EdgePS, sizeof(g_EdgePS), nullptr, &edgePixelShader_), L"輪郭線のピクセルシェーダーの作成");
 

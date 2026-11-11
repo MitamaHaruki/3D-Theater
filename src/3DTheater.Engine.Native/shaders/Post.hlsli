@@ -24,7 +24,8 @@ cbuffer PostConstants : register(b0)
     row_major float4x4 ViewToWorld; // 見る向きの座標 → ワールド（レイトレーシングで使う）
     float4 RayLight;         // レイトレーシングで当たった所の色の計算に使う照明: xyz = 光が進む向き（正規化済み）
     float4 RayLightColor;    // rgb = 照明の色
-    float4 RayParams;        // レイトレーシング: x = 1 なら使う、y = 物の数、z = 画素 1 つ分の広がり（透視投影は距離 1 あたり、平行投影はワールドの長さ）
+    float4 RayParams;        // レイトレーシング: x = 1 なら使う、y = 物の数、z = 画素 1 つ分の広がり（透視投影は距離 1 あたり、平行投影はワールドの長さ）、
+                             //   w = 光線の数（環境光の遮りで 1 点あたり）
 };
 
 Texture2D Source : register(t0);

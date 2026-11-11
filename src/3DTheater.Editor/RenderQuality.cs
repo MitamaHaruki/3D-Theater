@@ -14,13 +14,14 @@ public enum PreviewQuality
 }
 
 /// <summary>描き方の品質。<paramref name="SampleCount"/> はなめらかさ（MSAA の 1 画素あたりの点の数）、
-/// <paramref name="ShadowMapSize"/> はセルフシャドウの奥行きの画像の 1 辺。</summary>
-public readonly record struct QualityProfile(int SampleCount, int ShadowMapSize);
+/// <paramref name="ShadowMapSize"/> はセルフシャドウの奥行きの画像の 1 辺、<paramref name="RaySamples"/> はレイトレーシングの光線の数
+/// （環境光の遮りは 1 点あたりこの数。やわらかな影は、影の境目だけこの数）。</summary>
+public readonly record struct QualityProfile(int SampleCount, int ShadowMapSize, int RaySamples);
 
 /// <summary>
 /// 品質の決まり。編集中は軽く、書き出しは高い品質で描く（指示書 6.1「編集用の軽量描画と、書き出し用の高品質描画を分離する」）。
-/// - プレビュー: 軽い = 1 点・影 1024、ふつう = 4 点・影 2048、きれい = 8 点・影 4096
-/// - 書き出し: プレビューの品質に関係なく 4 点・影 4096（「なめらかにする」では、さらに 2 倍の大きさで描いて縮める）
+/// - プレビュー: 軽い = 1 点・影 1024・光線 4、ふつう = 4 点・影 2048・光線 8、きれい = 8 点・影 4096・光線 12
+/// - 書き出し: プレビューの品質に関係なく 4 点・影 4096・光線 16（「なめらかにする」では、さらに 2 倍の大きさで描いて縮める）
 /// - MSAA の描画先（1 点ごとに色 4 バイト・奥行き 4 バイト）が 512 MiB を超える大きさでは、収まるまで点の数を半分にする
 /// - GPU が使えない点の数のときは、描画エンジンが使える数まで減らす
 /// </summary>
@@ -30,13 +31,13 @@ public static class RenderQuality
     public const long SampleMemoryBudget = 512L * 1024 * 1024;
 
     /// <summary>書き出しの品質。</summary>
-    public static QualityProfile Export { get; } = new(4, 4096);
+    public static QualityProfile Export { get; } = new(4, 4096, 16);
 
     public static QualityProfile For(PreviewQuality quality) => quality switch
     {
-        PreviewQuality.Light => new(1, 1024),
-        PreviewQuality.High => new(8, 4096),
-        _ => new(4, 2048),
+        PreviewQuality.Light => new(1, 1024, 4),
+        PreviewQuality.High => new(8, 4096, 12),
+        _ => new(4, 2048, 8),
     };
 
     /// <summary>この大きさの描画先で使う点の数（メモリの上限に収まるまで、頼まれた数を半分にしていく）。</summary>

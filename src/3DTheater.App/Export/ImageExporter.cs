@@ -266,7 +266,7 @@ internal static class ImageExporter
             lightDirection, lightColor, SceneLighting.EdgePixelScale(height), context.Rendering.ShadowStyle.GroundColor,
             RenderQuality.Export.ShadowMapSize, clear, context.Rendering.ToNative(height, camera), EffectsMapping.LightsOf(context.Scene),
             reflection.Strength, reflection.Fade, context.Rendering.ShadowStyle.SoftnessTangent, environmentImage, environment.Intensity,
-            environment.RotationRadians, ReflectionBlur: reflection.Blur);
+            environment.RotationRadians, ReflectionBlur: reflection.Blur, RaySamples: RenderQuality.Export.RaySamples);
         view.Render(parameters);
 
         int bytes = width * height * 4;

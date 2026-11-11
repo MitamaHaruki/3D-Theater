@@ -1899,6 +1899,213 @@ public:
         Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
     }
 
+    TEST_METHOD(BenchmarkRayTracingOnHardware)
+    {
+        // レイトレーシングの重さを、本物の GPU で同じ場面を続けて描いて測る（速くする工夫の前後を比べるため）。
+        // ふだんのテストでは測らない（環境変数 TT_BENCHMARK が 1 のときだけ。GPU が無い環境・時間が掛かるため）
+        char flag[8]{};
+        size_t length = 0;
+        if (getenv_s(&length, flag, sizeof(flag), "TT_BENCHMARK") != 0 || std::string(flag) != "1") {
+            Logger::WriteMessage(L"TT_BENCHMARK=1 のときだけ測る");
+            return;
+        }
+        using namespace DirectX;
+        const TtEngineDesc engineDesc{sizeof(TtEngineDesc), 0};
+        TtEngine* engine = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_engine_create(&engineDesc, &engine));
+        constexpr int width = 960;
+        constexpr int height = 540;
+        TtView* view = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_view_create_offscreen(engine, width, height, 0, &view));
+        uint32_t actual = 0;
+        Assert::AreEqual<int>(TT_OK, tt_view_set_sample_count(view, 4, &actual));
+
+        // 白いテクスチャ・半分が透明なテクスチャ（髪の束のように、透明な所を通り抜ける）
+        TtTexture* white = CreateSolidTexture(engine, 230, 230, 230);
+        std::vector<uint8_t> stripes;
+        for (int y = 0; y < 8; ++y) {
+            for (int x = 0; x < 8; ++x) {
+                const uint8_t a = (x % 2 == 0) ? 255 : 0;
+                stripes.insert(stripes.end(), {60, 180, 230, a});
+            }
+        }
+        TtTexture* hairTexture = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_texture_create(engine, 8, 8, stripes.data(), 32, &hairTexture));
+        auto makeMesh = [&](const std::vector<TtMeshVertex>& vertices, const std::vector<uint32_t>& indices, TtTexture* texture, uint32_t flags) {
+            TtMeshMaterial material = QuadMaterial(texture, flags);
+            material.index_count = static_cast<uint32_t>(indices.size());
+            TtMeshDesc desc{};
+            desc.struct_size = sizeof(desc);
+            desc.vertex_count = static_cast<uint32_t>(vertices.size());
+            desc.vertices = vertices.data();
+            desc.index_count = static_cast<uint32_t>(indices.size());
+            desc.indices = indices.data();
+            desc.material_count = 1;
+            desc.materials = &material;
+            TtMesh* mesh = nullptr;
+            Assert::AreEqual<int>(TT_OK, tt_mesh_create(engine, &desc, &mesh));
+            return mesh;
+        };
+        // 体: 細かい球（横 96・縦 48。約 9,000 枚）
+        std::vector<TtMeshVertex> bodyVertices;
+        std::vector<uint32_t> bodyIndices;
+        constexpr int rings = 48;
+        constexpr int segments = 96;
+        for (int j = 0; j <= rings; ++j) {
+            const float theta = XM_PI * static_cast<float>(j) / rings;
+            for (int i = 0; i <= segments; ++i) {
+                const float phi = XM_2PI * static_cast<float>(i) / segments;
+                const float x = std::sin(theta) * std::cos(phi);
+                const float y = std::cos(theta);
+                const float z = std::sin(theta) * std::sin(phi);
+                bodyVertices.push_back({{x, y + 1.2f, z}, {x, y, z}, {static_cast<float>(i) / segments, static_cast<float>(j) / rings}});
+            }
+        }
+        for (int j = 0; j < rings; ++j) {
+            for (int i = 0; i < segments; ++i) {
+                const uint32_t a = static_cast<uint32_t>(j * (segments + 1) + i);
+                const uint32_t c = a + segments + 1;
+                bodyIndices.insert(bodyIndices.end(), {a, c + 1, a + 1, a, c, c + 1});
+            }
+        }
+        TtMesh* body = makeMesh(bodyVertices, bodyIndices, white, TT_MATERIAL_CAST_SHADOW | TT_MATERIAL_RECEIVE_SHADOW | TT_MATERIAL_DOUBLE_SIDED);
+        // 髪: 球の上半分を覆う、細長い板 3,000 枚（透明な所のあるテクスチャ）
+        std::vector<TtMeshVertex> hairVertices;
+        std::vector<uint32_t> hairIndices;
+        uint32_t seed = 12345;
+        auto random = [&] {
+            seed = seed * 1664525u + 1013904223u;
+            return static_cast<float>(seed >> 8) / 16777216.0f;
+        };
+        for (int k = 0; k < 3000; ++k) {
+            const float theta = random() * 1.3f;
+            const float phi = random() * XM_2PI;
+            const float r = 1.03f + random() * 0.15f;
+            const XMVECTOR n = XMVectorSet(std::sin(theta) * std::cos(phi), std::cos(theta), std::sin(theta) * std::sin(phi), 0.0f);
+            const XMVECTOR tangent = XMVector3Normalize(XMVector3Cross(n, XMVectorSet(0, 1, 0, 0) + XMVectorSet(0.01f, 0, 0, 0)));
+            const XMVECTOR down = XMVector3Normalize(XMVector3Cross(tangent, n));
+            const XMVECTOR base = XMVectorAdd(XMVectorScale(n, r), XMVectorSet(0, 1.2f, 0, 0));
+            const XMVECTOR halfWidth = XMVectorScale(tangent, 0.06f);
+            const XMVECTOR strand = XMVectorScale(down, 0.5f);
+            const uint32_t first = static_cast<uint32_t>(hairVertices.size());
+            const XMVECTOR corners[4] = {XMVectorSubtract(base, halfWidth), XMVectorAdd(base, halfWidth),
+                XMVectorAdd(XMVectorAdd(base, halfWidth), strand), XMVectorAdd(XMVectorSubtract(base, halfWidth), strand)};
+            for (int c = 0; c < 4; ++c) {
+                TtMeshVertex v{};
+                XMStoreFloat3(reinterpret_cast<XMFLOAT3*>(v.position), corners[c]);
+                XMStoreFloat3(reinterpret_cast<XMFLOAT3*>(v.normal), n);
+                v.uv[0] = (c == 1 || c == 2) ? 1.0f : 0.0f;
+                v.uv[1] = c >= 2 ? 1.0f : 0.0f;
+                hairVertices.push_back(v);
+            }
+            hairIndices.insert(hairIndices.end(), {first, first + 1, first + 2, first, first + 2, first + 3});
+        }
+        TtMesh* hair = makeMesh(hairVertices, hairIndices, hairTexture,
+            TT_MATERIAL_CAST_SHADOW | TT_MATERIAL_RECEIVE_SHADOW | TT_MATERIAL_DOUBLE_SIDED);
+        // 床: つやのある金属（PBR）の大きな板
+        const TtMeshMaterial floorMaterial = QuadMaterial(white, TT_MATERIAL_RECEIVE_SHADOW | TT_MATERIAL_DOUBLE_SIDED);
+        const TtMeshDesc floorDesc = QuadDesc(kClockwise, &floorMaterial);
+        TtMesh* floor = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_mesh_create(engine, &floorDesc, &floor));
+        TtMaterialState metal{};
+        metal.diffuse[0] = metal.diffuse[1] = metal.diffuse[2] = metal.diffuse[3] = 1.0f;
+        for (float* v : {metal.texture_multiply, metal.sphere_multiply, metal.toon_multiply, metal.base_tint}) {
+            v[0] = v[1] = v[2] = v[3] = 1.0f;
+        }
+        metal.edge_color[3] = 1.0f;
+        metal.shading = TT_SHADING_PBR;
+        metal.metallic = 1.0f;
+        metal.roughness = 0.1f;
+        Assert::AreEqual<int>(TT_OK, tt_mesh_update_materials(floor, &metal, 1));
+
+        TtDrawItem items[3] = {DrawItem(floor), DrawItem(body), DrawItem(hair)};
+        XMStoreFloat4x4(reinterpret_cast<XMFLOAT4X4*>(items[0].world), XMMatrixScaling(6.0f, 6.0f, 1.0f) * XMMatrixRotationX(XM_PIDIV2));
+        TtFrameParams params = MakeParams(TT_FRAME_USE_LIGHT);
+        XMStoreFloat4x4(reinterpret_cast<XMFLOAT4X4*>(params.view),
+            XMMatrixLookAtLH(XMVectorSet(0.0f, 1.6f, -4.0f, 1.0f), XMVectorSet(0.0f, 0.9f, 0.0f, 1.0f), XMVectorSet(0, 1, 0, 0)));
+        XMStoreFloat4x4(reinterpret_cast<XMFLOAT4X4*>(params.projection), XMMatrixPerspectiveFovLH(XMConvertToRadians(40.0f), 16.0f / 9.0f, 0.1f, 100.0f));
+        params.light_direction[0] = 0.6f;
+        params.light_direction[1] = -1.0f;
+        params.light_direction[2] = 0.4f;
+        params.light_color[0] = params.light_color[1] = params.light_color[2] = 0.6f;
+        params.items = items;
+        params.item_count = 3;
+        params.vignette = 0.0f;
+        params.ssr_strength = 1.0f;
+        params.ssr_max_distance = 30.0f;
+        params.ao_strength = 1.0f;
+        params.ao_radius = 0.5f;
+
+        auto measure = [&](uint32_t frameFlags, uint32_t postFlags, float softness, uint32_t raySamples) {
+            params.flags = TT_FRAME_USE_LIGHT | frameFlags;
+            params.post_flags = postFlags;
+            params.shadow_softness = softness;
+            params.ray_samples = raySamples;
+            // 続けて描いて GPU の速さを上げてから、1 回ずつ待って測る（中央の値）
+            for (int i = 0; i < 120; ++i) {
+                Assert::AreEqual<int>(TT_OK, tt_view_render(view, &params));
+                if (i % 3 == 2) {
+                    Assert::AreEqual<int>(TT_OK, tt_engine_wait_for_gpu(engine));
+                }
+            }
+            std::vector<float> samples;
+            for (int i = 0; i < 150; ++i) {
+                Assert::AreEqual<int>(TT_OK, tt_view_render(view, &params));
+                Assert::AreEqual<int>(TT_OK, tt_engine_wait_for_gpu(engine));
+                float milliseconds = 0.0f;
+                if (tt_view_get_gpu_time(view, &milliseconds) == TT_OK) {
+                    samples.push_back(milliseconds);
+                }
+            }
+            std::sort(samples.begin(), samples.end());
+            return samples.empty() ? -1.0f : samples[samples.size() / 2];
+        };
+        struct Case {
+            const wchar_t* name;
+            uint32_t frame;
+            uint32_t post;
+            float softness;
+            uint32_t raySamples; // 0 なら 8
+        };
+        const Case cases[] = {
+            {L"影（奥行きの画像）", TT_FRAME_SELF_SHADOW, 0, 0.0f, 0},
+            {L"影（レイトレーシング）", TT_FRAME_SELF_SHADOW | TT_FRAME_RAYTRACED_SHADOWS, 0, 0.0f, 0},
+            {L"影（レイトレーシング・やわらかさ 0.05・光線 4）", TT_FRAME_SELF_SHADOW | TT_FRAME_RAYTRACED_SHADOWS, 0, 0.05f, 4},
+            {L"影（レイトレーシング・やわらかさ 0.05・光線 8）", TT_FRAME_SELF_SHADOW | TT_FRAME_RAYTRACED_SHADOWS, 0, 0.05f, 0},
+            {L"影（レイトレーシング・やわらかさ 0.05・光線 16）", TT_FRAME_SELF_SHADOW | TT_FRAME_RAYTRACED_SHADOWS, 0, 0.05f, 16},
+            {L"環境光の遮り（画面の奥行き）", 0, TT_POST_VIGNETTE | TT_POST_AO, 0.0f, 0},
+            {L"環境光の遮り（レイトレーシング・光線 4）", 0, TT_POST_VIGNETTE | TT_POST_AO | TT_POST_RAYTRACED_AO, 0.0f, 4},
+            {L"環境光の遮り（レイトレーシング・光線 8）", 0, TT_POST_VIGNETTE | TT_POST_AO | TT_POST_RAYTRACED_AO, 0.0f, 0},
+            {L"環境光の遮り（レイトレーシング・光線 16）", 0, TT_POST_VIGNETTE | TT_POST_AO | TT_POST_RAYTRACED_AO, 0.0f, 16},
+            {L"画面の中の反射", 0, TT_POST_VIGNETTE | TT_POST_SSR, 0.0f, 0},
+            {L"画面の中の反射 + レイトレーシング", 0, TT_POST_VIGNETTE | TT_POST_SSR | TT_POST_RAYTRACED_REFLECTIONS, 0.0f, 0},
+        };
+        std::wstring report = L"GPU の時間（960 x 540・MSAA 4 倍・中央の値）\n";
+        for (const Case& c : cases) {
+            const float milliseconds = measure(c.frame, c.post, c.softness, c.raySamples);
+            report += std::wstring(c.name) + L": " + std::to_wstring(milliseconds) + L" ms\n";
+        }
+        Logger::WriteMessage(report.c_str());
+        // テストの結果の画面に出るよう、ファイルにも書く
+        wchar_t path[MAX_PATH]{};
+        size_t pathLength = 0;
+        if (_wgetenv_s(&pathLength, path, MAX_PATH, L"TT_BENCHMARK_OUT") == 0 && pathLength > 0) {
+            FILE* file = nullptr;
+            if (_wfopen_s(&file, path, L"w, ccs=UTF-8") == 0 && file) {
+                fputws(report.c_str(), file);
+                fclose(file);
+            }
+        }
+
+        for (TtMesh* mesh : {floor, body, hair}) {
+            Assert::AreEqual<int>(TT_OK, tt_mesh_destroy(mesh));
+        }
+        Assert::AreEqual<int>(TT_OK, tt_texture_destroy(white));
+        Assert::AreEqual<int>(TT_OK, tt_texture_destroy(hairTexture));
+        Assert::AreEqual<int>(TT_OK, tt_view_destroy(view));
+        Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
+    }
+
     TEST_METHOD(GpuTimeIsMeasuredWithoutWaiting)
     {
         // 1 回の描画に GPU が掛けた時間: 描画の始めと終わりの GPU の時刻を記録し、結果が出たものを待たずに読む
@@ -2486,6 +2693,7 @@ public:
             Assert::AreEqual<int>(TT_OK, tt_mesh_create(engine, &desc, &mesh));
             return mesh;
         };
+        uint32_t raySamples = 0;
         auto render = [&](uint32_t receiverFlags, uint32_t occluderFlags, uint32_t frameFlags, float softness) {
             TtMesh* floor = flatMesh(0.0f, 3.0f, receiverFlags);
             TtMesh* occluder = flatMesh(1.0f, 0.5f, occluderFlags);
@@ -2496,6 +2704,7 @@ public:
             params.light_direction[1] = -1.0f;
             params.light_color[0] = params.light_color[1] = params.light_color[2] = 0.6f;
             params.shadow_softness = softness;
+            params.ray_samples = raySamples;
             const TtDrawItem items[] = {DrawItem(floor), DrawItem(occluder)};
             params.items = items;
             params.item_count = 2;
@@ -2550,6 +2759,12 @@ public:
         const std::vector<uint8_t> soft = render(TT_MATERIAL_RECEIVE_SHADOW, TT_MATERIAL_CAST_SHADOW, kRay, 0.1f);
         Assert::IsTrue(between(soft) >= 2, L"柔らかな影の境目は、影と光の間の色になる");
         Assert::IsTrue(isRed(pixel(soft, 46, 24)), L"柔らかな影でも、影の真ん中は影の色");
+        // 光線の数: 1 本なら、境目でも影か光のどちらか（間の色にならない）。多いほど境目がなめらか
+        raySamples = 1;
+        Assert::AreEqual(0, between(render(TT_MATERIAL_RECEIVE_SHADOW, TT_MATERIAL_CAST_SHADOW, kRay, 0.1f)), L"光線 1 本では間の色にならない");
+        raySamples = 32;
+        Assert::IsTrue(between(render(TT_MATERIAL_RECEIVE_SHADOW, TT_MATERIAL_CAST_SHADOW, kRay, 0.1f)) >= 2, L"光線が多くても境目は間の色");
+        raySamples = 0;
 
         Assert::AreEqual<int>(TT_OK, tt_texture_destroy(toon));
         Assert::AreEqual<int>(TT_OK, tt_view_destroy(view));
@@ -2765,6 +2980,55 @@ public:
         Assert::AreEqual<int>(TT_OK, tt_mesh_destroy(plate));
         Assert::AreEqual<int>(TT_OK, tt_mesh_destroy(occluder));
         Assert::AreEqual<int>(TT_OK, tt_texture_destroy(toon));
+        Assert::AreEqual<int>(TT_OK, tt_view_destroy(view));
+        Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
+    }
+
+    TEST_METHOD(DrawOrderShowsWhatMmdShowsThroughSemiTransparentSurfaces)
+    {
+        // MMD と同じく、描く順に重ねる。先に描いた半透明の板（手前）の奥に、後から描く不透明な板（真ん中）があっても、
+        // 真ん中の板は手前の板の奥行きで隠れ、さらに奥の（最初に描いた）板が透けて見える。
+        // レイトレーシングの影でも同じ（速くするために「奥行きだけを先に描く」と、この奥の板が消えた。それを防ぐ確かめ）
+        TtEngine* engine = CreateWarpEngine();
+        constexpr int width = 32;
+        constexpr int height = 24;
+        TtView* view = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_view_create_offscreen(engine, width, height, 0, &view));
+        auto makeQuad = [&](uint8_t b, uint8_t g, uint8_t r, float alpha) {
+            TtTexture* texture = CreateSolidTexture(engine, b, g, r);
+            TtMeshMaterial material = QuadMaterial(texture, TT_MATERIAL_RECEIVE_SHADOW);
+            material.diffuse[3] = alpha;
+            const TtMeshDesc desc = QuadDesc(kClockwise, &material);
+            TtMesh* mesh = nullptr;
+            Assert::AreEqual<int>(TT_OK, tt_mesh_create(engine, &desc, &mesh));
+            Assert::AreEqual<int>(TT_OK, tt_texture_destroy(texture));
+            return mesh;
+        };
+        TtMesh* back = makeQuad(0, 0, 255, 1.0f);   // 赤・不透明・いちばん奥
+        TtMesh* front = makeQuad(0, 255, 0, 0.5f);  // 緑・半透明・いちばん手前
+        TtMesh* middle = makeQuad(255, 0, 0, 1.0f); // 青・不透明・真ん中（最後に描く）
+
+        using namespace DirectX;
+        TtDrawItem items[3] = {DrawItem(back), DrawItem(front), DrawItem(middle)};
+        XMStoreFloat4x4(reinterpret_cast<XMFLOAT4X4*>(items[0].world), XMMatrixTranslation(0.0f, 0.0f, 1.0f));
+        XMStoreFloat4x4(reinterpret_cast<XMFLOAT4X4*>(items[1].world), XMMatrixTranslation(0.0f, 0.0f, -1.0f));
+        XMStoreFloat4x4(reinterpret_cast<XMFLOAT4X4*>(items[2].world), XMMatrixIdentity());
+        TtFrameParams params = MakeFrontParams();
+        params.light_direction[2] = 1.0f;
+        params.light_color[0] = params.light_color[1] = params.light_color[2] = 0.6f;
+        params.items = items;
+        params.item_count = 3;
+        for (uint32_t shadows : std::initializer_list<uint32_t>{TT_FRAME_SELF_SHADOW, TT_FRAME_SELF_SHADOW | TT_FRAME_RAYTRACED_SHADOWS}) {
+            params.flags = TT_FRAME_USE_LIGHT | shadows;
+            const std::vector<uint8_t> pixels = RenderAndRead(engine, view, params, width, height);
+            const uint8_t* p = &pixels[(static_cast<size_t>(height / 2) * width + width / 2) * 4];
+            Assert::IsTrue(IsNear(p[2], 128, 6) && IsNear(p[1], 128, 6) && p[0] < 8,
+                L"手前の半透明の緑から、奥の赤が透けて見える（真ん中の青は隠れる）");
+        }
+
+        for (TtMesh* mesh : {back, front, middle}) {
+            Assert::AreEqual<int>(TT_OK, tt_mesh_destroy(mesh));
+        }
         Assert::AreEqual<int>(TT_OK, tt_view_destroy(view));
         Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
     }

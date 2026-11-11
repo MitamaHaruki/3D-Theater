@@ -21,11 +21,11 @@ static const float kReflectionGroundScale = 0.45;
 // 光線は照明の向きに少し進めた所から出す（同じ直線の上なので、影の位置はずれない）。面の向きにはわずかに浮かせるだけにする
 // （面の向きに浮かせると、斜めの光では影が照明の側へずれる）。ただし、三角形そのものが照明に背を向けている所（なめらかに見せた
 // 曲面の、光と影の境目の近く）は、自分の三角形に当たるので、なめらかな向きの側へ大きく浮かせる。
-// 柔らかな影では、照明の見かけの円の中の 8 つの向きへ出し、当たらなかった割合にする（画素ごとに回す）
+// 柔らかな影では、照明の見かけの円の中のいくつかの向きへ出し、当たらなかった割合にする（画素ごとに回す）。まず 4 本出し、
+// 全部が同じ（影の中・光の中）ならそれで決める。違えば影の境目なので、さらに RayShadowParams.z 本出す（境目だけ多く出す）
 static const float kRayShadowBias = 0.04;     // 照明の向きに進める長さ・大きく浮かせる長さ（ワールド。人の大きさのモデルの背丈は 20 ほど）
 static const float kRayShadowLift = 0.005;    // ふつうに浮かせる長さ
 static const float kRayShadowReach = 10000.0; // 照明の向きに調べる長さ
-static const int kRayShadowSamples = 8;
 
 // 描いている三角形の向き（画素の間のワールドの位置の差から。main の始めで求める。分かれ道の中では差を求められないため）
 static float3 g_faceNormal = float3(0.0, 0.0, 0.0);
@@ -63,18 +63,35 @@ float RayTracedShadow(ModelPSInput input, float3 n)
     float3 tangent = normalize(cross(helper, toLight));
     float3 bitangent = cross(toLight, tangent);
     float rotation = ShadowNoise(input.position.xy) * 6.2831853;
+    int samples = clamp((int)(RayShadowParams.z + 0.5), 1, 64);
+    int first = min(samples, 4);
     float lit = 0.0;
     [loop]
-    for (int i = 0; i < kRayShadowSamples; i++)
+    for (int i = 0; i < first; i++)
     {
-        float2 d = ShadowSpiral(i, kRayShadowSamples, rotation) * softness;
+        float2 d = ShadowSpiral(i, first, rotation) * softness;
         float3 direction = normalize(toLight + tangent * d.x + bitangent * d.y);
         if (!TraceShadowRay(origin, direction, kRayShadowReach, count))
         {
             lit += 1.0;
         }
     }
-    return lit / kRayShadowSamples;
+    if (samples <= 4 || lit == 0.0 || lit == (float)first)
+    {
+        return lit / first; // 全部が同じ: 影の境目ではない
+    }
+    float more = 0.0;
+    [loop]
+    for (int j = 0; j < samples; j++)
+    {
+        float2 d = ShadowSpiral(j, samples, rotation + 1.7) * softness;
+        float3 direction = normalize(toLight + tangent * d.x + bitangent * d.y);
+        if (!TraceShadowRay(origin, direction, kRayShadowReach, count))
+        {
+            more += 1.0;
+        }
+    }
+    return (lit + more) / (first + samples);
 }
 
 // セルフシャドウの光の当たる割合（奥行きの画像か、レイトレーシング）
@@ -321,7 +338,9 @@ float4 PassColor(ModelPSInput input, float3 n)
     {
         return float4(1.0, 1.0, 1.0, alpha);
     }
+#ifndef MODEL_NO_CLIP
     clip(alpha - 0.5); // 透けた所は、物の形に含めない（境目をはっきりさせる）
+#endif
     if (kind == kPassDepth)
     {
         float3 worldPosition = CameraPosition.xyz - input.eye;
@@ -412,7 +431,9 @@ ModelPSOutput main(ModelPSInput input)
     {
         // 床の映り込み: 映した点（床より下）を描き、床から深いほど薄くする。床より上へ出た所（もとの物の、床より下の部分）は描かない
         float depth = -(CameraPosition.y - input.eye.y);
+#ifndef MODEL_NO_CLIP
         clip(depth);
+#endif
         color.a *= ReflectionParams.y * saturate(1.0 - depth / max(ReflectionParams.z, 1e-3));
         output.target1 = float4(depth, 0.0, 0.0, color.a);
     }

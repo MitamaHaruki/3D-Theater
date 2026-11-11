@@ -142,6 +142,7 @@ public sealed unsafe class NativeView : IDisposable
                 ReflectionStrength = frame.ReflectionStrength,
                 ReflectionFade = frame.ReflectionFade,
                 ReflectionBlur = frame.ReflectionBlur,
+                RaySamples = (uint)Math.Clamp(frame.RaySamples, 0, 64),
                 DofFocusDistance = frame.Effects.DofFocusDistance,
                 DofFocusRange = frame.Effects.DofFocusRange,
                 DofMaxBlur = frame.Effects.DofMaxBlur,

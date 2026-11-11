@@ -246,6 +246,8 @@ public readonly record struct PostEffects(
 /// <see cref="Environment"/> は環境の画像（PBR の材質の環境光と映り込み。トゥーンには使わない）。明るさと、Y 軸のまわりの回転（ラジアン）。
 /// <see cref="ClearColor"/> は <see cref="FrameFlags.ClearColor"/> のときの背景の色。透明で描くと、読み出した色は透明度をかけ合わせた値になる。
 /// <see cref="ReflectionBlur"/> は床の映り込みのぼかし（0〜1。0 ならくっきり）。床に接する所はくっきり、床から深い所ほどぼかす。
+/// <see cref="RaySamples"/> はレイトレーシングの光線の数（0 なら 8。環境光の遮りは 1 点あたりこの数。やわらかな影は、まず 4 本出して
+/// 影の境目だけさらにこの数）。
 /// </summary>
 public readonly record struct FrameParameters(
     FrameFlags Flags,
@@ -272,4 +274,5 @@ public readonly record struct FrameParameters(
     RenderPass Pass = RenderPass.None,
     float PassDepthNear = 0f,
     float PassDepthFar = 1f,
-    float ReflectionBlur = 0f);
+    float ReflectionBlur = 0f,
+    int RaySamples = 0);

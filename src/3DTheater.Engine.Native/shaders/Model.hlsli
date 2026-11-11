@@ -17,7 +17,7 @@ cbuffer ObjectConstants : register(b0)
                                       //             zw = ワールドの長さ 1 あたりの、奥行きの画像の座標（横・縦）
     float4 PassParams;                // レンダーパス: x = 種類（TT_PASS_*。0 なら普通の色）、y = 物の番号（1 から）、z = 奥行きの手前、w = 奥
     float4 SsrParams;                 // 画面の中の反射の下準備: x = 1 なら、PBR の環境の映り込みを色に入れずに、2〜4 番目の出力へ分けて書く
-    float4 RayShadowParams;           // レイトレーシングでの影: x = 1 なら奥行きの画像の代わりに光線で求める、y = 物の数
+    float4 RayShadowParams;           // レイトレーシングでの影: x = 1 なら奥行きの画像の代わりに光線で求める、y = 物の数、z = 光線の数
 };
 
 cbuffer MaterialConstants : register(b1)

@@ -2,11 +2,11 @@
 #include "Ao.hlsli"
 #include "RayTrace.hlsli"
 
-// 環境光の遮り（AO）をレイトレーシングで求める（AoPS の代わり）: 面から半球の向きへ、広がり（ワールドの長さ）の長さの光線を 8 本出し、
+// 環境光の遮り（AO）をレイトレーシングで求める（AoPS の代わり）: 面から半球の向きへ、広がり（ワールドの長さ）の長さの光線を
+// RayParams.w 本（描画品質で決める）出し、
 // モデルの三角形に当たった割合（近くで当たるほど重く数える）で「光の届く割合」を決める。画面の外・物の裏にある物も遮る。
 // 光線の向きは、面の向きに近いほど多く選び（余弦の重み）、点ごとに 4 x 4 の模様で回す（次の段 AoBlurPS・AoApplyPS でならして模様を消す）
 
-static const int kRays = 8;
 
 float main(PostVertex input) : SV_Target
 {
@@ -35,11 +35,12 @@ float main(PostVertex input) : SV_Target
 
     float rotation = Dither(pixel) * 6.2831853;
     float shift = frac(52.9829189 * frac(dot(float2(pixel), float2(0.06711056, 0.00583715))));
+    int rays = clamp((int)(RayParams.w + 0.5), 1, 64);
     float occlusion = 0.0;
     [loop]
-    for (int i = 0; i < kRays; i++)
+    for (int i = 0; i < rays; i++)
     {
-        float u = frac((i + 0.5) / kRays + shift);
+        float u = frac((i + 0.5) / rays + shift);
         float angle = i * 2.39996323 + rotation;
         float r = sqrt(u);
         float3 direction = normalize(tangent * (r * cos(angle)) + bitangent * (r * sin(angle)) + n * sqrt(max(1.0 - u, 0.0)));
@@ -51,5 +52,5 @@ float main(PostVertex input) : SV_Target
         }
     }
     // 1 倍: 直角に接する所で、強さ 1 のとき明るさが半分ほどになる（半球の向きのうち半分が、すぐ近くで当たる）
-    return saturate(1.0 - AoParams.x * occlusion / kRays);
+    return saturate(1.0 - AoParams.x * occlusion / rays);
 }

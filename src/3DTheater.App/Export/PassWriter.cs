@@ -181,7 +181,7 @@ internal sealed class PassWriter : IDisposable
         var parameters = new FrameParameters(flags, matrices.View, matrices.Projection, Matrix4x4.Identity, Matrix4x4.Identity, items, default,
             lightDirection, lightColor, smooth ? SceneLighting.EdgePixelScale(height) : 0f, groundShadow, RenderQuality.Export.ShadowMapSize,
             Vector4.Zero, ShadowSoftness: pass == ExportPasses.Shadow ? _context.Rendering.ShadowStyle.SoftnessTangent : 0f,
-            Pass: ToNative(pass), PassDepthNear: depth.Near, PassDepthFar: depth.Far);
+            Pass: ToNative(pass), PassDepthNear: depth.Near, PassDepthFar: depth.Far, RaySamples: RenderQuality.Export.RaySamples);
         view.Render(parameters);
 
         int bytes = width * height * 4;
