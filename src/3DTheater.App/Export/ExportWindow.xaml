@@ -34,6 +34,7 @@
         <RowDefinition Height="Auto" />
         <RowDefinition Height="Auto" />
         <RowDefinition Height="Auto" />
+        <RowDefinition Height="Auto" />
       </Grid.RowDefinitions>
 
       <TextBlock Style="{StaticResource LabelStyle}" Text="書き出すもの" />
@@ -63,16 +64,36 @@
       <TextBlock Grid.Row="3" Style="{StaticResource LabelStyle}" Text="仕上げ" />
       <CheckBox x:Name="SmoothCheck" Grid.Row="3" Grid.Column="1" Margin="0,6" Content="なめらかにする（2 倍の大きさで描いて縮め、線や輪郭のギザギザを減らす）" />
 
-      <TextBlock Grid.Row="4" Style="{StaticResource LabelStyle}" Text="背景" />
+      <TextBlock Grid.Row="4" Style="{StaticResource LabelStyle}" Text="動き" />
       <StackPanel Grid.Row="4" Grid.Column="1" Orientation="Horizontal" Margin="0,4">
+        <CheckBox x:Name="MotionBlurCheck" VerticalAlignment="Center" Content="モーションブラー" Checked="OnMotionBlurChanged" Unchecked="OnMotionBlurChanged"
+                  ToolTip="1 フレームの間を何回かに分けて描いて重ね、動いている物をぶらします（書き出しにだけかかります。分ける数の分だけ時間がかかります）" />
+        <TextBlock x:Name="ShutterLabel" Margin="14,0,6,0" VerticalAlignment="Center" Foreground="{StaticResource SubTextBrush}" Text="ぶれの長さ" />
+        <ComboBox x:Name="ShutterBox" Width="110" MinHeight="0" Height="28" AutomationProperties.Name="ぶれの長さ"
+                  ToolTip="シャッターが開いている長さ（フレームの間隔に対する割合。1/2 は映画でよく使う長さ）">
+          <ComboBoxItem Content="1/4 フレーム" />
+          <ComboBoxItem Content="1/2 フレーム" />
+          <ComboBoxItem Content="1 フレーム" />
+        </ComboBox>
+        <ComboBox x:Name="BlurSamplesBox" Margin="8,0,0,0" Width="96" MinHeight="0" Height="28" AutomationProperties.Name="分けて描く数"
+                  ToolTip="1 フレームを分けて描く数（多いほどぶれがなめらかで、時間がかかります。速い動きで縞が見えるときは増やします）">
+          <ComboBoxItem Content="4 回" />
+          <ComboBoxItem Content="8 回" />
+          <ComboBoxItem Content="16 回" />
+          <ComboBoxItem Content="32 回" />
+        </ComboBox>
+      </StackPanel>
+
+      <TextBlock Grid.Row="5" Style="{StaticResource LabelStyle}" Text="背景" />
+      <StackPanel Grid.Row="5" Grid.Column="1" Orientation="Horizontal" Margin="0,4">
         <CheckBox x:Name="TransparentCheck" Content="透明（透過 PNG）" VerticalAlignment="Center" Checked="OnTransparentChanged" Unchecked="OnTransparentChanged" />
         <TextBlock x:Name="BackgroundLabel" Margin="18,0,6,0" VerticalAlignment="Center" Foreground="{StaticResource SubTextBrush}" Text="色" />
         <TextBox x:Name="BackgroundBox" Width="90" ToolTip="背景の色（#RRGGBB。例: 白 = #FFFFFF）" TextChanged="OnBackgroundChanged" />
         <Border x:Name="BackgroundSwatch" Width="28" Height="20" Margin="6,0,0,0" CornerRadius="3" BorderThickness="1" BorderBrush="{StaticResource BorderBrush}" />
       </StackPanel>
 
-      <TextBlock x:Name="VideoLabel" Grid.Row="5" Style="{StaticResource LabelStyle}" Text="動画" />
-      <StackPanel x:Name="VideoPanel" Grid.Row="5" Grid.Column="1" Orientation="Horizontal" Margin="0,4">
+      <TextBlock x:Name="VideoLabel" Grid.Row="6" Style="{StaticResource LabelStyle}" Text="動画" />
+      <StackPanel x:Name="VideoPanel" Grid.Row="6" Grid.Column="1" Orientation="Horizontal" Margin="0,4">
         <ComboBox x:Name="QualityBox" Width="120" MinHeight="0" Height="28" ToolTip="画質（高画質は、1 秒あたりのデータの量を 2 倍にします）">
           <ComboBoxItem Content="標準の画質" />
           <ComboBoxItem Content="高画質" />
@@ -81,8 +102,8 @@
         <TextBlock x:Name="AudioNote" Margin="8,0,0,0" VerticalAlignment="Center" Foreground="{StaticResource SubTextBrush}" FontSize="11.5" />
       </StackPanel>
 
-      <TextBlock Grid.Row="6" Style="{StaticResource LabelStyle}" Text="書き出し先" />
-      <DockPanel Grid.Row="6" Grid.Column="1" Margin="0,4">
+      <TextBlock Grid.Row="7" Style="{StaticResource LabelStyle}" Text="書き出し先" />
+      <DockPanel Grid.Row="7" Grid.Column="1" Margin="0,4">
         <Button DockPanel.Dock="Right" Margin="6,0,0,0" MinWidth="72" Content="参照..." Click="OnBrowseClick" />
         <TextBox x:Name="PathBox" />
       </DockPanel>

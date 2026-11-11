@@ -21,6 +21,24 @@ public sealed class ImageExportTests
     }
 
     [TestMethod]
+    public void MotionBlurSamplesAreSpreadAroundTheFrame()
+    {
+        var off = new ExportOptions();
+        CollectionAssert.AreEqual(new[] { 10f }, off.SampleTimes(10).ToArray(), "使わなければ、そのフレームだけ");
+
+        var blur = new ExportOptions { MotionBlurSamples = 4, Shutter = 0.5f, OutputPath = @"C:\out\shot.png" };
+        Assert.IsTrue(blur.UsesMotionBlur);
+        CollectionAssert.AreEqual(new[] { 9.8125f, 9.9375f, 10.0625f, 10.1875f }, blur.SampleTimes(10).ToArray(),
+            "ぶれの長さの真ん中がそのフレームになるよう、前後に等しく広げる");
+        Assert.IsTrue(blur.SampleTimes(0).All(t => t >= 0f), "0 より前は 0 にする");
+        Assert.IsFalse((blur with { Shutter = 0f }).UsesMotionBlur, "ぶれの長さ 0 なら使わない");
+
+        Assert.IsEmpty(blur.Validate(100));
+        Assert.HasCount(1, (blur with { MotionBlurSamples = 65 }).Validate(100), "分ける数は 64 まで");
+        Assert.HasCount(1, (blur with { Shutter = 1.5f }).Validate(100), "ぶれの長さは 0〜1");
+    }
+
+    [TestMethod]
     public void SettingsAreValidated()
     {
         var ok = new ExportOptions { Kind = ExportKind.Sequence, Width = 1920, Height = 1080, FirstFrame = 0, LastFrame = 30, OutputPath = @"C:\out\a.png" };

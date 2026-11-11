@@ -68,6 +68,15 @@ public sealed class ExportPreferences
     public bool VideoHighQuality { get; set; }
 
     public bool IncludeAudio { get; set; } = true;
+
+    /// <summary>モーションブラーを使う。</summary>
+    public bool MotionBlur { get; set; }
+
+    /// <summary>ぶれの長さ（フレームの間隔に対する割合）。</summary>
+    public float MotionBlurShutter { get; set; } = 0.5f;
+
+    /// <summary>1 フレームを分けて描く数。</summary>
+    public int MotionBlurSamples { get; set; } = 8;
 }
 
 public sealed class GizmoPreferences

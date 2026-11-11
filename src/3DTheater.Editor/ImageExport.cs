@@ -19,6 +19,7 @@ public enum ExportKind
 /// 書き出しの設定（指示書 6.3）。大きさ・なめらかさ・背景（透明か色か）・フレームの範囲・書き出し先。
 /// 連番は、書き出し先のファイル名の後ろに「_フレームの番号」を付ける（shot.png → shot_0000.png、shot_0001.png …）。
 /// 動画は MP4（H.264・AAC）で、幅と高さは偶数・各 64〜4096・合わせて 4096 × 2304 まで（H.264 の決まり）。透明にはできない。
+/// モーションブラーは、1 フレームの間（<see cref="Shutter"/> の長さ）を <see cref="MotionBlurSamples"/> 回に分けて描き、平均する。
 /// </summary>
 public sealed record ExportOptions
 {
@@ -63,6 +64,37 @@ public sealed record ExportOptions
 
     /// <summary>動画にシーンの音声を入れる。</summary>
     public bool IncludeAudio { get; init; } = true;
+
+    /// <summary>モーションブラーで分けて描く数（1 なら使わない。2〜64）。</summary>
+    public int MotionBlurSamples { get; init; } = 1;
+
+    /// <summary>ぶれの長さ（シャッターが開いている間。フレームの間隔に対する割合 0〜1。0.5 は映画の 180 度シャッター）。</summary>
+    public float Shutter { get; init; } = 0.5f;
+
+    public const int MaxMotionBlurSamples = 64;
+
+    /// <summary>モーションブラーを使うか。</summary>
+    public bool UsesMotionBlur => MotionBlurSamples > 1 && Shutter > 0f;
+
+    /// <summary>
+    /// フレーム <paramref name="frame"/> を描くときに分けて描く時刻（フレームの単位）。ぶれの長さの真ん中が <paramref name="frame"/> に
+    /// なるよう前後に等しく広げ、それぞれの区間の真ん中を使う。0 より前は 0 にする。モーションブラーを使わなければ <paramref name="frame"/> だけ。
+    /// </summary>
+    public IReadOnlyList<float> SampleTimes(int frame)
+    {
+        if (!UsesMotionBlur)
+        {
+            return [frame];
+        }
+        int count = Math.Clamp(MotionBlurSamples, 2, MaxMotionBlurSamples);
+        float shutter = Math.Clamp(Shutter, 0f, 1f);
+        var times = new float[count];
+        for (int i = 0; i < count; i++)
+        {
+            times[i] = Math.Max(0f, frame + (shutter * (((i + 0.5f) / count) - 0.5f)));
+        }
+        return times;
+    }
 
     public bool IsVideo => Kind == ExportKind.Video;
 
@@ -112,6 +144,10 @@ public sealed record ExportOptions
             errors.Add(Smooth
                 ? $"なめらかにするときは、幅と高さを {MaxRenderSize / 2:N0} 以下にしてください（2 倍の大きさで描くため）。"
                 : $"幅と高さは {MaxRenderSize:N0} 以下にしてください。");
+        }
+        if (MotionBlurSamples < 1 || MotionBlurSamples > MaxMotionBlurSamples || !float.IsFinite(Shutter) || Shutter < 0f || Shutter > 1f)
+        {
+            errors.Add($"モーションブラーは、分ける数を 1〜{MaxMotionBlurSamples}、ぶれの長さを 0〜1 にしてください。");
         }
         if (FirstFrame < 0 || FirstFrame > endFrame)
         {

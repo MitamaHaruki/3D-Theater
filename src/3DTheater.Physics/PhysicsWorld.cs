@@ -21,6 +21,10 @@ public struct PhysicsTransform
     public static PhysicsTransform FromMatrix(Matrix4x4 m) =>
         new(m.Translation, Quaternion.Normalize(Quaternion.CreateFromRotationMatrix(m)));
 
+    /// <summary>2 つの置き方の間（<paramref name="t"/> = 0 で <paramref name="a"/>、1 で <paramref name="b"/>。位置は直線、向きは球面で補間）。</summary>
+    public static PhysicsTransform Interpolate(in PhysicsTransform a, in PhysicsTransform b, float t) =>
+        new(Vector3.Lerp(a.Position, b.Position, t), Quaternion.Normalize(Quaternion.Slerp(a.Rotation, b.Rotation, t)));
+
     public readonly Matrix4x4 ToMatrix()
     {
         Matrix4x4 m = Matrix4x4.CreateFromQuaternion(Rotation);

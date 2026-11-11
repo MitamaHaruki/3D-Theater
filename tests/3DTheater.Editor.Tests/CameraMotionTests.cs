@@ -34,6 +34,30 @@ public sealed class CameraMotionTests
     }
 
     [TestMethod]
+    public void MotionBlurTimesDoNotBlendAcrossCameraCuts()
+    {
+        // 0 → 10 フレームはゆっくり回り、10 と 11 フレームの隣り合うキーで場面を切り替える（MMD の打ち方）
+        var (_, playback, animation, camera) = Create();
+        camera.Keys.Set(Key(0, new Vector3(0, 10, 0), new Vector3(0, 0, 0)));
+        camera.Keys.Set(Key(10, new Vector3(0, 10, 0), new Vector3(0, 20, 0)));
+        camera.Keys.Set(Key(11, new Vector3(0, 10, 0), new Vector3(0, 90, 0), distance: 20));
+
+        Assert.AreEqual(9.75f, AnimationService.SampleTime(camera.Keys, 9.75f, 10), "ゆっくり動く区間は、途中の時刻を使う");
+        Assert.AreEqual(10f, AnimationService.SampleTime(camera.Keys, 10.25f, 10), "切り替えの区間へ入る時刻は、そのフレームの値");
+        Assert.AreEqual(11f, AnimationService.SampleTime(camera.Keys, 10.75f, 11), "切り替えた後のフレームも、前の場面と混ぜない");
+        Assert.AreEqual(11.25f, AnimationService.SampleTime(camera.Keys, 11.25f, 11), "最後のキーの後は、そのまま");
+
+        playback.Seek(10);
+        animation.ApplyFrameAt(9.5f, 10);
+        Assert.AreEqual(19f, camera.Pose.Rotation.Y, 1e-3f, "途中の時刻の値を当てはめる");
+        animation.ApplyFrameAt(10.4f, 10);
+        Assert.AreEqual(20f, camera.Pose.Rotation.Y, 1e-3f, "切り替えの区間は、そのフレームの値のまま");
+        animation.ApplyFrame();
+        Assert.AreEqual(20f, camera.Pose.Rotation.Y, 1e-3f, "今のフレームの値に戻せる");
+        Assert.IsFalse(camera.HasUnregisteredChange, "当てはめは、手で変えたことにしない");
+    }
+
+    [TestMethod]
     public void CameraPoseRoundTripsThroughTheNode()
     {
         var camera = new CameraNode("カメラ");

@@ -100,6 +100,63 @@ public sealed class AnimationService
     }
 
     /// <summary>
+    /// 書き出しのモーションブラー: フレームの途中の時刻 <paramref name="time"/>（小数のフレーム）の値を、キーのある項目に当てはめる。
+    /// <paramref name="time"/> と、今描いているフレーム <paramref name="anchorFrame"/> の間に、隣り合うフレーム（間隔 1 以下）のキーの区間が
+    /// あれば、その項目は <paramref name="anchorFrame"/> の値にする。MMD でカメラの場面を切り替えるときの打ち方で、途中を補間すると
+    /// 2 つの場面が混ざってしまうため。終わったら <see cref="ApplyFrame"/> で今のフレームの値に戻すこと。
+    /// </summary>
+    public void ApplyFrameAt(float time, int anchorFrame)
+    {
+        _applying++;
+        try
+        {
+            foreach (ModelNode model in Models)
+            {
+                foreach (BoneNode bone in model.Bones)
+                {
+                    ApplyBone(bone, SampleTime(bone.Keys, time, anchorFrame), resetWithoutKeys: false);
+                }
+                foreach (MorphNode morph in model.Morphs)
+                {
+                    ApplyMorph(morph, SampleTime(morph.Keys, time, anchorFrame), resetWithoutKeys: false);
+                }
+            }
+            foreach (CameraNode camera in Cameras)
+            {
+                ApplyCamera(camera, SampleTime(camera.Keys, time, anchorFrame));
+            }
+        }
+        finally
+        {
+            _applying--;
+        }
+    }
+
+    /// <summary>
+    /// モーションブラーで値を読む時刻。<paramref name="time"/> と <paramref name="anchorFrame"/> の間に、間隔 1 以下のキーの区間
+    /// （場面の切り替え）が入っていれば <paramref name="anchorFrame"/>、そうでなければ <paramref name="time"/>。
+    /// </summary>
+    public static float SampleTime<TKey>(KeyTrack<TKey> track, float time, int anchorFrame) where TKey : struct, IKeyframe
+    {
+        if (time == anchorFrame || track.Count < 2)
+        {
+            return time;
+        }
+        float lo = Math.Min(time, anchorFrame);
+        float hi = Math.Max(time, anchorFrame);
+        IReadOnlyList<TKey> keys = track.Keys;
+        track.FindSegment(lo, out int before, out _);
+        for (int i = Math.Max(before, 0); i + 1 < keys.Count && keys[i].Frame < hi; i++)
+        {
+            if (keys[i + 1].Frame - keys[i].Frame <= 1 && keys[i + 1].Frame > lo)
+            {
+                return anchorFrame;
+            }
+        }
+        return time;
+    }
+
+    /// <summary>
     /// 「登録」の対象: 選んだボーン・モーフと、選んだモデルやまとまりの中の未登録の変更。
     /// （モデルを選んで登録しても、動かしていない全ボーンにキーは作らない）
     /// </summary>

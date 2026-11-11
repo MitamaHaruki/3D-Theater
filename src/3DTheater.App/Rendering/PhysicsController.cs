@@ -120,7 +120,7 @@ public sealed class PhysicsController
     /// 焼き込んだ結果で、物理演算のボーンを置く（<see cref="PoseEvaluator.EvaluateBeforePhysics"/> の後に呼ぶ）。
     /// 少しだけ足りなければその場で計算して追いつく。使えないとき（足りない・止まっていて姿勢を変えた直後）は false。
     /// </summary>
-    internal bool TryApplyBaked(ModelNode node, LoadedModel model, int frame)
+    internal bool TryApplyBaked(ModelNode node, LoadedModel model, float frame)
     {
         bool playing = _context.Playback.IsPlaying;
         if (!_enabled || (!ForceBaked && !playing && _clock.IsSettling(DateTime.UtcNow)))
@@ -132,12 +132,13 @@ public sealed class PhysicsController
         {
             return false;
         }
-        int missing = frame - bake.Count + 1;
+        int needed = (int)MathF.Ceiling(frame); // 小数のフレーム（モーションブラー）は、後ろのフレームまで要る
+        int missing = needed - bake.Count + 1;
         if (missing > 0 && (ForceBaked || missing <= (playing ? CatchUpWhilePlaying : CatchUpWhilePaused)))
         {
             try
             {
-                while (bake.Count <= frame)
+                while (bake.Count <= needed)
                 {
                     BakeOne(node, model, bake);
                 }

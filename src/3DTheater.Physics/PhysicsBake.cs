@@ -15,6 +15,7 @@ public sealed class PhysicsBake : IDisposable
     private readonly ModelRig _rig;
     private readonly PoseState _state;
     private readonly List<PhysicsTransform[]> _frames = [];
+    private PhysicsTransform[] _blend = [];
 
     /// <param name="physics">焼き込み専用の物理（画面のものとは別に作ったもの）。このオブジェクトが破棄する。</param>
     public PhysicsBake(ModelPhysics physics, ModelRig rig)
@@ -74,6 +75,32 @@ public sealed class PhysicsBake : IDisposable
             return false;
         }
         _physics.ApplyTransforms(state, _frames[frame]);
+        return true;
+    }
+
+    /// <summary>
+    /// 小数のフレーム（書き出しのモーションブラー）: 前後の覚えたフレームの剛体の置き方を補間して当てはめる。
+    /// 後ろのフレームをまだ覚えていなければ、前のフレームのまま。前のフレームも無ければ false。
+    /// </summary>
+    public bool TryApply(float frame, PoseState state)
+    {
+        int first = (int)MathF.Floor(frame);
+        float t = frame - first;
+        if (t <= 0f || first + 1 >= _frames.Count || first < 0)
+        {
+            return TryApply(first, state);
+        }
+        PhysicsTransform[] a = _frames[first];
+        PhysicsTransform[] b = _frames[first + 1];
+        if (_blend.Length != a.Length)
+        {
+            _blend = new PhysicsTransform[a.Length];
+        }
+        for (int i = 0; i < a.Length; i++)
+        {
+            _blend[i] = PhysicsTransform.Interpolate(a[i], b[i], t);
+        }
+        _physics.ApplyTransforms(state, _blend);
         return true;
     }
 

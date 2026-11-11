@@ -38,6 +38,11 @@ public sealed class PoseUpdater
     /// <summary>直近の変形 1 回（1 体）にかかった時間の平均。</summary>
     public double AverageMilliseconds => _timer.AverageMilliseconds;
 
+    /// <summary>
+    /// 書き出しのモーションブラーで、物理の焼き込みを読む時刻（小数のフレーム）。null なら今のフレーム。
+    /// </summary>
+    public float? FrameTimeOverride { get; set; }
+
     public void UpdateDirtyModels()
     {
         PhysicsStep step = _context.Physics.Current;
@@ -85,7 +90,7 @@ public sealed class PoseUpdater
         if (_context.Physics.Enabled && model.Physics is { } physics)
         {
             PoseEvaluator.EvaluateBeforePhysics(model.Rig, input, model.State);
-            if (_context.Physics.TryApplyBaked(node, model, _context.Playback.CurrentFrame))
+            if (_context.Physics.TryApplyBaked(node, model, FrameTimeOverride ?? _context.Playback.CurrentFrame))
             {
                 model.ShowingBakedPhysics = true;
             }

@@ -64,6 +64,10 @@ public partial class ExportWindow : Window
         WidthBox.Text = preferences.Width.ToString(CultureInfo.InvariantCulture);
         HeightBox.Text = preferences.Height.ToString(CultureInfo.InvariantCulture);
         SmoothCheck.IsChecked = preferences.Smooth;
+        MotionBlurCheck.IsChecked = preferences.MotionBlur;
+        ShutterBox.SelectedIndex = NearestIndex(ShutterChoices, preferences.MotionBlurShutter);
+        BlurSamplesBox.SelectedIndex = NearestIndex(SampleChoices, preferences.MotionBlurSamples);
+        UpdateMotionBlur();
         TransparentCheck.IsChecked = preferences.Transparent;
         BackgroundBox.Text = preferences.Background;
         _kind = kind;
@@ -77,7 +81,9 @@ public partial class ExportWindow : Window
             "プレビューの品質に関係なく、4 倍のなめらかさ（MSAA）と細かい影で描きます。映像効果とイラスト風の表現（レンダリングのメニュー）もかかります。" +
             $"連番は「名前_フレームの番号.png」で、作品のフレームの速さ（{context.Playback.FrameRate} fps）の 1 フレームを 1 枚にします。" +
             "動画は MP4（H.264・AAC）で、幅と高さは偶数、透明にはできません。" +
-            "物理は焼き込みの結果を使います（まだのフレームは、書き出しながら計算します）。";
+            "物理は焼き込みの結果を使います（まだのフレームは、書き出しながら計算します）。" +
+            "モーションブラーは、1 フレームの間を分けて描いて重ねます（物理は前後のフレームの焼き込みを補間します。" +
+            "隣り合うフレームに打ったキーの間（カメラの場面の切り替えなど）は、混ざらないよう補間しません）。";
     }
 
     private void OnKindChanged(object sender, RoutedEventArgs e)
@@ -132,6 +138,31 @@ public partial class ExportWindow : Window
     }
 
     private void OnTransparentChanged(object sender, RoutedEventArgs e) => UpdateBackground();
+
+    // モーションブラーの選び方（画面の並びと同じ順）
+    private static readonly float[] ShutterChoices = [0.25f, 0.5f, 1f];
+    private static readonly float[] SampleChoices = [4, 8, 16, 32];
+
+    private static int NearestIndex(float[] choices, float value)
+    {
+        int best = 0;
+        for (int i = 1; i < choices.Length; i++)
+        {
+            if (Math.Abs(choices[i] - value) < Math.Abs(choices[best] - value))
+            {
+                best = i;
+            }
+        }
+        return best;
+    }
+
+    private void OnMotionBlurChanged(object sender, RoutedEventArgs e) => UpdateMotionBlur();
+
+    private void UpdateMotionBlur()
+    {
+        bool on = MotionBlurCheck.IsChecked == true;
+        ShutterBox.IsEnabled = BlurSamplesBox.IsEnabled = ShutterLabel.IsEnabled = on;
+    }
 
     private void OnBackgroundChanged(object sender, TextChangedEventArgs e) => UpdateBackground();
 
@@ -233,6 +264,8 @@ public partial class ExportWindow : Window
             OutputPath = PathBox.Text.Trim(),
             HighQuality = QualityBox.SelectedIndex == 1,
             IncludeAudio = AudioCheck.IsChecked == true,
+            MotionBlurSamples = MotionBlurCheck.IsChecked == true ? (int)SampleChoices[Math.Max(BlurSamplesBox.SelectedIndex, 0)] : 1,
+            Shutter = ShutterChoices[Math.Max(ShutterBox.SelectedIndex, 0)],
         };
         return true;
     }
@@ -242,6 +275,12 @@ public partial class ExportWindow : Window
         _preferences.Width = options.Width;
         _preferences.Height = options.Height;
         _preferences.Smooth = options.Smooth;
+        _preferences.MotionBlur = options.UsesMotionBlur;
+        _preferences.MotionBlurShutter = options.Shutter;
+        if (options.UsesMotionBlur)
+        {
+            _preferences.MotionBlurSamples = options.MotionBlurSamples;
+        }
         if (!options.IsVideo)
         {
             _preferences.Transparent = options.Transparent; // 動画は透明にできないので、PNG の設定は残しておく

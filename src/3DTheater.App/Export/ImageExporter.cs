@@ -105,10 +105,60 @@ internal static class ImageExporter
         }
     }
 
-    /// <summary>そのフレームの姿勢にして描き、読み出した画素（BGRA、借りた配列）を返す。</summary>
+    /// <summary>
+    /// そのフレームの姿勢にして描き、読み出した画素（BGRA、借りた配列）を返す。
+    /// モーションブラーのときは、フレームの途中の時刻ごとに姿勢・カメラ・物理（焼き込みを補間）を合わせて描き、平均する。
+    /// 透明な背景の画素は透明度をかけ合わせた値なので、そのまま平均してよい。
+    /// </summary>
     private static byte[] RenderFrame(EditorContext context, NativeView view, CameraNode camera, ExportOptions options, int frame)
     {
         context.Playback.Seek(frame);
+        if (!options.UsesMotionBlur)
+        {
+            return RenderCurrent(context, view, camera, options);
+        }
+        IReadOnlyList<float> times = options.SampleTimes(frame);
+        int bytes = options.RenderWidth * options.RenderHeight * 4;
+        ushort[] sum = ArrayPool<ushort>.Shared.Rent(bytes); // 255 × 64 回まで入る
+        try
+        {
+            Array.Clear(sum, 0, bytes);
+            foreach (float time in times)
+            {
+                context.Animation.ApplyFrameAt(time, frame);
+                context.Poses.FrameTimeOverride = time;
+                byte[] pixels = RenderCurrent(context, view, camera, options);
+                try
+                {
+                    for (int i = 0; i < bytes; i++)
+                    {
+                        sum[i] += pixels[i];
+                    }
+                }
+                finally
+                {
+                    ArrayPool<byte>.Shared.Return(pixels);
+                }
+            }
+            byte[] result = ArrayPool<byte>.Shared.Rent(bytes);
+            int count = times.Count;
+            for (int i = 0; i < bytes; i++)
+            {
+                result[i] = (byte)((sum[i] + (count / 2)) / count);
+            }
+            return result;
+        }
+        finally
+        {
+            ArrayPool<ushort>.Shared.Return(sum);
+            context.Poses.FrameTimeOverride = null;
+            context.Animation.ApplyFrame(); // 今のフレームの値に戻す
+        }
+    }
+
+    /// <summary>今の姿勢・カメラで描き、読み出した画素（BGRA、借りた配列）を返す。</summary>
+    private static byte[] RenderCurrent(EditorContext context, NativeView view, CameraNode camera, ExportOptions options)
+    {
         foreach (LoadedModel model in context.Models.Values)
         {
             model.IsPoseDirty = true; // 物理の焼き込みの結果はキーが無くてもフレームごとに違う

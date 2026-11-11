@@ -9,6 +9,18 @@ namespace Theater3D.Physics.Tests;
 [TestClass]
 public sealed class PhysicsWorldTests
 {
+    [TestMethod]
+    public void TransformsAreInterpolatedForMotionBlur()
+    {
+        var a = new PhysicsTransform(new Vector3(0, 0, 0), Quaternion.Identity);
+        var b = new PhysicsTransform(new Vector3(2, 4, 0), Quaternion.CreateFromAxisAngle(Vector3.UnitY, MathF.PI / 2));
+        PhysicsTransform half = PhysicsTransform.Interpolate(a, b, 0.5f);
+        Assert.AreEqual(new Vector3(1, 2, 0), half.Position, "位置は直線");
+        Quaternion expected = Quaternion.CreateFromAxisAngle(Vector3.UnitY, MathF.PI / 4);
+        Assert.AreEqual(1f, MathF.Abs(Quaternion.Dot(expected, half.Rotation)), 1e-5f, "向きは球面で半分（45 度）");
+        Assert.AreEqual(a.Position, PhysicsTransform.Interpolate(a, b, 0f).Position);
+    }
+
     private const float Gravity = 98f;
     private static readonly PhysicsTransform Identity = new(Vector3.Zero, Quaternion.Identity);
 
