@@ -35,6 +35,7 @@
         <RowDefinition Height="Auto" />
         <RowDefinition Height="Auto" />
         <RowDefinition Height="Auto" />
+        <RowDefinition Height="Auto" />
       </Grid.RowDefinitions>
 
       <TextBlock Style="{StaticResource LabelStyle}" Text="書き出すもの" />
@@ -92,8 +93,16 @@
         <Border x:Name="BackgroundSwatch" Width="28" Height="20" Margin="6,0,0,0" CornerRadius="3" BorderThickness="1" BorderBrush="{StaticResource BorderBrush}" />
       </StackPanel>
 
-      <TextBlock x:Name="VideoLabel" Grid.Row="6" Style="{StaticResource LabelStyle}" Text="動画" />
-      <StackPanel x:Name="VideoPanel" Grid.Row="6" Grid.Column="1" Orientation="Horizontal" Margin="0,4">
+      <!-- レンダーパス（合成用の画像。PNG のときだけ。普通の絵と一緒に、パスごとに別の PNG を書く） -->
+      <TextBlock x:Name="PassLabel" Grid.Row="6" Style="{StaticResource LabelStyle}" VerticalAlignment="Top" Margin="0,6,12,0" Text="パス" />
+      <StackPanel x:Name="PassPanel" Grid.Row="6" Grid.Column="1" Margin="0,4">
+        <WrapPanel x:Name="PassChecks" />
+        <TextBlock Margin="0,2,0,0" TextWrapping="Wrap" Foreground="{StaticResource SubTextBrush}" FontSize="11.5"
+                   Text="合成用に、普通の絵と一緒に別の PNG を書きます（名前_depth.png など）。奥行き・法線・ID・影・発光はなめらかにしません。奥行きの範囲と、ID の色の対応表は 名前_passes.json に書きます。" />
+      </StackPanel>
+
+      <TextBlock x:Name="VideoLabel" Grid.Row="7" Style="{StaticResource LabelStyle}" Text="動画" />
+      <StackPanel x:Name="VideoPanel" Grid.Row="7" Grid.Column="1" Orientation="Horizontal" Margin="0,4">
         <ComboBox x:Name="QualityBox" Width="120" MinHeight="0" Height="28" ToolTip="画質（高画質は、1 秒あたりのデータの量を 2 倍にします）">
           <ComboBoxItem Content="標準の画質" />
           <ComboBoxItem Content="高画質" />
@@ -102,8 +111,8 @@
         <TextBlock x:Name="AudioNote" Margin="8,0,0,0" VerticalAlignment="Center" Foreground="{StaticResource SubTextBrush}" FontSize="11.5" />
       </StackPanel>
 
-      <TextBlock Grid.Row="7" Style="{StaticResource LabelStyle}" Text="書き出し先" />
-      <DockPanel Grid.Row="7" Grid.Column="1" Margin="0,4">
+      <TextBlock Grid.Row="8" Style="{StaticResource LabelStyle}" Text="書き出し先" />
+      <DockPanel Grid.Row="8" Grid.Column="1" Margin="0,4">
         <Button DockPanel.Dock="Right" Margin="6,0,0,0" MinWidth="72" Content="参照..." Click="OnBrowseClick" />
         <TextBox x:Name="PathBox" />
       </DockPanel>

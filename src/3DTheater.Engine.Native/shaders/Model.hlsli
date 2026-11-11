@@ -15,6 +15,7 @@ cbuffer ObjectConstants : register(b0)
     float4 ReflectionParams;          // 床の映り込み: x = 1 なら映り込みを描いている、y = 濃さ、z = 消えるまでの距離
     float4 ShadowSoftness;            // 柔らかな影: x = 奥行き 1 あたりのワールドの長さ、y = 光源の見かけの半径の tan（0 ならくっきり）、
                                       //             zw = ワールドの長さ 1 あたりの、奥行きの画像の座標（横・縦）
+    float4 PassParams;                // レンダーパス: x = 種類（TT_PASS_*。0 なら普通の色）、y = 物の番号（1 から）、z = 奥行きの手前、w = 奥
 };
 
 cbuffer MaterialConstants : register(b1)
@@ -33,7 +34,22 @@ cbuffer MaterialConstants : register(b1)
     float4 Pbr;               // 拡張材質: x = 1 なら PBR の色の計算、y = 金属らしさ、z = 粗さ
     float4 BaseTint;          // 拡張材質: PBR のベースカラーに掛ける色合い
     float4 Emissive;          // 拡張材質: 発光（色 × 強さ。どちらの色の計算にも足す）
+    float4 MaterialIds;       // x = 材質の番号（0 から。レンダーパスの材質の番号の色）
 };
+
+// レンダーパスの種類（tt_engine.h の TT_PASS_* と同じ）
+static const uint kPassAlpha = 1;
+static const uint kPassDepth = 2;
+static const uint kPassNormal = 3;
+static const uint kPassObjectId = 4;
+static const uint kPassMaterialId = 5;
+static const uint kPassShadow = 6;
+static const uint kPassEmission = 7;
+
+uint RenderPass()
+{
+    return (uint)(PassParams.x + 0.5);
+}
 
 // 足す照明（メインの照明とは別。最大 8 つ）
 struct ExtraLight

@@ -107,4 +107,53 @@ public sealed class ImageExportTests
         Assert.IsFalse(ImageExport.TryParseColor("白", out _));
         Assert.AreEqual("#FF8000", ImageExport.FormatColor(color));
     }
+
+    [TestMethod]
+    public void PassFilesAreNamedAfterTheOutput()
+    {
+        var still = new ExportOptions { Kind = ExportKind.Still, OutputPath = @"C:\out\shot.png", Passes = ExportPasses.Depth | ExportPasses.Alpha };
+        CollectionAssert.AreEqual(new[] { ExportPasses.Alpha, ExportPasses.Depth }, still.PassList.ToArray(), "決まった順");
+        CollectionAssert.AreEqual(new[] { @"C:\out\shot_depth.png" }, still.PassPaths(ExportPasses.Depth).ToArray());
+        Assert.AreEqual(@"C:\out\shot_passes.json", still.PassInfoPath);
+
+        var sequence = still with { Kind = ExportKind.Sequence, FirstFrame = 8, LastFrame = 10 };
+        CollectionAssert.AreEqual(new[] { @"C:\out\shot_normal_0008.png", @"C:\out\shot_normal_0009.png", @"C:\out\shot_normal_0010.png" },
+            sequence.PassPaths(ExportPasses.Normal).ToArray());
+
+        var video = still with { Kind = ExportKind.Video };
+        Assert.IsEmpty(video.PassList, "動画ではパスを書かない");
+    }
+
+    [TestMethod]
+    public void DepthRangeCoversTheObjectsWithRoom()
+    {
+        // カメラは原点から +Z を見る（左手系）。物は 4〜8 先
+        Matrix4x4 view = Matrix4x4.CreateLookAtLeftHanded(Vector3.Zero, Vector3.UnitZ, Vector3.UnitY);
+        var (near, far) = ImageExport.DepthRange([new Vector3(0, 0, 4), new Vector3(1, 1, 8)], view);
+        Assert.AreEqual(3f, near, 1e-4f, "手前へ幅（4）の 1/4");
+        Assert.AreEqual(10f, far, 1e-4f, "奥へ幅の 1/2");
+
+        var (closeNear, _) = ImageExport.DepthRange([new Vector3(0, 0, 0.1f)], view);
+        Assert.AreEqual(0.01f, closeNear, 1e-6f, "カメラより手前にはしない");
+        Assert.AreEqual((0.01f, 100f), ImageExport.DepthRange([], view), "物が無いとき");
+    }
+
+    [TestMethod]
+    public void DepthPixelsBecomeSixteenBitGrayWithNearWhite()
+    {
+        byte[] bgra =
+        [
+            0, 0, 0, 255,       // 0（いちばん手前）
+            0, 0x34, 0x12, 255, // 0x1234
+            0, 255, 255, 255,   // 65535（いちばん奥）
+            0, 0x34, 0x12, 0,   // 何も描かれていない
+        ];
+        var gray = new ushort[4];
+        ImageExport.DepthToGray16(bgra, gray);
+        CollectionAssert.AreEqual(new ushort[] { 65535, (ushort)(65535 - 0x1234), 0, 0 }, gray);
+
+        var alpha = new byte[4];
+        ImageExport.ChannelToGray8(bgra, 3, alpha);
+        CollectionAssert.AreEqual(new byte[] { 255, 255, 255, 0 }, alpha);
+    }
 }

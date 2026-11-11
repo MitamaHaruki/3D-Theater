@@ -27,7 +27,7 @@ extern "C" {
 
 // 上位 16 ビットが大きな版、下位 16 ビットが小さな版。大きな版が違う DLL とは組み合わせない。
 #define TT_API_VERSION_MAJOR 0
-#define TT_API_VERSION_MINOR 20
+#define TT_API_VERSION_MINOR 21
 #define TT_API_VERSION ((TT_API_VERSION_MAJOR << 16) | TT_API_VERSION_MINOR)
 
 // 0 以上は成功、負の値は失敗。
@@ -126,6 +126,24 @@ enum {
     TT_POST_AO = 1u << 8, // 環境光の遮り（奥行きから、物の隙間や接する所を暗くする。ao_*。被写界深度・ブルームより先にかける）
     // ここから API 0.18
     TT_POST_FOG = 1u << 9, // 霧（遠くの物ほど fog_color に溶けこませる。fog_*。背景が不透明なら背景にも。平行投影では使わない）
+};
+
+// レンダーパス（API 0.21。TtFrameParams.render_pass）。TT_PASS_NONE 以外のときは、モデルを色の計算の代わりにパスの値で描く。
+// 呼ぶ側は、映像効果・背景・床の映り込み・格子・重ね描きを切って使う（パスの値に混ざらないように）。輪郭線は TT_PASS_ALPHA のときだけ描く。
+// 不透明度（材質 × テクスチャ）が 0.5 より小さい所は、TT_PASS_ALPHA のほかは描かない（髪の透けた所などを、物の形に含めない）。
+// 物と材質の番号の色: 番号 k（1 から）を、32 ビットで桁あふれさせながら
+//   h = k * 2654435761; h ^= h >> 16; h *= 2246822519; h ^= h >> 13
+// と混ぜ、R = 64 + (h & 0xFF) % 192、G = 64 + ((h >> 8) & 0xFF) % 192、B = 64 + ((h >> 16) & 0xFF) % 192（0〜255）とする。
+// 物の番号は描く物の並び順（1 から）。材質の番号は「物の番号 × 4096 + 材質の番号（0 から）+ 1」
+enum TtRenderPass {
+    TT_PASS_NONE = 0,        // 普通の色
+    TT_PASS_ALPHA = 1,       // 白（材質とテクスチャの不透明度で重ねる。輪郭線も白）。透明度だけを使う
+    TT_PASS_DEPTH = 2,       // カメラから見る向きの距離を pass_depth_near〜far で 0〜1 にし、65535 倍の整数の上位 8 ビットを赤、下位を緑に出す
+    TT_PASS_NORMAL = 3,      // カメラから見た面の向き（右 x・上 y・奥 z を -1〜1 から 0〜1 にして、赤・緑・青に。裏の面は手前へ向ける）
+    TT_PASS_OBJECT_ID = 4,   // 物の番号の色
+    TT_PASS_MATERIAL_ID = 5, // 物と材質の番号の色
+    TT_PASS_SHADOW = 6,      // セルフシャドウの影の量（白 = 影の中）。地面の影は ground_shadow_color で描く（白にすると影の量になる）
+    TT_PASS_EMISSION = 7,    // 材質の発光の色（拡張材質。無ければ黒）
 };
 
 // ---- モデルの形（メッシュ）と材質 ----
@@ -336,6 +354,11 @@ typedef struct TtFrameParams {
     TtEnvironment* environment;
     float environment_intensity; // 明るさ（0 以上）
     float environment_rotation;  // 景色を Y 軸のまわりに回す角度（ラジアン。XMMatrixRotationY と同じ向き）
+    // ここから API 0.21（レンダーパス。TtRenderPass）
+    uint32_t render_pass;  // TT_PASS_*（範囲の外は TT_PASS_NONE）
+    float pass_depth_near; // TT_PASS_DEPTH: 0 にする距離（カメラから見る向き）
+    float pass_depth_far;  // TT_PASS_DEPTH: 1 にする距離（near より大きく。そうでなければ near + 1）
+    uint32_t reserved12;
 } TtFrameParams;
 
 TT_API uint32_t TT_CALL tt_get_api_version(void);

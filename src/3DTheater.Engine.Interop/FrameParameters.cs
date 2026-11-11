@@ -36,6 +36,67 @@ public enum FrameFlags : uint
     EnvironmentBackground = 1u << 12,
 }
 
+/// <summary>
+/// tt_engine.h の TT_PASS_* と同じ値（レンダーパス。書き出しの合成用の画像）。None 以外では、モデルを色の計算の代わりにパスの値で描く。
+/// 呼ぶ側は、映像効果・背景・床の映り込み・格子・重ね描きを切って使う。輪郭線は <see cref="Alpha"/> のときだけ描く。
+/// </summary>
+public enum RenderPass : uint
+{
+    /// <summary>普通の色。</summary>
+    None = 0,
+
+    /// <summary>白（材質とテクスチャの不透明度で重ねる。輪郭線も白）。透明度だけを使う。</summary>
+    Alpha = 1,
+
+    /// <summary>
+    /// カメラから見る向きの距離を <see cref="FrameParameters.PassDepthNear"/>〜<see cref="FrameParameters.PassDepthFar"/> で 0〜1 にし、
+    /// 65535 倍の整数の上位 8 ビットを赤、下位を緑に出す。
+    /// </summary>
+    Depth = 2,
+
+    /// <summary>カメラから見た面の向き（右・上・奥を -1〜1 から 0〜1 にして、赤・緑・青に）。</summary>
+    Normal = 3,
+
+    /// <summary>物の番号の色（<see cref="RenderPassColors.ObjectColor"/>）。</summary>
+    ObjectId = 4,
+
+    /// <summary>物と材質の番号の色（<see cref="RenderPassColors.MaterialColor"/>）。</summary>
+    MaterialId = 5,
+
+    /// <summary>セルフシャドウの影の量（白 = 影の中）。地面の影は <see cref="FrameParameters.GroundShadowColor"/> で描く。</summary>
+    Shadow = 6,
+
+    /// <summary>材質の発光の色。</summary>
+    Emission = 7,
+}
+
+/// <summary>
+/// レンダーパスの物・材質の番号の色（tt_engine.h の TtRenderPass と同じ式。エンジンが描く色と 1 の位まで同じ）。
+/// 書き出しで、色と物・材質の対応表を作るのに使う。
+/// </summary>
+public static class RenderPassColors
+{
+    /// <summary>番号（1 から）から決まる色（0〜255。どの成分も 64 以上なので、黒い背景と区別できる）。</summary>
+    public static (byte R, byte G, byte B) IdColor(uint key)
+    {
+        unchecked
+        {
+            uint h = key * 2654435761u;
+            h ^= h >> 16;
+            h *= 2246822519u;
+            h ^= h >> 13;
+            return ((byte)(64 + ((h & 0xFF) % 192)), (byte)(64 + (((h >> 8) & 0xFF) % 192)), (byte)(64 + (((h >> 16) & 0xFF) % 192)));
+        }
+    }
+
+    /// <summary>物の色。<paramref name="objectIndex"/> は描く物の並び順（1 から）。</summary>
+    public static (byte R, byte G, byte B) ObjectColor(int objectIndex) => IdColor((uint)objectIndex);
+
+    /// <summary>材質の色。<paramref name="materialIndex"/> はモデルの材質の番号（0 から）。</summary>
+    public static (byte R, byte G, byte B) MaterialColor(int objectIndex, int materialIndex) =>
+        IdColor((uint)((objectIndex * 4096) + materialIndex + 1));
+}
+
 /// <summary>tt_engine.h の TT_LIGHT_* と同じ値（足す照明の種類）。</summary>
 public enum LightSourceKind : uint
 {
@@ -179,4 +240,7 @@ public readonly record struct FrameParameters(
     float ShadowSoftness = 0f,
     NativeEnvironment? Environment = null,
     float EnvironmentIntensity = 1f,
-    float EnvironmentRotation = 0f);
+    float EnvironmentRotation = 0f,
+    RenderPass Pass = RenderPass.None,
+    float PassDepthNear = 0f,
+    float PassDepthFar = 1f);

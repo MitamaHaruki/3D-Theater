@@ -138,6 +138,7 @@ private:
         DirectX::XMFLOAT4 groundShadowColor;
         DirectX::XMFLOAT4 reflectionParams; // x = 1 なら床の映り込みを描いている、y = 濃さ、z = 消えるまでの距離
         DirectX::XMFLOAT4 shadowSoftness;   // 柔らかな影（シェーダーの ShadowSoftness と同じ）
+        DirectX::XMFLOAT4 passParams;       // レンダーパス: x = 種類（TT_PASS_*）、y = 物の番号（1 から）、z = 奥行きの手前、w = 奥
     };
     void WriteObjectConstants(DirectX::FXMMATRIX world, DirectX::CXMMATRIX worldViewProj, const ModelFrame& frame);
     // 足す照明を定数バッファーへ書く（1 枚の描画で 1 回。床の映り込みを描く間は、床で上下に映した照明を書く）

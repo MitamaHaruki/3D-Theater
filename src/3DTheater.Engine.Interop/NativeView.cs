@@ -155,6 +155,9 @@ public sealed unsafe class NativeView : IDisposable
                 Environment = frame.Environment?.Handle ?? 0,
                 EnvironmentIntensity = frame.EnvironmentIntensity,
                 EnvironmentRotation = frame.EnvironmentRotation,
+                RenderPass = (uint)frame.Pass,
+                PassDepthNear = frame.PassDepthNear,
+                PassDepthFar = frame.PassDepthFar,
             };
             return NativeError.Check(NativeMethods.ViewRender(Handle, &parameters)) == NativeResult.Ok;
         }

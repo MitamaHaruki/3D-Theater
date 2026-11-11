@@ -16,6 +16,71 @@ public enum ExportKind
 }
 
 /// <summary>
+/// 書き出しのレンダーパス（合成用の画像。指示書 6.3「Beauty／Alpha／Depth／Normal／Shadow／Emission／Object ID／Material ID 等」）。
+/// 普通の絵（Beauty）と一緒に、パスごとに別の PNG を書く（静止画と連番のとき。動画では書かない）。
+/// </summary>
+[Flags]
+public enum ExportPasses
+{
+    None = 0,
+
+    /// <summary>アルファ（物の形の白黒。なめらかにする）。</summary>
+    Alpha = 1 << 0,
+
+    /// <summary>奥行き（16 ビットの白黒。手前ほど白く、奥ほど黒い。何も無い所は黒）。</summary>
+    Depth = 1 << 1,
+
+    /// <summary>法線（カメラから見た面の向きの色）。</summary>
+    Normal = 1 << 2,
+
+    /// <summary>物の ID（物ごとの色）。</summary>
+    ObjectId = 1 << 3,
+
+    /// <summary>材質の ID（材質ごとの色）。</summary>
+    MaterialId = 1 << 4,
+
+    /// <summary>影（白黒。白 = 影の中。セルフシャドウと地面の影）。</summary>
+    Shadow = 1 << 5,
+
+    /// <summary>発光（材質の発光の色）。</summary>
+    Emission = 1 << 6,
+}
+
+/// <summary>レンダーパスの名前と、ファイルの名前に付ける語。</summary>
+public static class ExportPassInfo
+{
+    /// <summary>書き出す順のパス。</summary>
+    public static IReadOnlyList<ExportPasses> All { get; } =
+        [ExportPasses.Alpha, ExportPasses.Depth, ExportPasses.Normal, ExportPasses.ObjectId, ExportPasses.MaterialId, ExportPasses.Shadow, ExportPasses.Emission];
+
+    /// <summary>ファイルの名前に付ける語（合成ソフトで扱いやすいよう英語）。</summary>
+    public static string Suffix(ExportPasses pass) => pass switch
+    {
+        ExportPasses.Alpha => "alpha",
+        ExportPasses.Depth => "depth",
+        ExportPasses.Normal => "normal",
+        ExportPasses.ObjectId => "objectid",
+        ExportPasses.MaterialId => "materialid",
+        ExportPasses.Shadow => "shadow",
+        ExportPasses.Emission => "emission",
+        _ => throw new ArgumentOutOfRangeException(nameof(pass), pass, "パスを 1 つだけ選んでください"),
+    };
+
+    /// <summary>画面に出す名前。</summary>
+    public static string DisplayName(ExportPasses pass) => pass switch
+    {
+        ExportPasses.Alpha => "アルファ",
+        ExportPasses.Depth => "奥行き",
+        ExportPasses.Normal => "法線",
+        ExportPasses.ObjectId => "物の ID",
+        ExportPasses.MaterialId => "材質の ID",
+        ExportPasses.Shadow => "影",
+        ExportPasses.Emission => "発光",
+        _ => pass.ToString(),
+    };
+}
+
+/// <summary>
 /// 書き出しの設定（指示書 6.3）。大きさ・なめらかさ・背景（透明か色か）・フレームの範囲・書き出し先。
 /// 連番は、書き出し先のファイル名の後ろに「_フレームの番号」を付ける（shot.png → shot_0000.png、shot_0001.png …）。
 /// 動画は MP4（H.264・AAC）で、幅と高さは偶数・各 64〜4096・合わせて 4096 × 2304 まで（H.264 の決まり）。透明にはできない。
@@ -70,6 +135,28 @@ public sealed record ExportOptions
 
     /// <summary>ぶれの長さ（シャッターが開いている間。フレームの間隔に対する割合 0〜1。0.5 は映画の 180 度シャッター）。</summary>
     public float Shutter { get; init; } = 0.5f;
+
+    /// <summary>普通の絵と一緒に書くレンダーパス（静止画と連番のとき。動画では書かない）。</summary>
+    public ExportPasses Passes { get; init; }
+
+    /// <summary>書くレンダーパス（書く順。動画なら空）。</summary>
+    public IReadOnlyList<ExportPasses> PassList => IsVideo ? [] : [.. ExportPassInfo.All.Where(p => Passes.HasFlag(p))];
+
+    /// <summary>
+    /// レンダーパスのファイル（<see cref="Frames"/> と同じ順）。名前の後ろに「_パスの語」を付ける
+    /// （shot.png → shot_depth.png。連番は shot_depth_0000.png …）。
+    /// </summary>
+    public IReadOnlyList<string> PassPaths(ExportPasses pass)
+    {
+        string directory = Path.GetDirectoryName(OutputPath) ?? string.Empty;
+        string name = Path.GetFileNameWithoutExtension(OutputPath) + "_" + ExportPassInfo.Suffix(pass);
+        string basePath = Path.Combine(directory, name + ".png");
+        return Kind == ExportKind.Sequence ? [.. Frames.Select(f => ImageExport.SequencePath(basePath, f, LastFrame))] : [basePath];
+    }
+
+    /// <summary>レンダーパスの説明（奥行きの範囲・物と材質の色の対応表）を書くファイル（名前_passes.json）。</summary>
+    public string PassInfoPath =>
+        Path.Combine(Path.GetDirectoryName(OutputPath) ?? string.Empty, Path.GetFileNameWithoutExtension(OutputPath) + "_passes.json");
 
     public const int MaxMotionBlurSamples = 64;
 
@@ -281,6 +368,57 @@ public static class ImageExport
     }
 
     /// <summary>色を「#RRGGBB」にする。</summary>
+    /// <summary>
+    /// 奥行きのパスの範囲（カメラから見る向きの距離）。<paramref name="worldCorners"/>（物を囲む箱の角、ワールド）を
+    /// <paramref name="view"/> でカメラから見て、いちばん手前と奥を求め、動いても収まるよう前後にゆとりを持たせる
+    /// （手前へ幅の 1/4、奥へ幅の 1/2。幅は 1 以上とみなす。手前は 0.01 より手前にしない）。角が無ければ (0.01, 100)。
+    /// </summary>
+    public static (float Near, float Far) DepthRange(IEnumerable<Vector3> worldCorners, Matrix4x4 view)
+    {
+        float min = float.PositiveInfinity;
+        float max = float.NegativeInfinity;
+        foreach (Vector3 corner in worldCorners)
+        {
+            float z = Vector3.Transform(corner, view).Z;
+            if (float.IsFinite(z))
+            {
+                min = Math.Min(min, z);
+                max = Math.Max(max, z);
+            }
+        }
+        if (!float.IsFinite(min) || !float.IsFinite(max))
+        {
+            return (0.01f, 100f);
+        }
+        float span = Math.Max(max - min, 1f);
+        float near = Math.Max(0.01f, min - (span * 0.25f));
+        float far = Math.Max(near + 0.01f, max + (span * 0.5f));
+        return (near, far);
+    }
+
+    /// <summary>
+    /// 奥行きのパスの画素（BGRA。赤が上位 8 ビット・緑が下位 8 ビットの 0〜65535、0 が手前）を、16 ビットの白黒にする
+    /// （手前ほど白く 65535、奥ほど黒く 0。何も描かれていない所（透明度 0）は 0）。
+    /// </summary>
+    public static void DepthToGray16(ReadOnlySpan<byte> bgra, Span<ushort> gray)
+    {
+        for (int i = 0, p = 0; p < gray.Length && i + 3 < bgra.Length; i += 4, p++)
+        {
+            gray[p] = bgra[i + 3] == 0 ? (ushort)0 : (ushort)(65535 - ((bgra[i + 2] << 8) | bgra[i + 1]));
+        }
+    }
+
+    /// <summary>BGRA の 1 つの成分（0 = 青・1 = 緑・2 = 赤・3 = 透明度）を、8 ビットの白黒にする。</summary>
+    public static void ChannelToGray8(ReadOnlySpan<byte> bgra, int channel, Span<byte> gray)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(channel);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(channel, 3);
+        for (int i = 0, p = 0; p < gray.Length && i + 3 < bgra.Length; i += 4, p++)
+        {
+            gray[p] = bgra[i + channel];
+        }
+    }
+
     public static string FormatColor(Vector3 color)
     {
         int Channel(float v) => (int)MathF.Round(Math.Clamp(v, 0f, 1f) * 255f);

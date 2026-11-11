@@ -46,6 +46,7 @@ internal static class ImageExporter
         int originalFrame = context.Playback.CurrentFrame;
         NativeView? view = null;
         FrameSink? sink = null;
+        PassWriter? passes = null;
 
         context.Playback.Pause();
         context.Physics.ForceBaked = true;
@@ -55,6 +56,7 @@ internal static class ImageExporter
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(options.Paths[0]))!);
             view = CreateView(engine, options);
             sink = options.IsVideo ? new VideoSink(options, context.Playback.FrameRate, audio) : new PngSink(options);
+            passes = PassWriter.Create(engine, context, options, camera, view); // レンダーパス（選んだときだけ）
             for (int i = 0; i < frames.Count; i++)
             {
                 token.ThrowIfCancellationRequested();
@@ -71,11 +73,20 @@ internal static class ImageExporter
                     throw;
                 }
                 sink.Submit(pixels, i);
+                if (passes is not null)
+                {
+                    await passes.WriteAsync(i); // 同じ姿勢・カメラで、パスごとに描く
+                }
                 progress?.Report(new ExportProgress(i + 1, frames.Count, frames[i]));
                 await Dispatcher.Yield(DispatcherPriority.Background); // 画面の更新と「やめる」を受け付ける
             }
             int written = await sink.CompleteAsync();
             sink = null;
+            if (passes is not null)
+            {
+                await passes.CompleteAsync();
+                written += passes.Saved;
+            }
             return written;
         }
         finally
@@ -83,6 +94,11 @@ internal static class ImageExporter
             if (sink is not null)
             {
                 await sink.AbortAsync(); // やめた・失敗した: 書きかけの保存を待って片付ける（書きかけの動画は消す）
+            }
+            if (passes is not null)
+            {
+                await passes.AbortAsync();
+                passes.Dispose();
             }
             view?.Dispose();
             Restore(context, originalFrame);

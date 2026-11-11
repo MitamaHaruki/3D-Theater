@@ -98,6 +98,10 @@ internal unsafe struct TtFrameParams
     public nint Environment;
     public float EnvironmentIntensity;
     public float EnvironmentRotation;
+    public uint RenderPass;
+    public float PassDepthNear;
+    public float PassDepthFar;
+    public uint Reserved12;
 }
 
 [StructLayout(LayoutKind.Sequential)]

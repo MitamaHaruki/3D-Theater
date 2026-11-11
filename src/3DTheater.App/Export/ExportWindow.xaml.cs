@@ -72,6 +72,17 @@ public partial class ExportWindow : Window
         UpdateMotionBlur();
         TransparentCheck.IsChecked = preferences.Transparent;
         BackgroundBox.Text = preferences.Background;
+        foreach (ExportPasses pass in ExportPassInfo.All)
+        {
+            PassChecks.Children.Add(new CheckBox
+            {
+                Content = ExportPassInfo.DisplayName(pass),
+                Tag = pass,
+                Margin = new Thickness(0, 0, 14, 2),
+                IsChecked = preferences.Passes.HasFlag(pass),
+                ToolTip = PassToolTip(pass),
+            });
+        }
         _kind = kind;
         // 種類のボタンは、準備ができる前に選ぶ（選んだときの処理で、空の書き出し先を覚えてしまわないように）
         (kind switch { ExportKind.Still => StillRadio, ExportKind.Sequence => SequenceRadio, _ => VideoRadio }).IsChecked = true;
@@ -126,6 +137,7 @@ public partial class ExportWindow : Window
         FrameNote.Text = range ? $"（作品の終わりは {_context.Playback.EndFrame}）" : "（今のフレーム）";
         PathBox.Text = _kind switch { ExportKind.Still => _stillPath, ExportKind.Sequence => _sequencePath, _ => _videoPath };
         VideoLabel.Visibility = VideoPanel.Visibility = video ? Visibility.Visible : Visibility.Collapsed;
+        PassLabel.Visibility = PassPanel.Visibility = video ? Visibility.Collapsed : Visibility.Visible; // 動画ではパスを書かない
         TransparentCheck.IsEnabled = !video; // 動画は透明にできない
         UpdateBackground();
     }
@@ -330,9 +342,27 @@ public partial class ExportWindow : Window
             IncludeAudio = AudioCheck.IsChecked == true,
             MotionBlurSamples = MotionBlurCheck.IsChecked == true ? (int)SampleChoices[Math.Max(BlurSamplesBox.SelectedIndex, 0)] : 1,
             Shutter = ShutterChoices[Math.Max(ShutterBox.SelectedIndex, 0)],
+            Passes = SelectedPasses(),
         };
         return true;
     }
+
+    // 選んだレンダーパス
+    private ExportPasses SelectedPasses() => PassChecks.Children.OfType<CheckBox>()
+        .Where(c => c.IsChecked == true && c.Tag is ExportPasses)
+        .Aggregate(ExportPasses.None, (all, c) => all | (ExportPasses)c.Tag);
+
+    private static string PassToolTip(ExportPasses pass) => pass switch
+    {
+        ExportPasses.Alpha => "物の形の白黒（白 = 物）。なめらかにします。透明な背景にしなくても書けます",
+        ExportPasses.Depth => "カメラからの距離の白黒（16 ビット。手前ほど白く、奥ほど黒い。何も無い所は黒）。範囲は 名前_passes.json に書きます",
+        ExportPasses.Normal => "カメラから見た面の向きの色（右向き = 赤、上向き = 緑、手前向き = 青が少ない）",
+        ExportPasses.ObjectId => "物（モデル）ごとの色。色とモデルの対応は 名前_passes.json に書きます",
+        ExportPasses.MaterialId => "材質ごとの色。色と材質の対応は 名前_passes.json に書きます",
+        ExportPasses.Shadow => "影の白黒（白 = 影の中）。セルフシャドウと地面の影（それぞれ ON のとき）",
+        ExportPasses.Emission => "材質の発光の色（材質の設定で発光を足した所。無ければ黒）",
+        _ => string.Empty,
+    };
 
     private void Remember(ExportOptions options)
     {
@@ -347,6 +377,7 @@ public partial class ExportWindow : Window
         }
         if (!options.IsVideo)
         {
+            _preferences.Passes = options.Passes;
             _preferences.Transparent = options.Transparent; // 動画は透明にできないので、PNG の設定は残しておく
         }
         _preferences.Background = ImageExport.FormatColor(options.Background);

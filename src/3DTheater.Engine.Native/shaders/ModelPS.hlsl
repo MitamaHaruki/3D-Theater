@@ -200,10 +200,77 @@ float4 PbrColor(ModelPSInput input, float3 n)
     return float4(direct + ambient + environment * ambientFresnel, base.a);
 }
 
+// ---- レンダーパス（書き出しの合成用の画像。tt_engine.h の TtRenderPass） ----
+
+// 材質とテクスチャの不透明度（色の計算と同じ掛け方）
+float MaterialAlpha(ModelPSInput input)
+{
+    float alpha = Diffuse.a;
+    if (AmbientAndTexture.w > 0.5)
+    {
+        alpha *= saturate(DiffuseTexture.Sample(TextureSampler, input.uv).a * TextureMultiply.a + TextureAdd.a);
+    }
+    return alpha;
+}
+
+// 番号から決まる色（C# の側でも同じ式で求め、色と物の対応表を作る。0〜255 の整数をそのまま書けるよう、255 で割った値にする）
+float3 IdColor(uint key)
+{
+    uint h = key * 2654435761u;
+    h ^= h >> 16;
+    h *= 2246822519u;
+    h ^= h >> 13;
+    uint3 c = uint3(64u + (h & 0xFFu) % 192u, 64u + ((h >> 8) & 0xFFu) % 192u, 64u + ((h >> 16) & 0xFFu) % 192u);
+    return float3(c) / 255.0;
+}
+
+float4 PassColor(ModelPSInput input, float3 n)
+{
+    uint kind = RenderPass();
+    float alpha = MaterialAlpha(input);
+    if (kind == kPassAlpha)
+    {
+        return float4(1.0, 1.0, 1.0, alpha);
+    }
+    clip(alpha - 0.5); // 透けた所は、物の形に含めない（境目をはっきりさせる）
+    if (kind == kPassDepth)
+    {
+        float3 worldPosition = CameraPosition.xyz - input.eye;
+        float viewZ = mul(float4(worldPosition, 1.0), View).z;
+        float d = saturate((viewZ - PassParams.z) / max(PassParams.w - PassParams.z, 1e-6));
+        uint v = (uint)round(d * 65535.0);
+        return float4(float(v >> 8) / 255.0, float(v & 0xFFu) / 255.0, 0.0, 1.0);
+    }
+    if (kind == kPassNormal)
+    {
+        float3 facing = dot(n, input.eye) < 0.0 ? -n : n; // 裏の面は手前へ向ける
+        float3 viewNormal = normalize(mul(float4(facing, 0.0), View).xyz);
+        return float4(viewNormal * 0.5 + 0.5, 1.0);
+    }
+    if (kind == kPassObjectId)
+    {
+        return float4(IdColor((uint)(PassParams.y + 0.5)), 1.0);
+    }
+    if (kind == kPassMaterialId)
+    {
+        return float4(IdColor((uint)(PassParams.y + 0.5) * 4096u + (uint)(MaterialIds.x + 0.5) + 1u), 1.0);
+    }
+    if (kind == kPassShadow)
+    {
+        float shadow = Options.w > 0.5 ? 1.0 - SelfShadowFactor(input.shadowPosition, input.position.xy) : 0.0;
+        return float4(shadow, shadow, shadow, 1.0);
+    }
+    return float4(saturate(Emissive.rgb), 1.0); // 発光
+}
+
 // 材質の発光（拡張材質）は、どちらの色の計算にも足す（1 より明るくでき、ブルームで光る）
 float4 main(ModelPSInput input) : SV_Target
 {
     float3 n = normalize(input.normal);
+    if (RenderPass() != 0)
+    {
+        return PassColor(input, n);
+    }
     float4 color = Pbr.x > 0.5 ? PbrColor(input, n) : ToonColor(input, n);
     color.rgb += Emissive.rgb;
     if (ReflectionParams.x > 0.5)

@@ -76,6 +76,7 @@ struct ObjectConstants {
     DirectX::XMFLOAT4 groundShadowColor;
     DirectX::XMFLOAT4 reflectionParams;
     DirectX::XMFLOAT4 shadowSoftness;
+    DirectX::XMFLOAT4 passParams; // レンダーパス（ModelFrame と同じ）
 };
 
 // 足す照明（シェーダーの LightConstants と同じ並び）
@@ -141,6 +142,7 @@ struct MaterialConstants {
     DirectX::XMFLOAT4 pbr;     // x = 1 なら PBR、y = 金属らしさ、z = 粗さ
     DirectX::XMFLOAT4 baseTint;
     DirectX::XMFLOAT4 emissive;
+    DirectX::XMFLOAT4 materialIds; // x = 材質の番号（0 から。レンダーパスの材質の番号の色に使う）
 };
 
 bool IsFinite3(const float (&v)[3]) noexcept
@@ -603,6 +605,11 @@ void Engine::DrawScene(ID3D11RenderTargetView* rtv, ID3D11DepthStencilView* dsv,
     XMStoreFloat4x4(&frame.lightViewProj, XMMatrixIdentity());
     frame.groundShadowColor = {params.ground_shadow_color[0], params.ground_shadow_color[1], params.ground_shadow_color[2],
         params.ground_shadow_color[3]};
+    // レンダーパス（物の番号は、描く物ごとに下で入れる）
+    const uint32_t pass = params.render_pass <= TT_PASS_EMISSION ? params.render_pass : TT_PASS_NONE;
+    const float depthNear = std::isfinite(params.pass_depth_near) ? params.pass_depth_near : 0.0f;
+    const float depthFar = std::isfinite(params.pass_depth_far) && params.pass_depth_far > depthNear ? params.pass_depth_far : depthNear + 1.0f;
+    frame.passParams = {static_cast<float>(pass), 0.0f, depthNear, depthFar};
     if (drawScene) {
         WriteLightConstants(params);
     }
@@ -678,6 +685,7 @@ void Engine::DrawScene(ID3D11RenderTargetView* rtv, ID3D11DepthStencilView* dsv,
         const TtDrawItem& item = params.items[i];
         const auto& mesh = *reinterpret_cast<const Mesh*>(item.mesh);
         const XMMATRIX world = load(item.world);
+        frame.passParams.y = static_cast<float>(i + 1); // レンダーパスの物の番号
         DrawMesh(mesh, world, frame);
         if (edgePixels > 0.0f && mesh.HasEdges() && !mesh.IsEmpty()) {
             DrawEdges(mesh);
@@ -1009,6 +1017,7 @@ void Engine::WriteObjectConstants(DirectX::FXMMATRIX world, DirectX::CXMMATRIX w
     object->groundShadowColor = frame.groundShadowColor;
     object->reflectionParams = frame.reflectionParams;
     object->shadowSoftness = frame.shadowSoftness;
+    object->passParams = frame.passParams;
     ctx->Unmap(objectConstantBuffer_.Get(), 0);
 }
 
@@ -1127,7 +1136,9 @@ void Engine::DrawMesh(const Mesh& mesh, DirectX::FXMMATRIX world, const ModelFra
     auto view = [&](const std::shared_ptr<TextureImage>& image) {
         return image && image->View() ? image->View() : whiteTexture_.Get();
     };
+    uint32_t materialIndex = 0;
     for (const Mesh::Material& material : mesh.Materials()) {
+        const float index = static_cast<float>(materialIndex++); // 材質の番号（描かない材質も数える。モデルの材質の並びと同じ）
         if (material.indexCount == 0) {
             continue;
         }
@@ -1148,6 +1159,7 @@ void Engine::DrawMesh(const Mesh& mesh, DirectX::FXMMATRIX world, const ModelFra
         constants->pbr = {material.shading == TT_SHADING_PBR ? 1.0f : 0.0f, material.metallic, material.roughness, 0.0f};
         constants->baseTint = material.baseTint;
         constants->emissive = material.emissive;
+        constants->materialIds = {index, 0.0f, 0.0f, 0.0f};
         ctx->Unmap(materialConstantBuffer_.Get(), 0);
 
         ID3D11ShaderResourceView* textures[] = {view(material.texture), view(material.toon), view(material.sphere)};

@@ -90,6 +90,9 @@ public sealed class ExportPreferences
 
     /// <summary>1 フレームを分けて描く数。</summary>
     public int MotionBlurSamples { get; set; } = 8;
+
+    /// <summary>普通の絵と一緒に書くレンダーパス（PNG のとき）。</summary>
+    public Editor.ExportPasses Passes { get; set; }
 }
 
 public sealed class GizmoPreferences

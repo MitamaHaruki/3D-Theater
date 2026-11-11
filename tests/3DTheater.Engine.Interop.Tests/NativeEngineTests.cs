@@ -219,6 +219,78 @@ public sealed class NativeEngineTests
     }
 
     [TestMethod]
+    public void RenderPassesReachTheEngine()
+    {
+        // カメラの 5 先に、カメラへ向いた四角形を 1 つ置き、パスごとに真ん中の画素を読む
+        using var engine = NativeEngine.Create(NativeEngineOptions.UseWarp);
+        const int width = 32;
+        const int height = 32;
+        using var view = engine.CreateOffscreenView(width, height);
+        var n = new System.Numerics.Vector3(0, 0, -1);
+        MeshVertex[] quad =
+        [
+            new(new(-1, 1, 0), n, new(0, 0)),
+            new(new(1, 1, 0), n, new(1, 0)),
+            new(new(1, -1, 0), n, new(1, 1)),
+            new(new(-1, -1, 0), n, new(0, 1)),
+        ];
+        MeshMaterial[] materials = [new(0, 6, System.Numerics.Vector4.One, System.Numerics.Vector3.Zero, 0, System.Numerics.Vector3.One, MaterialFlags.None, null)];
+        using NativeMesh mesh = engine.CreateMesh(quad, [0, 1, 2, 0, 2, 3], materials);
+        byte[] Render(RenderPass pass, out byte[] corner)
+        {
+            FrameParameters frame = DefaultFrame with
+            {
+                Flags = FrameFlags.UseLight | FrameFlags.ClearColor,
+                View = System.Numerics.Matrix4x4.CreateLookAtLeftHanded(new(0, 0, -5), System.Numerics.Vector3.Zero, System.Numerics.Vector3.UnitY),
+                Items = [new DrawItem(mesh, System.Numerics.Matrix4x4.Identity, DrawFlags.None)],
+                ClearColor = System.Numerics.Vector4.Zero,
+                Pass = pass,
+                PassDepthNear = 0f,
+                PassDepthFar = 10f,
+            };
+            Assert.IsTrue(view.Render(frame));
+            var pixels = new byte[width * height * 4];
+            view.ReadPixels(pixels, width * 4);
+            corner = pixels[0..4];
+            int center = ((height / 2 * width) + (width / 2)) * 4;
+            return pixels[center..(center + 4)];
+        }
+
+        var objectColor = RenderPassColors.ObjectColor(1);
+        byte[] id = Render(RenderPass.ObjectId, out byte[] background);
+        CollectionAssert.AreEqual(new byte[] { objectColor.B, objectColor.G, objectColor.R, 255 }, id, "物の番号の色は、C# の式と 1 の位まで同じ");
+        CollectionAssert.AreEqual(new byte[] { 0, 0, 0, 0 }, background, "何も無い所は透明な黒");
+
+        var materialColor = RenderPassColors.MaterialColor(1, 0);
+        CollectionAssert.AreEqual(new byte[] { materialColor.B, materialColor.G, materialColor.R, 255 }, Render(RenderPass.MaterialId, out _));
+        CollectionAssert.AreNotEqual(id, Render(RenderPass.MaterialId, out _), "物の色と材質の色は違う");
+
+        byte[] depth = Render(RenderPass.Depth, out _);
+        int packed = (depth[2] << 8) | depth[1]; // 赤が上位、緑が下位
+        Assert.AreEqual(0.5, packed / 65535.0, 0.0002, "カメラから 5 先は、0〜10 の真ん中");
+
+        byte[] normal = Render(RenderPass.Normal, out _);
+        Assert.AreEqual(128, normal[2], 1, "カメラへ向いた面は、右と上の成分が 0（真ん中の 128）");
+        Assert.AreEqual(128, normal[1], 1);
+        Assert.IsLessThan(2, (int)normal[0], "奥の成分は -1（手前を向く）");
+
+        byte[] alpha = Render(RenderPass.Alpha, out byte[] alphaBackground);
+        CollectionAssert.AreEqual(new byte[] { 255, 255, 255, 255 }, alpha, "アルファのパスは不透明な白");
+        Assert.AreEqual(0, alphaBackground[3]);
+
+        CollectionAssert.AreEqual(new byte[] { 0, 0, 0, 255 }, Render(RenderPass.Emission, out _), "発光の無い材質は黒");
+    }
+
+    [TestMethod]
+    public void IdColorsAreBrightEnoughAndDiffer()
+    {
+        var colors = Enumerable.Range(1, 200).Select(i => RenderPassColors.ObjectColor(i)).ToList();
+        Assert.IsTrue(colors.All(c => c.R >= 64 && c.G >= 64 && c.B >= 64), "黒い背景と区別できる");
+        Assert.HasCount(200, colors.Distinct(), "番号ごとに違う色");
+        Assert.AreEqual(RenderPassColors.IdColor(4097), RenderPassColors.MaterialColor(1, 0));
+    }
+
+    [TestMethod]
     public void DisposingEngineBeforeViewsIsRejected()
     {
         var engine = NativeEngine.Create(NativeEngineOptions.UseWarp);
