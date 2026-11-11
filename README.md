@@ -187,7 +187,7 @@ GPU の面を WPF と共有できない環境では、描いた絵を読み出�
 
 | 内容 | 場所 |
 |---|---|
-| レイアウト・プレビューの分け方・ウィンドウの位置・ギズモ・描画品質・書き出しの設定 | `%APPDATA%\3DTheater\UserSettings\` |
+| レイアウト・プレビューの分け方・ウィンドウの位置と最大化（設定などの画面の位置も）・ギズモ・描画品質・書き出しの設定 | `%APPDATA%\3DTheater\UserSettings\` |
 | ログ | `%LOCALAPPDATA%\3DTheater\Logs\`（メニュー「ヘルプ → ログフォルダーを開く」） |
 | 自動保存 | `%LOCALAPPDATA%\3DTheater\AutoSave\`（保存せずに終わったとき、次に起動すると復旧するか尋ねる） |
 

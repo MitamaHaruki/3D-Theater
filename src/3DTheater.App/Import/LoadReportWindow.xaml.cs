@@ -37,6 +37,7 @@ public partial class LoadReportWindow : Window
     public static void Show(Window? owner, string path, LoadReport report, ModelSummary? summary, string what = "モデル", bool isExport = false)
     {
         var window = new LoadReportWindow(path, report, summary, what, isExport) { Owner = owner };
+        Shell.WindowMemory.Track(window);
         window.ShowDialog();
     }
 

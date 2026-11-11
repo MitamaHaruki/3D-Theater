@@ -45,7 +45,13 @@ public partial class MainWindow : Window
         Icon = AppIcon.CreateBitmap(64);
         TitleIcon.Source = AppIcon.CreateDrawing();
         TitleBarHelper.Attach(this, MaximizeButton, RootBorder);
-        ApplyWindowPlacement(_settings.Window);
+        // ウィンドウの置き場所: 前回閉じたときの位置・大きさ・最大化に戻す（前の版の設定は、初めて起動したときに移す）
+        WindowMemory.Load(_settings);
+        if (WindowMemory.Get(WindowMemory.MainWindowKey) is null && _settings.Window is { } legacy)
+        {
+            WindowMemory.Set(WindowMemory.MainWindowKey, WindowMemory.FromLegacy(legacy));
+        }
+        WindowMemory.Track(this, WindowMemory.MainWindowKey, allowMaximize: true);
 
         Dock.Theme = new Vs2013DarkTheme();
         _layout = new DockingLayout(Dock, context);
@@ -108,8 +114,8 @@ public partial class MainWindow : Window
         _context.Playback.Pause();
         _context.RenderLoop.Stop();
 
-        _settings.Window = new WindowPlacement(RestoreBounds.Left, RestoreBounds.Top, RestoreBounds.Width, RestoreBounds.Height,
-            WindowState == WindowState.Maximized);
+        WindowMemory.SaveTo(_settings); // メインのウィンドウの置き場所は、閉じる知らせ（base.OnClosing）で覚えてある
+        _settings.Window = null;
         _layout.Save(_settings);
         _settings.Gizmo = new GizmoPreferences { Style = _context.Gizmo.Style, Tool = _context.Gizmo.Tool, LocalSpace = _context.Gizmo.LocalSpace };
         _settings.Rendering = new RenderingPreferences { PreviewQuality = _context.PreviewQuality.Quality };
@@ -281,31 +287,6 @@ public partial class MainWindow : Window
         {
             _activePreview = null;
             _activeView = null;
-        }
-    }
-
-    private void ApplyWindowPlacement(WindowPlacement? placement)
-    {
-        if (placement is null || placement.Width < MinWidth || placement.Height < MinHeight)
-        {
-            return;
-        }
-        // 前回のモニターが外れていても画面の外に出ないよう、今の画面に収まるときだけ戻す
-        var screen = new Rect(SystemParameters.VirtualScreenLeft, SystemParameters.VirtualScreenTop,
-            SystemParameters.VirtualScreenWidth, SystemParameters.VirtualScreenHeight);
-        var bounds = new Rect(placement.Left, placement.Top, placement.Width, placement.Height);
-        if (!screen.IntersectsWith(bounds))
-        {
-            return;
-        }
-        WindowStartupLocation = WindowStartupLocation.Manual;
-        Left = bounds.Left;
-        Top = bounds.Top;
-        Width = bounds.Width;
-        Height = bounds.Height;
-        if (placement.IsMaximized)
-        {
-            WindowState = WindowState.Maximized;
         }
     }
 
@@ -555,30 +536,35 @@ public partial class MainWindow : Window
         }
         _context.Playback.Pause();
         var window = new Export.ExportWindow(_context, _settings.Export, kind, _project.CurrentPath) { Owner = this };
+        WindowMemory.Track(window);
         window.ShowDialog();
     }
 
     private void OnReflectionClick(object sender, RoutedEventArgs e)
     {
         var window = new ReflectionWindow(_context.Rendering) { Owner = this };
+        WindowMemory.Track(window);
         window.ShowDialog();
     }
 
     private void OnShadowClick(object sender, RoutedEventArgs e)
     {
         var window = new ShadowWindow(_context.Rendering) { Owner = this };
+        WindowMemory.Track(window);
         window.ShowDialog();
     }
 
     private void OnFogClick(object sender, RoutedEventArgs e)
     {
         var window = new FogWindow(_context.Rendering) { Owner = this };
+        WindowMemory.Track(window);
         window.ShowDialog();
     }
 
     private void OnEffectsClick(object sender, RoutedEventArgs e)
     {
         var window = new EffectsWindow(_context.Rendering) { Owner = this };
+        WindowMemory.Track(window);
         window.ShowDialog();
     }
 
@@ -594,18 +580,21 @@ public partial class MainWindow : Window
             return;
         }
         var window = new MaterialsWindow(context.Edits, model) { Owner = owner };
+        WindowMemory.Track(window);
         window.ShowDialog();
     }
 
     private void OnIllustrationClick(object sender, RoutedEventArgs e)
     {
         var window = new IllustrationWindow(_context.Rendering) { Owner = this };
+        WindowMemory.Track(window);
         window.ShowDialog();
     }
 
     private void OnRenderQualityClick(object sender, RoutedEventArgs e)
     {
         var window = new RenderQualityWindow(_context) { Owner = this };
+        WindowMemory.Track(window);
         window.ShowDialog();
     }
 

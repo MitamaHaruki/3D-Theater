@@ -7,7 +7,7 @@ using Theater3D.App.Preview;
 
 namespace Theater3D.App.Shell;
 
-/// <summary>ウィンドウの位置と大きさ。</summary>
+/// <summary>ウィンドウの位置と大きさ（前の版の形式。WPF の座標）。今は <see cref="UserSettings.Windows"/> を使い、読むだけ。</summary>
 public sealed record WindowPlacement(double Left, double Top, double Width, double Height, bool IsMaximized);
 
 /// <summary>
@@ -21,7 +21,11 @@ public sealed class UserSettings
 
     public int Version { get; set; } = CurrentVersion;
 
+    /// <summary>前の版のメインのウィンドウの位置（読むだけ。初めて起動したときに <see cref="Windows"/> へ移す）。</summary>
     public WindowPlacement? Window { get; set; }
+
+    /// <summary>ウィンドウごとの置き場所（メインのウィンドウと、設定などの画面。<see cref="WindowMemory"/>）。</summary>
+    public Dictionary<string, SavedWindowPlacement> Windows { get; set; } = [];
 
     public Dictionary<string, PreviewSettings> Previews { get; set; } = [];
 
