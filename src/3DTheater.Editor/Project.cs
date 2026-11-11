@@ -73,6 +73,9 @@ public sealed class LightEntry
 
     public float SpotSoftness { get; set; } = 0.3f;
 
+    /// <summary>影を落とすか（影をレイトレーシングで求めるとき）。無い前の版のファイルは落とす。</summary>
+    public bool CastShadow { get; set; } = true;
+
     internal static string TypeName(LightType type) => type switch
     {
         LightType.Directional => "directional",
@@ -467,6 +470,7 @@ public static class ProjectCapture
             Range = l.Range,
             SpotAngle = l.SpotAngle,
             SpotSoftness = l.SpotSoftness,
+            CastShadow = l.CastsShadow,
         })];
         project.Lights = lights.Count > 0 ? lights : null;
         foreach (ModelNode model in scene.ModelsGroup.Children.OfType<ModelNode>())
@@ -721,6 +725,7 @@ public static class ProjectApply
                 Range = entry.Range,
                 SpotAngle = entry.SpotAngle,
                 SpotSoftness = entry.SpotSoftness,
+                CastsShadow = entry.CastShadow,
                 IsVisible = entry.Visible,
             };
             scene.Add(scene.LightsGroup, light);

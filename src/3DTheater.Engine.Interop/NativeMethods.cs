@@ -118,9 +118,12 @@ internal struct TtLight
     public Vector3 Color;
     public float SpotAngle;
     public float SpotSoftness;
-    public uint Reserved0;
+    public uint Flags; // TT_LIGHT_FLAG_*（API 0.31）
     public uint Reserved1;
     public uint Reserved2;
+
+    /// <summary>TT_LIGHT_FLAG_CAST_SHADOW（影を落とす）。</summary>
+    public const uint FlagCastShadow = 1u << 0;
 }
 
 [StructLayout(LayoutKind.Sequential)]

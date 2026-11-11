@@ -41,7 +41,8 @@ public enum FrameFlags : uint
     /// <summary>
     /// 影を、照明から見た奥行きの画像（地面の影は押しつぶす描き方）の代わりにレイトレーシングで求める（<see cref="SelfShadow"/>・
     /// <see cref="GroundShadow"/> と一緒に使う。両方にかかる）。影を受ける面（地面の影は床の点）から照明の向きへ光線を出し、
-    /// 影を落とす材質に当たれば影。くっきり正確になる（重い）。
+    /// 影を落とす材質に当たれば影。くっきり正確になる（重い）。<see cref="SelfShadow"/> と一緒に使うと、足す照明のうち
+    /// <see cref="LightSource.CastsShadow"/> のものも影を落とす。
     /// </summary>
     RayTracedShadows = 1u << 13,
 }
@@ -122,7 +123,9 @@ public enum LightSourceKind : uint
 
 /// <summary>
 /// 足す照明（メインの照明とは別。tt_engine.h の TtLight）。<see cref="Direction"/> は光が進む向き、<see cref="Color"/> は色 × 明るさ。
-/// <see cref="SpotAngle"/> は円すいの全体の角度（度）、<see cref="SpotSoftness"/> は縁のぼかし（0〜1）。影は落とさない。
+/// <see cref="SpotAngle"/> は円すいの全体の角度（度）、<see cref="SpotSoftness"/> は縁のぼかし（0〜1）。
+/// <see cref="CastsShadow"/> の照明は、影をレイトレーシングで求めるとき（<see cref="FrameFlags.SelfShadow"/> と
+/// <see cref="FrameFlags.RayTracedShadows"/>）だけ、セルフシャドウを受ける材質へくっきりした影を落とす。
 /// </summary>
 public readonly record struct LightSource(
     LightSourceKind Kind,
@@ -131,7 +134,8 @@ public readonly record struct LightSource(
     float Range,
     Vector3 Color,
     float SpotAngle = 40f,
-    float SpotSoftness = 0.3f)
+    float SpotSoftness = 0.3f,
+    bool CastsShadow = false)
 {
     /// <summary>描画エンジンが 1 枚で使う数の上限（TT_MAX_LIGHTS）。</summary>
     public const int MaxCount = 8;

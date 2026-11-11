@@ -30,6 +30,22 @@ static const float kRayShadowLift = 0.005;    // ふつうに浮かせる長さ
 // 描いている三角形の向き（画素の間のワールドの位置の差から。main の始めで求める。分かれ道の中では差を求められないため）
 static float3 g_faceNormal = float3(0.0, 0.0, 0.0);
 
+// 影を調べる光線を出す所。position・toLight・normal は、床の映り込みを描いているときも映す前のもの
+float3 RayShadowOrigin(float3 position, float3 toLight, float3 normal)
+{
+    float3 side = dot(normal, toLight) >= 0.0 ? normal : -normal;
+    float3 face = g_faceNormal;
+    if (ReflectionParams.x > 0.5)
+    {
+        face.y = -face.y;
+    }
+    float faceLength = length(face);
+    face = faceLength > 1e-12 ? face / faceLength : side;
+    face = dot(face, side) >= 0.0 ? face : -face;
+    float lift = dot(face, toLight) > 0.05 ? kRayShadowLift : kRayShadowBias;
+    return position + side * lift + toLight * kRayShadowBias;
+}
+
 float RayTracedShadow(ModelPSInput input, float3 n)
 {
     float3 position = CameraPosition.xyz - input.eye;
@@ -42,19 +58,8 @@ float RayTracedShadow(ModelPSInput input, float3 n)
         toLight.y = -toLight.y;
         normal.y = -normal.y;
     }
-    float3 side = dot(normal, toLight) >= 0.0 ? normal : -normal;
-    float3 face = g_faceNormal;
-    if (ReflectionParams.x > 0.5)
-    {
-        face.y = -face.y;
-    }
-    float faceLength = length(face);
-    face = faceLength > 1e-12 ? face / faceLength : side;
-    face = dot(face, side) >= 0.0 ? face : -face;
-    float lift = dot(face, toLight) > 0.05 ? kRayShadowLift : kRayShadowBias;
-    float3 origin = position + side * lift + toLight * kRayShadowBias;
-    return RayShadowVisibility(origin, toLight, ShadowSoftness.y, (int)(RayShadowParams.z + 0.5), (uint)(RayShadowParams.y + 0.5),
-        kRayCastShadow, input.position.xy);
+    return RayShadowVisibility(RayShadowOrigin(position, toLight, normal), toLight, ShadowSoftness.y, (int)(RayShadowParams.z + 0.5),
+        (uint)(RayShadowParams.y + 0.5), kRayCastShadow, input.position.xy);
 }
 
 // セルフシャドウの光の当たる割合（奥行きの画像か、レイトレーシング）
@@ -90,8 +95,45 @@ float3 ExtraLightAt(uint index, float3 worldPosition, out float3 toLight)
     return radiance;
 }
 
+// 足す照明 1 つの影（1 = 光が当たる、0 = 影）。レイトレーシングでの影を使うとき（RayShadowParams.x）に、影を落とす照明
+// （spot.y）から、セルフシャドウを受ける材質へだけ落とす。面から照明へ光線を 1 本出す、くっきりした影。点光源・スポットライトは
+// 照明の位置までを調べる（照明より向こうの物は影を落とさない）。toLight は ExtraLightAt の向き
+float ExtraLightShadow(ModelPSInput input, uint index, float3 n, float3 toLight)
+{
+    ExtraLight light = Lights[index];
+    if (RayShadowParams.x < 0.5 || Options.w < 0.5 || light.spot.y < 0.5)
+    {
+        return 1.0;
+    }
+    float3 position = CameraPosition.xyz - input.eye;
+    float3 lightPosition = light.position.xyz;
+    float3 normal = n;
+    float3 direction = toLight;
+    if (ReflectionParams.x > 0.5)
+    {
+        // 床の映り込みでは、照明も床で上下に映してある。光線は映す前の物に当てる
+        position.y = -position.y;
+        lightPosition.y = -lightPosition.y;
+        normal.y = -normal.y;
+        direction.y = -direction.y;
+    }
+    float3 origin = RayShadowOrigin(position, direction, normal);
+    float reach = kRayShadowReach;
+    if ((uint)(light.position.w + 0.5) != 0)
+    {
+        float3 offset = lightPosition - origin;
+        reach = length(offset);
+        if (reach <= 1e-4)
+        {
+            return 1.0;
+        }
+        direction = offset / reach;
+    }
+    return TraceShadowRay(origin, direction, reach, (uint)(RayShadowParams.y + 0.5), kRayCastShadow) ? 0.0 : 1.0;
+}
+
 // トゥーンの材質への足す照明: 光の当たる側を、材質の色（拡散色 × テクスチャ）× 照明の色で明るくする。
-// トゥーンのある材質は境目をくっきりさせ（セル調）、無い材質はなめらかにする。影は落とさない
+// トゥーンのある材質は境目をくっきりさせ（セル調）、無い材質はなめらかにする。影は、影を落とす照明だけ（ExtraLightShadow）
 float3 ExtraToonLight(ModelPSInput input, float3 n, float3 albedo)
 {
     float3 sum = 0.0;
@@ -102,6 +144,11 @@ float3 ExtraToonLight(ModelPSInput input, float3 n, float3 albedo)
         float3 radiance = ExtraLightAt(i, worldPosition, toLight);
         float nl = dot(n, toLight);
         float lit = Options.y > 0.5 ? smoothstep(0.0, 0.15, nl) : saturate(nl);
+        // 光の届かない所（背を向けた面・届く距離や円すいの外）では、影を調べない（光線を出さずに済む）
+        if (lit > 0.0 && any(radiance > 0.0))
+        {
+            lit *= ExtraLightShadow(input, i, n, toLight);
+        }
         sum += albedo * radiance * lit;
     }
     return sum;
@@ -197,7 +244,7 @@ float3 PbrDirect(float3 n, float3 v, float3 l, float3 radiance, float3 base, flo
 
 // 拡張材質（PBR）の色の計算: 金属らしさと粗さで光を返す（GGX の反射と、Lambert の拡散）。
 // - ベースカラー = 材質の拡散色 × テクスチャ × 色合い。スフィア・トゥーン・MMD の反射光は使わない
-// - 照明: シーンの平行光 1 つ（セルフシャドウを受ける材質は、影の中で光が届かない）
+// - 照明: シーンの平行光 1 つ（セルフシャドウを受ける材質は、影の中で光が届かない）と足す照明（影を落とす照明だけ影を落とす）
 // - 環境光: 照明の色をもとにした、空（上）と地面（下）の 2 色。反射もこの 2 色を映す（粗いほど混ざる）
 // 環境の映り込み（環境の色 × 映り込みの強さ）は、色に足さずに reflection へ返す（画面の中の反射で置き換えられるように）
 float4 PbrColor(ModelPSInput input, float3 n, out float3 fresnel, out float3 reflection, out float roughnessOut)
@@ -225,6 +272,10 @@ float4 PbrColor(ModelPSInput input, float3 n, out float3 fresnel, out float3 ref
     {
         float3 toLight;
         float3 radiance = ExtraLightAt(i, worldPosition, toLight);
+        if (dot(n, toLight) > 0.0 && any(radiance > 0.0))
+        {
+            radiance *= ExtraLightShadow(input, i, n, toLight);
+        }
         direct += PbrDirect(n, v, toLight, radiance * kPbrLightScale, base.rgb, metallic, roughness, f0);
     }
 

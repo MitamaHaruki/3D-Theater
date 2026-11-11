@@ -293,6 +293,9 @@ public sealed class PropertiesViewModel : ObservableObject
     /// <summary>スポットライトか（広がりとぼかしを出す）。</summary>
     public bool IsSpotLight => _node is LightNode { Type: LightType.Spot };
 
+    /// <summary>足した照明か（MMD の照明でない。影を落とすかを出す）。</summary>
+    public bool IsAddedLight => _node is LightNode l && !ReferenceEquals(l, _context.Scene.MainLight);
+
     /// <summary>照明の色（#RRGGBB）。読めない文字は入れない。</summary>
     public string LightColor
     {
@@ -322,6 +325,13 @@ public sealed class PropertiesViewModel : ObservableObject
     {
         get => (_node as LightNode)?.SpotSoftness ?? 0;
         set => Edit("縁のぼかし", n => ((LightNode)n).SpotSoftness = (float)value);
+    }
+
+    /// <summary>足した照明が影を落とすか（影をレイトレーシングで求めるとき）。</summary>
+    public bool LightCastsShadow
+    {
+        get => (_node as LightNode)?.CastsShadow ?? false;
+        set => Edit("影を落とす", n => ((LightNode)n).CastsShadow = value);
     }
 
     public bool SpinWithFrame

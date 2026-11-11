@@ -49,7 +49,7 @@
       <TextBlock x:Name="GroundOpacityText" Grid.Row="1" Grid.Column="2" Style="{StaticResource ValueStyle}" />
       <CheckBox x:Name="RayTracedCheck" Grid.Row="2" Grid.ColumnSpan="3" Margin="0,8,0,0"
                 Content="影をレイトレーシングで求める（セルフシャドウと地面の影。くっきり正確。重い）"
-                ToolTip="照明から見た奥行きの画像の代わりに、影を受ける面（地面の影は床）から照明の向きへ光線を出して、影を落とす物に当たるかを調べます。顔のアップなどでも影の縁がぎざぎざにならず、髪の透けた所は影を落としません"
+                ToolTip="照明から見た奥行きの画像の代わりに、影を受ける面（地面の影は床）から照明の向きへ光線を出して、影を落とす物に当たるかを調べます。顔のアップなどでも影の縁がぎざぎざにならず、髪の透けた所は影を落としません。セルフシャドウを使うときは、足した照明（「影を落とす」のもの）もモデルに影を落とします"
                 Checked="OnCheckChanged" Unchecked="OnCheckChanged" />
     </Grid>
 

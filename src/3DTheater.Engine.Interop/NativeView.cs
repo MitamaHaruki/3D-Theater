@@ -95,6 +95,7 @@ public sealed unsafe class NativeView : IDisposable
                 Color = light.Color,
                 SpotAngle = light.SpotAngle,
                 SpotSoftness = light.SpotSoftness,
+                Flags = light.CastsShadow ? TtLight.FlagCastShadow : 0u,
             };
         }
         fixed (TtDrawItem* itemPointer = items)

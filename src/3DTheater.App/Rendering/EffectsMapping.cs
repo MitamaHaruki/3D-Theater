@@ -15,7 +15,7 @@ public static class EffectsMapping
                 Domain.LightType.Spot => LightSourceKind.Spot,
                 _ => LightSourceKind.Directional,
             },
-            l.Position, l.Direction, l.Range, l.Color, l.SpotAngle, l.SpotSoftness))];
+            l.Position, l.Direction, l.Range, l.Color, l.SpotAngle, l.SpotSoftness, l.CastsShadow))];
 
     /// <summary>
     /// 高さ <paramref name="pixelHeight"/> の画像を描くときの値。線画の太さは輪郭線と同じく高さ 1080 までは指定の画素のまま、

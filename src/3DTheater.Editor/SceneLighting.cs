@@ -11,9 +11,12 @@ namespace Theater3D.Editor;
 /// </summary>
 public static class SceneLighting
 {
-    /// <summary>描画に使う、足した照明 1 つ（<see cref="Color"/> は色 × 明るさ × 154/255、<see cref="Direction"/> は光が進む向き）。</summary>
+    /// <summary>
+    /// 描画に使う、足した照明 1 つ（<see cref="Color"/> は色 × 明るさ × 154/255、<see cref="Direction"/> は光が進む向き）。
+    /// <see cref="CastsShadow"/> は影を落とすか（影をレイトレーシングで求めるときだけ落とす）。
+    /// </summary>
     public readonly record struct AddedLight(LightType Type, Vector3 Position, Vector3 Direction, float Range, Vector3 Color,
-        float SpotAngle, float SpotSoftness);
+        float SpotAngle, float SpotSoftness, bool CastsShadow);
 
     /// <summary>MMD の初期の照明の明るさ（154 / 255）。</summary>
     public const float MmdIntensity = 154f / 255f;
@@ -45,7 +48,8 @@ public static class SceneLighting
     /// </summary>
     public static IReadOnlyList<AddedLight> AddedLights(SceneDocument scene) =>
         [.. scene.AddedLights.Where(l => l.IsEffectivelyVisible && l.Intensity > 0f).Select(l => new AddedLight(
-            l.Type, l.Position, DirectionOf(l.Rotation), l.Range, l.Color * (MmdIntensity * l.Intensity), l.SpotAngle, l.SpotSoftness))];
+            l.Type, l.Position, DirectionOf(l.Rotation), l.Range, l.Color * (MmdIntensity * l.Intensity), l.SpotAngle, l.SpotSoftness,
+            l.CastsShadow))];
 
     /// <summary>
     /// 輪郭線の太さ 1 を何ピクセルにするか。高さ 1080 ピクセルまでは 1 ピクセル（小さなプレビューでも線が消えないように）、

@@ -333,8 +333,11 @@
             <c:NumberBox Grid.Row="5" Grid.Column="2" Value="{Binding SpotSoftness}" Step="0.05" Format="0.00"
                          Visibility="{Binding IsSpotLight, Converter={StaticResource BoolToVisibility}}" />
           </Grid>
+          <CheckBox Margin="0,6,0,0" Content="影を落とす（影をレイトレーシングで求めるとき）" IsChecked="{Binding LightCastsShadow}"
+                    IsEnabled="{Binding IsEditable}" Visibility="{Binding IsAddedLight, Converter={StaticResource BoolToVisibility}}"
+                    ToolTip="「影の設定...」でセルフシャドウを使い、「影をレイトレーシングで求める」にしたとき、この照明もモデルに影を落とします（くっきりした影。照明ごとに少し重くなります）" />
           <TextBlock Margin="0,6,0,0" Style="{StaticResource PlannedNoteStyle}"
-                     Text="MMD の照明は、向き（回転）・色・明るさで、モデルの陰影と影を描きます（隠すと、材質の環境色だけ）。足した照明（シーンのメニュー「照明を追加」）は、位置・向きと色でモデルを明るくします（影は落としません。プレビューに目印の線が出ます）。" />
+                     Text="MMD の照明は、向き（回転）・色・明るさで、モデルの陰影と影を描きます（隠すと、材質の環境色だけ）。足した照明（シーンのメニュー「照明を追加」）は、位置・向きと色でモデルを明るくします（影は、影をレイトレーシングで求めるときだけ落とします。プレビューに目印の線が出ます）。" />
         </StackPanel>
 
         <!-- 確認用の立方体 -->

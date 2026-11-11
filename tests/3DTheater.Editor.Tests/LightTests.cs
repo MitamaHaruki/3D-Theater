@@ -26,12 +26,17 @@ public sealed class LightTests
         light.Range = float.NaN;
         Assert.AreEqual(LightNode.MinRange, light.Range, "数でない値は入れない");
 
+        Assert.IsTrue(light.CastsShadow, "足した照明は、はじめは影を落とす（影をレイトレーシングで求めるとき）");
+
         NodeState before = light.CaptureState();
         light.Color = new Vector3(0f, 0f, 1f);
         light.Range = 12f;
+        light.CastsShadow = false;
+        Assert.AreNotEqual(before, light.CaptureState(), "影を落とすかを変えると、値が変わったことになる");
         light.RestoreState(before);
         Assert.AreEqual(new Vector3(1f, 0.5f, 0f), light.Color, "元に戻すと色も戻る");
         Assert.AreEqual(LightNode.MinRange, light.Range);
+        Assert.IsTrue(light.CastsShadow, "元に戻すと影を落とすかも戻る");
     }
 
     [TestMethod]
@@ -87,6 +92,9 @@ public sealed class LightTests
         Assert.HasCount(1, drawn, "隠した照明と明るさ 0 の照明は描かない");
         Assert.AreEqual(new Vector3(2f * SceneLighting.MmdIntensity, 0f, 0f), drawn[0].Color, "色 × 明るさ × 154/255");
         Assert.AreEqual(red.Position, drawn[0].Position);
+        Assert.IsTrue(drawn[0].CastsShadow, "影を落とすかも描画へ渡す");
+        red.CastsShadow = false;
+        Assert.IsFalse(SceneLighting.AddedLights(scene)[0].CastsShadow);
 
         scene.MainLight.Color = new Vector3(1f, 0.5f, 0f);
         Assert.AreEqual(new Vector3(SceneLighting.MmdIntensity, SceneLighting.MmdIntensity * 0.5f, 0f), SceneLighting.From(scene.MainLight).Color,
@@ -101,11 +109,13 @@ public sealed class LightTests
         LightNode spot = LightPresenceAction.Create(scene, LightType.Spot, new Vector3(0f, 10f, 0f));
         spot.Color = new Vector3(0f, 1f, 1f);
         spot.SpotAngle = 25f;
+        spot.CastsShadow = false;
         spot.IsVisible = false;
         LightPresenceAction.Add(scene, undo, spot);
         scene.MainLight.Color = new Vector3(1f, 0.8f, 0.6f);
-        ProjectFile project = ProjectSerializer.Deserialize(
-            ProjectSerializer.Serialize(ProjectCapture.Capture(scene, playback, animation, null, [])), new LoadReport())!;
+        string json = ProjectSerializer.Serialize(ProjectCapture.Capture(scene, playback, animation, null, []));
+        StringAssert.Contains(json, "\"castShadow\":false", "影を落とさないことも書く");
+        ProjectFile project = ProjectSerializer.Deserialize(json, new LoadReport())!;
         Assert.HasCount(1, project.Lights!);
         Assert.AreEqual("spot", project.Lights![0].Type);
 
@@ -120,8 +130,16 @@ public sealed class LightTests
         Assert.AreEqual(spot.Rotation, restored.Rotation);
         Assert.AreEqual(new Vector3(0f, 1f, 1f), restored.Color);
         Assert.AreEqual(25f, restored.SpotAngle);
+        Assert.IsFalse(restored.CastsShadow, "影を落とさない照明は、落とさないまま戻る");
         Assert.IsFalse(restored.IsVisible);
         Assert.AreEqual(ImageExport.FormatColor(new Vector3(1f, 0.8f, 0.6f)), ImageExport.FormatColor(scene2.MainLight.Color), "MMD の照明の色も戻る");
+
+        // 影を落とすかの無い前の版のファイルの照明は、影を落とす
+        ProjectFile before = ProjectSerializer.Deserialize(
+            """{"format":"3DTheater.Project","version":1,"lights":[{"name":"前の版の照明","type":"point"}]}""", new LoadReport())!;
+        ProjectApply.ApplyScene(scene2, playback2, animation2, before, new LoadReport());
+        Assert.IsTrue(scene2.AddedLights.Single().CastsShadow, "前の版のファイルの照明は影を落とす");
+        ProjectApply.ApplyScene(scene2, playback2, animation2, project, new LoadReport());
 
         // 種類の分からない照明は知らせて飛ばす。照明の無い前の版のファイルは、足した照明なし
         project.Lights.Add(new LightEntry { Name = "謎の照明", Type = "laser" });

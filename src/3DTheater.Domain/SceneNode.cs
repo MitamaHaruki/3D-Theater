@@ -346,6 +346,7 @@ public sealed class LightNode(string name, LightType type = LightType.Directiona
     private float _range = 30f;
     private float _spotAngle = 40f;
     private float _spotSoftness = 0.3f;
+    private bool _castsShadow = true;
 
     /// <summary>種類（作るときに決め、あとから変えない）。</summary>
     public LightType Type { get; } = type;
@@ -387,7 +388,18 @@ public sealed class LightNode(string name, LightType type = LightType.Directiona
         set => SetProperty(ref _spotSoftness, float.IsFinite(value) ? Math.Clamp(value, 0f, 1f) : _spotSoftness);
     }
 
-    protected override object? CaptureExtra(bool includeKeys) => new LightState(Intensity, Color, Range, SpotAngle, SpotSoftness);
+    /// <summary>
+    /// 影を落とすか（足した照明。影をレイトレーシングで求めるときだけ、セルフシャドウを受ける材質へ影を落とす）。
+    /// MMD の照明（シーンの照明）は、セルフシャドウ・地面の影の設定で影を落とすので、使わない。
+    /// </summary>
+    public bool CastsShadow
+    {
+        get => _castsShadow;
+        set => SetProperty(ref _castsShadow, value);
+    }
+
+    protected override object? CaptureExtra(bool includeKeys) =>
+        new LightState(Intensity, Color, Range, SpotAngle, SpotSoftness, CastsShadow);
 
     protected override void RestoreExtra(object? extra)
     {
@@ -398,6 +410,7 @@ public sealed class LightNode(string name, LightType type = LightType.Directiona
             Range = s.Range;
             SpotAngle = s.SpotAngle;
             SpotSoftness = s.SpotSoftness;
+            CastsShadow = s.CastsShadow;
         }
     }
 }

@@ -219,6 +219,63 @@ public sealed class NativeEngineTests
     }
 
     [TestMethod]
+    public void ExtraLightShadowsReachTheEngine()
+    {
+        // 構造体の並びが tt_engine.h と合っていること
+        Assert.AreEqual(64, System.Runtime.CompilerServices.Unsafe.SizeOf<TtLight>());
+        // 床（影を受ける）と、その上の板（影を落とす）を真上から見て、左上の点光源だけで照らす。影を落とす照明は、
+        // 影をレイトレーシングで求めるとき、床の右に板の影を落とす
+        using var engine = NativeEngine.Create(NativeEngineOptions.UseWarp);
+        const int width = 64;
+        const int height = 48;
+        using var view = engine.CreateOffscreenView(width, height);
+        var up = System.Numerics.Vector3.UnitY;
+        NativeMesh Plate(float y, float half, MaterialFlags flags)
+        {
+            MeshVertex[] quad =
+            [
+                new(new(-half, y, half), up, new(0, 0)),
+                new(new(half, y, half), up, new(1, 0)),
+                new(new(half, y, -half), up, new(1, 1)),
+                new(new(-half, y, -half), up, new(0, 1)),
+            ];
+            MeshMaterial[] materials =
+            [
+                new(0, 6, System.Numerics.Vector4.One, System.Numerics.Vector3.Zero, 0, System.Numerics.Vector3.Zero,
+                    flags | MaterialFlags.DoubleSided, null),
+            ];
+            return engine.CreateMesh(quad, [0, 1, 2, 0, 2, 3], materials);
+        }
+
+        using NativeMesh floor = Plate(0f, 3f, MaterialFlags.ReceiveShadow);
+        using NativeMesh occluder = Plate(1f, 0.5f, MaterialFlags.CastShadow);
+        byte RenderGreen(bool castsShadow, FrameFlags flags, int x)
+        {
+            FrameParameters frame = DefaultFrame with
+            {
+                Flags = FrameFlags.UseLight | flags,
+                View = System.Numerics.Matrix4x4.CreateLookAtLeftHanded(new(0, 8, 0), System.Numerics.Vector3.Zero, System.Numerics.Vector3.UnitZ),
+                Items = [new DrawItem(floor, System.Numerics.Matrix4x4.Identity, DrawFlags.None),
+                    new DrawItem(occluder, System.Numerics.Matrix4x4.Identity, DrawFlags.None)],
+                LightDirection = -up,
+                LightColor = System.Numerics.Vector3.Zero, // メインの照明は使わない
+                Lights = [new LightSource(LightSourceKind.Point, new(-3f, 3f, 0f), default, 20f, System.Numerics.Vector3.One,
+                    CastsShadow: castsShadow)],
+            };
+            Assert.IsTrue(view.Render(frame));
+            var pixels = new byte[width * height * 4];
+            view.ReadPixels(pixels, width * 4);
+            return pixels[(((height / 2) * width) + x) * 4 + 1];
+        }
+
+        const FrameFlags rayTraced = FrameFlags.SelfShadow | FrameFlags.RayTracedShadows;
+        Assert.IsLessThan(10, (int)RenderGreen(true, rayTraced, 43), "影を落とす照明は、板の影を落とす");
+        Assert.IsGreaterThan(60, (int)RenderGreen(true, rayTraced, 21), "影の外は照明で明るい");
+        Assert.IsGreaterThan(40, (int)RenderGreen(false, rayTraced, 43), "影を落とさない照明は影を落とさない");
+        Assert.IsGreaterThan(40, (int)RenderGreen(true, FrameFlags.SelfShadow, 43), "レイトレーシングでなければ、足す照明は影を落とさない");
+    }
+
+    [TestMethod]
     public void RenderPassesReachTheEngine()
     {
         // カメラの 5 先に、カメラへ向いた四角形を 1 つ置き、パスごとに真ん中の画素を読む

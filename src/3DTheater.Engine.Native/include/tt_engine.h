@@ -27,7 +27,7 @@ extern "C" {
 
 // 上位 16 ビットが大きな版、下位 16 ビットが小さな版。大きな版が違う DLL とは組み合わせない。
 #define TT_API_VERSION_MAJOR 0
-#define TT_API_VERSION_MINOR 30
+#define TT_API_VERSION_MINOR 31
 #define TT_API_VERSION ((TT_API_VERSION_MAJOR << 16) | TT_API_VERSION_MINOR)
 
 // 0 以上は成功、負の値は失敗。
@@ -117,6 +117,7 @@ enum {
     // （ray_samples）。不透明度が 0.5 より小さい所は通り抜ける。物は先頭から 64 個まで（TT_POST_RAYTRACED_REFLECTIONS と同じ）。
     // API 0.30: 地面の影（TT_FRAME_GROUND_SHADOW）にもかかる。床（高さ 0）の点から照明へ光線を出し、地面の影を落とす材質
     // （TT_MATERIAL_GROUND_SHADOW）に当たった割合で、地面の影の色を重ねる（押しつぶす描き方・奥行きの画像の代わり）
+    // API 0.31: TT_FRAME_SELF_SHADOW と一緒に使うと、足す照明のうち TT_LIGHT_FLAG_CAST_SHADOW のものも影を落とす（TtLight）
     TT_FRAME_RAYTRACED_SHADOWS = 1u << 13,
 };
 
@@ -277,8 +278,17 @@ enum {
 
 #define TT_MAX_LIGHTS 8
 
+// 足す照明の印（TtLight.flags。API 0.31）
+enum {
+    // 影を落とす。レイトレーシングでの影（TT_FRAME_SELF_SHADOW と TT_FRAME_RAYTRACED_SHADOWS）を使うときだけ、セルフシャドウを
+    // 受ける材質（TT_MATERIAL_RECEIVE_SHADOW）へ、影を落とす材質（TT_MATERIAL_CAST_SHADOW）の影を落とす。面から照明へ光線を
+    // 1 本出す、くっきりした影（shadow_softness・ray_samples はかからない）。点光源・スポットライトは、照明の位置までを調べる
+    TT_LIGHT_FLAG_CAST_SHADOW = 1u << 0,
+};
+
 // 足す照明（メインの照明 light_direction・light_color とは別）。トゥーンの材質には、光の当たる側を
-// 材質の色 × 照明の色で明るくする（トゥーンのある材質は境目をくっきり）。PBR の材質には照り返しも含めて足す。影は落とさない。
+// 材質の色 × 照明の色で明るくする（トゥーンのある材質は境目をくっきり）。PBR の材質には照り返しも含めて足す。
+// 影は、TT_LIGHT_FLAG_CAST_SHADOW の照明だけが、レイトレーシングでの影を使うときに落とす（照明から見た奥行きの画像は作らない）。
 // 数でない値を含む照明は使わない
 typedef struct TtLight {
     uint32_t type;       // TT_LIGHT_*（知らない値の照明は使わない）
@@ -288,7 +298,8 @@ typedef struct TtLight {
     float color[3];      // 色 × 明るさ（0 以上）
     float spot_angle;    // スポットの円すいの広がり（全体の角度、度。1〜179）
     float spot_softness; // スポットの縁のぼかし（0〜1）
-    uint32_t reserved[3];
+    uint32_t flags;      // TT_LIGHT_FLAG_*（API 0.31）
+    uint32_t reserved[2];
 } TtLight;
 
 // 行列はすべて「行ベクトル × 行列」の並び（DirectXMath・System.Numerics と同じ）で、16 個の float を行ごとに並べる。

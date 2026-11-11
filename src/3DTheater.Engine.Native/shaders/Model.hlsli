@@ -59,7 +59,7 @@ struct ExtraLight
     float4 position;  // xyz = ワールドの位置、w = 種類（0 平行光・1 点光源・2 スポットライト）
     float4 direction; // xyz = 光が進む向き（正規化済み）、w = 届く距離
     float4 color;     // rgb = 色 × 明るさ、w = スポットの外側の角度の cos
-    float4 spot;      // x = スポットの内側（ぼかし始め）の角度の cos
+    float4 spot;      // x = スポットの内側（ぼかし始め）の角度の cos、y = 1 なら影を落とす（レイトレーシングでの影のとき）
 };
 
 cbuffer LightConstants : register(b2)

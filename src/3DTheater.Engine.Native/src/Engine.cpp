@@ -96,7 +96,7 @@ struct LightConstants {
         DirectX::XMFLOAT4 position;  // w = 種類
         DirectX::XMFLOAT4 direction; // w = 届く距離
         DirectX::XMFLOAT4 color;     // w = スポットの外側の cos
-        DirectX::XMFLOAT4 spot;      // x = スポットの内側の cos
+        DirectX::XMFLOAT4 spot;      // x = スポットの内側の cos、y = 1 なら影を落とす
     } lights[TT_MAX_LIGHTS];
     DirectX::XMFLOAT4 environment;              // x = 1 なら環境の画像を使う、y = 明るさ、z = 回転、w = 縮小版の数
     DirectX::XMFLOAT4 environmentIrradiance[9]; // 拡散の明るさの球面調和関数の係数
@@ -698,7 +698,8 @@ void Engine::DrawScene(ID3D11RenderTargetView* rtv, ID3D11DepthStencilView* dsv,
         WriteLightConstants(params);
     }
     if (rayShadows) {
-        // レイトレーシングでの影: 奥行きの画像は作らない（光線を当てる物は、始めに GPU へ送ってある）
+        // レイトレーシングでの影: 奥行きの画像は作らない（光線を当てる物は、始めに GPU へ送ってある）。
+        // 足す照明のうち影を落とすものも、同じ光線で影を求める（シェーダーの ExtraLightShadow）
         frame.shadowParams = {0.0f, 0.0f, 1.0f, 0.0f};
         frame.shadowSoftness = {0.0f, ShadowSoftnessOf(params), 0.0f, 0.0f};
         frame.rayShadowParams = {1.0f, static_cast<float>(rayScene_->InstanceCount()), RaySamplesOf(params), 0.0f};
@@ -1541,7 +1542,8 @@ void Engine::WriteLightConstants(const TtFrameParams& params, bool mirrored)
         const float softness = std::clamp(light.spot_softness, 0.0f, 1.0f);
         entry.color = {std::max(light.color[0], 0.0f), std::max(light.color[1], 0.0f), std::max(light.color[2], 0.0f), std::cos(half)};
         // 内側の角度で 1、外側の角度で 0。ぼかしが 0 でも境目に少しだけ幅を残す（ギザギザにならないように）
-        entry.spot = {std::cos(half * (1.0f - std::max(softness, 0.02f))), 0.0f, 0.0f, 0.0f};
+        entry.spot = {std::cos(half * (1.0f - std::max(softness, 0.02f))), (light.flags & TT_LIGHT_FLAG_CAST_SHADOW) ? 1.0f : 0.0f,
+            0.0f, 0.0f};
     }
     constants.count[0] = count;
     // 環境の画像（床の映り込みでは、シェーダーで景色も上下に映して読む）
