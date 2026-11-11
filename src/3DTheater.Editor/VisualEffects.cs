@@ -82,6 +82,12 @@ public sealed record VisualEffects
     public float AoRadius { get; init; } = 1f;
 
     /// <summary>
+    /// 環境光の遮りを、画面の奥行きの代わりにレイトレーシング（光線をモデルの三角形に当てる）で求める。画面の外・物の裏にある物も遮り、
+    /// 物の縁が明るく浮くことも無い。<see cref="AoEnabled"/> のときだけ効く。画面に映る物が多いほど重い。
+    /// </summary>
+    public bool AoRayTracing { get; init; }
+
+    /// <summary>
     /// 画面の中の反射（つやのある PBR の材質に、画面に映っている物を映す）を使う。トゥーンの材質と、粗い材質（粗さ 0.65 より上）は映さない。
     /// 画面に映っていない物（画面の外・物の裏）は、今までどおり環境の映り込みになる。
     /// </summary>

@@ -1651,6 +1651,14 @@ public:
         Assert::IsTrue(colors[right] > colors[right + 1] + 60 && colors[right] > colors[right + 2] + 60, L"右には青が映る");
         Assert::IsTrue(colors[left + 1] > colors[left] + 60 && colors[left + 1] > colors[left + 2] + 60, L"左には緑が映る");
 
+        // MSAA で、浅い角度で見る鏡だけ: 奥行きは画素の中心からずれた点のものなので、求めた位置が鏡の下になりやすい。
+        // それでも光線を自分の鏡（両面）に当てない（当たる物が無いので、画面の中の反射だけのときと同じ）
+        params.item_count = 1;
+        place(items[0], XMMatrixScaling(2.5f, 2.5f, 1.0f) * XMMatrixRotationX(1.3f));
+        uint32_t actual = 0;
+        Assert::AreEqual<int>(TT_OK, tt_view_set_sample_count(view, 4, &actual));
+        Assert::IsTrue(worstDifference(render(kTraced), render(kScreen)) <= 1, L"MSAA で浅い角度から見ても、自分の鏡に当てない");
+
         for (TtMesh* mesh : {mirror, behind, doubleSided, textured}) {
             Assert::AreEqual<int>(TT_OK, tt_mesh_destroy(mesh));
         }
@@ -1797,6 +1805,96 @@ public:
         for (TtMesh* mesh : {mirror, green, red}) {
             Assert::AreEqual<int>(TT_OK, tt_mesh_destroy(mesh));
         }
+        Assert::AreEqual<int>(TT_OK, tt_view_destroy(view));
+        Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
+    }
+
+    TEST_METHOD(RayTracedAmbientOcclusionSeesObjectsOutsideTheScreen)
+    {
+        // 正面に白い大きな板、その左の画面の外に、板に接する壁を立てる。画面の奥行きで求める環境光の遮りは、画面に映っていない壁を
+        // 知らないので暗くならない。レイトレーシングで求めると、壁の近くが暗くなる。何も無い所（板の真ん中）は暗くならない
+        TtEngine* engine = CreateWarpEngine();
+        constexpr int width = 96;
+        constexpr int height = 72;
+        TtView* view = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_view_create_offscreen(engine, width, height, 0, &view));
+        TtTexture* white = CreateSolidTexture(engine, 255, 255, 255);
+        const TtMeshMaterial material = QuadMaterial(white, TT_MATERIAL_DOUBLE_SIDED);
+        const TtMeshDesc desc = QuadDesc(kClockwise, &material);
+        TtMesh* board = nullptr;
+        TtMesh* wall = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_mesh_create(engine, &desc, &board));
+        Assert::AreEqual<int>(TT_OK, tt_mesh_create(engine, &desc, &wall));
+        Assert::AreEqual<int>(TT_OK, tt_texture_destroy(white));
+
+        using namespace DirectX;
+        TtDrawItem items[2] = {DrawItem(board), DrawItem(wall)};
+        // 板: z = 0 に 10 x 10。壁: x = -3（画面の外）に、高さ 6・奥行き -1.5〜0 で立てる（板に接する）
+        XMStoreFloat4x4(reinterpret_cast<XMFLOAT4X4*>(items[0].world), XMMatrixScaling(5.0f, 5.0f, 1.0f));
+        XMStoreFloat4x4(reinterpret_cast<XMFLOAT4X4*>(items[1].world),
+            XMMatrixScaling(0.75f, 3.0f, 1.0f) * XMMatrixRotationY(XM_PIDIV2) * XMMatrixTranslation(-3.0f, 0.0f, -0.75f));
+        TtFrameParams params = MakeFrontParams();
+        params.items = items;
+        params.item_count = 2;
+        params.vignette = 0.0f;
+        params.ao_strength = 1.0f;
+        params.ao_radius = 1.0f;
+        auto render = [&](uint32_t postFlags) {
+            params.post_flags = postFlags;
+            return RenderAndRead(engine, view, params, width, height);
+        };
+        const XMMATRIX viewProj = XMLoadFloat4x4(reinterpret_cast<const XMFLOAT4X4*>(params.view))
+            * XMLoadFloat4x4(reinterpret_cast<const XMFLOAT4X4*>(params.projection));
+        auto pixelOf = [&](float x, float y) {
+            XMVECTOR p = XMVector3TransformCoord(XMVectorSet(x, y, 0.0f, 1.0f), viewProj);
+            const int px = static_cast<int>((XMVectorGetX(p) * 0.5f + 0.5f) * width);
+            const int py = static_cast<int>((-XMVectorGetY(p) * 0.5f + 0.5f) * height);
+            return (static_cast<size_t>(py) * width + px) * 4;
+        };
+        auto worstDifference = [](const std::vector<uint8_t>& a, const std::vector<uint8_t>& b) {
+            int worst = 0;
+            for (size_t i = 0; i < a.size(); ++i) {
+                worst = std::max(worst, std::abs(static_cast<int>(a[i]) - static_cast<int>(b[i])));
+            }
+            return worst;
+        };
+
+        const std::vector<uint8_t> plain = render(TT_POST_VIGNETTE);
+        const std::vector<uint8_t> screen = render(TT_POST_VIGNETTE | TT_POST_AO);
+        const std::vector<uint8_t> traced = render(TT_POST_VIGNETTE | TT_POST_AO | TT_POST_RAYTRACED_AO);
+        const size_t nearWall = pixelOf(-2.6f, 0.0f); // 壁から 0.4
+        const size_t middle = pixelOf(0.0f, 0.0f);
+        Assert::IsTrue(plain[nearWall + 1] > 240, L"遮りが無ければ、板は白い");
+        Assert::IsTrue(IsNear(screen[nearWall + 1], plain[nearWall + 1], 3), L"画面の奥行きの遮りは、画面の外の壁では暗くならない");
+        Assert::IsTrue(traced[nearWall + 1] + 15 < plain[nearWall + 1], L"レイトレーシングの遮りは、画面の外の壁の近くを暗くする");
+        Assert::IsTrue(IsNear(traced[middle + 1], plain[middle + 1], 2), L"何も無い所（自分の面）は暗くならない");
+        Assert::IsTrue(worstDifference(render(TT_POST_VIGNETTE | TT_POST_RAYTRACED_AO), plain) == 0,
+            L"環境光の遮りを使わなければ、レイトレーシングだけでは何もしない");
+
+        // 壁を板から離す（広がりより遠くへ）と、暗くならない
+        XMStoreFloat4x4(reinterpret_cast<XMFLOAT4X4*>(items[1].world),
+            XMMatrixScaling(0.75f, 3.0f, 1.0f) * XMMatrixRotationY(XM_PIDIV2) * XMMatrixTranslation(-5.0f, 0.0f, -0.75f));
+        const std::vector<uint8_t> distant = render(TT_POST_VIGNETTE | TT_POST_AO | TT_POST_RAYTRACED_AO);
+        Assert::IsTrue(IsNear(distant[nearWall + 1], plain[nearWall + 1], 2), L"広がりより遠い物は遮らない");
+
+        // 傾けた板だけ（奥行きが画素ごとに変わる）: 画像の端まで、どこも暗くならない（自分の面に当てない。端の画素の面の向きも正しい）
+        XMStoreFloat4x4(reinterpret_cast<XMFLOAT4X4*>(items[0].world), XMMatrixScaling(5.0f, 5.0f, 1.0f) * XMMatrixRotationX(0.6f));
+        params.item_count = 1;
+        const std::vector<uint8_t> tiltedPlain = render(TT_POST_VIGNETTE);
+        const std::vector<uint8_t> tiltedTraced = render(TT_POST_VIGNETTE | TT_POST_AO | TT_POST_RAYTRACED_AO);
+        Assert::IsTrue(worstDifference(tiltedTraced, tiltedPlain) <= 2, L"遮る物が無ければ、傾けた板のどこも暗くならない");
+
+        // MSAA で、浅い角度で見る板（画素の中で奥行きが大きく変わる）: 奥行きは画素の中心からずれた点のものなので、
+        // 求めた位置が板の下になりやすい。それでも自分の板に当てて暗くしない
+        XMStoreFloat4x4(reinterpret_cast<XMFLOAT4X4*>(items[0].world), XMMatrixScaling(5.0f, 5.0f, 1.0f) * XMMatrixRotationX(1.3f));
+        uint32_t actual = 0;
+        Assert::AreEqual<int>(TT_OK, tt_view_set_sample_count(view, 4, &actual));
+        const std::vector<uint8_t> grazingPlain = render(TT_POST_VIGNETTE);
+        const std::vector<uint8_t> grazingTraced = render(TT_POST_VIGNETTE | TT_POST_AO | TT_POST_RAYTRACED_AO);
+        Assert::IsTrue(worstDifference(grazingTraced, grazingPlain) <= 2, L"MSAA で浅い角度から見ても、自分の板で暗くならない");
+
+        Assert::AreEqual<int>(TT_OK, tt_mesh_destroy(board));
+        Assert::AreEqual<int>(TT_OK, tt_mesh_destroy(wall));
         Assert::AreEqual<int>(TT_OK, tt_view_destroy(view));
         Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
     }

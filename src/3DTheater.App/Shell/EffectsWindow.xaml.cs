@@ -41,6 +41,7 @@ public partial class EffectsWindow : Window
             AoCheck.IsChecked = effects.AoEnabled;
             AoStrengthSlider.Value = effects.AoStrength;
             AoRadiusSlider.Value = effects.AoRadius;
+            AoRayTracingCheck.IsChecked = effects.AoRayTracing;
             SsrCheck.IsChecked = effects.SsrEnabled;
             SsrStrengthSlider.Value = effects.SsrStrength;
             SsrDistanceSlider.Value = effects.SsrDistance;
@@ -78,6 +79,7 @@ public partial class EffectsWindow : Window
             AoEnabled = AoCheck.IsChecked == true,
             AoStrength = Round(AoStrengthSlider),
             AoRadius = Round(AoRadiusSlider),
+            AoRayTracing = AoRayTracingCheck.IsChecked == true,
             SsrEnabled = SsrCheck.IsChecked == true,
             SsrStrength = Round(SsrStrengthSlider),
             SsrDistance = (float)Math.Round(SsrDistanceSlider.Value, 0),

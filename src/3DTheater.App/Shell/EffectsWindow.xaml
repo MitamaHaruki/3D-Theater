@@ -125,6 +125,7 @@
       <Grid.RowDefinitions>
         <RowDefinition Height="Auto" />
         <RowDefinition Height="Auto" />
+        <RowDefinition Height="Auto" />
       </Grid.RowDefinitions>
       <TextBlock Style="{StaticResource RowLabelStyle}" Text="強さ" />
       <Slider x:Name="AoStrengthSlider" Grid.Column="1" Style="{StaticResource EffectSliderStyle}" Minimum="0" Maximum="1"
@@ -134,6 +135,10 @@
       <Slider x:Name="AoRadiusSlider" Grid.Row="1" Grid.Column="1" Style="{StaticResource EffectSliderStyle}" Minimum="0.1" Maximum="10"
               SmallChange="0.1" LargeChange="0.5" AutomationProperties.Name="環境光の遮りの広がり" ValueChanged="OnSliderChanged" />
       <TextBlock x:Name="AoRadiusText" Grid.Row="1" Grid.Column="2" Style="{StaticResource ValueStyle}" />
+      <CheckBox x:Name="AoRayTracingCheck" Grid.Row="2" Grid.ColumnSpan="3" Margin="22,4,0,4"
+                Content="レイトレーシングで求める（画面の外・物の裏の物も遮る。重い）"
+                ToolTip="画面の奥行きの代わりに、面から出した光線をモデルの三角形に当てて、遮る物を探します。物の縁が明るく浮くこともありません"
+                Checked="OnCheckChanged" Unchecked="OnCheckChanged" />
     </Grid>
 
     <!-- 画面の中の反射 -->

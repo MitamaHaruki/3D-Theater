@@ -111,12 +111,13 @@ public sealed class VisualEffectsTests
         Assert.AreEqual(VisualEffects.MinAoRadius, wild.AoRadius);
         Assert.AreEqual(VisualEffects.None.AoRadius, (ao with { AoRadius = float.NaN }).Normalized().AoRadius, "数でない値は初期値");
 
-        var settings = new RenderSettings { Effects = ao with { AoStrength = 0.4f, AoRadius = 2.5f } };
+        Assert.IsFalse(ao.AoRayTracing, "レイトレーシングの初期値は OFF");
+        var settings = new RenderSettings { Effects = ao with { AoStrength = 0.4f, AoRadius = 2.5f, AoRayTracing = true } };
         ProjectFile read = ProjectSerializer.Deserialize(
             ProjectSerializer.Serialize(new ProjectFile { Rendering = RenderingEntry.From(settings) }), new Formats.LoadReport())!;
         var restored = new RenderSettings();
         read.Rendering.ApplyTo(restored);
-        Assert.AreEqual(settings.Effects, restored.Effects, "環境光の遮りの値も保存して戻る");
+        Assert.AreEqual(settings.Effects, restored.Effects, "環境光の遮りの値（レイトレーシングで求めるかも）も保存して戻る");
     }
 
     [TestMethod]

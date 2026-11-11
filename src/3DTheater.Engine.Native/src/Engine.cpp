@@ -23,6 +23,7 @@
 #include "ReflectionDownPS.h"
 #include "ScreenReflectionPS.h"
 #include "RayTextureCopyPS.h"
+#include "RayAoPS.h"
 #include "EdgePS.h"
 #include "EdgeVS.h"
 #include "DofPS.h"
@@ -315,6 +316,7 @@ void Engine::ReleaseDevice() noexcept
     reflectionCompositeShader_.Reset();
     screenReflectionShader_.Reset();
     rayTextureShader_.Reset();
+    rayAoShader_.Reset();
     if (rayScene_) {
         rayScene_->Release();
     }
@@ -872,10 +874,12 @@ void Engine::ApplyPostEffects(const TtFrameParams& params, const PostInputs& inp
     ID3D11ShaderResourceView* scene = inputs.scene;
     static const std::vector<PostSurface> kNoLevels;
 
-    // レイトレーシングでの映り込み（画面の中の反射と一緒に使う）: 光線を当てる物を先に GPU へ送る
+    // レイトレーシング（映り込みは画面の中の反射と、環境光の遮りは環境光の遮りと一緒に使う）: 光線を当てる物を先に GPU へ送る
     // （テクスチャを縮めて並べるために描くので、映像効果の設定より前に）
-    const bool rays = (params.post_flags & TT_POST_RAYTRACED_REFLECTIONS) && inputs.surface && UsesScreenReflections(params)
-        && rayScene_->Prepare(params);
+    const bool rayReflections = (params.post_flags & TT_POST_RAYTRACED_REFLECTIONS) && inputs.surface && UsesScreenReflections(params);
+    const bool rayAo = (params.post_flags & TT_POST_AO) && (params.post_flags & TT_POST_RAYTRACED_AO) && inputs.ao
+        && std::isfinite(params.ao_strength) && params.ao_strength > 0.0f;
+    const bool rays = (rayReflections || rayAo) && rayScene_->Prepare(params);
     const std::vector<PostSurface>& bloomDown = inputs.bloomDown ? *inputs.bloomDown : kNoLevels;
     const std::vector<PostSurface>& bloomUp = inputs.bloomUp ? *inputs.bloomUp : kNoLevels;
 
@@ -1005,8 +1009,18 @@ void Engine::ApplyPostEffects(const TtFrameParams& params, const PostInputs& inp
 
     // 環境光の遮り: 光の届く割合を求め、横と縦にならして場面に掛ける（被写界深度でぼかす前に）
     if ((flags & TT_POST_AO) && inputs.ao && inputs.ao->rtv && inputs.aoBlur && inputs.aoBlur->rtv && inputs.aoScene && inputs.aoScene->rtv) {
-        pass(aoShader_.Get(), inputs.ao->rtv.Get(), static_cast<UINT>(width), static_cast<UINT>(height), nullptr, nullptr,
-            static_cast<UINT>(width), static_cast<UINT>(height));
+        // レイトレーシングのときは、画面の奥行きの代わりに、光線を物の三角形に当てて求める（ならす段と掛ける段は同じ）
+        const bool tracedAo = rayTracing && rayAo;
+        if (tracedAo) {
+            rayScene_->Bind(ctx, 5);
+            ctx->PSSetSamplers(1, 1, textureSampler_.GetAddressOf());
+        }
+        pass(tracedAo ? rayAoShader_.Get() : aoShader_.Get(), inputs.ao->rtv.Get(), static_cast<UINT>(width), static_cast<UINT>(height),
+            nullptr, nullptr, static_cast<UINT>(width), static_cast<UINT>(height));
+        if (tracedAo) {
+            ID3D11ShaderResourceView* const noRays[6] = {};
+            ctx->PSSetShaderResources(5, 6, noRays);
+        }
         pass(aoBlurShader_.Get(), inputs.aoBlur->rtv.Get(), static_cast<UINT>(width), static_cast<UINT>(height), inputs.ao->srv.Get(),
             nullptr, static_cast<UINT>(width), static_cast<UINT>(height));
         pass(aoApplyShader_.Get(), inputs.aoScene->rtv.Get(), static_cast<UINT>(width), static_cast<UINT>(height), scene,
@@ -1019,7 +1033,7 @@ void Engine::ApplyPostEffects(const TtFrameParams& params, const PostInputs& inp
     if (inputs.surface && inputs.ssr && inputs.ssr->rtv) {
         constants.ssrParams.x = (flags & TT_POST_SSR) ? ssrStrength : 0.0f;
         // レイトレーシング: 画面の中で見つからない分を、光線を物の三角形に当てて探す（t5〜t10 と、繰り返して読むテクスチャの読み方）
-        const bool traced = rayTracing && (flags & TT_POST_SSR);
+        const bool traced = rayTracing && rayReflections && (flags & TT_POST_SSR);
         constants.rayParams.x = traced ? 1.0f : 0.0f;
         if (traced) {
             rayScene_->Bind(ctx, 5);
@@ -1134,6 +1148,8 @@ void Engine::CreatePostResources()
         L"画面の中の反射のシェーダーの作成");
     CheckHr(device_->CreatePixelShader(g_RayTextureCopyPS, sizeof(g_RayTextureCopyPS), nullptr, &rayTextureShader_),
         L"レイトレーシングのテクスチャを縮めるシェーダーの作成");
+    CheckHr(device_->CreatePixelShader(g_RayAoPS, sizeof(g_RayAoPS), nullptr, &rayAoShader_),
+        L"レイトレーシングでの環境光の遮りのシェーダーの作成");
 
     D3D11_BUFFER_DESC desc{};
     desc.ByteWidth = sizeof(PostConstants);

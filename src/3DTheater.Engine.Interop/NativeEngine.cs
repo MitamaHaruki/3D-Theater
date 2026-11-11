@@ -26,7 +26,7 @@ public readonly record struct VideoMemoryInfo(ulong Usage, ulong Budget);
 public sealed unsafe class NativeEngine : IDisposable
 {
     public const int ExpectedApiVersionMajor = 0;
-    public const int ExpectedApiVersionMinor = 24;
+    public const int ExpectedApiVersionMinor = 25;
 
     private nint _handle;
 

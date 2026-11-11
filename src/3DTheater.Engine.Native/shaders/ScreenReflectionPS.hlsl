@@ -35,6 +35,25 @@ float RayDepth(float s, float startZ, float endZ)
     return ProjectionParams.z > 0.5 ? lerp(startZ, endZ, s) : 1.0 / lerp(1.0 / startZ, 1.0 / endZ, s);
 }
 
+// 隣の画素との見る向きの距離の差（横と縦それぞれ、差の小さいほうの隣。画像の外・何も無い隣は使わない）の合計
+float NeighborDepthStep(int2 pixel, float z)
+{
+    int2 size = int2(SourceTexel.zw);
+    float sum = 0.0;
+    [unroll]
+    for (int axis = 0; axis < 2; axis++)
+    {
+        int2 o = axis == 0 ? int2(1, 0) : int2(0, 1);
+        int2 a = pixel + o;
+        int2 b = pixel - o;
+        float da = all(a < size) ? abs(LinearDepth.Load(int3(a, 0)).x - z) : 1e30;
+        float db = all(b >= 0) ? abs(LinearDepth.Load(int3(b, 0)).x - z) : 1e30;
+        float d = min(da, db);
+        sum += d < 1e29 ? d : 0.0;
+    }
+    return sum;
+}
+
 // 画面に映っている色（モデルの色と、分けて書いた環境の映り込みを足したもの）
 float3 SceneColorAt(float2 uv)
 {
@@ -173,8 +192,11 @@ float4 main(PostVertex input) : SV_Target
         return unchanged;
     }
 
-    // 光線: 面から少し浮かせて、探す距離だけ進む
-    float3 start = p + n * (0.01 + z * 0.002);
+    // 光線: 面から少し浮かせて、探す距離だけ進む。浮かせる高さは、奥行きの画像の細かさの分と、MSAA で奥行きが画素の中心から
+    // ずれた点のものである分（浅い角度で見る面ほど、1 画素の中で奥行きが大きく変わり、求めた位置が面の下になりやすい。
+    // ずれは見る向きに、隣との差の半分まで）
+    float3 ray = ProjectionParams.z > 0.5 ? float3(0.0, 0.0, 1.0) : p / z;
+    float3 start = p + n * (0.01 + z * 0.002 + 0.6 * NeighborDepthStep(pixel, z) * abs(dot(ray, n)));
     float reach = SsrParams.y;
 
     // 画面の中: カメラの方へ戻る光線は、見えていない面に当たるので弱める。透視投影では、カメラのすぐ前より手前へ出ないように切る

@@ -292,6 +292,7 @@ private:
     ComPtr<ID3D11BlendState> premultipliedBlendState_; // 透明度をかけ合わせた色を重ねる（1 と 1 - a）
     ComPtr<ID3D11PixelShader> screenReflectionShader_; // 画面の中の反射
     ComPtr<ID3D11PixelShader> rayTextureShader_;       // レイトレーシングのテクスチャを縮めて写す
+    ComPtr<ID3D11PixelShader> rayAoShader_;            // 環境光の遮りをレイトレーシングで求める
     std::unique_ptr<RayScene> rayScene_;               // レイトレーシングで光線を当てる物（全部のビューで使い回す）
 
     // モデル（MMD と同じトゥーンの色の計算と輪郭線）
