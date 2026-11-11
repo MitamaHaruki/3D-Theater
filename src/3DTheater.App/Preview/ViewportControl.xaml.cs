@@ -19,6 +19,7 @@ public partial class ViewportControl : UserControl, IDisposable
 {
     private const double ClickSelectTolerance = 4;
     private const float BonePickTolerance = 6;
+    private const float LightPickTolerance = 6;
 
     private readonly EditorContext _context;
     private readonly ViewportSurface _surface;
@@ -675,6 +676,15 @@ public partial class ViewportControl : UserControl, IDisposable
                 _context.Selection.Select(bones[picked].Node, toggle ? SelectMode.Toggle : SelectMode.Replace, this);
                 return;
             }
+        }
+
+        // 足した照明の目印（モデルより手前に描くので、モデルより先に調べる）。線の近くか、球の内側なら選ぶ
+        LightNode[] lights = [.. _context.Scene.AddedLights.Where(l => l.IsEffectivelyVisible)];
+        int light = LightMarkers.Pick(new Vector2((float)point.X, (float)point.Y), size, matrices.View * matrices.Projection, lights, LightPickTolerance);
+        if (light >= 0)
+        {
+            _context.Selection.Select(lights[light], toggle ? SelectMode.Toggle : SelectMode.Replace, this);
+            return;
         }
 
         if (_context.TestObject is { IsEffectivelyVisible: true } testObject)
