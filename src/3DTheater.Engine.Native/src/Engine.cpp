@@ -84,6 +84,7 @@ struct ObjectConstants {
     DirectX::XMFLOAT4 shadowSoftness;
     DirectX::XMFLOAT4 passParams; // レンダーパス（ModelFrame と同じ）
     DirectX::XMFLOAT4 ssrParams;  // 画面の中の反射の下準備（ModelFrame と同じ）
+    DirectX::XMFLOAT4 rayShadowParams; // レイトレーシングでの影（ModelFrame と同じ）
 };
 
 // 足す照明（シェーダーの LightConstants と同じ並び）
@@ -646,6 +647,15 @@ void Engine::DrawScene(ID3D11RenderTargetView* rtv, ID3D11DepthStencilView* dsv,
     basicState_ = multisampled ? multisampleLineState_.Get() : rasterizerState_.Get();
     const bool drawScene = part != ScenePart::Overlays;
 
+    // セルフシャドウ。レイトレーシングで求めるときは、光線を当てる物を先に GPU へ送り、モデルを描く間ずっと読めるようにしておく
+    // （テクスチャを縮めて並べるために描くので、場面を描き始める前に）
+    const bool selfShadow = drawScene && (params.flags & TT_FRAME_SELF_SHADOW) && params.item_count > 0;
+    const bool rayShadows = selfShadow && (params.flags & TT_FRAME_RAYTRACED_SHADOWS) && rayScene_->Prepare(params);
+    if (rayShadows) {
+        rayScene_->Bind(ctx, 5);
+        ctx->PSSetSamplers(4, 1, textureSampler_.GetAddressOf());
+    }
+
     // 環境の画像（PBR の材質と背景で使う）
     currentEnvironment_ = params.environment ? reinterpret_cast<const Environment*>(params.environment)->View() : nullptr;
 
@@ -675,7 +685,12 @@ void Engine::DrawScene(ID3D11RenderTargetView* rtv, ID3D11DepthStencilView* dsv,
     if (drawScene) {
         WriteLightConstants(params);
     }
-    if (drawScene && (params.flags & TT_FRAME_SELF_SHADOW) && params.item_count > 0) {
+    if (rayShadows) {
+        // レイトレーシングでの影: 奥行きの画像は作らない（光線を当てる物は、始めに GPU へ送ってある）
+        frame.shadowParams = {0.0f, 0.0f, 1.0f, 0.0f};
+        frame.shadowSoftness = {0.0f, ShadowSoftnessOf(params), 0.0f, 0.0f};
+        frame.rayShadowParams = {1.0f, static_cast<float>(rayScene_->InstanceCount()), 0.0f, 0.0f};
+    } else if (selfShadow) {
         RenderShadowMap(params, frame); // 影を落とすものが無ければ、セルフシャドウなしのまま
     }
     // 柔らかな影のときは、地面の影も照明から見た奥行きで描く（押しつぶす描き方では、境目をぼかせないため）
@@ -813,6 +828,10 @@ void Engine::DrawScene(ID3D11RenderTargetView* rtv, ID3D11DepthStencilView* dsv,
 
     ctx->OMSetBlendState(nullptr, nullptr, 0xFFFFFFFF);
     ctx->OMSetRenderTargets(0, nullptr, nullptr);
+    if (rayShadows) {
+        ID3D11ShaderResourceView* const noRays[6] = {};
+        ctx->PSSetShaderResources(5, 6, noRays); // テクスチャの配列へ描き足すとき、読む側に残っていないように
+    }
 }
 
 void Engine::DrawGridAndAxes(const TtFrameParams& params, DirectX::CXMMATRIX viewProj, GridDepth depth, int width, int height)
@@ -1019,7 +1038,7 @@ void Engine::ApplyPostEffects(const TtFrameParams& params, const PostInputs& inp
         const bool tracedAo = rayTracing && rayAo;
         if (tracedAo) {
             rayScene_->Bind(ctx, 5);
-            ctx->PSSetSamplers(1, 1, textureSampler_.GetAddressOf());
+            ctx->PSSetSamplers(4, 1, textureSampler_.GetAddressOf());
         }
         pass(tracedAo ? rayAoShader_.Get() : aoShader_.Get(), inputs.ao->rtv.Get(), static_cast<UINT>(width), static_cast<UINT>(height),
             nullptr, nullptr, static_cast<UINT>(width), static_cast<UINT>(height));
@@ -1043,7 +1062,7 @@ void Engine::ApplyPostEffects(const TtFrameParams& params, const PostInputs& inp
         constants.rayParams.x = traced ? 1.0f : 0.0f;
         if (traced) {
             rayScene_->Bind(ctx, 5);
-            ctx->PSSetSamplers(1, 1, textureSampler_.GetAddressOf());
+            ctx->PSSetSamplers(4, 1, textureSampler_.GetAddressOf());
         }
         fourth = inputs.surface->resolved[1].srv.Get();
         fifth = inputs.surface->resolved[2].srv.Get();
@@ -1213,6 +1232,7 @@ void Engine::WriteObjectConstants(DirectX::FXMMATRIX world, DirectX::CXMMATRIX w
     object->shadowSoftness = frame.shadowSoftness;
     object->passParams = frame.passParams;
     object->ssrParams = frame.ssrParams;
+    object->rayShadowParams = frame.rayShadowParams;
     ctx->Unmap(objectConstantBuffer_.Get(), 0);
 }
 

@@ -37,6 +37,12 @@ public enum FrameFlags : uint
 
     /// <summary>環境の画像（<see cref="FrameParameters.Environment"/>）を背景に描く（平行投影では描かない）。</summary>
     EnvironmentBackground = 1u << 12,
+
+    /// <summary>
+    /// セルフシャドウを、照明から見た奥行きの画像の代わりにレイトレーシングで求める（<see cref="SelfShadow"/> と一緒に使う）。
+    /// 影を受ける面から照明の向きへ光線を出し、影を落とす材質に当たれば影。くっきり正確になる（重い）。
+    /// </summary>
+    RayTracedShadows = 1u << 13,
 }
 
 /// <summary>

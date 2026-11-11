@@ -5,7 +5,8 @@ using Theater3D.Editor;
 namespace Theater3D.App.Shell;
 
 /// <summary>
-/// 影の設定（レンダリングのメニュー）。影のやわらかさ（セルフシャドウと地面の影）と地面の影の濃さを変える。
+/// 影の設定（レンダリングのメニュー）。影のやわらかさ（セルフシャドウと地面の影）と地面の影の濃さを変え、セルフシャドウを
+/// レイトレーシングで求めるかを選ぶ。
 /// 変えるたびに作品の描き方（<see cref="RenderSettings.ShadowStyle"/>）へ入れるので、すぐにプレビューへ反映し、プロジェクトは変更ありになる。
 /// </summary>
 public partial class ShadowWindow : Window
@@ -27,6 +28,7 @@ public partial class ShadowWindow : Window
         {
             SoftnessSlider.Value = style.Softness;
             GroundOpacitySlider.Value = style.GroundOpacity;
+            RayTracedCheck.IsChecked = style.RayTraced;
         }
         finally
         {
@@ -41,7 +43,11 @@ public partial class ShadowWindow : Window
         GroundOpacityText.Text = GroundOpacitySlider.Value.ToString("0.00", CultureInfo.InvariantCulture);
     }
 
-    private void OnSliderChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    private void OnSliderChanged(object sender, RoutedPropertyChangedEventArgs<double> e) => Apply();
+
+    private void OnCheckChanged(object sender, RoutedEventArgs e) => Apply();
+
+    private void Apply()
     {
         if (_loading || _settings is null)
         {
@@ -52,6 +58,7 @@ public partial class ShadowWindow : Window
         {
             Softness = (float)Math.Round(SoftnessSlider.Value, 2),
             GroundOpacity = (float)Math.Round(GroundOpacitySlider.Value, 2),
+            RayTraced = RayTracedCheck.IsChecked == true,
         };
     }
 

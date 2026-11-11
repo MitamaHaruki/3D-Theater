@@ -201,8 +201,9 @@ public sealed class VisualEffectsTests
         var settings = new RenderSettings();
         int changes = 0;
         settings.Changed += (_, _) => changes++;
-        settings.ShadowStyle = new ShadowStyle { Softness = 0.4f, GroundOpacity = 0.3f };
-        settings.ShadowStyle = new ShadowStyle { Softness = 0.4f, GroundOpacity = 0.3f };
+        Assert.IsFalse(ShadowStyle.Default.RayTraced, "初期値は、奥行きの画像のセルフシャドウ");
+        settings.ShadowStyle = new ShadowStyle { Softness = 0.4f, GroundOpacity = 0.3f, RayTraced = true };
+        settings.ShadowStyle = new ShadowStyle { Softness = 0.4f, GroundOpacity = 0.3f, RayTraced = true };
         Assert.AreEqual(1, changes, "同じ値では知らせない");
 
         string plain = ProjectSerializer.Serialize(new ProjectFile { Rendering = RenderingEntry.From(new RenderSettings()) });

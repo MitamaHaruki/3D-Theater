@@ -1,7 +1,9 @@
-// レイトレーシング: 光線をモデルの三角形に当てて、いちばん近くで当たった所を探す（RayTracing.h の下準備を読む）。
-// Post.hlsli の後に読み込む（RayParams・RayLight・RayLightColor・LinearClamp を使う）。
+// レイトレーシング: 光線をモデルの三角形に当てる（RayTracing.h の下準備を読む）。映像効果の段とモデルの描画の両方で使う。
 // 物ごとに、光線をモデルの座標へ移し、箱の入れ子（BVH）を手前の箱から順にたどる。
-// 材質の不透明度が 0.5 より小さい所（テクスチャの透明な所も）と、両面でない材質の裏の面は通り抜ける（モデルを描くときに見えない所）
+// - 見える面を探す光線（TraceRay）: いちばん近くで当たった所を探す。材質の不透明度が 0.5 より小さい所（テクスチャの透明な所も）と、
+//   両面でない材質の裏の面は通り抜ける（モデルを描くときに見えない所）
+// - 影を調べる光線（TraceShadowRay）: 影を落とす材質（「セルフ影マップ」）のどれかに当たるか。表も裏も遮る（奥行きの画像に
+//   両面を描くのと同じ）。透明な所は通り抜ける。当たったらすぐやめる
 
 struct RayNode
 {
@@ -50,12 +52,13 @@ StructuredBuffer<uint4> RayTriangles : register(t7); // xyz = 頂点の番号、
 StructuredBuffer<RayVertex> RayVertices : register(t8);
 StructuredBuffer<RayMaterial> RayMaterials : register(t9);
 Texture2DArray RayTextures : register(t10); // テクスチャを同じ大きさに縮めて並べたもの
-SamplerState RayTextureSampler : register(s1); // 繰り返す
+SamplerState RayTextureSampler : register(s4); // 繰り返す
 
 static const uint kRayNoTexture = 0xFFFFFFFF;
 static const uint kRayDoubleSided = 1;
 static const uint kRayAlphaTest = 2;
 static const uint kRayPbr = 4;
+static const uint kRayCastShadow = 8;
 static const int kRayStackSize = 40;
 static const uint kRayMaxVisits = 4096; // 1 本の光線で調べる箱の上限（とても込み入った所で止まらないように）
 static const float kRayTextureSize = 256.0;
@@ -133,10 +136,17 @@ bool RayTriangleHit(float3 origin, float3 direction, float3 p0, float3 p1, float
     return true;
 }
 
-// 当たった所を通り抜けるか（両面でない材質の裏・透明な所）
-bool RayPassesThrough(RayMaterial material, uint4 tri, uint vertexOffset, float2 weights, bool front)
+// 当たった所を通り抜けるか（見える面を探す光線: 両面でない材質の裏・透明な所。影を調べる光線: 影を落とさない材質・透明な所）
+bool RayPassesThrough(RayMaterial material, uint4 tri, uint vertexOffset, float2 weights, bool front, bool shadow)
 {
-    if (!front && (material.info.z & kRayDoubleSided) == 0)
+    if (shadow)
+    {
+        if ((material.info.z & kRayCastShadow) == 0)
+        {
+            return true;
+        }
+    }
+    else if (!front && (material.info.z & kRayDoubleSided) == 0)
     {
         return true;
     }
@@ -151,8 +161,9 @@ bool RayPassesThrough(RayMaterial material, uint4 tri, uint vertexOffset, float2
     return alpha < 0.5;
 }
 
-// ワールドの光線（direction は長さ 1）を、tMax までの間でいちばん近くで当たる三角形に当てる
-bool TraceRay(float3 origin, float3 direction, float tMax, out RayHit hit)
+// ワールドの光線（direction は長さ 1）を、tMax までの間の三角形に当てる（instanceCount は物の数）。
+// shadow が false なら、いちばん近くで当たる所を探す。true なら、影を落とす材質に当たった時点でやめる
+bool RayTraverse(float3 origin, float3 direction, float tMax, uint instanceCount, bool shadow, out RayHit hit)
 {
     hit.t = tMax;
     hit.barycentric = 0.0;
@@ -161,7 +172,7 @@ bool TraceRay(float3 origin, float3 direction, float tMax, out RayHit hit)
     bool found = false;
     float3 worldInverse = RayInverse(direction);
     uint visits = 0;
-    uint count = (uint)(RayParams.y + 0.5);
+    uint count = min(instanceCount, 64u);
     uint stackNode[kRayStackSize];
     float stackEntry[kRayStackSize];
     [loop]
@@ -200,13 +211,17 @@ bool TraceRay(float3 origin, float3 direction, float tMax, out RayHit hit)
                     if (RayTriangleHit(o, d, p0, p1, p2, t, weights, front) && t > 0.0 && t < hit.t)
                     {
                         RayMaterial material = RayMaterials[instance.offsets.w + tri.w];
-                        if (!RayPassesThrough(material, tri, instance.offsets.z, weights, front))
+                        if (!RayPassesThrough(material, tri, instance.offsets.z, weights, front, shadow))
                         {
                             hit.t = t;
                             hit.barycentric = weights;
                             hit.instance = i;
                             hit.triangleIndex = index;
                             found = true;
+                            if (shadow)
+                            {
+                                return true; // 影は、どれかに当たれば十分
+                            }
                         }
                     }
                 }
@@ -265,65 +280,15 @@ bool TraceRay(float3 origin, float3 direction, float tMax, out RayHit hit)
     return found;
 }
 
-// 当たった所の色。モデルを描くときの色の計算を簡単にしたもの（メインの照明と環境光だけ。影・スフィア・反射光・足す照明・輪郭線は無し）。
-// footprint は当たった所での光線の太さ（ワールドの長さ）。テクスチャはこの太さに合った縮小版を読む
-float3 RayShade(RayHit hit, float3 direction, float footprint)
+// 見える面を探す光線: いちばん近くで当たる所
+bool TraceRay(float3 origin, float3 direction, float tMax, uint instanceCount, out RayHit hit)
 {
-    RayInstance instance = RayInstances[hit.instance];
-    uint4 tri = RayTriangles[hit.triangleIndex];
-    RayVertex v0 = RayVertices[instance.offsets.z + tri.x];
-    RayVertex v1 = RayVertices[instance.offsets.z + tri.y];
-    RayVertex v2 = RayVertices[instance.offsets.z + tri.z];
-    RayMaterial material = RayMaterials[instance.offsets.w + tri.w];
-    float w = 1.0 - hit.barycentric.x - hit.barycentric.y;
-    float2 uv = v0.uv * w + v1.uv * hit.barycentric.x + v2.uv * hit.barycentric.y;
+    return RayTraverse(origin, direction, tMax, instanceCount, false, hit);
+}
 
-    float3 w0 = RayPoint(instance.toWorld0, instance.toWorld1, instance.toWorld2, v0.position);
-    float3 w1 = RayPoint(instance.toWorld0, instance.toWorld1, instance.toWorld2, v1.position);
-    float3 w2 = RayPoint(instance.toWorld0, instance.toWorld1, instance.toWorld2, v2.position);
-    float3 faceNormal = cross(w1 - w0, w2 - w0);
-    float faceArea = length(faceNormal);
-    float3 n = RayVector(instance.toWorld0, instance.toWorld1, instance.toWorld2, v0.normal * w + v1.normal * hit.barycentric.x + v2.normal * hit.barycentric.y);
-    float normalLength = length(n);
-    n = normalLength > 1e-6 ? n / normalLength : (faceArea > 1e-20 ? faceNormal / faceArea : float3(0.0, 1.0, 0.0));
-    if (dot(n, direction) > 0.0)
-    {
-        n = -n; // 光線の来る側へ向ける（両面の材質の裏・面の向きと頂点の法線がずれた所）
-    }
-
-    // テクスチャの細かさ: 光線の太さが、テクスチャの何画素ぶんにあたるか（斜めに当たるほど広がる）
-    float uvArea = abs((v1.uv.x - v0.uv.x) * (v2.uv.y - v0.uv.y) - (v2.uv.x - v0.uv.x) * (v1.uv.y - v0.uv.y));
-    float texelsPerUnit = kRayTextureSize * sqrt(uvArea / max(faceArea, 1e-20));
-    float slant = max(abs(dot(n, direction)), 0.2);
-    float lod = clamp(log2(max(footprint * texelsPerUnit / slant, 1e-6)), 0.0, kRayTextureLevels);
-    float4 texel = 1.0;
-    if (material.info.x != kRayNoTexture)
-    {
-        texel = saturate(RayTextures.SampleLevel(RayTextureSampler, float3(uv, material.info.x), lod) * material.textureMultiply + material.textureAdd);
-    }
-
-    float3 toLight = -RayLight.xyz;
-    float nl = dot(n, toLight);
-    float3 color;
-    if ((material.info.z & kRayPbr) != 0)
-    {
-        // PBR: 拡散（照明と、空・地面の 2 色の環境光）と、周りの映り込みのおおよその明るさ
-        float3 base = material.diffuse.rgb * material.baseTint.rgb * texel.rgb;
-        float metallic = material.emissive.w;
-        float3 ambient = lerp(RayLightColor.rgb * 0.3, RayLightColor.rgb * 0.9, n.y * 0.5 + 0.5);
-        float3 f0 = lerp(float3(0.04, 0.04, 0.04), base, metallic);
-        color = base * (1.0 - metallic) * (RayLightColor.rgb * saturate(nl) + ambient) + f0 * RayLightColor.rgb;
-    }
-    else
-    {
-        // トゥーン: (拡散色 × 照明の色 + 環境色) × テクスチャ × トゥーン（光の当たり方で上から下を読む）
-        color = saturate(material.diffuse.rgb * RayLightColor.rgb + material.ambient.rgb) * texel.rgb;
-        if (material.info.y != kRayNoTexture)
-        {
-            float y = clamp(0.5 - nl * 0.5, 0.5 / kRayTextureSize, 1.0 - 0.5 / kRayTextureSize);
-            float4 toon = RayTextures.SampleLevel(LinearClamp, float3(0.0, y, material.info.y), 0.0);
-            color *= saturate(toon * material.toonMultiply + material.toonAdd).rgb;
-        }
-    }
-    return color + material.emissive.rgb;
+// 影を調べる光線: 影を落とす材質のどれかに当たるか
+bool TraceShadowRay(float3 origin, float3 direction, float tMax, uint instanceCount)
+{
+    RayHit hit;
+    return RayTraverse(origin, direction, tMax, instanceCount, true, hit);
 }

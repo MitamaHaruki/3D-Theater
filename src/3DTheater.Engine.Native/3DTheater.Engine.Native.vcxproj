@@ -153,6 +153,7 @@
     <None Include="shaders\Environment.hlsli" />
     <None Include="shaders\Reflection.hlsli" />
     <None Include="shaders\RayTrace.hlsli" />
+    <None Include="shaders\RayShade.hlsli" />
     <None Include="shaders\Ao.hlsli" />
     <FxCompile Include="shaders\LinearDepthPS.hlsl">
       <ShaderType>Pixel</ShaderType>

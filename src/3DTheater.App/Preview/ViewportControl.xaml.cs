@@ -346,6 +346,10 @@ public partial class ViewportControl : UserControl, IDisposable
         if (_context.Rendering.SelfShadow)
         {
             flags |= FrameFlags.SelfShadow;
+            if (_context.Rendering.ShadowStyle.RayTraced)
+            {
+                flags |= FrameFlags.RayTracedShadows;
+            }
         }
         if (_context.Rendering.GroundShadow)
         {

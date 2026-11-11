@@ -240,6 +240,10 @@ internal static class ImageExporter
         if (context.Rendering.SelfShadow)
         {
             flags |= FrameFlags.SelfShadow;
+            if (context.Rendering.ShadowStyle.RayTraced)
+            {
+                flags |= FrameFlags.RayTracedShadows;
+            }
         }
         if (context.Rendering.GroundShadow)
         {

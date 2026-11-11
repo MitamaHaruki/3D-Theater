@@ -22,6 +22,13 @@ public sealed record ShadowStyle
     /// <summary>地面の影の濃さ（0〜1。不透明度）。</summary>
     public float GroundOpacity { get; init; } = 0.5f;
 
+    /// <summary>
+    /// セルフシャドウを、照明から見た奥行きの画像の代わりにレイトレーシング（照明の向きへ光線を出して、影を落とす物に当たるか調べる）で
+    /// 求める。奥行きの画像の細かさによらず、くっきり正確になる（顔のアップなどで、影の縁がぎざぎざにならない）。重い。
+    /// やわらかさは光線を照明の見かけの円の中へ散らして出す。地面の影は変わらない。
+    /// </summary>
+    public bool RayTraced { get; init; }
+
     /// <summary>描画エンジンへ渡す、光源の見かけの半径の tan。</summary>
     [JsonIgnore]
     public float SoftnessTangent => Softness * MaxSoftnessTangent;

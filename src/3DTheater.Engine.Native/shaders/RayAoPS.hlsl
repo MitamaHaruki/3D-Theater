@@ -44,7 +44,7 @@ float main(PostVertex input) : SV_Target
         float r = sqrt(u);
         float3 direction = normalize(tangent * (r * cos(angle)) + bitangent * (r * sin(angle)) + n * sqrt(max(1.0 - u, 0.0)));
         RayHit hit;
-        if (TraceRay(origin, direction, radius, hit))
+        if (TraceRay(origin, direction, radius, (uint)(RayParams.y + 0.5), hit))
         {
             float d = hit.t / radius;
             occlusion += 1.0 - d * d; // 遠くで当たるほど軽く（広がりで 0）

@@ -2410,6 +2410,323 @@ public:
         Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
     }
 
+    TEST_METHOD(RayTracedSelfShadowsFallWhereTheShadowMapPutsThem)
+    {
+        // セルフシャドウの確かめ（SelfShadowFallsOnReceivers）と同じ場面を、レイトレーシングで描く。影の落ちる所は奥行きの画像と同じ。
+        // 影を落とさない材質・受けない材質・セルフシャドウを使わない描画では、影は無い
+        TtEngine* engine = CreateWarpEngine();
+        constexpr int width = 64;
+        constexpr int height = 48;
+        TtView* view = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_view_create_offscreen(engine, width, height, 0, &view));
+        const uint8_t toonPixels[] = {255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+            0, 0, 200, 255, 0, 0, 200, 255, 0, 0, 200, 255, 0, 0, 200, 255};
+        TtTexture* toon = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_texture_create(engine, 2, 4, toonPixels, 8, &toon));
+        auto flatMesh = [&](float y, float half, uint32_t flags) {
+            const TtMeshVertex vertices[] = {
+                {{-half, y, half}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
+                {{half, y, half}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
+                {{half, y, -half}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
+                {{-half, y, -half}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
+            };
+            TtMeshMaterial material = QuadMaterial(nullptr, flags | TT_MATERIAL_DOUBLE_SIDED);
+            material.toon_texture = toon;
+            TtMeshDesc desc{};
+            desc.struct_size = sizeof(desc);
+            desc.vertex_count = 4;
+            desc.vertices = vertices;
+            desc.index_count = 6;
+            desc.indices = kClockwise;
+            desc.material_count = 1;
+            desc.materials = &material;
+            TtMesh* mesh = nullptr;
+            Assert::AreEqual<int>(TT_OK, tt_mesh_create(engine, &desc, &mesh));
+            return mesh;
+        };
+        auto render = [&](uint32_t receiverFlags, uint32_t occluderFlags, uint32_t frameFlags, float softness) {
+            TtMesh* floor = flatMesh(0.0f, 3.0f, receiverFlags);
+            TtMesh* occluder = flatMesh(1.0f, 0.5f, occluderFlags);
+            TtFrameParams params = MakeParams(frameFlags | TT_FRAME_USE_LIGHT);
+            DirectX::XMStoreFloat4x4(reinterpret_cast<DirectX::XMFLOAT4X4*>(params.view),
+                DirectX::XMMatrixLookAtLH(DirectX::XMVectorSet(0, 8, 0, 1), DirectX::XMVectorZero(), DirectX::XMVectorSet(0, 0, 1, 0)));
+            params.light_direction[0] = 2.0f;
+            params.light_direction[1] = -1.0f;
+            params.light_color[0] = params.light_color[1] = params.light_color[2] = 0.6f;
+            params.shadow_softness = softness;
+            const TtDrawItem items[] = {DrawItem(floor), DrawItem(occluder)};
+            params.items = items;
+            params.item_count = 2;
+            std::vector<uint8_t> pixels = RenderAndRead(engine, view, params, width, height);
+            Assert::AreEqual<int>(TT_OK, tt_mesh_destroy(floor));
+            Assert::AreEqual<int>(TT_OK, tt_mesh_destroy(occluder));
+            return pixels;
+        };
+        auto pixel = [&](const std::vector<uint8_t>& pixels, int x, int y) { return &pixels[(static_cast<size_t>(y) * width + x) * 4]; };
+        auto isRed = [](const uint8_t* p) { return IsNear(p[2], 200, 6) && p[1] < 10 && p[0] < 10; };
+        auto isWhite = [](const uint8_t* p) { return p[0] > 245 && p[1] > 245 && p[2] > 245; };
+        constexpr uint32_t kRay = TT_FRAME_SELF_SHADOW | TT_FRAME_RAYTRACED_SHADOWS;
+
+        const std::vector<uint8_t> traced = render(TT_MATERIAL_RECEIVE_SHADOW, TT_MATERIAL_CAST_SHADOW, kRay, 0.0f);
+        Assert::IsTrue(isRed(pixel(traced, 46, 24)), L"影の中はトゥーンのいちばん下の色");
+        Assert::IsTrue(isWhite(pixel(traced, 17, 24)), L"光の当たる所は元の色");
+        // 床の全体で、奥行きの画像の影と同じ所に落ちる（奥行きの画像は境目の 9 か所を比べてぼかすので、縁の画素は間の色になる。
+        // 片方が影でもう片方がはっきり光の当たる色の画素が無いことを確かめる）
+        const std::vector<uint8_t> mapped = render(TT_MATERIAL_RECEIVE_SHADOW, TT_MATERIAL_CAST_SHADOW, TT_FRAME_SELF_SHADOW, 0.0f);
+        int tracedRed = 0;
+        int mappedRed = 0;
+        int different = 0;
+        for (int y = 0; y < height; ++y) {
+            for (int x = 0; x < width; ++x) {
+                const bool a = isRed(pixel(traced, x, y));
+                const bool b = isRed(pixel(mapped, x, y));
+                tracedRed += a ? 1 : 0;
+                mappedRed += b ? 1 : 0;
+                different += (a && isWhite(pixel(mapped, x, y))) || (b && isWhite(pixel(traced, x, y))) ? 1 : 0;
+            }
+        }
+        Assert::IsTrue(tracedRed > 40, L"影がある程度の広さに落ちる");
+        Assert::IsTrue(tracedRed >= mappedRed, L"レイトレーシングの影は、ぼかした縁の分だけ広いか同じ");
+        Assert::AreEqual(0, different, L"影の落ちる所は、奥行きの画像の影と同じ");
+
+        Assert::IsTrue(isWhite(pixel(render(0, TT_MATERIAL_CAST_SHADOW, kRay, 0.0f), 46, 24)), L"セルフ影を受けない材質には落ちない");
+        Assert::IsTrue(isWhite(pixel(render(TT_MATERIAL_RECEIVE_SHADOW, 0, kRay, 0.0f), 46, 24)), L"影を落とさない材質は遮らない");
+        Assert::IsTrue(isWhite(pixel(render(TT_MATERIAL_RECEIVE_SHADOW, TT_MATERIAL_CAST_SHADOW, TT_FRAME_RAYTRACED_SHADOWS, 0.0f), 46, 24)),
+            L"セルフシャドウを使わなければ、レイトレーシングだけでは何もしない");
+
+        // 柔らかな影: 境目に、影と光の間の色が並ぶ（くっきりした影には無い）。床の外（背景）は数えない
+        auto between = [&](const std::vector<uint8_t>& pixels) {
+            int count = 0;
+            for (int x = 20; x < width; ++x) {
+                const uint8_t* p = pixel(pixels, x, 24);
+                count += !isRed(p) && !isWhite(p) && !IsBackground(p, 2) ? 1 : 0;
+            }
+            return count;
+        };
+        Assert::AreEqual(0, between(traced), L"くっきりした影の境目は 2 色だけ");
+        // （アプリのやわらかさ 1 = tan 0.1。境目の幅は、物と床の距離 × 0.1 × 2 ほどで、影を落とす板より狭い）
+        const std::vector<uint8_t> soft = render(TT_MATERIAL_RECEIVE_SHADOW, TT_MATERIAL_CAST_SHADOW, kRay, 0.1f);
+        Assert::IsTrue(between(soft) >= 2, L"柔らかな影の境目は、影と光の間の色になる");
+        Assert::IsTrue(isRed(pixel(soft, 46, 24)), L"柔らかな影でも、影の真ん中は影の色");
+
+        Assert::AreEqual<int>(TT_OK, tt_texture_destroy(toon));
+        Assert::AreEqual<int>(TT_OK, tt_view_destroy(view));
+        Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
+    }
+
+    TEST_METHOD(RayTracedShadowsDoNotDarkenTheLitSideOfCurvedSurfaces)
+    {
+        // 粗い三角形でできた球（横 8・縦 4 に分け、頂点の法線でなめらかに見せる）を横から照らす。光の当たる側は、光と影の境目の
+        // すぐ近くまで、自分の三角形に光線が当たって暗くならない（影を落とさない球と同じ明るさ）。三角形そのものが照明に背を
+        // 向けている所で大きく浮かせないと、境目の近くが三角形の形に暗くなる（外して確かめた）
+        TtEngine* engine = CreateWarpEngine();
+        constexpr int width = 96;
+        constexpr int height = 72;
+        TtView* view = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_view_create_offscreen(engine, width, height, 0, &view));
+        const uint8_t toonPixels[] = {255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+            0, 0, 200, 255, 0, 0, 200, 255, 0, 0, 200, 255, 0, 0, 200, 255};
+        TtTexture* toon = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_texture_create(engine, 2, 4, toonPixels, 8, &toon));
+
+        constexpr int rings = 4;
+        constexpr int segments = 8;
+        std::vector<TtMeshVertex> vertices;
+        for (int j = 0; j <= rings; ++j) {
+            const float theta = DirectX::XM_PI * static_cast<float>(j) / rings;
+            for (int i = 0; i <= segments; ++i) {
+                const float phi = DirectX::XM_2PI * static_cast<float>(i) / segments;
+                const float x = std::sin(theta) * std::cos(phi);
+                const float y = std::cos(theta);
+                const float z = std::sin(theta) * std::sin(phi);
+                vertices.push_back({{x, y, z}, {x, y, z}, {0.0f, 0.0f}});
+            }
+        }
+        std::vector<uint32_t> indices;
+        auto addTriangle = [&](uint32_t a, uint32_t b, uint32_t c) {
+            // 外から見て表になる向き（三角形の向き = 外向き）にそろえる
+            using namespace DirectX;
+            const XMVECTOR pa = XMLoadFloat3(reinterpret_cast<const XMFLOAT3*>(vertices[a].position));
+            const XMVECTOR pb = XMLoadFloat3(reinterpret_cast<const XMFLOAT3*>(vertices[b].position));
+            const XMVECTOR pc = XMLoadFloat3(reinterpret_cast<const XMFLOAT3*>(vertices[c].position));
+            const XMVECTOR facing = XMVector3Cross(XMVectorSubtract(pb, pa), XMVectorSubtract(pc, pa));
+            const XMVECTOR center = XMVectorScale(XMVectorAdd(XMVectorAdd(pa, pb), pc), 1.0f / 3.0f);
+            if (XMVectorGetX(XMVector3Dot(facing, center)) < 0.0f) {
+                std::swap(b, c);
+            }
+            indices.insert(indices.end(), {a, b, c});
+        };
+        for (int j = 0; j < rings; ++j) {
+            for (int i = 0; i < segments; ++i) {
+                const uint32_t a = static_cast<uint32_t>(j * (segments + 1) + i);
+                const uint32_t b = a + 1;
+                const uint32_t c = a + segments + 1;
+                const uint32_t d = c + 1;
+                addTriangle(a, b, d);
+                addTriangle(a, d, c);
+            }
+        }
+        auto makeSphere = [&](uint32_t flags) {
+            TtMeshMaterial material = QuadMaterial(nullptr, flags);
+            material.index_count = static_cast<uint32_t>(indices.size());
+            material.toon_texture = toon;
+            TtMeshDesc desc{};
+            desc.struct_size = sizeof(desc);
+            desc.vertex_count = static_cast<uint32_t>(vertices.size());
+            desc.vertices = vertices.data();
+            desc.index_count = static_cast<uint32_t>(indices.size());
+            desc.indices = indices.data();
+            desc.material_count = 1;
+            desc.materials = &material;
+            TtMesh* mesh = nullptr;
+            Assert::AreEqual<int>(TT_OK, tt_mesh_create(engine, &desc, &mesh));
+            return mesh;
+        };
+        TtMesh* casting = makeSphere(TT_MATERIAL_RECEIVE_SHADOW | TT_MATERIAL_CAST_SHADOW);
+        TtMesh* notCasting = makeSphere(TT_MATERIAL_RECEIVE_SHADOW);
+
+        TtFrameParams params = MakeFrontParams();
+        params.flags = TT_FRAME_USE_LIGHT | TT_FRAME_SELF_SHADOW | TT_FRAME_RAYTRACED_SHADOWS;
+        const float toLight[3] = {0.8f, 0.4f, -0.45f}; // 右・上・手前から照らす
+        for (int k = 0; k < 3; ++k) {
+            params.light_direction[k] = -toLight[k];
+        }
+        params.light_color[0] = params.light_color[1] = params.light_color[2] = 0.6f;
+        auto render = [&](TtMesh* mesh) {
+            const TtDrawItem item = DrawItem(mesh);
+            params.items = &item;
+            params.item_count = 1;
+            return RenderAndRead(engine, view, params, width, height);
+        };
+        const std::vector<uint8_t> self = render(casting);
+        const std::vector<uint8_t> reference = render(notCasting);
+
+        // 画素ごとに、カメラからの光線と本物の球の交わる点の向きを求め、光によく当たる所（縁から離れた所）だけを比べる
+        const double tanHalf = std::tan(DirectX::XM_PI / 8.0);
+        const double length = std::sqrt(toLight[0] * toLight[0] + toLight[1] * toLight[1] + toLight[2] * toLight[2]);
+        int compared = 0;
+        int darkened = 0;
+        for (int py = 0; py < height; ++py) {
+            for (int px = 0; px < width; ++px) {
+                const double nx = (px + 0.5) / width * 2.0 - 1.0;
+                const double ny = 1.0 - (py + 0.5) / height * 2.0;
+                double d[3] = {nx * tanHalf * 4.0 / 3.0, ny * tanHalf, 1.0};
+                const double dl = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+                for (double& v : d) {
+                    v /= dl;
+                }
+                const double o[3] = {0.0, 0.0, -5.0};
+                const double b = o[0] * d[0] + o[1] * d[1] + o[2] * d[2];
+                const double c = o[0] * o[0] + o[1] * o[1] + o[2] * o[2] - 1.0;
+                const double disc = b * b - c;
+                if (disc <= 0.0) {
+                    continue;
+                }
+                const double t = -b - std::sqrt(disc);
+                const double n[3] = {o[0] + d[0] * t, o[1] + d[1] * t, o[2] + d[2] * t};
+                const double nl = (n[0] * toLight[0] + n[1] * toLight[1] + n[2] * toLight[2]) / length;
+                const double facing = -(n[0] * d[0] + n[1] * d[1] + n[2] * d[2]);
+                if (nl < 0.02 || facing < 0.35) {
+                    continue;
+                }
+                const size_t at = (static_cast<size_t>(py) * width + px) * 4;
+                ++compared;
+                if (std::abs(static_cast<int>(self[at + 1]) - static_cast<int>(reference[at + 1])) > 3) {
+                    ++darkened;
+                }
+            }
+        }
+        Assert::IsTrue(compared > 200, L"比べる画素が十分にある");
+        Assert::AreEqual(0, darkened, L"光の当たる側は、自分の三角形の影で暗くならない");
+
+        Assert::AreEqual<int>(TT_OK, tt_mesh_destroy(casting));
+        Assert::AreEqual<int>(TT_OK, tt_mesh_destroy(notCasting));
+        Assert::AreEqual<int>(TT_OK, tt_texture_destroy(toon));
+        Assert::AreEqual<int>(TT_OK, tt_view_destroy(view));
+        Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
+    }
+
+    TEST_METHOD(RayTracedShadowsAppearInFloorReflections)
+    {
+        // 浮かせた板（影を受ける）と、その上の小さな板（影を落とす）を、床の映り込みと一緒に横から見る。映り込みにも、
+        // 奥行きの画像のときと同じように影が映る（映り込みは床で上下に映して描くので、光線は映す前の物に当てる）
+        TtEngine* engine = CreateWarpEngine();
+        constexpr int width = 96;
+        constexpr int height = 72;
+        TtView* view = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_view_create_offscreen(engine, width, height, 0, &view));
+        const uint8_t toonPixels[] = {255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+            0, 0, 200, 255, 0, 0, 200, 255, 0, 0, 200, 255, 0, 0, 200, 255};
+        TtTexture* toon = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_texture_create(engine, 2, 4, toonPixels, 8, &toon));
+        auto flatMesh = [&](float y, float half, uint32_t flags) {
+            const TtMeshVertex vertices[] = {
+                {{-half, y, half}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
+                {{half, y, half}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
+                {{half, y, -half}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
+                {{-half, y, -half}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
+            };
+            TtMeshMaterial material = QuadMaterial(nullptr, flags | TT_MATERIAL_DOUBLE_SIDED);
+            material.toon_texture = toon;
+            TtMeshDesc desc{};
+            desc.struct_size = sizeof(desc);
+            desc.vertex_count = 4;
+            desc.vertices = vertices;
+            desc.index_count = 6;
+            desc.indices = kClockwise;
+            desc.material_count = 1;
+            desc.materials = &material;
+            TtMesh* mesh = nullptr;
+            Assert::AreEqual<int>(TT_OK, tt_mesh_create(engine, &desc, &mesh));
+            return mesh;
+        };
+        TtMesh* plate = flatMesh(0.6f, 1.5f, TT_MATERIAL_RECEIVE_SHADOW);
+        TtMesh* occluder = flatMesh(1.4f, 0.4f, TT_MATERIAL_CAST_SHADOW);
+        const TtDrawItem items[] = {DrawItem(plate), DrawItem(occluder)};
+        TtFrameParams params = MakeParams(TT_FRAME_USE_LIGHT | TT_FRAME_SELF_SHADOW);
+        DirectX::XMStoreFloat4x4(reinterpret_cast<DirectX::XMFLOAT4X4*>(params.view),
+            DirectX::XMMatrixLookAtLH(DirectX::XMVectorSet(0.0f, 0.25f, -6.0f, 1.0f), DirectX::XMVectorSet(0.0f, 0.0f, 0.0f, 1.0f),
+                DirectX::XMVectorSet(0, 1, 0, 0)));
+        params.light_direction[0] = 1.0f;
+        params.light_direction[1] = -2.0f;
+        params.light_direction[2] = 0.5f;
+        params.light_color[0] = params.light_color[1] = params.light_color[2] = 0.6f;
+        params.items = items;
+        params.item_count = 2;
+        params.reflection_strength = 1.0f;
+        params.reflection_fade = 10.0f;
+        auto render = [&](uint32_t extra) {
+            params.flags = TT_FRAME_USE_LIGHT | TT_FRAME_SELF_SHADOW | extra;
+            return RenderAndRead(engine, view, params, width, height);
+        };
+        // 床の高さ（y = 0）より下に写る行（映り込み）だけを数える
+        const DirectX::XMMATRIX viewProj = DirectX::XMLoadFloat4x4(reinterpret_cast<const DirectX::XMFLOAT4X4*>(params.view))
+            * DirectX::XMLoadFloat4x4(reinterpret_cast<const DirectX::XMFLOAT4X4*>(params.projection));
+        const float floorNdc = DirectX::XMVectorGetY(DirectX::XMVector3TransformCoord(DirectX::XMVectorSet(0.0f, 0.0f, 1.5f, 1.0f), viewProj));
+        const int floorRow = static_cast<int>((-floorNdc * 0.5f + 0.5f) * height);
+        auto reddish = [&](const std::vector<uint8_t>& pixels) {
+            int count = 0;
+            for (int y = floorRow + 1; y < height; ++y) {
+                for (int x = 0; x < width; ++x) {
+                    const uint8_t* p = &pixels[(static_cast<size_t>(y) * width + x) * 4];
+                    count += p[2] > p[1] + 60 ? 1 : 0;
+                }
+            }
+            return count;
+        };
+        const int mapped = reddish(render(TT_FRAME_FLOOR_REFLECTION));
+        const int traced = reddish(render(TT_FRAME_FLOOR_REFLECTION | TT_FRAME_RAYTRACED_SHADOWS));
+        Assert::IsTrue(mapped > 10, L"奥行きの画像のとき、映り込みに影が映る");
+        Assert::IsTrue(std::abs(traced - mapped) * 4 <= mapped, L"レイトレーシングでも、映り込みに同じくらいの影が映る");
+        Assert::AreEqual(0, reddish(render(TT_FRAME_RAYTRACED_SHADOWS)), L"映り込みを描かなければ、床より下に影は無い");
+
+        Assert::AreEqual<int>(TT_OK, tt_mesh_destroy(plate));
+        Assert::AreEqual<int>(TT_OK, tt_mesh_destroy(occluder));
+        Assert::AreEqual<int>(TT_OK, tt_texture_destroy(toon));
+        Assert::AreEqual<int>(TT_OK, tt_view_destroy(view));
+        Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
+    }
+
     TEST_METHOD(SoftShadowsWidenWithDistanceFromTheCaster)
     {
         // 1 辺 2 の板（影を落とす）を高さ h に浮かせ、床（影を受ける・トゥーンの下が赤）に影を落とす。光は +X・下向き（傾き 2:1）。

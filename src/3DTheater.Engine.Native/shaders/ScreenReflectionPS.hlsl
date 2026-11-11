@@ -1,5 +1,6 @@
 #include "Post.hlsli"
 #include "RayTrace.hlsli"
+#include "RayShade.hlsli"
 
 // 画面の中の反射（SSR）: つやのある PBR の材質の映り込みを、画面に映っている物の色にする。
 // モデルを描くとき、PBR の材質は環境の映り込みを色に入れずに分けて書いておく（EnvironmentReflection）。ここで、面の向きから
@@ -224,7 +225,7 @@ float4 main(PostVertex input) : SV_Target
         float3 origin = mul(float4(start, 1.0), ViewToWorld).xyz;
         float3 direction = normalize(mul(float4(r, 0.0), ViewToWorld).xyz);
         RayHit hit;
-        if (TraceRay(origin, direction, reach, hit))
+        if (TraceRay(origin, direction, reach, (uint)(RayParams.y + 0.5), hit))
         {
             // 光線の太さ（画素 1 つ分の広がり）: 面までに広がった分と、映ってから進む間に広がる分。粗いほど広がる
             bool orthographic = ProjectionParams.z > 0.5;

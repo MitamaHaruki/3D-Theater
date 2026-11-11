@@ -1,6 +1,7 @@
 #include "Model.hlsli"
 #include "Shadow.hlsli"
 #include "Environment.hlsli"
+#include "RayTrace.hlsli"
 
 static const float kPi = 3.14159265;
 
@@ -15,6 +16,76 @@ static const float kSkyScale = 0.9;
 static const float kGroundScale = 0.3;
 static const float kReflectionSkyScale = 1.6;
 static const float kReflectionGroundScale = 0.45;
+
+// レイトレーシングでの影: 面から照明へ光線を出し、影を落とす材質に当たれば影（1 = 光が当たる、0 = 影）。
+// 光線は照明の向きに少し進めた所から出す（同じ直線の上なので、影の位置はずれない）。面の向きにはわずかに浮かせるだけにする
+// （面の向きに浮かせると、斜めの光では影が照明の側へずれる）。ただし、三角形そのものが照明に背を向けている所（なめらかに見せた
+// 曲面の、光と影の境目の近く）は、自分の三角形に当たるので、なめらかな向きの側へ大きく浮かせる。
+// 柔らかな影では、照明の見かけの円の中の 8 つの向きへ出し、当たらなかった割合にする（画素ごとに回す）
+static const float kRayShadowBias = 0.04;     // 照明の向きに進める長さ・大きく浮かせる長さ（ワールド。人の大きさのモデルの背丈は 20 ほど）
+static const float kRayShadowLift = 0.005;    // ふつうに浮かせる長さ
+static const float kRayShadowReach = 10000.0; // 照明の向きに調べる長さ
+static const int kRayShadowSamples = 8;
+
+// 描いている三角形の向き（画素の間のワールドの位置の差から。main の始めで求める。分かれ道の中では差を求められないため）
+static float3 g_faceNormal = float3(0.0, 0.0, 0.0);
+
+float RayTracedShadow(ModelPSInput input, float3 n)
+{
+    float3 position = CameraPosition.xyz - input.eye;
+    float3 toLight = -LightDirection.xyz;
+    float3 normal = n;
+    if (ReflectionParams.x > 0.5)
+    {
+        // 床の映り込みを描いているときは、位置・向きが床で上下に映してある。光線は映す前の物に当てる
+        position.y = -position.y;
+        toLight.y = -toLight.y;
+        normal.y = -normal.y;
+    }
+    float3 side = dot(normal, toLight) >= 0.0 ? normal : -normal;
+    float3 face = g_faceNormal;
+    if (ReflectionParams.x > 0.5)
+    {
+        face.y = -face.y;
+    }
+    float faceLength = length(face);
+    face = faceLength > 1e-12 ? face / faceLength : side;
+    face = dot(face, side) >= 0.0 ? face : -face;
+    float lift = dot(face, toLight) > 0.05 ? kRayShadowLift : kRayShadowBias;
+    float3 origin = position + side * lift + toLight * kRayShadowBias;
+    uint count = (uint)(RayShadowParams.y + 0.5);
+    float softness = ShadowSoftness.y;
+    if (softness <= 0.0)
+    {
+        return TraceShadowRay(origin, toLight, kRayShadowReach, count) ? 0.0 : 1.0;
+    }
+    float3 helper = abs(toLight.y) < 0.99 ? float3(0.0, 1.0, 0.0) : float3(1.0, 0.0, 0.0);
+    float3 tangent = normalize(cross(helper, toLight));
+    float3 bitangent = cross(toLight, tangent);
+    float rotation = ShadowNoise(input.position.xy) * 6.2831853;
+    float lit = 0.0;
+    [loop]
+    for (int i = 0; i < kRayShadowSamples; i++)
+    {
+        float2 d = ShadowSpiral(i, kRayShadowSamples, rotation) * softness;
+        float3 direction = normalize(toLight + tangent * d.x + bitangent * d.y);
+        if (!TraceShadowRay(origin, direction, kRayShadowReach, count))
+        {
+            lit += 1.0;
+        }
+    }
+    return lit / kRayShadowSamples;
+}
+
+// セルフシャドウの光の当たる割合（奥行きの画像か、レイトレーシング）
+float ShadowAt(ModelPSInput input, float3 n)
+{
+    if (RayShadowParams.x > 0.5)
+    {
+        return RayTracedShadow(input, n);
+    }
+    return SelfShadowFactor(input.shadowPosition, input.position.xy);
+}
 
 // 足す照明 1 つの強さ（色 × 明るさ × 距離・円すいの減り方）と、面から照明への向き。
 // 点光源・スポットライトは、届く距離で 0 になるよう、なめらかに弱める
@@ -92,12 +163,21 @@ float4 ToonColor(ModelPSInput input, float3 n)
     if (Options.w > 0.5)
     {
         float4 shadowColor = color;
-        float lit = SelfShadowFactor(input.shadowPosition, input.position.xy);
+        float lit = 0.0;
         if (Options.y > 0.5)
         {
-            lit = min(saturate(dot(n, toLight) * 3.0), lit);
+            // 光の当たり方で暗い側は、影を調べなくても暗い（レイトレーシングの光線を出さずに済む）
+            float facing = saturate(dot(n, toLight) * 3.0);
+            if (facing > 0.0)
+            {
+                lit = min(facing, ShadowAt(input, n));
+            }
             float4 toonColor = saturate(ToonTexture.Sample(ClampSampler, float2(0.0, 1.0)) * ToonMultiply + ToonAdd);
             shadowColor.rgb *= toonColor.rgb;
+        }
+        else
+        {
+            lit = ShadowAt(input, n);
         }
         result = lerp(shadowColor, float4(color.rgb + specular, color.a), lit);
     }
@@ -153,7 +233,12 @@ float4 PbrColor(ModelPSInput input, float3 n, out float3 fresnel, out float3 ref
     float nv = max(dot(n, v), 1e-4);
     float3 f0 = lerp(float3(0.04, 0.04, 0.04), base.rgb, metallic);
 
-    float shadow = Options.w > 0.5 ? SelfShadowFactor(input.shadowPosition, input.position.xy) : 1.0;
+    // 条件の演算子（? :）は両方を計算するので、if で分ける。照明に背を向けた面は、影を調べなくても光が届かない
+    float shadow = 1.0;
+    if (Options.w > 0.5 && dot(n, -LightDirection.xyz) > 0.0)
+    {
+        shadow = ShadowAt(input, n);
+    }
     float3 direct = PbrDirect(n, v, -LightDirection.xyz, LightColor.rgb * kPbrLightScale * shadow, base.rgb, metallic, roughness, f0);
     float3 worldPosition = CameraPosition.xyz - input.eye;
     [loop] for (uint i = 0; i < min(LightCount.x, 8u); i++)
@@ -261,7 +346,11 @@ float4 PassColor(ModelPSInput input, float3 n)
     }
     if (kind == kPassShadow)
     {
-        float shadow = Options.w > 0.5 ? 1.0 - SelfShadowFactor(input.shadowPosition, input.position.xy) : 0.0;
+        float shadow = 0.0;
+        if (Options.w > 0.5)
+        {
+            shadow = 1.0 - ShadowAt(input, n);
+        }
         return float4(shadow, shadow, shadow, 1.0);
     }
     return float4(saturate(Emissive.rgb), 1.0); // 発光
@@ -287,6 +376,8 @@ ModelPSOutput main(ModelPSInput input)
     output.target1 = 0.0;
     output.target2 = 0.0;
     output.target3 = 0.0;
+    float3 worldPosition = CameraPosition.xyz - input.eye;
+    g_faceNormal = cross(ddx(worldPosition), ddy(worldPosition));
     float3 n = normalize(input.normal);
     if (RenderPass() != 0)
     {

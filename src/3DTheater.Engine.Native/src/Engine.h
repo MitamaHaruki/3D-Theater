@@ -193,6 +193,7 @@ private:
         DirectX::XMFLOAT4 shadowSoftness;   // 柔らかな影（シェーダーの ShadowSoftness と同じ）
         DirectX::XMFLOAT4 passParams;       // レンダーパス: x = 種類（TT_PASS_*）、y = 物の番号（1 から）、z = 奥行きの手前、w = 奥
         DirectX::XMFLOAT4 ssrParams;        // x = 1 なら画面の中の反射の下準備を書く（シェーダーの SsrParams と同じ）
+        DirectX::XMFLOAT4 rayShadowParams;  // レイトレーシングでの影: x = 1 なら使う、y = 物の数（シェーダーの RayShadowParams と同じ）
     };
     void WriteObjectConstants(DirectX::FXMMATRIX world, DirectX::CXMMATRIX worldViewProj, const ModelFrame& frame);
     // 足す照明を定数バッファーへ書く（1 枚の描画で 1 回。床の映り込みを描く間は、床で上下に映した照明を書く）

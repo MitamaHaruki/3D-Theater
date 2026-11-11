@@ -27,7 +27,7 @@ extern "C" {
 
 // 上位 16 ビットが大きな版、下位 16 ビットが小さな版。大きな版が違う DLL とは組み合わせない。
 #define TT_API_VERSION_MAJOR 0
-#define TT_API_VERSION_MINOR 26
+#define TT_API_VERSION_MINOR 27
 #define TT_API_VERSION ((TT_API_VERSION_MAJOR << 16) | TT_API_VERSION_MINOR)
 
 // 0 以上は成功、負の値は失敗。
@@ -111,6 +111,11 @@ enum {
     TT_FRAME_CLEAR_COLOR = 1u << 10,         // 背景を clear_color で消す（a = 0 で透明。書き出し用。API 0.9）。無ければ編集画面の背景色
     TT_FRAME_FLOOR_REFLECTION = 1u << 11,    // 床の映り込み（高さ 0 の床に、モデルを鏡のように映す。reflection_*。API 0.15）
     TT_FRAME_ENVIRONMENT_BACKGROUND = 1u << 12, // 環境の画像を背景に描く（environment があるとき。平行投影では描かない。API 0.20）
+    // API 0.27: セルフシャドウを、照明から見た奥行きの画像の代わりにレイトレーシングで求める（TT_FRAME_SELF_SHADOW と一緒に使う）。
+    // 影を受ける面から照明の向きへ光線を出し、影を落とす材質（TT_MATERIAL_CAST_SHADOW）に当たれば影。奥行きの画像の細かさに
+    // よらず、くっきり正確になる。shadow_softness が 0 より大きければ、照明の見かけの円の中の 8 つの向きへ出して境目をぼかす。
+    // 不透明度が 0.5 より小さい所は通り抜ける。物は先頭から 64 個まで（TT_POST_RAYTRACED_REFLECTIONS と同じ）。地面の影は変わらない
+    TT_FRAME_RAYTRACED_SHADOWS = 1u << 13,
 };
 
 // 映像効果（TtFrameParams.post_flags。API 0.11）。どれかを使うと、場面を背景なしで描いてから効果をかけ、背景を後ろに置く。
