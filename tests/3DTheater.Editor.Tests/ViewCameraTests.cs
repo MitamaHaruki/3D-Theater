@@ -171,4 +171,22 @@ public sealed class ViewCameraTests
         Assert.AreEqual(expected.Y, actual.Y, Tolerance, $"{name}.Y");
         Assert.AreEqual(expected.Z, actual.Z, Tolerance, $"{name}.Z");
     }
+
+    [TestMethod]
+    public void FramingKeepsTheCameraViewAndTheSceneCamera()
+    {
+        // カメラ視点の区画も、後でほかの視点に切り替えたときにモデルが収まるよう、注視点と距離だけを合わせておける
+        var camera = new ViewCamera(ViewKind.Camera);
+        var scene = new Theater3D.Domain.CameraNode("カメラ") { Position = new Vector3(0, 10, -45) };
+        Vector3 before = scene.Position;
+
+        camera.SetFraming(new Vector3(0, 10, 0), 10f);
+
+        Assert.AreEqual(ViewKind.Camera, camera.Kind, "カメラ視点のまま");
+        Assert.AreEqual(new Vector3(0, 10, 0), camera.Target);
+        Assert.AreEqual(before, scene.Position, "シーンのカメラは動かさない");
+        camera.SetKind(ViewKind.Front);
+        Assert.AreEqual(new Vector3(0, 10, 0), camera.Target, "正面に切り替えると、合わせた注視点で写る");
+        Assert.IsGreaterThan(10f, camera.Distance, "球が収まる距離");
+    }
 }

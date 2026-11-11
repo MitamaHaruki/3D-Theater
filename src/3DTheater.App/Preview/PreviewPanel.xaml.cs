@@ -56,6 +56,9 @@ public partial class PreviewPanel : UserControl, IDisposable
 
     public ViewportControl FirstView => _views[0];
 
+    /// <summary>隠れている区画も含めた全部の区画（画面の分け方を変えると、隠れていたものが出る）。</summary>
+    public IReadOnlyList<ViewportControl> Views => _views;
+
     public void SetLayout(PreviewLayout layout)
     {
         _layout = layout;

@@ -164,13 +164,21 @@ public sealed class PhysicsController
         }
         try
         {
-            // 画面の物理とは別の世界で計算する
-            ModelPhysics? physics = ModelPhysics.Create(model.Document, model.Rig);
-            if (physics is null)
+            // 画面の物理とは別の世界で計算する。やり直すたびに世界を作り直す（何度焼き直しても、同じ入力なら同じ揺れになるように）
+            if (ModelPhysics.Create(model.Document, model.Rig) is not { } first)
             {
                 return null;
             }
-            model.Bake = new PhysicsBake(physics, model.Rig);
+            bool used = false;
+            model.Bake = new PhysicsBake(() =>
+            {
+                if (!used)
+                {
+                    used = true;
+                    return first;
+                }
+                return ModelPhysics.Create(model.Document, model.Rig) ?? throw new PhysicsException(-1, "物理の世界を作り直せませんでした");
+            }, model.Rig);
             model.BakeInput = new PoseInput(model.Rig);
             Invalidate(node, model);
             return model.Bake;
@@ -188,7 +196,15 @@ public sealed class PhysicsController
         {
             return;
         }
-        model.Bake.Invalidate(_context.Playback.FrameRate, GravityFor(node));
+        try
+        {
+            model.Bake.Invalidate(_context.Playback.FrameRate, GravityFor(node));
+        }
+        catch (PhysicsException ex)
+        {
+            FailBake(node, model, ex);
+            return;
+        }
         _bakeStarted = Stopwatch.GetTimestamp();
         _bakeLogged = false;
         ScheduleBake();

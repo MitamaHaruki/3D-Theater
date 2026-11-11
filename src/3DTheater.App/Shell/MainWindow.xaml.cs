@@ -980,12 +980,19 @@ public partial class MainWindow : Window
             return;
         }
         _context.Selection.Select(model, SelectMode.Replace, null);
-        foreach (ViewportControl view in _layout.Previews.SelectMany(p => p.VisibleViews))
+        foreach (PreviewPanel preview in _layout.Previews)
         {
-            if (view.Camera.Kind != ViewKind.Camera)
-            {
-                view.FocusSelection();
-            }
+            FocusPreviewOn(preview, model);
+        }
+    }
+
+    // 隠れている区画も合わせる（後で 2 画面・4 画面にしたときに、モデルが収まった写り方で出るように）。
+    // カメラ視点の区画は、カメラ視点のまま、ほかの視点に切り替えたときの写り方だけを合わせる
+    private static void FocusPreviewOn(PreviewPanel preview, Domain.ModelNode model)
+    {
+        foreach (ViewportControl view in preview.Views)
+        {
+            view.FocusOn(model);
         }
     }
 
@@ -1239,6 +1246,10 @@ public partial class MainWindow : Window
     private void OnAddPreviewClick(object sender, RoutedEventArgs e)
     {
         PreviewPanel preview = _layout.AddPreview();
+        if (_context.Scene.ModelsGroup.Children.OfType<Domain.ModelNode>().FirstOrDefault() is { } model)
+        {
+            FocusPreviewOn(preview, model); // 足したプレビューも、モデルが収まった写り方で出す
+        }
         Activate(preview, preview.FirstView);
     }
 

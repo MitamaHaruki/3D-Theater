@@ -85,7 +85,7 @@
             <MenuItem Header="レイアウトを初期配置に戻す(_R)" Click="OnResetLayoutClick" />
           </MenuItem>
           <MenuItem Header="シーン(_S)">
-            <MenuItem Header="アクセサリを追加..." Style="{StaticResource PlannedItemStyle}" ToolTip="Phase 2 以降で対応します" />
+            <MenuItem Header="アクセサリを追加..." Style="{StaticResource PlannedItemStyle}" ToolTip="まだできません（アクセサリ（.x などの小物）の読み込みは今後対応します）" />
             <MenuItem Header="照明を追加">
               <MenuItem Header="点光源" Tag="Point" Click="OnAddLightClick"
                         ToolTip="電球のように全方向を照らす照明を足します（届く距離で 0 になります）" />
@@ -96,7 +96,7 @@
             </MenuItem>
             <MenuItem Header="選んだ照明を外す" Click="OnRemoveLightClick"
                       ToolTip="足した照明をシーンから外します（MMD の照明は外せません。Ctrl+Z で戻せます）" />
-            <MenuItem Header="カメラを追加" Style="{StaticResource PlannedItemStyle}" ToolTip="Phase 2 以降で対応します" />
+            <MenuItem Header="カメラを追加" Style="{StaticResource PlannedItemStyle}" ToolTip="まだできません（シーンのカメラは今は 1 つです。カメラを足すのは今後対応します）" />
           </MenuItem>
           <MenuItem Header="モデル(_M)">
             <MenuItem Header="PMX を読み込む..." InputGestureText="Ctrl+I" Click="OnImportModelClick"
@@ -160,7 +160,7 @@
                       ToolTip="プレビューの品質（軽い・ふつう・きれい。線や輪郭のなめらかさと影の細かさ）を選びます。書き出しはいつも高い品質で描きます" />
           </MenuItem>
           <MenuItem Header="ツール(_T)">
-            <MenuItem Header="設定..." Style="{StaticResource PlannedItemStyle}" ToolTip="操作感度・ショートカットの設定は今後対応します" />
+            <MenuItem Header="設定..." Style="{StaticResource PlannedItemStyle}" ToolTip="まだできません（操作感度・ショートカットの設定は今後対応します）" />
           </MenuItem>
           <MenuItem x:Name="PluginsMenu" Header="プラグイン(_P)" />
           <MenuItem Header="ヘルプ(_H)">

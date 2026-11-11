@@ -194,12 +194,40 @@ public partial class ViewportControl : UserControl, IDisposable
 
     public void FocusSelection()
     {
-        SceneNode? node = _context.Selection.Primary;
-        if (node is null || !node.HasTransform)
+        if (_context.Selection.Primary is { } node && Bounds(node) is { } bounds)
+        {
+            Camera.Focus(bounds.Center, bounds.Radius, _context.MainCamera); // カメラ視点なら、自由視点に移ってから合わせる
+        }
+    }
+
+    /// <summary>
+    /// 項目に視点を合わせる（選択は変えない）。カメラ視点の区画はカメラ視点のまま、後でほかの視点に切り替えたときの写り方だけを合わせる
+    /// （シーンのカメラは動かさない）。
+    /// </summary>
+    public void FocusOn(SceneNode node)
+    {
+        if (Bounds(node) is not { } bounds)
         {
             return;
         }
-        (Vector3 center, float radius) = node switch
+        if (Camera.Kind == ViewKind.Camera)
+        {
+            Camera.SetFraming(bounds.Center, bounds.Radius);
+        }
+        else
+        {
+            Camera.Focus(bounds.Center, bounds.Radius, _context.MainCamera);
+        }
+    }
+
+    // 項目を囲む球（位置の無い項目なら null）
+    private (Vector3 Center, float Radius)? Bounds(SceneNode node)
+    {
+        if (!node.HasTransform)
+        {
+            return null;
+        }
+        return node switch
         {
             // ボーンは今の姿勢での位置に、モデルは今の姿勢を囲む球に合わせる
             BoneNode bone when bone.Model is { } model && _context.GetLoaded(model) is { } loaded => (
@@ -210,7 +238,6 @@ public partial class ViewportControl : UserControl, IDisposable
                 Math.Max(0.01f, loaded.DisplaySize * 0.5f * MaxScale(model))),
             _ => SceneEvaluator.BoundingSphere(node),
         };
-        Camera.Focus(center, radius, _context.MainCamera);
     }
 
     /// <summary>右クリックと見出しのボタンで出すメニュー。</summary>

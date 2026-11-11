@@ -146,6 +146,15 @@ public sealed class ViewCamera
     public void Focus(Vector3 center, float radius, CameraNode? sceneCamera = null)
     {
         LeaveCameraView(sceneCamera);
+        SetFraming(center, radius);
+    }
+
+    /// <summary>
+    /// 視点の種類は変えずに、注視点と距離だけを球（<paramref name="center"/>・<paramref name="radius"/>）が収まるように合わせる。
+    /// カメラ視点の区画では、シーンのカメラは動かさず、後で固定の視点・自由視点に切り替えたときの写り方だけが変わる。
+    /// </summary>
+    public void SetFraming(Vector3 center, float radius)
+    {
         Target = center;
         Distance = Math.Clamp(Math.Max(radius, 0.01f) / MathF.Sin(FieldOfView / 2f) * 1.2f, MinDistance, MaxDistance);
         RaiseChanged();

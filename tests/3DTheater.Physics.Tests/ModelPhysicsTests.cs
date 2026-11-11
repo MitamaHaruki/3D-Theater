@@ -234,6 +234,42 @@ public sealed class ModelPhysicsTests
     }
 
     [TestMethod]
+    public void RebakingAfterInvalidatingGivesExactlyTheSameFrames()
+    {
+        // やり直すたびに世界を作り直すので、前の計算の跡（当たりの記録など）が残らず、同じ入力なら最初とまったく同じになる
+        PmxDocument document = Hair();
+        ModelRig rig = ModelRig.FromPmx(document);
+        var input = new PoseInput(rig);
+        int created = 0;
+        using var bake = new PhysicsBake(() =>
+        {
+            created++;
+            return ModelPhysics.Create(document, rig)!;
+        }, rig);
+        Quaternion[] Bake()
+        {
+            bake.Invalidate(30, new Vector3(0, -ModelPhysics.GravityStrength, 0));
+            var result = new Quaternion[40];
+            var state = new PoseState(rig);
+            for (int frame = 0; frame < 40; frame++)
+            {
+                HeadBob(input, frame);
+                bake.BakeNext(input);
+                PoseEvaluator.EvaluateBeforePhysics(rig, input, state);
+                bake.TryApply(frame, state);
+                result[frame] = state.GlobalRotation[1];
+            }
+            return result;
+        }
+
+        Quaternion[] first = Bake();
+        Quaternion[] again = Bake();
+
+        CollectionAssert.AreEqual(first, again, "焼き直しても、どのフレームも同じ");
+        Assert.AreEqual(3, created, "作ったときと、やり直すたびに世界を作る");
+    }
+
+    [TestMethod]
     public void InvalidatingForgetsTheFrames()
     {
         PmxDocument document = Hair();

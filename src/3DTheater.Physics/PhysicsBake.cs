@@ -11,8 +11,9 @@ namespace Theater3D.Physics;
 /// </summary>
 public sealed class PhysicsBake : IDisposable
 {
-    private readonly ModelPhysics _physics;
+    private readonly Func<ModelPhysics>? _createPhysics;
     private readonly ModelRig _rig;
+    private ModelPhysics _physics;
     private readonly PoseState _state;
     private readonly List<PhysicsTransform[]> _frames = [];
     private PhysicsTransform[] _blend = [];
@@ -23,6 +24,17 @@ public sealed class PhysicsBake : IDisposable
         _physics = physics;
         _rig = rig;
         _state = new PoseState(rig);
+    }
+
+    /// <summary>
+    /// やり直すたび（<see cref="Invalidate"/>）に、物理の世界を作り直す焼き込み。同じ入力なら、何度やり直しても最初とまったく同じ結果になる。
+    /// （世界を置き直して使い回すと、Bullet の中の当たりの記録の並びなどが前の計算から残り、同じ入力でもわずかに違う揺れになるため）
+    /// </summary>
+    /// <param name="createPhysics">焼き込み専用の物理を作る（毎回、画面のものとは別の新しい世界）。作ったものはこのオブジェクトが破棄する。</param>
+    public PhysicsBake(Func<ModelPhysics> createPhysics, ModelRig rig)
+        : this(createPhysics(), rig)
+    {
+        _createPhysics = createPhysics;
     }
 
     /// <summary>計算済みのフレームの数（0 〜 Count - 1 フレーム目を覚えている）。</summary>
@@ -39,6 +51,12 @@ public sealed class PhysicsBake : IDisposable
     {
         _frames.Clear();
         FrameRate = Math.Max(1, frameRate);
+        if (_createPhysics is not null)
+        {
+            ModelPhysics fresh = _createPhysics();
+            _physics.Dispose();
+            _physics = fresh;
+        }
         _physics.SetGravity(gravity);
         _physics.NeedsReset = true;
         Version++;
