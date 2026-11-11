@@ -3,6 +3,7 @@
 
 #include <DirectXMath.h>
 
+#include <memory>
 #include <vector>
 
 #include "Common.h"
@@ -10,6 +11,7 @@
 namespace tt {
 
 class Mesh;
+class RayScene;
 
 // 映像効果に使う画像（描画先にも、読む画像にもなる）
 struct PostSurface {
@@ -132,6 +134,9 @@ public:
     };
     // 映像効果をかける: 場面から output（width x height）へ。背景も置く
     void ApplyPostEffects(const TtFrameParams& params, const PostInputs& inputs, ID3D11RenderTargetView* output, int width, int height);
+
+    // 画像 source を target（width x height）へ縮めて写す（縮める割合に合った縮小版を読む）。レイトレーシングのテクスチャの配列を作るのに使う
+    void DrawTextureInto(ID3D11ShaderResourceView* source, ID3D11RenderTargetView* target, UINT width, UINT height);
 
     // ビューの描画先の色の形式（スワップチェーンとも同じ）
     static constexpr DXGI_FORMAT kColorFormat = DXGI_FORMAT_B8G8R8A8_UNORM;
@@ -286,6 +291,8 @@ private:
     ComPtr<ID3D11Buffer> reflectionConstantBuffer_;
     ComPtr<ID3D11BlendState> premultipliedBlendState_; // 透明度をかけ合わせた色を重ねる（1 と 1 - a）
     ComPtr<ID3D11PixelShader> screenReflectionShader_; // 画面の中の反射
+    ComPtr<ID3D11PixelShader> rayTextureShader_;       // レイトレーシングのテクスチャを縮めて写す
+    std::unique_ptr<RayScene> rayScene_;               // レイトレーシングで光線を当てる物（全部のビューで使い回す）
 
     // モデル（MMD と同じトゥーンの色の計算と輪郭線）
     ComPtr<ID3D11VertexShader> modelVertexShader_;

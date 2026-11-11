@@ -3,6 +3,7 @@
 #include <DirectXPackedVector.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cfloat>
 #include <cmath>
 #include <cstring>
@@ -12,6 +13,9 @@ namespace tt {
 namespace {
 
 constexpr int kMaxTextureSize = 16384;
+
+// メッシュの番号（作るたびに 1 つずつ増やす）
+std::atomic<uint64_t> g_nextMeshId{1};
 
 } // namespace
 
@@ -28,6 +32,12 @@ TextureImage::TextureImage(int width, int height, const void* pixels, int stride
     const auto* source = static_cast<const uint8_t*>(pixels);
     for (int y = 0; y < height; ++y) {
         std::memcpy(pixels_.data() + rowBytes * y, source + static_cast<size_t>(stride) * y, rowBytes);
+    }
+    for (size_t i = 3; i < pixels_.size(); i += 4) {
+        if (pixels_[i] < 255) {
+            hasTransparency_ = true;
+            break;
+        }
     }
 }
 
@@ -151,7 +161,7 @@ Texture::~Texture()
     magic_ = 0;
 }
 
-Mesh::Mesh(Engine& engine, const TtMeshDesc& desc) : engine_(engine)
+Mesh::Mesh(Engine& engine, const TtMeshDesc& desc) : engine_(engine), id_(g_nextMeshId++)
 {
     if ((desc.vertex_count > 0 && !desc.vertices) || (desc.index_count > 0 && !desc.indices)
         || (desc.material_count > 0 && !desc.materials)) {
@@ -270,6 +280,7 @@ void Mesh::UpdateVertices(const TtMeshVertex* vertices, uint32_t count, const fl
         throw Error(TT_E_INVALID_ARG, std::format(L"頂点の数（{}）が、メッシュを作ったときの数（{}）と違います", count, vertices_.size()));
     }
     std::memcpy(vertices_.data(), vertices, static_cast<size_t>(count) * sizeof(TtMeshVertex));
+    ++vertexVersion_;
     if (vertexBuffer_ && !engine_.IsDeviceLost()) {
         engine_.Context()->UpdateSubresource(vertexBuffer_.Get(), 0, nullptr, vertices_.data(), 0, 0);
     }
@@ -284,6 +295,7 @@ void Mesh::UpdateMaterials(const TtMaterialState* states, uint32_t count)
     if (count != materials_.size() || (count > 0 && !states)) {
         throw Error(TT_E_INVALID_ARG, std::format(L"材質の数（{}）が、メッシュを作ったときの数（{}）と違います", count, materials_.size()));
     }
+    ++materialVersion_;
     for (uint32_t i = 0; i < count; ++i) {
         const TtMaterialState& s = states[i];
         Material& m = materials_[i];
@@ -336,6 +348,20 @@ void Mesh::RestoreDeviceResources()
             }
         }
     }
+}
+
+const RayBvh& Mesh::RayStructure()
+{
+    if (!rayBvh_) {
+        rayBvh_ = std::make_unique<RayBvh>();
+    }
+    std::vector<RayBvh::Range> ranges;
+    ranges.reserve(materials_.size());
+    for (const Material& material : materials_) {
+        ranges.push_back({material.indexStart, material.indexCount});
+    }
+    rayBvh_->Update(vertices_, indices_, ranges, vertexVersion_);
+    return *rayBvh_;
 }
 
 Mesh::~Mesh()

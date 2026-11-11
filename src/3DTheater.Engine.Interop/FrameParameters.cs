@@ -168,6 +168,12 @@ public enum PostEffectFlags : uint
 
     /// <summary>画面の中の反射（つやのある PBR の材質に、画面に映っている物を映す）。</summary>
     ScreenReflections = 1u << 10,
+
+    /// <summary>
+    /// レイトレーシングでの映り込み（<see cref="ScreenReflections"/> と一緒に使う。それだけでは何もしない）。画面の中の反射で見つからない所
+    /// （画面の外・物の裏・カメラの方へ戻る向き）を、描く物の三角形に光線を当てて探す。探す距離は <see cref="PostEffects.SsrMaxDistance"/>。
+    /// </summary>
+    RayTracedReflections = 1u << 11,
 }
 
 /// <summary>

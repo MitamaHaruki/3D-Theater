@@ -1510,6 +1510,297 @@ public:
         Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
     }
 
+    TEST_METHOD(RayTracedReflectionsShowObjectsOutsideTheScreen)
+    {
+        // カメラの正面に、滑らかな金属（PBR）の鏡の板を立て、カメラの後ろ（画面の外）に四角形を置く。
+        // 画面の中の反射だけでは、カメラの方へ戻る光線は映せない（環境の映り込みのまま）。レイトレーシングを使うと、後ろの四角形が映る
+        TtEngine* engine = CreateWarpEngine();
+        constexpr int width = 96;
+        constexpr int height = 72;
+        TtView* view = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_view_create_offscreen(engine, width, height, 0, &view));
+        auto makeQuad = [&](TtTexture* texture, uint32_t flags) {
+            const TtMeshMaterial material = QuadMaterial(texture, flags);
+            const TtMeshDesc desc = QuadDesc(kClockwise, &material);
+            TtMesh* mesh = nullptr;
+            Assert::AreEqual<int>(TT_OK, tt_mesh_create(engine, &desc, &mesh));
+            return mesh;
+        };
+        TtTexture* white = CreateSolidTexture(engine, 255, 255, 255);
+        TtTexture* red = CreateSolidTexture(engine, 0, 0, 255);
+        // 左半分（u < 0.5）が青、右半分が緑
+        const uint8_t halves[] = {255, 0, 0, 255, 0, 255, 0, 255};
+        TtTexture* twoColors = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_texture_create(engine, 2, 1, halves, 8, &twoColors));
+        TtMesh* mirror = makeQuad(white, TT_MATERIAL_DOUBLE_SIDED);
+        TtMesh* behind = makeQuad(red, 0);
+        TtMesh* doubleSided = makeQuad(red, TT_MATERIAL_DOUBLE_SIDED);
+        TtMesh* textured = makeQuad(twoColors, 0);
+        for (TtTexture* texture : {white, red, twoColors}) {
+            Assert::AreEqual<int>(TT_OK, tt_texture_destroy(texture));
+        }
+        TtMaterialState metal{};
+        metal.diffuse[0] = metal.diffuse[1] = metal.diffuse[2] = metal.diffuse[3] = 1.0f;
+        for (float* v : {metal.texture_multiply, metal.sphere_multiply, metal.toon_multiply, metal.base_tint}) {
+            v[0] = v[1] = v[2] = v[3] = 1.0f;
+        }
+        metal.edge_color[3] = 1.0f;
+        metal.shading = TT_SHADING_PBR;
+        metal.metallic = 1.0f;
+        metal.roughness = 0.05f;
+        Assert::AreEqual<int>(TT_OK, tt_mesh_update_materials(mirror, &metal, 1));
+
+        using namespace DirectX;
+        auto place = [](TtDrawItem& item, FXMMATRIX world) { XMStoreFloat4x4(reinterpret_cast<XMFLOAT4X4*>(item.world), world); };
+        // 鏡: 原点に 5 x 5（-Z 側、カメラの方を向く）。後ろの四角形: z = -8 に 5 x 5 で、鏡の方（+Z）を向ける
+        const XMMATRIX mirrorWorld = XMMatrixScaling(2.5f, 2.5f, 1.0f);
+        const XMMATRIX facingMirror = XMMatrixScaling(2.5f, 2.5f, 1.0f) * XMMatrixRotationY(XM_PI) * XMMatrixTranslation(0.0f, 0.0f, -8.0f);
+        const XMMATRIX facingAway = XMMatrixScaling(2.5f, 2.5f, 1.0f) * XMMatrixTranslation(0.0f, 0.0f, -8.0f);
+        TtDrawItem items[2] = {DrawItem(mirror), DrawItem(behind)};
+        place(items[0], mirrorWorld);
+        place(items[1], facingMirror);
+        TtFrameParams params = MakeParams(TT_FRAME_USE_LIGHT);
+        XMStoreFloat4x4(reinterpret_cast<XMFLOAT4X4*>(params.view),
+            XMMatrixLookAtLH(XMVectorSet(0.0f, 0.0f, -4.0f, 1.0f), XMVectorZero(), XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f)));
+        params.light_direction[0] = 0.5f;
+        params.light_direction[1] = -1.0f;
+        params.light_direction[2] = 0.5f;
+        params.light_color[0] = params.light_color[1] = params.light_color[2] = 0.6f;
+        params.items = items;
+        params.item_count = 2;
+        params.vignette = 0.0f;
+        params.ssr_strength = 1.0f;
+        params.ssr_max_distance = 30.0f;
+        auto render = [&](uint32_t postFlags) {
+            params.post_flags = postFlags;
+            return RenderAndRead(engine, view, params, width, height);
+        };
+        const XMMATRIX viewProj = XMLoadFloat4x4(reinterpret_cast<const XMFLOAT4X4*>(params.view))
+            * XMLoadFloat4x4(reinterpret_cast<const XMFLOAT4X4*>(params.projection));
+        auto pixelOf = [&](float x, float y, float z) {
+            XMVECTOR p = XMVector3TransformCoord(XMVectorSet(x, y, z, 1.0f), viewProj);
+            const int px = static_cast<int>((XMVectorGetX(p) * 0.5f + 0.5f) * width);
+            const int py = static_cast<int>((-XMVectorGetY(p) * 0.5f + 0.5f) * height);
+            return (static_cast<size_t>(py) * width + px) * 4;
+        };
+        auto worstDifference = [](const std::vector<uint8_t>& a, const std::vector<uint8_t>& b) {
+            int worst = 0;
+            for (size_t i = 0; i < a.size(); ++i) {
+                worst = std::max(worst, std::abs(static_cast<int>(a[i]) - static_cast<int>(b[i])));
+            }
+            return worst;
+        };
+        constexpr uint32_t kScreen = TT_POST_VIGNETTE | TT_POST_SSR;
+        constexpr uint32_t kTraced = kScreen | TT_POST_RAYTRACED_REFLECTIONS;
+        const size_t center = pixelOf(0.0f, 0.0f, 0.0f);
+        auto isGray = [](const std::vector<uint8_t>& image, size_t p) {
+            return image[p + 2] > 60 && IsNear(image[p + 1], image[p + 2], 30) && IsNear(image[p], image[p + 2], 30);
+        };
+        auto isRed = [](const std::vector<uint8_t>& image, size_t p) { return image[p + 2] > image[p + 1] + 60 && image[p + 2] > image[p] + 60; };
+
+        const std::vector<uint8_t> screenOnly = render(kScreen);
+        Assert::IsTrue(isGray(screenOnly, center), L"画面の中の反射だけでは、カメラの後ろの物は映らない（環境の映り込み）");
+        const std::vector<uint8_t> traced = render(kTraced);
+        Assert::IsTrue(isRed(traced, center), L"レイトレーシングで、画面の外（カメラの後ろ）の赤い四角形が鏡に映る");
+        Assert::IsTrue(worstDifference(render(TT_POST_VIGNETTE | TT_POST_RAYTRACED_REFLECTIONS), render(TT_POST_VIGNETTE)) == 0,
+            L"画面の中の反射を使わなければ、レイトレーシングだけでは何もしない");
+
+        // 当たる物が無ければ、画面の中の反射だけのときと同じ
+        params.item_count = 1;
+        Assert::IsTrue(worstDifference(render(kTraced), render(kScreen)) <= 1, L"当たらなければ、環境の映り込みのまま");
+        params.item_count = 2;
+
+        // 両面でない材質の裏の面は通り抜ける（両面の材質なら映る）
+        place(items[1], facingAway);
+        Assert::IsTrue(isGray(render(kTraced), center), L"裏を向けた片面の四角形は映らない");
+        items[1].mesh = doubleSided;
+        place(items[1], facingAway);
+        Assert::IsTrue(isRed(render(kTraced), center), L"両面の材質なら、裏を向けても映る");
+        items[1].mesh = behind;
+        place(items[1], facingMirror);
+
+        // 不透明度 0 の材質（材質モーフで消した物など）は通り抜ける
+        TtMaterialState hidden{};
+        hidden.diffuse[0] = hidden.diffuse[1] = hidden.diffuse[2] = 1.0f;
+        hidden.diffuse[3] = 0.0f;
+        hidden.ambient[0] = hidden.ambient[1] = hidden.ambient[2] = 1.0f;
+        for (float* v : {hidden.texture_multiply, hidden.sphere_multiply, hidden.toon_multiply, hidden.base_tint}) {
+            v[0] = v[1] = v[2] = v[3] = 1.0f;
+        }
+        Assert::AreEqual<int>(TT_OK, tt_mesh_update_materials(behind, &hidden, 1));
+        Assert::IsTrue(isGray(render(kTraced), center), L"見えない材質は映らない");
+        hidden.diffuse[3] = 1.0f;
+        Assert::AreEqual<int>(TT_OK, tt_mesh_update_materials(behind, &hidden, 1));
+        Assert::IsTrue(isRed(render(kTraced), center), L"材質を戻すと、また映る");
+
+        // 頂点を動かす（モーフ・ボーンで変形したときと同じ）と、映る所もついてくる
+        std::vector<TtMeshVertex> moved(std::begin(kQuad), std::end(kQuad));
+        for (TtMeshVertex& v : moved) {
+            v.position[0] += 100.0f;
+        }
+        Assert::AreEqual<int>(TT_OK, tt_mesh_update_vertices(behind, moved.data(), static_cast<uint32_t>(moved.size()), nullptr, nullptr));
+        Assert::IsTrue(isGray(render(kTraced), center), L"遠くへ動かした四角形は映らない");
+        Assert::AreEqual<int>(TT_OK, tt_mesh_update_vertices(behind, kQuad, 4, nullptr, nullptr));
+        Assert::IsTrue(isRed(render(kTraced), center), L"戻すと、また映る");
+
+        // テクスチャの色（当たった所の UV で読む）。鏡の右の点の光線は、後ろの四角形のテクスチャの左半分（青）に当たる
+        items[1].mesh = textured;
+        const std::vector<uint8_t> colors = render(kTraced);
+        const size_t right = pixelOf(0.4f, 0.0f, 0.0f);
+        const size_t left = pixelOf(-0.4f, 0.0f, 0.0f);
+        Assert::IsTrue(colors[right] > colors[right + 1] + 60 && colors[right] > colors[right + 2] + 60, L"右には青が映る");
+        Assert::IsTrue(colors[left + 1] > colors[left] + 60 && colors[left + 1] > colors[left + 2] + 60, L"左には緑が映る");
+
+        for (TtMesh* mesh : {mirror, behind, doubleSided, textured}) {
+            Assert::AreEqual<int>(TT_OK, tt_mesh_destroy(mesh));
+        }
+        Assert::AreEqual<int>(TT_OK, tt_view_destroy(view));
+        Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
+    }
+
+    TEST_METHOD(RayTracingFindsTheNearestOfManyTriangles)
+    {
+        // 細かく分けた板（三角形が数千枚。箱の入れ子が何段にもなる）を、カメラの後ろに 2 枚重ねて置く。
+        // 手前（鏡に近い方）の緑の板は上半分だけ、奥の赤い板は右半分（鏡に映ると右）だけにある。鏡には、いちばん近くで当たる板の色が映る。
+        // 頂点を大きく崩して（箱を作り直すほど）から戻しても、同じ絵になる
+        TtEngine* engine = CreateWarpEngine();
+        constexpr int width = 96;
+        constexpr int height = 72;
+        TtView* view = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_view_create_offscreen(engine, width, height, 0, &view));
+        constexpr int cells = 40;
+        auto gridVertices = [] {
+            std::vector<TtMeshVertex> vertices;
+            for (int j = 0; j <= cells; ++j) {
+                for (int i = 0; i <= cells; ++i) {
+                    const float x = -1.0f + 2.0f * static_cast<float>(i) / cells;
+                    const float y = 1.0f - 2.0f * static_cast<float>(j) / cells;
+                    vertices.push_back(QuadVertex(x, y));
+                }
+            }
+            return vertices;
+        };
+        // keep(x, y) が true のます目だけを作る（モデルの座標の、ます目の真ん中で決める）
+        auto makeGrid = [&](uint8_t b, uint8_t g, uint8_t r, auto keep) {
+            const std::vector<TtMeshVertex> vertices = gridVertices();
+            std::vector<uint32_t> indices;
+            for (int j = 0; j < cells; ++j) {
+                for (int i = 0; i < cells; ++i) {
+                    const float x = -1.0f + 2.0f * (static_cast<float>(i) + 0.5f) / cells;
+                    const float y = 1.0f - 2.0f * (static_cast<float>(j) + 0.5f) / cells;
+                    if (!keep(x, y)) {
+                        continue;
+                    }
+                    const uint32_t topLeft = static_cast<uint32_t>(j * (cells + 1) + i);
+                    const uint32_t bottomLeft = topLeft + cells + 1;
+                    for (uint32_t index : {topLeft, topLeft + 1, bottomLeft + 1, topLeft, bottomLeft + 1, bottomLeft}) {
+                        indices.push_back(index);
+                    }
+                }
+            }
+            TtTexture* texture = CreateSolidTexture(engine, b, g, r);
+            TtMeshMaterial material = QuadMaterial(texture);
+            material.index_count = static_cast<uint32_t>(indices.size());
+            TtMeshDesc desc{};
+            desc.struct_size = sizeof(desc);
+            desc.vertex_count = static_cast<uint32_t>(vertices.size());
+            desc.vertices = vertices.data();
+            desc.index_count = static_cast<uint32_t>(indices.size());
+            desc.indices = indices.data();
+            desc.material_count = 1;
+            desc.materials = &material;
+            TtMesh* mesh = nullptr;
+            Assert::AreEqual<int>(TT_OK, tt_mesh_create(engine, &desc, &mesh));
+            Assert::AreEqual<int>(TT_OK, tt_texture_destroy(texture));
+            return mesh;
+        };
+        TtTexture* white = CreateSolidTexture(engine, 255, 255, 255);
+        const TtMeshMaterial mirrorMaterial = QuadMaterial(white, TT_MATERIAL_DOUBLE_SIDED);
+        const TtMeshDesc mirrorDesc = QuadDesc(kClockwise, &mirrorMaterial);
+        TtMesh* mirror = nullptr;
+        Assert::AreEqual<int>(TT_OK, tt_mesh_create(engine, &mirrorDesc, &mirror));
+        Assert::AreEqual<int>(TT_OK, tt_texture_destroy(white));
+        // 鏡の方を向けると、モデルの座標の x は左右が入れ替わる（鏡に映った右 = モデルの座標の x < 0）
+        TtMesh* green = makeGrid(0, 255, 0, [](float, float y) { return y > 0.0f; });
+        TtMesh* red = makeGrid(0, 0, 255, [](float x, float) { return x < 0.0f; });
+        TtMaterialState metal{};
+        metal.diffuse[0] = metal.diffuse[1] = metal.diffuse[2] = metal.diffuse[3] = 1.0f;
+        for (float* v : {metal.texture_multiply, metal.sphere_multiply, metal.toon_multiply, metal.base_tint}) {
+            v[0] = v[1] = v[2] = v[3] = 1.0f;
+        }
+        metal.edge_color[3] = 1.0f;
+        metal.shading = TT_SHADING_PBR;
+        metal.metallic = 1.0f;
+        metal.roughness = 0.05f;
+        Assert::AreEqual<int>(TT_OK, tt_mesh_update_materials(mirror, &metal, 1));
+
+        using namespace DirectX;
+        auto place = [](TtDrawItem& item, FXMMATRIX world) { XMStoreFloat4x4(reinterpret_cast<XMFLOAT4X4*>(item.world), world); };
+        TtDrawItem items[3] = {DrawItem(mirror), DrawItem(green), DrawItem(red)};
+        place(items[0], XMMatrixScaling(2.5f, 2.5f, 1.0f));
+        place(items[1], XMMatrixScaling(2.5f, 2.5f, 1.0f) * XMMatrixRotationY(XM_PI) * XMMatrixTranslation(0.0f, 0.0f, -6.0f));
+        place(items[2], XMMatrixScaling(2.5f, 2.5f, 1.0f) * XMMatrixRotationY(XM_PI) * XMMatrixTranslation(0.0f, 0.0f, -8.0f));
+        TtFrameParams params = MakeParams(TT_FRAME_USE_LIGHT);
+        XMStoreFloat4x4(reinterpret_cast<XMFLOAT4X4*>(params.view),
+            XMMatrixLookAtLH(XMVectorSet(0.0f, 0.0f, -4.0f, 1.0f), XMVectorZero(), XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f)));
+        params.light_color[0] = params.light_color[1] = params.light_color[2] = 0.6f;
+        params.light_direction[1] = -1.0f;
+        params.items = items;
+        params.item_count = 3;
+        params.post_flags = TT_POST_VIGNETTE | TT_POST_SSR | TT_POST_RAYTRACED_REFLECTIONS;
+        params.vignette = 0.0f;
+        params.ssr_strength = 1.0f;
+        params.ssr_max_distance = 30.0f;
+        const XMMATRIX viewProj = XMLoadFloat4x4(reinterpret_cast<const XMFLOAT4X4*>(params.view))
+            * XMLoadFloat4x4(reinterpret_cast<const XMFLOAT4X4*>(params.projection));
+        auto pixelOf = [&](float x, float y) {
+            XMVECTOR p = XMVector3TransformCoord(XMVectorSet(x, y, 0.0f, 1.0f), viewProj);
+            const int px = static_cast<int>((XMVectorGetX(p) * 0.5f + 0.5f) * width);
+            const int py = static_cast<int>((-XMVectorGetY(p) * 0.5f + 0.5f) * height);
+            return (static_cast<size_t>(py) * width + px) * 4;
+        };
+        auto isRed = [](const std::vector<uint8_t>& image, size_t p) { return image[p + 2] > image[p + 1] + 60 && image[p + 2] > image[p] + 60; };
+        auto isGreen = [](const std::vector<uint8_t>& image, size_t p) { return image[p + 1] > image[p + 2] + 60 && image[p + 1] > image[p] + 60; };
+        auto isGray = [](const std::vector<uint8_t>& image, size_t p) {
+            return image[p + 2] > 60 && IsNear(image[p + 1], image[p + 2], 30) && IsNear(image[p], image[p + 2], 30);
+        };
+        auto check = [&](const std::vector<uint8_t>& image) {
+            // 鏡の点 (x, y) の光線は、z = -6 では (2.5x, 2.5y)、z = -8 では (3x, 3y) を通る
+            Assert::IsTrue(isGreen(image, pixelOf(0.4f, 0.4f)), L"右上: 手前の緑の板に当たる（奥の赤より近い）");
+            Assert::IsTrue(isGreen(image, pixelOf(-0.4f, 0.4f)), L"左上: 緑の板に当たる");
+            Assert::IsTrue(isRed(image, pixelOf(0.4f, -0.4f)), L"右下: 緑の板の無い所を抜けて、奥の赤い板に当たる");
+            Assert::IsTrue(isGray(image, pixelOf(-0.4f, -0.4f)), L"左下: どちらの板も無い（環境の映り込み）");
+        };
+        const std::vector<uint8_t> first = RenderAndRead(engine, view, params, width, height);
+        check(first);
+
+        // 頂点を大きく崩す（1 行おきに上へ 50 ずらし、細長い三角形にする。箱がふくらみすぎるので作り直す）
+        std::vector<TtMeshVertex> scrambled = gridVertices();
+        for (size_t i = 0; i < scrambled.size(); ++i) {
+            if ((i / (cells + 1)) % 2 == 1) {
+                scrambled[i].position[1] += 50.0f;
+            }
+        }
+        Assert::AreEqual<int>(TT_OK, tt_mesh_update_vertices(green, scrambled.data(), static_cast<uint32_t>(scrambled.size()), nullptr, nullptr));
+        RenderAndRead(engine, view, params, width, height);
+        // 戻すと、同じ絵になる
+        const std::vector<TtMeshVertex> original = gridVertices();
+        Assert::AreEqual<int>(TT_OK, tt_mesh_update_vertices(green, original.data(), static_cast<uint32_t>(original.size()), nullptr, nullptr));
+        const std::vector<uint8_t> restored = RenderAndRead(engine, view, params, width, height);
+        check(restored);
+        int worst = 0;
+        for (size_t i = 0; i < first.size(); ++i) {
+            worst = std::max(worst, std::abs(static_cast<int>(first[i]) - static_cast<int>(restored[i])));
+        }
+        Assert::IsTrue(worst <= 2, L"戻すと、崩す前と同じ絵になる");
+
+        for (TtMesh* mesh : {mirror, green, red}) {
+            Assert::AreEqual<int>(TT_OK, tt_mesh_destroy(mesh));
+        }
+        Assert::AreEqual<int>(TT_OK, tt_view_destroy(view));
+        Assert::AreEqual<int>(TT_OK, tt_engine_destroy(engine));
+    }
+
     TEST_METHOD(DepthOfFieldBlursOutsideTheFocus)
     {
         // 手前（距離 3）に小さな赤い四角形、奥（距離 8）に大きな緑の四角形。ピントの合っていないほうの縁がぼける

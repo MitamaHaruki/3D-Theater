@@ -27,7 +27,7 @@ extern "C" {
 
 // 上位 16 ビットが大きな版、下位 16 ビットが小さな版。大きな版が違う DLL とは組み合わせない。
 #define TT_API_VERSION_MAJOR 0
-#define TT_API_VERSION_MINOR 23
+#define TT_API_VERSION_MINOR 24
 #define TT_API_VERSION ((TT_API_VERSION_MAJOR << 16) | TT_API_VERSION_MINOR)
 
 // 0 以上は成功、負の値は失敗。
@@ -128,6 +128,11 @@ enum {
     TT_POST_FOG = 1u << 9, // 霧（遠くの物ほど fog_color に溶けこませる。fog_*。背景が不透明なら背景にも。平行投影では使わない）
     // ここから API 0.23
     TT_POST_SSR = 1u << 10, // 画面の中の反射（つやのある PBR の材質に、画面に映っている物を映す。ssr_*）
+    // API 0.24: レイトレーシングでの映り込み（TT_POST_SSR と一緒に使う。それだけでは何もしない）。画面の中の反射で見つからない所
+    // （画面の外・物の裏・カメラの方へ戻る向き）を、描く物（items）の三角形に光線を当てて探し、当たった物の色を映す。
+    // 当たった所の色は、メインの照明と環境光だけの簡単な計算（影・スフィア・反射光・足す照明・輪郭線は無し）。
+    // 不透明度が 0.5 より小さい所と、両面でない材質の裏の面は通り抜ける。探す距離は ssr_max_distance。物は先頭から 64 個まで
+    TT_POST_RAYTRACED_REFLECTIONS = 1u << 11,
 };
 
 // レンダーパス（API 0.21。TtFrameParams.render_pass）。TT_PASS_NONE 以外のときは、モデルを色の計算の代わりにパスの値で描く。

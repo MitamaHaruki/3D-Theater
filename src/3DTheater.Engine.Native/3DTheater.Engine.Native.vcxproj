@@ -90,6 +90,7 @@
     <ClInclude Include="src\DemoScene.h" />
     <ClInclude Include="src\Engine.h" />
     <ClInclude Include="src\Log.h" />
+    <ClInclude Include="src\RayTracing.h" />
     <ClInclude Include="src\Resources.h" />
     <ClInclude Include="src\View.h" />
   </ItemGroup>
@@ -99,6 +100,7 @@
     <ClCompile Include="src\DemoScene.cpp" />
     <ClCompile Include="src\Engine.cpp" />
     <ClCompile Include="src\Log.cpp" />
+    <ClCompile Include="src\RayTracing.cpp" />
     <ClCompile Include="src\Resources.cpp" />
     <ClCompile Include="src\View.cpp" />
   </ItemGroup>
@@ -150,6 +152,7 @@
     <None Include="shaders\Shadow.hlsli" />
     <None Include="shaders\Environment.hlsli" />
     <None Include="shaders\Reflection.hlsli" />
+    <None Include="shaders\RayTrace.hlsli" />
     <FxCompile Include="shaders\LinearDepthPS.hlsl">
       <ShaderType>Pixel</ShaderType>
     </FxCompile>
@@ -187,6 +190,9 @@
       <ShaderType>Pixel</ShaderType>
     </FxCompile>
     <FxCompile Include="shaders\ScreenReflectionPS.hlsl">
+      <ShaderType>Pixel</ShaderType>
+    </FxCompile>
+    <FxCompile Include="shaders\RayTextureCopyPS.hlsl">
       <ShaderType>Pixel</ShaderType>
     </FxCompile>
   </ItemGroup>

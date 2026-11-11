@@ -8,6 +8,7 @@
 
 #include "DemoScene.h"
 #include "Log.h"
+#include "RayTracing.h"
 #include "Resources.h"
 
 // FxCompile が中間フォルダに書き出すシェーダーのバイト列
@@ -21,6 +22,7 @@
 #include "ReflectionCompositePS.h"
 #include "ReflectionDownPS.h"
 #include "ScreenReflectionPS.h"
+#include "RayTextureCopyPS.h"
 #include "EdgePS.h"
 #include "EdgeVS.h"
 #include "DofPS.h"
@@ -121,6 +123,10 @@ struct PostConstants {
     DirectX::XMFLOAT4 fogParams;
     DirectX::XMFLOAT4 fogHeightAxis;
     DirectX::XMFLOAT4 ssrParams;
+    DirectX::XMFLOAT4X4 viewToWorld; // レイトレーシング（シェーダーの ViewToWorld・RayLight・RayLightColor・RayParams と同じ）
+    DirectX::XMFLOAT4 rayLight;
+    DirectX::XMFLOAT4 rayLightColor;
+    DirectX::XMFLOAT4 rayParams;
 };
 
 // 床の映り込みのぼかし（シェーダーの ReflectionConstants と同じ並び）
@@ -179,6 +185,21 @@ bool IsFinite3(const float (&v)[3]) noexcept
     return std::isfinite(v[0]) && std::isfinite(v[1]) && std::isfinite(v[2]);
 }
 
+// メインの照明（光が進む向き（正規化済み）と色）。TT_FRAME_USE_LIGHT が無いか、値が正しくなければ MMD の初期の照明
+void SceneLightOf(const TtFrameParams& params, DirectX::XMVECTOR& direction, DirectX::XMVECTOR& color) noexcept
+{
+    using namespace DirectX;
+    direction = kLightDirection;
+    color = XMVectorReplicate(kLightIntensity);
+    if ((params.flags & TT_FRAME_USE_LIGHT) && IsFinite3(params.light_direction) && IsFinite3(params.light_color)) {
+        const XMVECTOR given = XMVectorSet(params.light_direction[0], params.light_direction[1], params.light_direction[2], 0.0f);
+        if (XMVectorGetX(XMVector3LengthSq(given)) > 1e-12f) {
+            direction = XMVector3Normalize(given);
+        }
+        color = XMVectorMax(XMVectorSet(params.light_color[0], params.light_color[1], params.light_color[2], 0.0f), XMVectorZero());
+    }
+}
+
 static_assert(sizeof(TtLineVertex) == sizeof(tt::DemoVertex), "重ね描きの線は、格子と同じ頂点の形で描く");
 
 const wchar_t* FeatureLevelName(D3D_FEATURE_LEVEL level)
@@ -217,6 +238,7 @@ Engine::Engine(const TtEngineDesc& desc)
     CreateSceneResources();
     CreateModelResources();
     CreatePostResources();
+    rayScene_ = std::make_unique<RayScene>(*this);
 }
 
 Engine::~Engine()
@@ -292,6 +314,10 @@ void Engine::ReleaseDevice() noexcept
     reflectionDownShader_.Reset();
     reflectionCompositeShader_.Reset();
     screenReflectionShader_.Reset();
+    rayTextureShader_.Reset();
+    if (rayScene_) {
+        rayScene_->Release();
+    }
     reflectionConstantBuffer_.Reset();
     premultipliedBlendState_.Reset();
     postCompositeShader_.Reset();
@@ -619,15 +645,9 @@ void Engine::DrawScene(ID3D11RenderTargetView* rtv, ID3D11DepthStencilView* dsv,
     ModelFrame frame{};
     XMStoreFloat4x4(&frame.view, load(params.view));
     XMStoreFloat4x4(&frame.viewProj, viewProj);
-    XMVECTOR lightDirection = kLightDirection;
-    XMVECTOR lightColor = XMVectorReplicate(kLightIntensity);
-    if ((params.flags & TT_FRAME_USE_LIGHT) && IsFinite3(params.light_direction) && IsFinite3(params.light_color)) {
-        const XMVECTOR direction = XMVectorSet(params.light_direction[0], params.light_direction[1], params.light_direction[2], 0.0f);
-        if (XMVectorGetX(XMVector3LengthSq(direction)) > 1e-12f) {
-            lightDirection = XMVector3Normalize(direction);
-        }
-        lightColor = XMVectorMax(XMVectorSet(params.light_color[0], params.light_color[1], params.light_color[2], 0.0f), XMVectorZero());
-    }
+    XMVECTOR lightDirection;
+    XMVECTOR lightColor;
+    SceneLightOf(params, lightDirection, lightColor);
     XMStoreFloat4(&frame.lightDirection, lightDirection);
     XMStoreFloat4(&frame.lightColor, XMVectorSetW(lightColor, 1.0f));
     XMVECTOR determinant;
@@ -851,6 +871,11 @@ void Engine::ApplyPostEffects(const TtFrameParams& params, const PostInputs& inp
     uint32_t flags = params.post_flags & kKnownPostFlags;
     ID3D11ShaderResourceView* scene = inputs.scene;
     static const std::vector<PostSurface> kNoLevels;
+
+    // レイトレーシングでの映り込み（画面の中の反射と一緒に使う）: 光線を当てる物を先に GPU へ送る
+    // （テクスチャを縮めて並べるために描くので、映像効果の設定より前に）
+    const bool rays = (params.post_flags & TT_POST_RAYTRACED_REFLECTIONS) && inputs.surface && UsesScreenReflections(params)
+        && rayScene_->Prepare(params);
     const std::vector<PostSurface>& bloomDown = inputs.bloomDown ? *inputs.bloomDown : kNoLevels;
     const std::vector<PostSurface>& bloomUp = inputs.bloomUp ? *inputs.bloomUp : kNoLevels;
 
@@ -923,6 +948,16 @@ void Engine::ApplyPostEffects(const TtFrameParams& params, const PostInputs& inp
     if (ssrStrength <= 0.0f || !screenToViewValid || !inputs.surface) {
         flags &= ~static_cast<uint32_t>(TT_POST_SSR);
     }
+    // レイトレーシング: ワールドの光線にするための逆の行列・当たった所の照明・画素 1 つ分の広がり（投影の (2,2) から）
+    constants.viewToWorld = inverseView;
+    XMVECTOR rayLight;
+    XMVECTOR rayLightColor;
+    SceneLightOf(params, rayLight, rayLightColor);
+    XMStoreFloat4(&constants.rayLight, rayLight);
+    XMStoreFloat4(&constants.rayLightColor, rayLightColor);
+    const bool rayTracing = rays && XMVectorGetX(determinant) != 0.0f && params.projection[5] != 0.0f && std::isfinite(params.projection[5]);
+    constants.rayParams = {0.0f, rays ? static_cast<float>(rayScene_->InstanceCount()) : 0.0f,
+        params.projection[5] != 0.0f ? 2.0f / (std::abs(params.projection[5]) * static_cast<float>(std::max(height, 1))) : 0.0f, 0.0f};
 
     ctx->OMSetBlendState(nullptr, nullptr, 0xFFFFFFFF);
     ctx->OMSetDepthStencilState(overlayDepthState_.Get(), 0);
@@ -983,6 +1018,13 @@ void Engine::ApplyPostEffects(const TtFrameParams& params, const PostInputs& inp
     // （環境光の遮りの後・霧と被写界深度の前。下準備を書いたときは、効果を使えなくても、強さ 0 で環境の映り込みを必ず戻す）
     if (inputs.surface && inputs.ssr && inputs.ssr->rtv) {
         constants.ssrParams.x = (flags & TT_POST_SSR) ? ssrStrength : 0.0f;
+        // レイトレーシング: 画面の中で見つからない分を、光線を物の三角形に当てて探す（t5〜t10 と、繰り返して読むテクスチャの読み方）
+        const bool traced = rayTracing && (flags & TT_POST_SSR);
+        constants.rayParams.x = traced ? 1.0f : 0.0f;
+        if (traced) {
+            rayScene_->Bind(ctx, 5);
+            ctx->PSSetSamplers(1, 1, textureSampler_.GetAddressOf());
+        }
         fourth = inputs.surface->resolved[1].srv.Get();
         fifth = inputs.surface->resolved[2].srv.Get();
         pass(screenReflectionShader_.Get(), inputs.ssr->rtv.Get(), static_cast<UINT>(width), static_cast<UINT>(height), scene,
@@ -990,6 +1032,11 @@ void Engine::ApplyPostEffects(const TtFrameParams& params, const PostInputs& inp
         fourth = nullptr;
         fifth = nullptr;
         scene = inputs.ssr->srv.Get();
+        constants.rayParams.x = 0.0f;
+        if (traced) {
+            ID3D11ShaderResourceView* const noRays[6] = {};
+            ctx->PSSetShaderResources(5, 6, noRays); // テクスチャの配列へ描き足すとき、読む側に残っていないように
+        }
     }
 
     // 霧: 遠くの物ほど霧の色に溶けこませる（被写界深度でぼかす前に。遠くの霧もぼける）
@@ -1032,6 +1079,28 @@ void Engine::ApplyPostEffects(const TtFrameParams& params, const PostInputs& inp
     ctx->OMSetRenderTargets(0, nullptr, nullptr);
 }
 
+void Engine::DrawTextureInto(ID3D11ShaderResourceView* source, ID3D11RenderTargetView* target, UINT width, UINT height)
+{
+    ID3D11DeviceContext* ctx = context_.Get();
+    ID3D11ShaderResourceView* const none[1] = {nullptr};
+    ctx->PSSetShaderResources(0, 1, none);
+    ctx->OMSetRenderTargets(1, &target, nullptr);
+    ctx->OMSetBlendState(nullptr, nullptr, 0xFFFFFFFF);
+    ctx->OMSetDepthStencilState(overlayDepthState_.Get(), 0);
+    ctx->RSSetState(rasterizerState_.Get());
+    const D3D11_VIEWPORT viewport{0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height), 0.0f, 1.0f};
+    ctx->RSSetViewports(1, &viewport);
+    ctx->IASetInputLayout(nullptr);
+    ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ctx->VSSetShader(postVertexShader_.Get(), nullptr, 0);
+    ctx->PSSetShader(rayTextureShader_.Get(), nullptr, 0);
+    ctx->PSSetSamplers(0, 1, clampSampler_.GetAddressOf());
+    ctx->PSSetShaderResources(0, 1, &source);
+    ctx->Draw(3, 0);
+    ctx->PSSetShaderResources(0, 1, none);
+    ctx->OMSetRenderTargets(0, nullptr, nullptr);
+}
+
 void Engine::CreatePostResources()
 {
     D3D11_DEPTH_STENCIL_DESC farthest{};
@@ -1063,6 +1132,8 @@ void Engine::CreatePostResources()
         L"床の映り込みを重ねるシェーダーの作成");
     CheckHr(device_->CreatePixelShader(g_ScreenReflectionPS, sizeof(g_ScreenReflectionPS), nullptr, &screenReflectionShader_),
         L"画面の中の反射のシェーダーの作成");
+    CheckHr(device_->CreatePixelShader(g_RayTextureCopyPS, sizeof(g_RayTextureCopyPS), nullptr, &rayTextureShader_),
+        L"レイトレーシングのテクスチャを縮めるシェーダーの作成");
 
     D3D11_BUFFER_DESC desc{};
     desc.ByteWidth = sizeof(PostConstants);

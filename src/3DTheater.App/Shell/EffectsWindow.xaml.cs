@@ -44,6 +44,7 @@ public partial class EffectsWindow : Window
             SsrCheck.IsChecked = effects.SsrEnabled;
             SsrStrengthSlider.Value = effects.SsrStrength;
             SsrDistanceSlider.Value = effects.SsrDistance;
+            SsrRayTracingCheck.IsChecked = effects.SsrRayTracing;
             DofCheck.IsChecked = effects.DofEnabled;
             FocusOnTargetCheck.IsChecked = effects.DofFocusOnTarget;
             FocusDistanceSlider.Value = effects.DofFocusDistance;
@@ -80,6 +81,7 @@ public partial class EffectsWindow : Window
             SsrEnabled = SsrCheck.IsChecked == true,
             SsrStrength = Round(SsrStrengthSlider),
             SsrDistance = (float)Math.Round(SsrDistanceSlider.Value, 0),
+            SsrRayTracing = SsrRayTracingCheck.IsChecked == true,
             DofEnabled = DofCheck.IsChecked == true,
             DofFocusOnTarget = FocusOnTargetCheck.IsChecked == true,
             DofFocusDistance = Round(FocusDistanceSlider),

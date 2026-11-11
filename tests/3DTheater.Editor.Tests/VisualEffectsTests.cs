@@ -132,12 +132,13 @@ public sealed class VisualEffectsTests
         Assert.AreEqual(VisualEffects.MaxSsrDistance, (ssr with { SsrDistance = 1e6f }).Normalized().SsrDistance);
         Assert.AreEqual(VisualEffects.None.SsrStrength, (ssr with { SsrStrength = float.NaN }).Normalized().SsrStrength, "数でない値は初期値");
 
-        var settings = new RenderSettings { Effects = ssr with { SsrStrength = 0.7f, SsrDistance = 45f } };
+        Assert.IsFalse(ssr.SsrRayTracing, "レイトレーシングの初期値は OFF");
+        var settings = new RenderSettings { Effects = ssr with { SsrStrength = 0.7f, SsrDistance = 45f, SsrRayTracing = true } };
         ProjectFile read = ProjectSerializer.Deserialize(
             ProjectSerializer.Serialize(new ProjectFile { Rendering = RenderingEntry.From(settings) }), new Formats.LoadReport())!;
         var restored = new RenderSettings();
         read.Rendering.ApplyTo(restored);
-        Assert.AreEqual(settings.Effects, restored.Effects, "画面の中の反射の値も保存して戻る");
+        Assert.AreEqual(settings.Effects, restored.Effects, "画面の中の反射の値（レイトレーシングを使うかも）も保存して戻る");
     }
 
     [TestMethod]

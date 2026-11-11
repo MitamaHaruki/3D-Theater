@@ -93,6 +93,13 @@ public sealed record VisualEffects
     /// <summary>映る物を探す距離（ワールドの長さ。これより遠い物は映さない。人の大きさのモデルの背丈は 20 ほど）。</summary>
     public float SsrDistance { get; init; } = 30f;
 
+    /// <summary>
+    /// 画面の中の反射で見つからない所（画面の外・物の裏・カメラの方へ戻る向き）を、レイトレーシング（光線をモデルの三角形に当てる）で探して映す。
+    /// <see cref="SsrEnabled"/> のときだけ効く。つやのある物が画面に大きく映るほど重い。当たった物の色は簡単な計算（メインの照明と環境光だけ。
+    /// 影・スフィア・輪郭線は無し）。
+    /// </summary>
+    public bool SsrRayTracing { get; init; }
+
     /// <summary>どれかの効果を使うか。</summary>
     public bool Any => ColorEnabled || BloomEnabled || VignetteEnabled || DofEnabled || AoEnabled || SsrEnabled;
 

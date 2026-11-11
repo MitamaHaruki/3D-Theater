@@ -148,6 +148,7 @@
       <Grid.RowDefinitions>
         <RowDefinition Height="Auto" />
         <RowDefinition Height="Auto" />
+        <RowDefinition Height="Auto" />
       </Grid.RowDefinitions>
       <TextBlock Style="{StaticResource RowLabelStyle}" Text="強さ" />
       <Slider x:Name="SsrStrengthSlider" Grid.Column="1" Style="{StaticResource EffectSliderStyle}" Minimum="0" Maximum="1"
@@ -157,6 +158,10 @@
       <Slider x:Name="SsrDistanceSlider" Grid.Row="1" Grid.Column="1" Style="{StaticResource EffectSliderStyle}" Minimum="1" Maximum="200"
               SmallChange="1" LargeChange="10" AutomationProperties.Name="画面の中の反射の探す距離" ValueChanged="OnSliderChanged" />
       <TextBlock x:Name="SsrDistanceText" Grid.Row="1" Grid.Column="2" Style="{StaticResource ValueStyle}" />
+      <CheckBox x:Name="SsrRayTracingCheck" Grid.Row="2" Grid.ColumnSpan="3" Margin="22,4,0,4"
+                Content="レイトレーシングで、画面に映っていない物も映す（画面の外・物の裏。重い）"
+                ToolTip="画面の中で見つからない映り込みを、光線をモデルの三角形に当てて探します。当たった物の色は簡単な計算です（影・スフィア・輪郭線は付きません）"
+                Checked="OnCheckChanged" Unchecked="OnCheckChanged" />
     </Grid>
 
     <!-- 被写界深度 -->
@@ -191,7 +196,7 @@
     </Grid>
 
     <TextBlock Margin="0,14,0,0" TextWrapping="Wrap" Foreground="{StaticResource SubTextBrush}" FontSize="11.5"
-               Text="変えるとすぐにプレビューへ反映し、書き出し（PNG・動画）にもかかります。背景・格子・ボーン・ギズモには、色調補正とブルームはかかりません（被写界深度は背景もぼかします）。画面の中の反射は、材質の設定で PBR にした、つやのある材質だけに映ります（画面の外・物の裏は映りません）。設定はプロジェクトに保存します（元に戻す・やり直しの対象ではありません）。" />
+               Text="変えるとすぐにプレビューへ反映し、書き出し（PNG・動画）にもかかります。背景・格子・ボーン・ギズモには、色調補正とブルームはかかりません（被写界深度は背景もぼかします）。画面の中の反射は、材質の設定で PBR にした、つやのある材質だけに映ります（画面の外・物の裏は、レイトレーシングを使ったときだけ映ります）。設定はプロジェクトに保存します（元に戻す・やり直しの対象ではありません）。" />
     </StackPanel>
     </ScrollViewer>
   </DockPanel>

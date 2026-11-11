@@ -21,6 +21,10 @@ cbuffer PostConstants : register(b0)
     float4 FogParams;        // 霧: x = 濃さ、y = 高さの尺度（0 なら高さに関係なく同じ）
     float4 FogHeightAxis;    // 見る向きの座標からワールドの高さを出す値: 高さ = dot(位置, xyz) + w（w はカメラの高さ）
     float4 SsrParams;        // 画面の中の反射: x = 強さ（0 なら分けて書いた環境の映り込みを戻すだけ）、y = 映る物を探す距離
+    row_major float4x4 ViewToWorld; // 見る向きの座標 → ワールド（レイトレーシングで使う）
+    float4 RayLight;         // レイトレーシングで当たった所の色の計算に使う照明: xyz = 光が進む向き（正規化済み）
+    float4 RayLightColor;    // rgb = 照明の色
+    float4 RayParams;        // レイトレーシング: x = 1 なら使う、y = 物の数、z = 画素 1 つ分の広がり（透視投影は距離 1 あたり、平行投影はワールドの長さ）
 };
 
 Texture2D Source : register(t0);

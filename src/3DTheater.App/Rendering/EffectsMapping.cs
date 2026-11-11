@@ -37,6 +37,7 @@ public static class EffectsMapping
         Add(effects.DofEnabled && sceneCamera is not null, PostEffectFlags.DepthOfField);
         Add(effects.AoEnabled, PostEffectFlags.AmbientOcclusion);
         Add(effects.SsrEnabled, PostEffectFlags.ScreenReflections);
+        Add(effects.SsrEnabled && effects.SsrRayTracing, PostEffectFlags.RayTracedReflections);
         SceneFog fog = settings.Fog;
         Add(fog.Enabled, PostEffectFlags.Fog);
 

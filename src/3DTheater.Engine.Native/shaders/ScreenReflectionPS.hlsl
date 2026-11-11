@@ -1,9 +1,12 @@
 #include "Post.hlsli"
+#include "RayTrace.hlsli"
 
 // 画面の中の反射（SSR）: つやのある PBR の材質の映り込みを、画面に映っている物の色にする。
 // モデルを描くとき、PBR の材質は環境の映り込みを色に入れずに分けて書いておく（EnvironmentReflection）。ここで、面の向きから
 // 映り込む向きへ光線を進め、画面の奥行きと交わった所の色を読み、見つかった分だけ環境の映り込みと置き換えて足す。
-// 見つからない所（画面の外・物の裏・探す距離より遠い所）は、環境の映り込みのまま。色はどれも透明度をかけ合わせた値
+// 見つからない所（画面の外・物の裏・探す距離より遠い所）は、環境の映り込みのまま。色はどれも透明度をかけ合わせた値。
+// レイトレーシングでの映り込み（RayParams.x = 1 のとき）: 画面の中で見つからない分（画面の外・物の裏・カメラの方へ戻る向き）は、
+// 同じ光線をモデルの三角形に当てて、当たった物の色（簡単にした色の計算）を映す。当たらなければ環境の映り込みのまま
 
 Texture2D EnvironmentReflection : register(t3); // 環境の映り込み（映り込みの強さを掛けた色）
 Texture2D SurfaceNormal : register(t4);         // xyz = 見る向きの座標での面の向き × (1 + 粗さ)、w = 透明度
@@ -38,48 +41,12 @@ float3 SceneColorAt(float2 uv)
     return Source.SampleLevel(LinearClamp, uv, 0).rgb + EnvironmentReflection.SampleLevel(LinearClamp, uv, 0).rgb;
 }
 
-float4 main(PostVertex input) : SV_Target
+// 画面の上で、見る向きの座標の start から r の向きへ reach だけ光線を進め、画面に映っている物と交わる所を探す。
+// 見つかれば、その色と、使ってよい割合（画面の端の近く・探す距離の終わりの近くは、なめらかに弱める）
+bool MarchScreen(int2 pixel, float3 start, float3 r, float reach, float roughness, out float3 color, out float confidence)
 {
-    int2 pixel = int2(input.position.xy);
-    float4 scene = Source.Load(int3(pixel, 0));
-    float4 environment = EnvironmentReflection.Load(int3(pixel, 0));
-    float4 fresnel = Second.Load(int3(pixel, 0)); // 映り込みの強さ（透明度をかけ合わせた値）
-    float4 unchanged = float4(scene.rgb + environment.rgb, scene.a);
-    float strength = SsrParams.x;
-    if (strength <= 0.0 || max(fresnel.r, max(fresnel.g, fresnel.b)) <= 1e-4)
-    {
-        return unchanged; // 映り込まない物（トゥーンの材質など）・効果を使わないとき
-    }
-    float z = LinearDepth.Load(int3(pixel, 0)).x;
-    if (z >= kNothing)
-    {
-        return unchanged;
-    }
-
-    // 面の向きと粗さ（透明度をかけ合わせてあるので、透明度で割ってから、長さで分ける）
-    float4 surface = SurfaceNormal.Load(int3(pixel, 0));
-    float3 scaled = surface.xyz / max(surface.w, 1e-4);
-    float scaledLength = length(scaled);
-    float roughness = saturate(scaledLength - 1.0);
-    float3 n = scaled / max(scaledLength, 1e-4);
-
-    float3 p = ViewPositionAt(pixel, z);
-    float3 v = ProjectionParams.z > 0.5 ? float3(0.0, 0.0, 1.0) : normalize(p);
-    float3 r = reflect(v, n);
-    // 粗い材質ほど弱く（ぼけた映り込みは環境のまま）。カメラの方へ戻る光線は、見えていない面に当たるので弱める
-    float weight = strength * (1.0 - smoothstep(0.25, 0.65, roughness)) * smoothstep(-0.3, 0.0, r.z);
-    if (weight <= 0.0)
-    {
-        return unchanged;
-    }
-
-    // 光線: 面から少し浮かせて、探す距離だけ進む。透視投影では、カメラのすぐ前より手前へ出ないように切る
-    float3 start = p + n * (0.01 + z * 0.002);
-    float reach = SsrParams.y;
-    if (ProjectionParams.z < 0.5 && r.z < 0.0)
-    {
-        reach = min(reach, max(start.z - 0.1, 0.0) / -r.z);
-    }
+    color = 0.0;
+    confidence = 0.0;
     float3 end = start + r * reach;
     float2 a = PixelAt(start);
     float2 b = PixelAt(end);
@@ -124,7 +91,7 @@ float4 main(PostVertex input) : SV_Target
     }
     if (hit < 0.0)
     {
-        return unchanged;
+        return false;
     }
     // 交わった所を、前の点との間で半分ずつ詰めて細かく決める
     float lower = previous;
@@ -148,7 +115,7 @@ float4 main(PostVertex input) : SV_Target
     float4 hitSurface = SurfaceNormal.Load(int3(int2(hitPosition), 0));
     if (hitSurface.w > 1e-3 && dot(normalize(hitSurface.xyz), r) > 0.3)
     {
-        return unchanged;
+        return false;
     }
 
     // 画面の端の近く・探す距離の終わりの近くは、なめらかに弱める
@@ -159,7 +126,7 @@ float4 main(PostVertex input) : SV_Target
 
     // 当たった所の色。粗いほど、遠い物ほど、周りの 4 点も混ぜてぼかす
     float2 uv = hitPosition * SourceTexel.xy;
-    float3 color = SceneColorAt(uv);
+    color = SceneColorAt(uv);
     float spread = roughness * 0.2 * length(hitPosition - a);
     if (spread > 0.5)
     {
@@ -167,8 +134,85 @@ float4 main(PostVertex input) : SV_Target
         color += SceneColorAt(uv + o) + SceneColorAt(uv - o) + SceneColorAt(uv + float2(o.x, -o.y)) + SceneColorAt(uv + float2(-o.x, o.y));
         color *= 0.2;
     }
+    confidence = fade;
+    return true;
+}
 
-    float confidence = weight * fade;
-    float3 reflected = lerp(environment.rgb, color * fresnel.rgb, confidence);
-    return float4(scene.rgb + reflected, scene.a);
+float4 main(PostVertex input) : SV_Target
+{
+    int2 pixel = int2(input.position.xy);
+    float4 scene = Source.Load(int3(pixel, 0));
+    float4 environment = EnvironmentReflection.Load(int3(pixel, 0));
+    float4 fresnel = Second.Load(int3(pixel, 0)); // 映り込みの強さ（透明度をかけ合わせた値）
+    float4 unchanged = float4(scene.rgb + environment.rgb, scene.a);
+    float strength = SsrParams.x;
+    if (strength <= 0.0 || max(fresnel.r, max(fresnel.g, fresnel.b)) <= 1e-4)
+    {
+        return unchanged; // 映り込まない物（トゥーンの材質など）・効果を使わないとき
+    }
+    float z = LinearDepth.Load(int3(pixel, 0)).x;
+    if (z >= kNothing)
+    {
+        return unchanged;
+    }
+
+    // 面の向きと粗さ（透明度をかけ合わせてあるので、透明度で割ってから、長さで分ける）
+    float4 surface = SurfaceNormal.Load(int3(pixel, 0));
+    float3 scaled = surface.xyz / max(surface.w, 1e-4);
+    float scaledLength = length(scaled);
+    float roughness = saturate(scaledLength - 1.0);
+    float3 n = scaled / max(scaledLength, 1e-4);
+
+    float3 p = ViewPositionAt(pixel, z);
+    float3 v = ProjectionParams.z > 0.5 ? float3(0.0, 0.0, 1.0) : normalize(p);
+    float3 r = reflect(v, n);
+    // 粗い材質ほど弱く（ぼけた映り込みは環境のまま）
+    float weight = strength * (1.0 - smoothstep(0.25, 0.65, roughness));
+    if (weight <= 0.0)
+    {
+        return unchanged;
+    }
+
+    // 光線: 面から少し浮かせて、探す距離だけ進む
+    float3 start = p + n * (0.01 + z * 0.002);
+    float reach = SsrParams.y;
+
+    // 画面の中: カメラの方へ戻る光線は、見えていない面に当たるので弱める。透視投影では、カメラのすぐ前より手前へ出ないように切る
+    float facing = smoothstep(-0.3, 0.0, r.z);
+    float3 screenColor = 0.0;
+    float screenConfidence = 0.0;
+    if (facing > 0.0)
+    {
+        float screenReach = reach;
+        if (ProjectionParams.z < 0.5 && r.z < 0.0)
+        {
+            screenReach = min(reach, max(start.z - 0.1, 0.0) / -r.z);
+        }
+        float found;
+        if (MarchScreen(pixel, start, r, screenReach, roughness, screenColor, found))
+        {
+            screenConfidence = facing * found;
+        }
+    }
+
+    // 画面の中で見つからない分: レイトレーシングを使うときは、同じ光線をモデルの三角形に当てる（当たらなければ環境の映り込み）
+    float3 behind = environment.rgb;
+    if (RayParams.x > 0.5 && screenConfidence < 0.999)
+    {
+        float3 origin = mul(float4(start, 1.0), ViewToWorld).xyz;
+        float3 direction = normalize(mul(float4(r, 0.0), ViewToWorld).xyz);
+        RayHit hit;
+        if (TraceRay(origin, direction, reach, hit))
+        {
+            // 光線の太さ（画素 1 つ分の広がり）: 面までに広がった分と、映ってから進む間に広がる分。粗いほど広がる
+            bool orthographic = ProjectionParams.z > 0.5;
+            float footprint = RayParams.z * (orthographic ? 1.0 : z + hit.t) + roughness * 0.5 * hit.t;
+            float3 traced = RayShade(hit, direction, footprint);
+            float far = 1.0 - smoothstep(0.75, 1.0, hit.t / reach); // 探す距離の終わりの近くは弱める
+            behind = lerp(environment.rgb, traced * fresnel.rgb, far);
+        }
+    }
+
+    float3 reflected = lerp(behind, screenColor * fresnel.rgb, screenConfidence);
+    return float4(scene.rgb + lerp(environment.rgb, reflected, weight), scene.a);
 }

@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "Engine.h"
+#include "RayTracing.h"
 
 namespace tt {
 
@@ -19,6 +20,8 @@ public:
     TextureImage(int width, int height, const void* pixels, int stride);
 
     ID3D11ShaderResourceView* View() const noexcept { return srv_.Get(); }
+    // 透明な所（不透明度が 1 より小さい画素）があるか（レイトレーシングで、当たった所の透明度を読むかを決める）
+    bool HasTransparency() const noexcept { return hasTransparency_; }
 
     // engine の今のデバイスで GPU に載せる（載っていれば何もしない）
     void EnsureCreated(Engine& engine);
@@ -28,6 +31,7 @@ private:
     int width_;
     int height_;
     std::vector<uint8_t> pixels_; // BGRA 8 ビット、行の間に隙間なし
+    bool hasTransparency_ = false;
     ComPtr<ID3D11ShaderResourceView> srv_;
     uint32_t generation_ = 0;
 };
@@ -145,6 +149,15 @@ public:
     const std::vector<Material>& Materials() const noexcept { return materials_; }
     bool IsEmpty() const noexcept { return !vertexBuffer_ || !indexBuffer_; }
 
+    // メッシュごとに違う番号（破棄した後に同じ場所へ作られたメッシュとも見分ける）
+    uint64_t Id() const noexcept { return id_; }
+    // 今の頂点（変形した後。モデルの座標）と、頂点・材質を置き換えるたびに増える版
+    const std::vector<TtMeshVertex>& Vertices() const noexcept { return vertices_; }
+    uint64_t VertexVersion() const noexcept { return vertexVersion_; }
+    uint64_t MaterialVersion() const noexcept { return materialVersion_; }
+    // 光線を当てるための三角形の箱の入れ子（初めて使うときに作り、頂点が変わっていれば合わせる）
+    const RayBvh& RayStructure();
+
     // 頂点を囲む箱（モデルの座標で）。選択中の強調に使う
     const DirectX::XMFLOAT3& BoundsMin() const noexcept { return boundsMin_; }
     const DirectX::XMFLOAT3& BoundsMax() const noexcept { return boundsMax_; }
@@ -176,6 +189,10 @@ private:
     bool hasGroundShadow_ = false;
     DirectX::XMFLOAT3 boundsMin_{};
     DirectX::XMFLOAT3 boundsMax_{};
+    uint64_t id_ = 0;
+    uint64_t vertexVersion_ = 1;
+    uint64_t materialVersion_ = 1;
+    std::unique_ptr<RayBvh> rayBvh_;
 };
 
 } // namespace tt
