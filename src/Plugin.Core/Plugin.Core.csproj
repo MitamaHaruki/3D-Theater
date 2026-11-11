@@ -7,6 +7,8 @@
     <RootNamespace>Plugin.Core</RootNamespace>
     <AssemblyName>Plugin.Core</AssemblyName>
     <Version>1.0.0</Version>
+    <!-- プラグインを作る人のための説明（XML の API 文書）。DLL と一緒にアプリの出力へ写り、Visual Studio の候補の説明に出る -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
 
   <ItemGroup>

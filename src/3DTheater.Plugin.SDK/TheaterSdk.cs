@@ -13,8 +13,9 @@ public static class TheaterSdk
     /// 1.0: シーン・再生位置・選択を読む。1.1: ボーン・モーフの値とキーを読む・編集する（<see cref="ITheaterEditor"/>）、モデルの Id。
     /// 1.2: ツールバー・右クリックのメニュー（<see cref="TheaterMenuPlaces"/>）・状態表示（Plugin.UI.Wpf）。
     /// 1.3: 時間のかかる処理（進み具合と取り消し）・ファイルの形式の追加（Plugin.Core の IPluginTasks・IFileFormatRegistry）。
+    /// 1.4: シーンを絵にする（<see cref="ITheaterRenderer"/>）。
     /// </summary>
-    public static Version Version { get; } = new(1, 3);
+    public static Version Version { get; } = new(1, 4);
 }
 
 /// <summary>プラグインの項目を足せる右クリックのメニュー（Plugin.UI.Wpf の PluginContextMenuItem.Place に書く。SDK 1.2 から）。</summary>
@@ -38,6 +39,68 @@ public static class TheaterCapabilities
 
     /// <summary>ボーン・モーフの値とキーを変える（<see cref="ITheaterEditor"/>。SDK 1.1 から）。</summary>
     public const string SceneEdit = "scene.edit";
+
+    /// <summary>シーンを、書き出しと同じ描き方で絵にする（<see cref="ITheaterRenderer"/>。SDK 1.4 から）。</summary>
+    public const string RenderImage = "render.image";
+}
+
+/// <summary>
+/// シーンを、書き出しと同じ描き方で絵にする（<c>context.GetService&lt;ITheaterRenderer&gt;()</c>、requires に render.image。SDK 1.4 から）。
+/// 画面のスレッドから使う。ほかのアプリへ今のフレームを渡すプラグイン（指示書 7.4）などに使う。
+/// </summary>
+public interface ITheaterRenderer
+{
+    /// <summary>利用者が書き出しの画面で決めた大きさ（幅・高さ）。</summary>
+    (int Width, int Height) ExportSize { get; }
+
+    /// <summary>
+    /// シーンのカメラから見たフレームを描く（書き出しと同じ描き方: 書き出しの品質・映像効果・物理の焼き込み。格子・ボーン・ギズモなどは映らない。
+    /// モーションブラーはかけない）。描き終えるまで画面は止まる。描き終えたら、再生位置などを元に戻す。
+    /// 大きさが範囲の外なら <see cref="ArgumentOutOfRangeException"/>、描けないとき（描画エンジン・シーンのカメラが無い）は
+    /// <see cref="InvalidOperationException"/>。
+    /// </summary>
+    RenderedImage RenderFrame(RenderRequest request);
+}
+
+/// <summary>描き方の指定（<see cref="ITheaterRenderer.RenderFrame"/>）。</summary>
+public sealed record RenderRequest
+{
+    /// <summary>幅（画素。1〜8192）。</summary>
+    public int Width { get; init; } = 1920;
+
+    /// <summary>高さ（画素。1〜8192）。</summary>
+    public int Height { get; init; } = 1080;
+
+    /// <summary>描くフレーム（null なら今のフレーム。0〜終わりのフレームに収める）。</summary>
+    public int? Frame { get; init; }
+
+    /// <summary>背景を透明にする（<see cref="RenderedImage.Pixels"/> の透明度と、透過 PNG）。</summary>
+    public bool Transparent { get; init; }
+
+    /// <summary>透明にしないときの背景の色（R・G・B を 0〜1。初期値は白）。</summary>
+    public Vector3 Background { get; init; } = Vector3.One;
+
+    /// <summary>2 倍の大きさで描いて縮める（線や輪郭のギザギザを減らす。書き出しの「なめらかにする」と同じ）。</summary>
+    public bool Smooth { get; init; } = true;
+}
+
+/// <summary>描いた絵（<see cref="ITheaterRenderer.RenderFrame"/>）。</summary>
+public sealed class RenderedImage(int width, int height, byte[] pixels, byte[] png)
+{
+    /// <summary>幅（画素）。</summary>
+    public int Width { get; } = width;
+
+    /// <summary>高さ（画素）。</summary>
+    public int Height { get; } = height;
+
+    /// <summary>
+    /// 画素（1 画素 4 バイトの B・G・R・A。上の行から順に、1 行は幅 × 4 バイト）。透明度は色にかけ合わせていない値
+    /// （透明にしないときは、どの画素も A = 255）。
+    /// </summary>
+    public byte[] Pixels { get; } = pixels;
+
+    /// <summary>PNG にした中身（透明にしたときは透過 PNG）。</summary>
+    public byte[] Png { get; } = png;
 }
 
 /// <summary>

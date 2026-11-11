@@ -44,10 +44,13 @@ public sealed class PluginEntry
     /// <summary>plugin.json の中身（壊れていれば null）。</summary>
     public PluginManifest? Manifest { get; internal set; }
 
+    /// <summary>plugin.json の id（読めなければフォルダーの名前）。</summary>
     public string Id => Manifest?.Id ?? Path.GetFileName(Folder);
 
+    /// <summary>画面に出す名前（読めなければフォルダーの名前）。</summary>
     public string Name => Manifest?.Name ?? Path.GetFileName(Folder);
 
+    /// <summary>今の状態。</summary>
     public PluginStatus Status { get; internal set; }
 
     /// <summary>状態の理由（使えない・失敗したときなど）。</summary>
@@ -90,12 +93,16 @@ public interface IPluginScope : IDisposable
 /// <summary>プラグインの状態と設定の保存先（アプリの利用者の設定）。</summary>
 public interface IPluginStateStore
 {
+    /// <summary>有効にしているか（初めて見つけたものは false）。</summary>
     bool IsEnabled(string id);
 
+    /// <summary>有効・無効を覚える。</summary>
     void SetEnabled(string id, bool enabled);
 
+    /// <summary>プラグインの設定の値（無ければ null）。</summary>
     string? GetSetting(string id, string key);
 
+    /// <summary>プラグインの設定の値を覚える（null なら消す）。</summary>
     void SetSetting(string id, string key, string? value);
 
     /// <summary>開始の途中でアプリが終わったときに残る印（無ければ null）。中身はプラグインの id。</summary>
@@ -104,16 +111,20 @@ public interface IPluginStateStore
     /// <summary>プラグインを始める前に書く（すぐにファイルへ書くこと。始め終わったら消す）。</summary>
     void WriteStartingMarker(string id);
 
+    /// <summary>開始の途中の印を消す（始め終わったとき・印を読んだとき）。</summary>
     void ClearStartingMarker();
 }
 
 /// <summary>ログの書き先。</summary>
 public interface IPluginLogSink
 {
+    /// <summary>知らせ。</summary>
     void Info(string message);
 
+    /// <summary>気をつけること。</summary>
     void Warning(string message, Exception? exception = null);
 
+    /// <summary>エラー。</summary>
     void Error(string message, Exception? exception = null);
 }
 
@@ -133,6 +144,11 @@ public sealed class PluginManager
     private readonly IReadOnlyCollection<string> _sharedAssemblies;
     private readonly List<PluginEntry> _plugins = [];
 
+    /// <summary>管理を作る（プラグインを見つけるのは <see cref="Discover"/>）。</summary>
+    /// <param name="host">アプリの名前・SDK の版・出している機能（互換性の確かめに使う）。</param>
+    /// <param name="store">有効・無効とプラグインの設定の保存先。</param>
+    /// <param name="createScope">プラグインごとの、アプリの機能の入口を作る（無効にするときに Dispose する）。</param>
+    /// <param name="log">ログの書き先。</param>
     /// <param name="sharedAssemblies">アプリとプラグインで共通にする契約の DLL の名前（Plugin.Core のほか、UI の契約・アプリ専用 SDK）。</param>
     public PluginManager(PluginHostInfo host, IPluginStateStore store, Func<PluginEntry, IPluginScope> createScope, IPluginLogSink log,
         IEnumerable<string> sharedAssemblies)
@@ -144,8 +160,10 @@ public sealed class PluginManager
         _sharedAssemblies = [typeof(IPlugin).Assembly.GetName().Name!, .. sharedAssemblies];
     }
 
+    /// <summary>見つけたプラグイン（見つけた順）。</summary>
     public IReadOnlyList<PluginEntry> Plugins => _plugins;
 
+    /// <summary>アプリの名前・SDK の版・出している機能。</summary>
     public PluginHostInfo Host => _host;
 
     /// <summary>安全モード（有効なプラグインも始めない）。</summary>

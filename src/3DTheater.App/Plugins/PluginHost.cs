@@ -32,7 +32,7 @@ public sealed partial class PluginHost
         CoreCapabilities.Commands, CoreCapabilities.Settings, CoreCapabilities.Tasks, CoreCapabilities.Files,
         UiCapabilities.Panels, UiCapabilities.Dialogs,
         UiCapabilities.Toolbar, UiCapabilities.ContextMenus, UiCapabilities.StatusBar,
-        TheaterCapabilities.SceneRead, TheaterCapabilities.SceneSeek, TheaterCapabilities.SceneEdit,
+        TheaterCapabilities.SceneRead, TheaterCapabilities.SceneSeek, TheaterCapabilities.SceneEdit, TheaterCapabilities.RenderImage,
     ]);
 
     // アプリとプラグインで共通にする契約の DLL（Plugin.Core は PluginManager が足す）
@@ -181,6 +181,7 @@ public sealed partial class PluginHost
         private readonly List<IDisposable> _registrations = [];
         private readonly TheaterSceneService _scene;
         private readonly TheaterEditService _editor;
+        private readonly TheaterRenderService _renderer;
         private bool _disposed;
 
         public Scope(PluginHost host, PluginEntry entry)
@@ -189,6 +190,7 @@ public sealed partial class PluginHost
             _entry = entry;
             _scene = new TheaterSceneService(host._context, (message, ex) => host.Manager.ReportProblem(entry, message, ex));
             _editor = new TheaterEditService(host._context);
+            _renderer = new TheaterRenderService(host._context);
         }
 
         public Window? Owner => _host._owner;
@@ -204,6 +206,7 @@ public sealed partial class PluginHost
             : serviceType == typeof(IFileFormatRegistry) ? this
             : serviceType == typeof(ITheaterScene) ? _scene
             : serviceType == typeof(ITheaterEditor) ? _editor
+            : serviceType == typeof(ITheaterRenderer) ? _renderer
             : null;
 
         public IDisposable Register(PluginCommand command)
@@ -257,6 +260,7 @@ public sealed partial class PluginHost
             _disposed = true;
             _scene.Detach();
             _editor.Detach();
+            _renderer.Detach();
             for (int i = _registrations.Count - 1; i >= 0; i--)
             {
                 _registrations[i].Dispose();

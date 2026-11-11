@@ -91,8 +91,10 @@ public readonly record struct PluginTaskOutcome(PluginTaskResult Result, Excepti
 /// <summary>進み具合を、アプリの決めた受け取り手に渡す（アプリの側で作る）。値は 0〜1 に収め、数でなければ「分からない」にする。</summary>
 public sealed class PluginTaskContext(CancellationToken cancellation, Action<double?, string?> report) : IPluginTaskContext
 {
+    /// <inheritdoc />
     public CancellationToken Cancellation => cancellation;
 
+    /// <inheritdoc />
     public void Report(double? fraction, string? message = null) =>
         report(fraction is double f && double.IsFinite(f) ? Math.Clamp(f, 0d, 1d) : null, message);
 }

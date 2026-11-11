@@ -34,8 +34,13 @@ public sealed class PluginPanel
 /// <summary>パネルを初めて出す場所。</summary>
 public enum PanelPlacement
 {
+    /// <summary>左（アプリの「シーン」の側）。</summary>
     Left,
+
+    /// <summary>右（アプリの「プロパティ」の側）。</summary>
     Right,
+
+    /// <summary>下（アプリの「タイムライン」の側）。</summary>
     Bottom,
 }
 

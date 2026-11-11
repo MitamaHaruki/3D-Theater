@@ -22,6 +22,7 @@ namespace Plugin.Core;
 /// </summary>
 public sealed partial record PluginManifest
 {
+    /// <summary>プラグインのフォルダーに置くファイルの名前。</summary>
     public const string FileName = "plugin.json";
 
     /// <summary>プラグインの名前（英数字・. _ -。アプリの中で一意）。</summary>
@@ -30,6 +31,7 @@ public sealed partial record PluginManifest
     /// <summary>画面に出す名前。</summary>
     public required string Name { get; init; }
 
+    /// <summary>プラグインの版（例: 1.2.0）。</summary>
     public required Version Version { get; init; }
 
     /// <summary>対象のアプリ（例: "3DTheater"）。</summary>
@@ -44,8 +46,10 @@ public sealed partial record PluginManifest
     /// <summary>入口の型（<see cref="IPlugin"/> を実装した型の、名前空間を含む名前）。</summary>
     public required string EntryType { get; init; }
 
+    /// <summary>管理画面に出す説明（無ければ空）。</summary>
     public string Description { get; init; } = string.Empty;
 
+    /// <summary>作者（無ければ空）。</summary>
     public string Author { get; init; } = string.Empty;
 
     /// <summary>使う機能（アプリに無いものがあれば読み込まない）。</summary>

@@ -100,6 +100,26 @@ public sealed class SceneInfoPlugin : IPlugin
             }),
             CanExecute = () => tasks is not null,
         });
+        // ほかのアプリとの連携の見本: 今のフレームを書き出しと同じ描き方で描き、クリップボードに写す（SDK 1.4）
+        ITheaterRenderer? renderer = context.GetService<ITheaterRenderer>();
+        context.Commands.Register(new PluginCommand
+        {
+            Id = "copy-frame",
+            Title = "今のフレームを画像としてコピー（透明な背景）",
+            Shortcut = "Ctrl+Alt+C",
+            Description = "シーンのカメラから見た今のフレームを、書き出しと同じ描き方・書き出しの大きさで描いて、クリップボードに写します。透過 PNG を読めるアプリ（画像の編集ソフトなど）には透明な背景のまま、読めないアプリには白い背景で貼り付けられます",
+            Execute = () => _ = tasks?.RunAsync("今のフレームを画像としてコピー", async task =>
+            {
+                task.Report(null, "描いています");
+                await Task.Yield(); // 進み具合の窓を出せるように、いったん画面に戻してから描く
+                (int width, int height) = renderer!.ExportSize;
+                RenderedImage image = renderer.RenderFrame(new RenderRequest { Width = width, Height = height, Transparent = true });
+                FrameClipboard.Copy(image);
+                context.Log.Info($"今のフレームを {image.Width} x {image.Height} の画像としてコピーしました（PNG {image.Png.Length:N0} バイト）");
+            }),
+            CanExecute = () => renderer is not null && tasks is not null,
+        });
+
         context.GetService<IFileFormatRegistry>()?.Register(new PluginFileFormat
         {
             Id = "key-csv",

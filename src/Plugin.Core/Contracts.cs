@@ -44,10 +44,13 @@ public interface IPluginContext
 /// <summary>アプリのログへ書く。</summary>
 public interface IPluginLog
 {
+    /// <summary>知らせ（始めた・読み込んだなど）。</summary>
     void Info(string message);
 
+    /// <summary>気をつけること（続けられるが、思ったとおりでないことがある）。</summary>
     void Warning(string message, Exception? exception = null);
 
+    /// <summary>エラー（できなかったこと）。</summary>
     void Error(string message, Exception? exception = null);
 }
 
