@@ -27,7 +27,7 @@ extern "C" {
 
 // 上位 16 ビットが大きな版、下位 16 ビットが小さな版。大きな版が違う DLL とは組み合わせない。
 #define TT_API_VERSION_MAJOR 0
-#define TT_API_VERSION_MINOR 18
+#define TT_API_VERSION_MINOR 19
 #define TT_API_VERSION ((TT_API_VERSION_MAJOR << 16) | TT_API_VERSION_MINOR)
 
 // 0 以上は成功、負の値は失敗。
@@ -323,6 +323,12 @@ typedef struct TtFrameParams {
     float fog_start;    // 霧が始まる距離（0 以上）
     float fog_density;  // 濃さ（0 以上。0 なら何もしない）
     float fog_height;   // 高さの尺度（0 なら高さに関係なく同じ濃さ）
+    // ここから API 0.19（柔らかな影。セルフシャドウと地面の影）。照明を大きさのある光源として、影を落とす物と受ける面が
+    // 離れているほど、影の境目を広くぼかす（接している所はくっきり）。値は光源の見かけの半径の tan（0〜0.5）。
+    // 0 なら今までどおり（セルフシャドウは周りの 9 か所を比べるだけ、地面の影は床へ押しつぶして描く）。0 より大きいときは、
+    // 地面の影も「地面影」の材質で照明から見た奥行きの画像を作り、床に描いた 1 枚の四角形で読む（押しつぶす描き方ではぼかせないため）
+    float shadow_softness;
+    uint32_t reserved11;
 } TtFrameParams;
 
 TT_API uint32_t TT_CALL tt_get_api_version(void);

@@ -108,6 +108,9 @@ public sealed class RenderingEntry
     /// <summary>霧（初期のままなら書かない）。</summary>
     public SceneFog? Fog { get; set; }
 
+    /// <summary>影の見え方（初期のままなら書かない）。</summary>
+    public ShadowStyle? ShadowStyle { get; set; }
+
     public static RenderingEntry From(RenderSettings settings) => new()
     {
         SelfShadow = settings.SelfShadow,
@@ -116,6 +119,7 @@ public sealed class RenderingEntry
         Illustration = settings.Illustration == IllustrationStyle.None ? null : settings.Illustration,
         Reflection = settings.Reflection == FloorReflection.Off ? null : settings.Reflection,
         Fog = settings.Fog == SceneFog.Off ? null : settings.Fog,
+        ShadowStyle = settings.ShadowStyle == ShadowStyle.Default ? null : settings.ShadowStyle,
     };
 
     public void ApplyTo(RenderSettings settings)
@@ -126,6 +130,7 @@ public sealed class RenderingEntry
         settings.Illustration = Illustration ?? IllustrationStyle.None;
         settings.Reflection = Reflection ?? FloorReflection.Off;
         settings.Fog = Fog ?? SceneFog.Off;
+        settings.ShadowStyle = ShadowStyle ?? Editor.ShadowStyle.Default;
     }
 }
 

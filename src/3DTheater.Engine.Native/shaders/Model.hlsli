@@ -13,6 +13,8 @@ cbuffer ObjectConstants : register(b0)
     float4 ShadowParams;              // x = 1 / 奥行きの画像の 1 辺、y = 比べるときに奥へずらす量、z = 1 ならセルフシャドウあり
     float4 GroundShadowColor;
     float4 ReflectionParams;          // 床の映り込み: x = 1 なら映り込みを描いている、y = 濃さ、z = 消えるまでの距離
+    float4 ShadowSoftness;            // 柔らかな影: x = 奥行き 1 あたりのワールドの長さ、y = 光源の見かけの半径の tan（0 ならくっきり）、
+                                      //             zw = ワールドの長さ 1 あたりの、奥行きの画像の座標（横・縦）
 };
 
 cbuffer MaterialConstants : register(b1)

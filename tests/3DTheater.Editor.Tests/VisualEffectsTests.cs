@@ -120,6 +120,37 @@ public sealed class VisualEffectsTests
     }
 
     [TestMethod]
+    public void ShadowStyleIsKeptInRangeAndSaved()
+    {
+        Assert.AreEqual(0f, ShadowStyle.Default.SoftnessTangent, "初期値は、今までどおりのくっきりした影");
+        Assert.AreEqual(new System.Numerics.Vector4(0f, 0f, 0f, 0.5f), ShadowStyle.Default.GroundColor, "地面の影は半透明の黒");
+        Assert.AreEqual(ShadowStyle.MaxSoftnessTangent, (ShadowStyle.Default with { Softness = 1f }).SoftnessTangent);
+
+        ShadowStyle wild = new ShadowStyle { Softness = 3f, GroundOpacity = float.NaN }.Normalized();
+        Assert.AreEqual(1f, wild.Softness);
+        Assert.AreEqual(0.5f, wild.GroundOpacity, "数でない値は初期値");
+
+        var settings = new RenderSettings();
+        int changes = 0;
+        settings.Changed += (_, _) => changes++;
+        settings.ShadowStyle = new ShadowStyle { Softness = 0.4f, GroundOpacity = 0.3f };
+        settings.ShadowStyle = new ShadowStyle { Softness = 0.4f, GroundOpacity = 0.3f };
+        Assert.AreEqual(1, changes, "同じ値では知らせない");
+
+        string plain = ProjectSerializer.Serialize(new ProjectFile { Rendering = RenderingEntry.From(new RenderSettings()) });
+        Assert.IsFalse(plain.Contains("shadowStyle", StringComparison.Ordinal), "初期のままなら書かない");
+        string saved = ProjectSerializer.Serialize(new ProjectFile { Rendering = RenderingEntry.From(settings) });
+        Assert.IsFalse(saved.Contains("softnessTangent", StringComparison.Ordinal), "計算で出す値は書かない");
+        ProjectFile read = ProjectSerializer.Deserialize(saved, new Formats.LoadReport())!;
+        var restored = new RenderSettings();
+        read.Rendering.ApplyTo(restored);
+        Assert.AreEqual(settings.ShadowStyle, restored.ShadowStyle);
+
+        restored.Reset();
+        Assert.AreEqual(ShadowStyle.Default, restored.ShadowStyle, "新しいプロジェクトは初期の見え方");
+    }
+
+    [TestMethod]
     public void FogIsKeptInRangeAndSaved()
     {
         Assert.IsFalse(SceneFog.Off.Enabled, "初期値は OFF");

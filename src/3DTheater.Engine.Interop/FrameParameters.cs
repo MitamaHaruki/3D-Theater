@@ -150,7 +150,8 @@ public readonly record struct PostEffects(
 /// <see cref="OverlayLines"/> はモデルより手前に描く線（ボーンの表示など。2 つの頂点で 1 本）。配列を使い回せるよう範囲で渡す。
 /// 照明（<see cref="LightDirection"/> は光が進む向き）は <see cref="FrameFlags.UseLight"/> のときだけ使う。
 /// <see cref="EdgePixelScale"/> は材質の輪郭線の太さ 1 を何ピクセルにするか（0 なら輪郭線を描かない）。
-/// <see cref="ShadowMapSize"/> はセルフシャドウの奥行きの画像の 1 辺（0 なら 2048）。
+/// <see cref="ShadowMapSize"/> はセルフシャドウの奥行きの画像の 1 辺（0 なら 2048）。<see cref="ShadowSoftness"/> は柔らかな影の
+/// 光源の見かけの半径の tan（0〜0.5。0 ならくっきり）。
 /// <see cref="ClearColor"/> は <see cref="FrameFlags.ClearColor"/> のときの背景の色。透明で描くと、読み出した色は透明度をかけ合わせた値になる。
 /// </summary>
 public readonly record struct FrameParameters(
@@ -170,4 +171,5 @@ public readonly record struct FrameParameters(
     PostEffects Effects = default,
     IReadOnlyList<LightSource>? Lights = null,
     float ReflectionStrength = 0f,
-    float ReflectionFade = 10f);
+    float ReflectionFade = 10f,
+    float ShadowSoftness = 0f);

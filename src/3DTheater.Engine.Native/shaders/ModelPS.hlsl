@@ -1,4 +1,5 @@
 #include "Model.hlsli"
+#include "Shadow.hlsli"
 
 static const float kPi = 3.14159265;
 
@@ -13,28 +14,6 @@ static const float kSkyScale = 0.9;
 static const float kGroundScale = 0.3;
 static const float kReflectionSkyScale = 1.6;
 static const float kReflectionGroundScale = 0.45;
-
-// セルフシャドウ: 照明から見て、ほかの面より奥にあるか（1 = 光が当たる、0 = 影）。周りの 9 か所を比べて境目をぼかす
-float SelfShadowFactor(float4 shadowPosition)
-{
-    float3 p = shadowPosition.xyz / shadowPosition.w;
-    float2 uv = float2(p.x * 0.5 + 0.5, p.y * -0.5 + 0.5);
-    float lit = 1.0; // 奥行きの画像の範囲の外は影なし
-    if (all(uv >= 0.0) && all(uv <= 1.0) && p.z <= 1.0)
-    {
-        float depth = p.z - ShadowParams.y;
-        float sum = 0.0;
-        [unroll] for (int y = -1; y <= 1; y++)
-        {
-            [unroll] for (int x = -1; x <= 1; x++)
-            {
-                sum += ShadowMap.SampleCmpLevelZero(ShadowSampler, uv + float2(x, y) * ShadowParams.x, depth);
-            }
-        }
-        lit = sum / 9.0;
-    }
-    return lit;
-}
 
 // 足す照明 1 つの強さ（色 × 明るさ × 距離・円すいの減り方）と、面から照明への向き。
 // 点光源・スポットライトは、届く距離で 0 になるよう、なめらかに弱める
@@ -112,7 +91,7 @@ float4 ToonColor(ModelPSInput input, float3 n)
     if (Options.w > 0.5)
     {
         float4 shadowColor = color;
-        float lit = SelfShadowFactor(input.shadowPosition);
+        float lit = SelfShadowFactor(input.shadowPosition, input.position.xy);
         if (Options.y > 0.5)
         {
             lit = min(saturate(dot(n, toLight) * 3.0), lit);
@@ -172,7 +151,7 @@ float4 PbrColor(ModelPSInput input, float3 n)
     float nv = max(dot(n, v), 1e-4);
     float3 f0 = lerp(float3(0.04, 0.04, 0.04), base.rgb, metallic);
 
-    float shadow = Options.w > 0.5 ? SelfShadowFactor(input.shadowPosition) : 1.0;
+    float shadow = Options.w > 0.5 ? SelfShadowFactor(input.shadowPosition, input.position.xy) : 1.0;
     float3 direct = PbrDirect(n, v, -LightDirection.xyz, LightColor.rgb * kPbrLightScale * shadow, base.rgb, metallic, roughness, f0);
     float3 worldPosition = CameraPosition.xyz - input.eye;
     [loop] for (uint i = 0; i < min(LightCount.x, 8u); i++)

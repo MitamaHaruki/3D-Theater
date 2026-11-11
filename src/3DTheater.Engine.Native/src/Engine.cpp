@@ -25,6 +25,8 @@
 #include "AoBlurPS.h"
 #include "AoApplyPS.h"
 #include "FogPS.h"
+#include "GroundSoftShadowVS.h"
+#include "GroundSoftShadowPS.h"
 #include "GroundShadowPS.h"
 #include "LinearDepthMsPS.h"
 #include "LinearDepthPS.h"
@@ -47,6 +49,14 @@ constexpr UINT kDefaultShadowMapSize = 2048;
 constexpr float kShadowBiasWorld = 0.08f;
 // 地面の影を床から浮かせる高さ（床の面と重なってちらつかないように）
 constexpr float kGroundShadowLift = 0.01f;
+// 柔らかな影で、ぼかす幅（円の半径）の上限（ワールドの長さ。シェーダーの kMaxSoftShadowWorld と同じ）
+constexpr float kMaxSoftShadowWorld = 3.0f;
+
+// 柔らかな影の光源の見かけの半径の tan（0〜0.5。数でなければ 0 = くっきり）
+float ShadowSoftnessOf(const TtFrameParams& params) noexcept
+{
+    return std::isfinite(params.shadow_softness) ? std::clamp(params.shadow_softness, 0.0f, 0.5f) : 0.0f;
+}
 
 struct FrameConstants {
     DirectX::XMFLOAT4X4 worldViewProj;
@@ -64,6 +74,7 @@ struct ObjectConstants {
     DirectX::XMFLOAT4 shadowParams;
     DirectX::XMFLOAT4 groundShadowColor;
     DirectX::XMFLOAT4 reflectionParams;
+    DirectX::XMFLOAT4 shadowSoftness;
 };
 
 // 足す照明（シェーダーの LightConstants と同じ並び）
@@ -253,6 +264,11 @@ void Engine::ReleaseDevice() noexcept
     shadowCasterState_.Reset();
     groundShadowPixelShader_.Reset();
     shadowVertexShader_.Reset();
+    groundShadowMapSrv_.Reset();
+    groundShadowMapDsv_.Reset();
+    groundShadowMapSize_ = 0;
+    groundSoftShadowVertexShader_.Reset();
+    groundSoftShadowPixelShader_.Reset();
     whiteTexture_.Reset();
     clampSampler_.Reset();
     textureSampler_.Reset();
@@ -577,6 +593,11 @@ void Engine::DrawScene(ID3D11RenderTargetView* rtv, ID3D11DepthStencilView* dsv,
     if (drawScene && (params.flags & TT_FRAME_SELF_SHADOW) && params.item_count > 0) {
         RenderShadowMap(params, frame); // 影を落とすものが無ければ、セルフシャドウなしのまま
     }
+    // 柔らかな影のときは、地面の影も照明から見た奥行きで描く（押しつぶす描き方では、境目をぼかせないため）
+    ModelFrame groundFrame{};
+    XMFLOAT4X4 floorWorld{};
+    const bool softGroundShadow = drawScene && (params.flags & TT_FRAME_GROUND_SHADOW) && params.item_count > 0
+        && ShadowSoftnessOf(params) > 0.0f && RenderGroundShadowMap(params, frame, groundFrame, floorWorld);
 
     ctx->OMSetRenderTargets(1, &rtv, dsv);
     const D3D11_VIEWPORT viewport{0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height), 0.0f, 1.0f};
@@ -624,7 +645,11 @@ void Engine::DrawScene(ID3D11RenderTargetView* rtv, ID3D11DepthStencilView* dsv,
 
     // 地面の影は、モデルより先に床へ描く（モデルの奥行きで隠れる所は、後から描くモデルが上書きする）
     if (drawScene && (params.flags & TT_FRAME_GROUND_SHADOW) && params.item_count > 0) {
-        DrawGroundShadows(params, frame);
+        if (softGroundShadow) {
+            DrawSoftGroundShadow(groundFrame, floorWorld);
+        } else {
+            DrawGroundShadows(params, frame);
+        }
     }
 
     // モデル（並び順に描く。半透明の材質があるので、MMD と同じく並び順をそのまま使う）
@@ -959,6 +984,7 @@ void Engine::WriteObjectConstants(DirectX::FXMMATRIX world, DirectX::CXMMATRIX w
     object->shadowParams = frame.shadowParams;
     object->groundShadowColor = frame.groundShadowColor;
     object->reflectionParams = frame.reflectionParams;
+    object->shadowSoftness = frame.shadowSoftness;
     ctx->Unmap(objectConstantBuffer_.Get(), 0);
 }
 
@@ -1125,12 +1151,18 @@ void Engine::DrawEdges(const Mesh& mesh)
 
 void Engine::EnsureShadowMap(UINT size)
 {
-    if (shadowMapSize_ == size && shadowMapDsv_ && shadowMapSrv_) {
+    EnsureDepthMap(size, shadowMapDsv_, shadowMapSrv_, shadowMapSize_, L"セルフシャドウ");
+}
+
+void Engine::EnsureDepthMap(UINT size, ComPtr<ID3D11DepthStencilView>& dsv, ComPtr<ID3D11ShaderResourceView>& srv, UINT& current,
+    const wchar_t* what)
+{
+    if (current == size && dsv && srv) {
         return;
     }
-    shadowMapSrv_.Reset();
-    shadowMapDsv_.Reset();
-    shadowMapSize_ = 0;
+    srv.Reset();
+    dsv.Reset();
+    current = 0;
     D3D11_TEXTURE2D_DESC desc{};
     desc.Width = size;
     desc.Height = size;
@@ -1141,17 +1173,53 @@ void Engine::EnsureShadowMap(UINT size)
     desc.Usage = D3D11_USAGE_DEFAULT;
     desc.BindFlags = D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE;
     ComPtr<ID3D11Texture2D> texture;
-    CheckHr(device_->CreateTexture2D(&desc, nullptr, &texture), L"セルフシャドウの奥行きの画像の作成");
-    D3D11_DEPTH_STENCIL_VIEW_DESC dsv{};
-    dsv.Format = DXGI_FORMAT_D32_FLOAT;
-    dsv.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
-    CheckHr(device_->CreateDepthStencilView(texture.Get(), &dsv, &shadowMapDsv_), L"セルフシャドウの奥行きの書き込み先の作成");
-    D3D11_SHADER_RESOURCE_VIEW_DESC srv{};
-    srv.Format = DXGI_FORMAT_R32_FLOAT;
-    srv.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
-    srv.Texture2D.MipLevels = 1;
-    CheckHr(device_->CreateShaderResourceView(texture.Get(), &srv, &shadowMapSrv_), L"セルフシャドウの奥行きの読み出しの作成");
-    shadowMapSize_ = size;
+    CheckHr(device_->CreateTexture2D(&desc, nullptr, &texture), (std::wstring(what) + L"の奥行きの画像の作成").c_str());
+    D3D11_DEPTH_STENCIL_VIEW_DESC dsvDesc{};
+    dsvDesc.Format = DXGI_FORMAT_D32_FLOAT;
+    dsvDesc.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
+    CheckHr(device_->CreateDepthStencilView(texture.Get(), &dsvDesc, &dsv), (std::wstring(what) + L"の奥行きの書き込み先の作成").c_str());
+    D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc{};
+    srvDesc.Format = DXGI_FORMAT_R32_FLOAT;
+    srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+    srvDesc.Texture2D.MipLevels = 1;
+    CheckHr(device_->CreateShaderResourceView(texture.Get(), &srvDesc, &srv), (std::wstring(what) + L"の奥行きの読み出しの作成").c_str());
+    current = size;
+}
+
+void Engine::DrawLightDepth(const TtFrameParams& params, DirectX::CXMMATRIX lightViewProj, const ModelFrame& frame,
+    ID3D11DepthStencilView* dsv, UINT size, bool groundCasters)
+{
+    using namespace DirectX;
+    auto load = [](const float (&m)[16]) { return XMLoadFloat4x4(reinterpret_cast<const XMFLOAT4X4*>(m)); };
+    ID3D11DeviceContext* ctx = context_.Get();
+    ID3D11ShaderResourceView* none = nullptr;
+    ctx->PSSetShaderResources(3, 1, &none); // 前の描画で読んでいた画像には書けないので外す
+    ctx->OMSetRenderTargets(0, nullptr, dsv);
+    const D3D11_VIEWPORT viewport{0.0f, 0.0f, static_cast<float>(size), static_cast<float>(size), 0.0f, 1.0f};
+    ctx->RSSetViewports(1, &viewport);
+    ctx->ClearDepthStencilView(dsv, D3D11_CLEAR_DEPTH, 1.0f, 0);
+    ctx->VSSetShader(shadowVertexShader_.Get(), nullptr, 0);
+    ctx->PSSetShader(nullptr, nullptr, 0); // 奥行きだけを書く
+    ctx->RSSetState(shadowCasterState_.Get());
+    ctx->OMSetDepthStencilState(modelDepthState_.Get(), 0);
+    ctx->OMSetBlendState(nullptr, nullptr, 0xFFFFFFFF);
+
+    for (uint32_t i = 0; i < params.item_count; ++i) {
+        const auto& mesh = *reinterpret_cast<const Mesh*>(params.items[i].mesh);
+        if (mesh.IsEmpty() || !(groundCasters ? mesh.HasGroundShadow() : mesh.CastsShadow())) {
+            continue;
+        }
+        const XMMATRIX world = load(params.items[i].world);
+        WriteObjectConstants(world, world * lightViewProj, frame);
+        BindMesh(mesh);
+        for (const Mesh::Material& material : mesh.Materials()) {
+            const bool casts = groundCasters ? material.groundShadow : material.castShadow;
+            if (casts && material.indexCount > 0 && material.diffuse.w > 0.0f) {
+                ctx->DrawIndexed(material.indexCount, material.indexStart, 0);
+            }
+        }
+    }
+    ctx->OMSetRenderTargets(0, nullptr, nullptr);
 }
 
 bool Engine::RenderShadowMap(const TtFrameParams& params, ModelFrame& frame)
@@ -1207,40 +1275,110 @@ bool Engine::RenderShadowMap(const TtFrameParams& params, ModelFrame& frame)
 
     const UINT size = params.shadow_map_size == 0 ? kDefaultShadowMapSize : std::clamp<UINT>(params.shadow_map_size, 256, 8192);
     EnsureShadowMap(size);
-
-    ID3D11DeviceContext* ctx = context_.Get();
-    ID3D11ShaderResourceView* none = nullptr;
-    ctx->PSSetShaderResources(3, 1, &none); // 前の描画で読んでいた画像には書けないので外す
-    ctx->OMSetRenderTargets(0, nullptr, shadowMapDsv_.Get());
-    const D3D11_VIEWPORT viewport{0.0f, 0.0f, static_cast<float>(size), static_cast<float>(size), 0.0f, 1.0f};
-    ctx->RSSetViewports(1, &viewport);
-    ctx->ClearDepthStencilView(shadowMapDsv_.Get(), D3D11_CLEAR_DEPTH, 1.0f, 0);
-    ctx->VSSetShader(shadowVertexShader_.Get(), nullptr, 0);
-    ctx->PSSetShader(nullptr, nullptr, 0); // 奥行きだけを書く
-    ctx->RSSetState(shadowCasterState_.Get());
-    ctx->OMSetDepthStencilState(modelDepthState_.Get(), 0);
-    ctx->OMSetBlendState(nullptr, nullptr, 0xFFFFFFFF);
-
-    ModelFrame casterFrame = frame;
-    for (uint32_t i = 0; i < params.item_count; ++i) {
-        const auto& mesh = *reinterpret_cast<const Mesh*>(params.items[i].mesh);
-        if (mesh.IsEmpty() || !mesh.CastsShadow()) {
-            continue;
-        }
-        const XMMATRIX world = load(params.items[i].world);
-        WriteObjectConstants(world, world * lightViewProj, casterFrame);
-        BindMesh(mesh);
-        for (const Mesh::Material& material : mesh.Materials()) {
-            if (material.castShadow && material.indexCount > 0 && material.diffuse.w > 0.0f) {
-                ctx->DrawIndexed(material.indexCount, material.indexStart, 0);
-            }
-        }
-    }
-    ctx->OMSetRenderTargets(0, nullptr, nullptr);
+    DrawLightDepth(params, lightViewProj, frame, shadowMapDsv_.Get(), size, false);
 
     XMStoreFloat4x4(&frame.lightViewProj, lightViewProj);
     frame.shadowParams = {1.0f / static_cast<float>(size), kShadowBiasWorld / std::max(depthRange, 1e-3f), 1.0f, 0.0f};
+    // 柔らかな影: 奥行きの画像の奥行き 1 と、座標 1 が、ワールドでどれだけの長さか
+    frame.shadowSoftness = {depthRange, ShadowSoftnessOf(params), 1.0f / std::max(h.x - l.x + 2.0f * pad, 1e-3f),
+        1.0f / std::max(h.y - l.y + 2.0f * pad, 1e-3f)};
     return true;
+}
+
+bool Engine::RenderGroundShadowMap(const TtFrameParams& params, const ModelFrame& frame, ModelFrame& groundFrame,
+    DirectX::XMFLOAT4X4& floorWorld)
+{
+    using namespace DirectX;
+    auto load = [](const float (&m)[16]) { return XMLoadFloat4x4(reinterpret_cast<const XMFLOAT4X4*>(m)); };
+    // 下から・真横から照らすときは、床に影を落とさない（押しつぶす描き方と同じ）
+    const XMVECTOR direction = XMLoadFloat4(&frame.lightDirection);
+    const float down = -XMVectorGetY(direction);
+    if (down < 0.05f || frame.groundShadowColor.w <= 0.0f) {
+        return false;
+    }
+    const XMVECTOR up = down > 0.99f ? XMVectorSet(0, 0, 1, 0) : XMVectorSet(0, 1, 0, 0);
+    const XMMATRIX lightView = XMMatrixLookToLH(XMVectorZero(), direction, up);
+
+    // 範囲: 影を落とす物の囲みの箱の角と、その角から照明の向きに進んで床（高さ 0）に届いた点が全部入るように
+    XMVECTOR lo = XMVectorReplicate(FLT_MAX);
+    XMVECTOR hi = XMVectorReplicate(-FLT_MAX);
+    float floorMinX = FLT_MAX;
+    float floorMaxX = -FLT_MAX;
+    float floorMinZ = FLT_MAX;
+    float floorMaxZ = -FLT_MAX;
+    bool any = false;
+    for (uint32_t i = 0; i < params.item_count; ++i) {
+        const auto& mesh = *reinterpret_cast<const Mesh*>(params.items[i].mesh);
+        if (mesh.IsEmpty() || !mesh.HasGroundShadow()) {
+            continue;
+        }
+        const XMMATRIX world = load(params.items[i].world);
+        const XMFLOAT3& a = mesh.BoundsMin();
+        const XMFLOAT3& b = mesh.BoundsMax();
+        for (int corner = 0; corner < 8; ++corner) {
+            const XMVECTOR p = XMVector3Transform(
+                XMVectorSet((corner & 1) ? b.x : a.x, (corner & 2) ? b.y : a.y, (corner & 4) ? b.z : a.z, 1.0f), world);
+            const XMVECTOR onFloor = XMVectorSetY(XMVectorAdd(p, XMVectorScale(direction, std::max(XMVectorGetY(p), 0.0f) / down)), 0.0f);
+            for (const XMVECTOR& point : {p, onFloor}) {
+                const XMVECTOR inLight = XMVector3Transform(point, lightView);
+                lo = XMVectorMin(lo, inLight);
+                hi = XMVectorMax(hi, inLight);
+            }
+            floorMinX = std::min(floorMinX, XMVectorGetX(onFloor));
+            floorMaxX = std::max(floorMaxX, XMVectorGetX(onFloor));
+            floorMinZ = std::min(floorMinZ, XMVectorGetZ(onFloor));
+            floorMaxZ = std::max(floorMaxZ, XMVectorGetZ(onFloor));
+            any = true;
+        }
+    }
+    if (!any) {
+        return false;
+    }
+    XMFLOAT3 l;
+    XMFLOAT3 h;
+    XMStoreFloat3(&l, lo);
+    XMStoreFloat3(&h, hi);
+    const float pad = std::max({h.x - l.x, h.y - l.y, h.z - l.z}) * 0.02f + 0.01f;
+    const float depthRange = (h.z - l.z) + 2.0f * pad;
+    const XMMATRIX lightViewProj
+        = lightView * XMMatrixOrthographicOffCenterLH(l.x - pad, h.x + pad, l.y - pad, h.y + pad, l.z - pad, h.z + pad);
+    const UINT size = params.shadow_map_size == 0 ? kDefaultShadowMapSize : std::clamp<UINT>(params.shadow_map_size, 256, 8192);
+    EnsureDepthMap(size, groundShadowMapDsv_, groundShadowMapSrv_, groundShadowMapSize_, L"地面の影");
+    DrawLightDepth(params, lightViewProj, frame, groundShadowMapDsv_.Get(), size, true);
+
+    groundFrame = frame;
+    XMStoreFloat4x4(&groundFrame.lightViewProj, lightViewProj);
+    groundFrame.shadowParams = {1.0f / static_cast<float>(size), kShadowBiasWorld / std::max(depthRange, 1e-3f), 1.0f, 0.0f};
+    groundFrame.shadowSoftness = {depthRange, ShadowSoftnessOf(params), 1.0f / std::max(h.x - l.x + 2.0f * pad, 1e-3f),
+        1.0f / std::max(h.y - l.y + 2.0f * pad, 1e-3f)};
+    // 床に描く四角形: 影の届く範囲を、ぼけの分だけ広げる（斜めから照らすほど、床の上のぼけは長く伸びる）
+    const float margin = kMaxSoftShadowWorld / std::max(down, 0.2f);
+    XMStoreFloat4x4(&floorWorld, XMMatrixScaling(floorMaxX - floorMinX + 2.0f * margin, 1.0f, floorMaxZ - floorMinZ + 2.0f * margin)
+        * XMMatrixTranslation(floorMinX - margin, kGroundShadowLift, floorMinZ - margin));
+    return true;
+}
+
+void Engine::DrawSoftGroundShadow(const ModelFrame& groundFrame, const DirectX::XMFLOAT4X4& floorWorld)
+{
+    using namespace DirectX;
+    ID3D11DeviceContext* ctx = context_.Get();
+    const XMMATRIX world = XMLoadFloat4x4(&floorWorld);
+    WriteObjectConstants(world, world * XMLoadFloat4x4(&groundFrame.viewProj), groundFrame);
+    ID3D11Buffer* constantBuffers[] = {objectConstantBuffer_.Get(), materialConstantBuffer_.Get(), lightConstantBuffer_.Get()};
+    ctx->VSSetConstantBuffers(0, 3, constantBuffers);
+    ctx->PSSetConstantBuffers(0, 3, constantBuffers);
+    ctx->IASetInputLayout(nullptr);
+    ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+    ctx->VSSetShader(groundSoftShadowVertexShader_.Get(), nullptr, 0);
+    ctx->PSSetShader(groundSoftShadowPixelShader_.Get(), nullptr, 0);
+    ID3D11SamplerState* samplers[] = {textureSampler_.Get(), clampSampler_.Get(), shadowSampler_.Get()};
+    ctx->PSSetSamplers(0, 3, samplers);
+    ID3D11ShaderResourceView* map = groundShadowMapSrv_.Get();
+    ctx->PSSetShaderResources(3, 1, &map);
+    ctx->RSSetState(cullNoneState_.Get());
+    ctx->OMSetDepthStencilState(groundShadowState_.Get(), 0);
+    ctx->OMSetBlendState(alphaBlendState_.Get(), nullptr, 0xFFFFFFFF);
+    ctx->Draw(4, 0);
 }
 
 void Engine::DrawGroundShadows(const TtFrameParams& params, const ModelFrame& frame)
@@ -1348,6 +1486,10 @@ void Engine::CreateModelResources()
         {"TEXCOORD", 1, DXGI_FORMAT_R32_FLOAT, 1, 0, D3D11_INPUT_PER_VERTEX_DATA, 0},
     };
     CheckHr(device_->CreateVertexShader(g_ShadowVS, sizeof(g_ShadowVS), nullptr, &shadowVertexShader_), L"影の頂点シェーダーの作成");
+    CheckHr(device_->CreateVertexShader(g_GroundSoftShadowVS, sizeof(g_GroundSoftShadowVS), nullptr, &groundSoftShadowVertexShader_),
+        L"柔らかな地面の影の頂点シェーダーの作成");
+    CheckHr(device_->CreatePixelShader(g_GroundSoftShadowPS, sizeof(g_GroundSoftShadowPS), nullptr, &groundSoftShadowPixelShader_),
+        L"柔らかな地面の影のピクセルシェーダーの作成");
     CheckHr(device_->CreatePixelShader(g_GroundShadowPS, sizeof(g_GroundShadowPS), nullptr, &groundShadowPixelShader_),
         L"地面の影のピクセルシェーダーの作成");
     // 輪郭線の頂点シェーダーは全部の要素を使うので、そちらに合わせて作る（モデルの頂点シェーダーにも使える）

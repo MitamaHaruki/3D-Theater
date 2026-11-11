@@ -1,0 +1,59 @@
+<Window x:Class="Theater3D.App.Shell.ShadowWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="影の設定"
+        Width="460" SizeToContent="Height" ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        Background="{StaticResource PanelBrush}" Foreground="{StaticResource TextBrush}"
+        FontFamily="Yu Gothic UI" FontSize="12" UseLayoutRounding="True">
+  <Window.Resources>
+    <Style x:Key="RowLabelStyle" TargetType="TextBlock">
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Margin" Value="0,0,12,0" />
+      <Setter Property="Foreground" Value="{StaticResource SubTextBrush}" />
+    </Style>
+    <Style x:Key="ValueStyle" TargetType="TextBlock">
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="TextAlignment" Value="Right" />
+      <Setter Property="Margin" Value="8,0,0,0" />
+    </Style>
+    <Style x:Key="ShadowSliderStyle" TargetType="Slider" BasedOn="{StaticResource {x:Type Slider}}">
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Margin" Value="0,5" />
+      <Setter Property="IsMoveToPointEnabled" Value="True" />
+      <Setter Property="SmallChange" Value="0.05" />
+      <Setter Property="LargeChange" Value="0.1" />
+    </Style>
+  </Window.Resources>
+
+  <StackPanel Margin="18,14,18,16">
+    <Grid>
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="170" />
+        <ColumnDefinition Width="*" />
+        <ColumnDefinition Width="56" />
+      </Grid.ColumnDefinitions>
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="Auto" />
+      </Grid.RowDefinitions>
+      <TextBlock Style="{StaticResource RowLabelStyle}" Text="影のやわらかさ"
+                 ToolTip="影を落とす物と受ける面（床も）が離れているほど、影の境目を広くぼかします（接している所はくっきり）。0 なら今までどおりのくっきりした影" />
+      <Slider x:Name="SoftnessSlider" Grid.Column="1" Style="{StaticResource ShadowSliderStyle}" Minimum="0" Maximum="1"
+              AutomationProperties.Name="影のやわらかさ" ValueChanged="OnSliderChanged" />
+      <TextBlock x:Name="SoftnessText" Grid.Column="2" Style="{StaticResource ValueStyle}" />
+      <TextBlock Grid.Row="1" Style="{StaticResource RowLabelStyle}" Text="地面の影の濃さ" ToolTip="高さ 0 の床に落ちる影の不透明度" />
+      <Slider x:Name="GroundOpacitySlider" Grid.Row="1" Grid.Column="1" Style="{StaticResource ShadowSliderStyle}" Minimum="0" Maximum="1"
+              AutomationProperties.Name="地面の影の濃さ" ValueChanged="OnSliderChanged" />
+      <TextBlock x:Name="GroundOpacityText" Grid.Row="1" Grid.Column="2" Style="{StaticResource ValueStyle}" />
+    </Grid>
+
+    <TextBlock Margin="0,14,0,0" TextWrapping="Wrap" Foreground="{StaticResource SubTextBrush}" FontSize="11.5"
+               Text="セルフシャドウと地面の影の ON / OFF は、レンダリングのメニューで切り替えます。やわらかさは、照明を大きさのある光源として扱い、影を落とす物と受ける面が離れているほど境目をぼかします（足元の床の影はくっきり、頭や腕の影ほどぼけます。セルフシャドウと地面の影の両方にかかります）。変えるとすぐにプレビューへ反映し、書き出しにもかかります。設定はプロジェクトに保存します（元に戻す・やり直しの対象ではありません）。" />
+
+    <DockPanel Margin="0,16,0,0" LastChildFill="False">
+      <Button DockPanel.Dock="Left" MinWidth="110" Content="初期値に戻す" Click="OnResetClick" ToolTip="くっきりした影・地面の影の濃さ 0.5 に戻します" />
+      <Button DockPanel.Dock="Right" MinWidth="88" Content="閉じる" IsCancel="True" IsDefault="True" Click="OnCloseClick" />
+    </DockPanel>
+  </StackPanel>
+</Window>

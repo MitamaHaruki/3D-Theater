@@ -93,6 +93,8 @@ internal unsafe struct TtFrameParams
     public float FogStart;
     public float FogDensity;
     public float FogHeight;
+    public float ShadowSoftness;
+    public uint Reserved11;
 }
 
 [StructLayout(LayoutKind.Sequential)]

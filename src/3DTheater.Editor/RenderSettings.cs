@@ -1,22 +1,18 @@
-using System.Numerics;
-
 namespace Theater3D.Editor;
 
 /// <summary>
 /// 作品の描き方の設定（プロジェクトに保存する）。セルフシャドウと地面の影の ON / OFF（初期値はどちらも ON。MMD と同じ）と、
-/// 映像効果・イラスト風の表現・床の映り込み・霧（初期値はどれもなし）。
+/// 影の見え方（やわらかさ・地面の影の濃さ）、映像効果・イラスト風の表現・床の映り込み・霧（初期値はどれもなし）。
 /// </summary>
 public sealed class RenderSettings
 {
-    /// <summary>地面の影の色（半透明の黒）。</summary>
-    public static readonly Vector4 GroundShadowColor = new(0f, 0f, 0f, 0.5f);
-
     private bool _selfShadow = true;
     private bool _groundShadow = true;
     private VisualEffects _effects = VisualEffects.None;
     private IllustrationStyle _illustration = IllustrationStyle.None;
     private FloorReflection _reflection = FloorReflection.Off;
     private SceneFog _fog = SceneFog.Off;
+    private ShadowStyle _shadowStyle = ShadowStyle.Default;
 
     /// <summary>どれかの設定が変わった。</summary>
     public event EventHandler? Changed;
@@ -83,6 +79,22 @@ public sealed class RenderSettings
         }
     }
 
+    /// <summary>影の見え方（影のやわらかさ・地面の影の濃さ）。値は範囲に収めて持つ。</summary>
+    public ShadowStyle ShadowStyle
+    {
+        get => _shadowStyle;
+        set
+        {
+            ShadowStyle normalized = (value ?? ShadowStyle.Default).Normalized();
+            if (normalized == _shadowStyle)
+            {
+                return;
+            }
+            _shadowStyle = normalized;
+            Changed?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
     /// <summary>霧。値は範囲に収めて持つ。</summary>
     public SceneFog Fog
     {
@@ -108,6 +120,7 @@ public sealed class RenderSettings
         Illustration = IllustrationStyle.None;
         Reflection = FloorReflection.Off;
         Fog = SceneFog.Off;
+        ShadowStyle = ShadowStyle.Default;
     }
 
     private void Set(ref bool field, bool value)

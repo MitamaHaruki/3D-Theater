@@ -151,6 +151,7 @@ public sealed unsafe class NativeView : IDisposable
                 FogStart = frame.Effects.FogStart,
                 FogDensity = frame.Effects.FogDensity,
                 FogHeight = frame.Effects.FogHeight,
+                ShadowSoftness = frame.ShadowSoftness,
             };
             return NativeError.Check(NativeMethods.ViewRender(Handle, &parameters)) == NativeResult.Ok;
         }

@@ -137,6 +137,7 @@ private:
         DirectX::XMFLOAT4 shadowParams;
         DirectX::XMFLOAT4 groundShadowColor;
         DirectX::XMFLOAT4 reflectionParams; // x = 1 なら床の映り込みを描いている、y = 濃さ、z = 消えるまでの距離
+        DirectX::XMFLOAT4 shadowSoftness;   // 柔らかな影（シェーダーの ShadowSoftness と同じ）
     };
     void WriteObjectConstants(DirectX::FXMMATRIX world, DirectX::CXMMATRIX worldViewProj, const ModelFrame& frame);
     // 足す照明を定数バッファーへ書く（1 枚の描画で 1 回。床の映り込みを描く間は、床で上下に映した照明を書く）
@@ -148,7 +149,16 @@ private:
     void DrawEdges(const Mesh& mesh);
     bool RenderShadowMap(const TtFrameParams& params, ModelFrame& frame);
     void DrawGroundShadows(const TtFrameParams& params, const ModelFrame& frame);
+    // 柔らかな地面の影: 「地面影」の材質だけで照明から見た奥行きの画像を作り（床まで入るように）、床に描く四角形の範囲を決める
+    bool RenderGroundShadowMap(const TtFrameParams& params, const ModelFrame& frame, ModelFrame& groundFrame,
+        DirectX::XMFLOAT4X4& floorWorld);
+    void DrawSoftGroundShadow(const ModelFrame& groundFrame, const DirectX::XMFLOAT4X4& floorWorld);
+    // 照明から見た奥行きを dsv（size × size）へ描く。groundCasters なら「地面影」、でなければ「セルフ影マップ」の材質を描く
+    void DrawLightDepth(const TtFrameParams& params, DirectX::CXMMATRIX lightViewProj, const ModelFrame& frame,
+        ID3D11DepthStencilView* dsv, UINT size, bool groundCasters);
     void EnsureShadowMap(UINT size);
+    void EnsureDepthMap(UINT size, ComPtr<ID3D11DepthStencilView>& dsv, ComPtr<ID3D11ShaderResourceView>& srv, UINT& current,
+        const wchar_t* what);
     void DrawBox(const DirectX::XMFLOAT3& minimum, const DirectX::XMFLOAT3& maximum, DirectX::FXMMATRIX world, DirectX::CXMMATRIX viewProj);
     // 格子と座標軸。Normal = 奥行きを比べる、Ignore = 奥行きを無視していちばん先に描く、Farthest = 何も描かれていない所だけに描く
     enum class GridDepth { Normal, Ignore, Farthest };
@@ -244,6 +254,11 @@ private:
     ComPtr<ID3D11DepthStencilView> shadowMapDsv_;
     ComPtr<ID3D11ShaderResourceView> shadowMapSrv_;
     UINT shadowMapSize_ = 0;
+    ComPtr<ID3D11DepthStencilView> groundShadowMapDsv_; // 柔らかな地面の影の奥行きの画像
+    ComPtr<ID3D11ShaderResourceView> groundShadowMapSrv_;
+    UINT groundShadowMapSize_ = 0;
+    ComPtr<ID3D11VertexShader> groundSoftShadowVertexShader_;
+    ComPtr<ID3D11PixelShader> groundSoftShadowPixelShader_;
 
     ComPtr<ID3D11Query> gpuDoneQuery_;
 };

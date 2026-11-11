@@ -295,9 +295,10 @@ public partial class ViewportControl : UserControl, IDisposable
             flags |= FrameFlags.FloorReflection;
         }
         return new FrameParameters(flags, matrices.View, matrices.Projection, gridWorld, testWorld, _drawItems, _lines.Memory,
-            lightDirection, lightColor, SceneLighting.EdgePixelScale(pixelHeight), RenderSettings.GroundShadowColor,
+            lightDirection, lightColor, SceneLighting.EdgePixelScale(pixelHeight), _context.Rendering.ShadowStyle.GroundColor,
             ShadowMapSize: _context.PreviewQuality.Profile.ShadowMapSize, Effects: _context.Rendering.ToNative(pixelHeight, Camera.Kind == ViewKind.Camera ? _context.MainCamera : null),
-            Lights: EffectsMapping.LightsOf(_context.Scene), ReflectionStrength: reflection.Strength, ReflectionFade: reflection.Fade);
+            Lights: EffectsMapping.LightsOf(_context.Scene), ReflectionStrength: reflection.Strength, ReflectionFade: reflection.Fade,
+            ShadowSoftness: _context.Rendering.ShadowStyle.SoftnessTangent);
     }
 
     private static float MaxScale(SceneNode node) => Math.Max(Math.Abs(node.Scale.X), Math.Max(Math.Abs(node.Scale.Y), Math.Abs(node.Scale.Z)));
