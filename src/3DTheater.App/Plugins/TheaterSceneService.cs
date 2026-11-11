@@ -21,6 +21,7 @@ internal sealed class TheaterSceneService : ITheaterScene
         context.Playback.FrameChanged += OnFrameChanged;
         context.Selection.Changed += OnSelectionChanged;
         context.Scene.NodeChanged += OnNodeChanged;
+        context.Undo.Changed += OnUndoChanged;
         _attached = true;
     }
 
@@ -29,6 +30,8 @@ internal sealed class TheaterSceneService : ITheaterScene
     public event EventHandler? SelectionChanged;
 
     public event EventHandler? SceneChanged;
+
+    public event EventHandler? Edited;
 
     public int CurrentFrame => _context.Playback.CurrentFrame;
 
@@ -40,11 +43,30 @@ internal sealed class TheaterSceneService : ITheaterScene
 
     public IReadOnlyList<ModelInfo> Models =>
         [.. _context.Scene.ModelsGroup.Children.OfType<ModelNode>()
-            .Select(m => new ModelInfo(m.Name, m.FilePath, m.IsEffectivelyVisible, m.Bones.Count, m.Morphs.Count))];
+            .Select(m => new ModelInfo(m.Name, m.FilePath, m.IsEffectivelyVisible, m.Bones.Count, m.Morphs.Count) { Id = m.Id.ToString() })];
 
     public string? SelectedName => _context.Selection.Primary?.Name;
 
+    public string? SelectedModelId => SceneLookup.SelectedModel(_context)?.Id.ToString();
+
     public void SeekFrame(int frame) => _context.Playback.Seek(Math.Clamp(frame, 0, _context.Playback.EndFrame));
+
+    public IReadOnlyList<string> GetBoneNames(string modelId) =>
+        SceneLookup.Model(_context, modelId) is { } model ? [.. model.Bones.Select(b => b.Name)] : [];
+
+    public IReadOnlyList<string> GetMorphNames(string modelId) =>
+        SceneLookup.Model(_context, modelId) is { } model ? [.. model.Morphs.Select(m => m.Name)] : [];
+
+    public BonePose? GetBonePose(string modelId, string bone) =>
+        SceneLookup.Bone(_context, modelId, bone) is { } node ? new BonePose(node.Position, node.Orientation) : null;
+
+    public float? GetMorphWeight(string modelId, string morph) => SceneLookup.Morph(_context, modelId, morph)?.Weight;
+
+    public IReadOnlyList<BoneKeyInfo> GetBoneKeys(string modelId, string bone) =>
+        SceneLookup.Bone(_context, modelId, bone) is { } node ? [.. node.Keys.Keys.Select(k => new BoneKeyInfo(k.Frame, k.Translation, k.Rotation))] : [];
+
+    public IReadOnlyList<MorphKeyInfo> GetMorphKeys(string modelId, string morph) =>
+        SceneLookup.Morph(_context, modelId, morph) is { } node ? [.. node.Keys.Keys.Select(k => new MorphKeyInfo(k.Frame, k.Weight))] : [];
 
     /// <summary>アプリのイベントから外す（もう知らせない）。</summary>
     public void Detach()
@@ -57,14 +79,18 @@ internal sealed class TheaterSceneService : ITheaterScene
         _context.Playback.FrameChanged -= OnFrameChanged;
         _context.Selection.Changed -= OnSelectionChanged;
         _context.Scene.NodeChanged -= OnNodeChanged;
+        _context.Undo.Changed -= OnUndoChanged;
         FrameChanged = null;
         SelectionChanged = null;
         SceneChanged = null;
+        Edited = null;
     }
 
     private void OnFrameChanged(object? sender, EventArgs e) => Raise(FrameChanged, "再生位置の知らせ");
 
     private void OnSelectionChanged(object? sender, EventArgs e) => Raise(SelectionChanged, "選択の知らせ");
+
+    private void OnUndoChanged(object? sender, EventArgs e) => Raise(Edited, "編集の知らせ");
 
     // モデルの追加・削除・名前・表示の変更だけを知らせる（ボーンの動きのような細かい変化は知らせない）
     private void OnNodeChanged(object? sender, SceneNodeChangedEventArgs e)

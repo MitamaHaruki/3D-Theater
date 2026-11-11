@@ -144,6 +144,8 @@ public sealed class EditService(UndoService undo, AnimationService animation, Pl
     /// <summary>この時間内に同じ値を続けて変えたら、1 つの操作にまとめる。</summary>
     public static readonly TimeSpan MergeWindow = TimeSpan.FromSeconds(1.5);
 
+    private bool _inBatch;
+
     public UndoService Undo { get; } = undo;
 
     /// <summary>
@@ -192,6 +194,45 @@ public sealed class EditService(UndoService undo, AnimationService animation, Pl
         SceneNode[] targets = [.. nodes.Distinct()];
         includeKeys |= animation.AutoKey;
         return new EditTransaction(this, description, targets, [.. targets.Select(n => n.CaptureState(includeKeys))], includeKeys);
+    }
+
+    /// <summary>
+    /// <paramref name="edit"/> の中で <see cref="BatchEdit"/> を使って変えた値とキーを、まとめて 1 つの操作として積む（プラグインの編集）。
+    /// 何も変わらなければ積まずに false。<paramref name="edit"/> が例外を投げたら、始める前の値とキーに戻してから、その例外を投げ直す。
+    /// 再生中なら止めてから始める。まとめた編集の中で、もう一度まとめた編集は始められない。
+    /// </summary>
+    public bool Batch(string description, Action<BatchEdit> edit)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        ArgumentNullException.ThrowIfNull(edit);
+        if (_inBatch)
+        {
+            throw new InvalidOperationException("まとめた編集の中で、もう一度まとめた編集は始められません");
+        }
+        if (Undo.IsReplaying)
+        {
+            throw new InvalidOperationException("元に戻す・やり直しの途中では編集できません");
+        }
+        playback.Pause();
+        EditTransaction transaction = Begin(description, [], includeKeys: true);
+        var batch = new BatchEdit(transaction);
+        _inBatch = true;
+        try
+        {
+            edit(batch);
+        }
+        catch
+        {
+            batch.Close();
+            transaction.Cancel();
+            throw;
+        }
+        finally
+        {
+            _inBatch = false;
+        }
+        batch.Close();
+        return transaction.Commit();
     }
 
     /// <summary>
@@ -315,21 +356,41 @@ public sealed class EditTransaction
 {
     private readonly EditService _owner;
     private readonly string _description;
-    private readonly SceneNode[] _nodes;
-    private readonly NodeState[] _before;
+    private readonly List<SceneNode> _nodes;
+    private readonly List<NodeState> _before;
+    private readonly HashSet<SceneNode> _included;
     private readonly bool _includeKeys;
 
     internal EditTransaction(EditService owner, string description, SceneNode[] nodes, NodeState[] before, bool includeKeys)
     {
         _owner = owner;
         _description = description;
-        _nodes = nodes;
-        _before = before;
+        _nodes = [.. nodes];
+        _before = [.. before];
+        _included = [.. nodes];
         _includeKeys = includeKeys;
     }
 
     /// <summary>まだ終わっていない（確定も取り消しもしていない）。</summary>
     public bool IsActive { get; private set; } = true;
+
+    /// <summary>
+    /// この編集で変える項目を足す（その項目を変える前に呼ぶ。今の値を写す）。すでに入っている項目なら何もしない。
+    /// 変える項目が前もって分からない編集（<see cref="EditService.Batch"/>）に使う。
+    /// </summary>
+    public void Include(SceneNode node)
+    {
+        ArgumentNullException.ThrowIfNull(node);
+        if (!IsActive)
+        {
+            throw new InvalidOperationException("終わった編集には項目を足せません");
+        }
+        if (_included.Add(node))
+        {
+            _nodes.Add(node);
+            _before.Add(node.CaptureState(_includeKeys));
+        }
+    }
 
     /// <summary>変えた結果を 1 つの操作として積む。何も変わっていなければ積まない。積んだら true。</summary>
     public bool Commit()
@@ -344,7 +405,7 @@ public sealed class EditTransaction
         {
             return false;
         }
-        _owner.Push(_description, _nodes, _before, after, _includeKeys);
+        _owner.Push(_description, [.. _nodes], [.. _before], after, _includeKeys);
         return true;
     }
 

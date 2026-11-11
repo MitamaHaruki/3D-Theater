@@ -6,7 +6,8 @@ using Theater3D.Plugin.Sdk;
 namespace Theater3D.SamplePlugin;
 
 /// <summary>
-/// サンプルのパネル: 今のフレーム・再生中か・モデルの一覧・選択を出し、シーンの知らせで出し直す。
+/// サンプルのパネル: 今のフレーム・再生中か・モデルの一覧・選択と、選んだモデルのキーの数を出し、シーンの知らせで出し直す。
+/// キーは編集の知らせ（<see cref="ITheaterScene.Edited"/>）と選択の変化で数え直す（再生中に毎フレーム数えないように）。
 /// 色はアプリの配色の資源（<see cref="ThemeKeys"/>）に合わせる。
 /// </summary>
 internal sealed class SceneInfoView : ScrollViewer
@@ -16,6 +17,7 @@ internal sealed class SceneInfoView : ScrollViewer
     private readonly TextBlock _frame = Line();
     private readonly TextBlock _selection = Line();
     private readonly TextBlock _models = Line();
+    private readonly TextBlock _keys = Line();
     private readonly TextBlock _runs = Line(sub: true);
 
     public SceneInfoView(ITheaterScene scene, Func<int> runCount)
@@ -32,6 +34,8 @@ internal sealed class SceneInfoView : ScrollViewer
         panel.Children.Add(_selection);
         panel.Children.Add(Heading("モデル"));
         panel.Children.Add(_models);
+        panel.Children.Add(Heading("選んだモデルのキー"));
+        panel.Children.Add(_keys);
         panel.Children.Add(button);
         panel.Children.Add(_runs);
         Content = panel;
@@ -39,7 +43,11 @@ internal sealed class SceneInfoView : ScrollViewer
         _scene.FrameChanged += OnChanged;
         _scene.SelectionChanged += OnChanged;
         _scene.SceneChanged += OnChanged;
+        _scene.SelectionChanged += OnKeysChanged;
+        _scene.SceneChanged += OnKeysChanged;
+        _scene.Edited += OnKeysChanged;
         Refresh();
+        RefreshKeys();
     }
 
     /// <summary>出し直す。</summary>
@@ -54,15 +62,35 @@ internal sealed class SceneInfoView : ScrollViewer
         _runs.Text = $"「今のフレームを知らせる」を使った回数: {_runCount()} 回（プラグインの設定に保存）";
     }
 
+    /// <summary>選んだモデルのキーを数え直す。</summary>
+    public void RefreshKeys()
+    {
+        if (_scene.SelectedModelId is not { } modelId)
+        {
+            _keys.Text = "（モデルを選んでいません）";
+            return;
+        }
+        int boneKeys = _scene.GetBoneNames(modelId).Sum(b => _scene.GetBoneKeys(modelId, b).Count);
+        int morphKeys = _scene.GetMorphNames(modelId).Sum(m => _scene.GetMorphKeys(modelId, m).Count);
+        IReadOnlyList<MorphKeyInfo> blink = _scene.GetMorphKeys(modelId, SceneInfoPlugin.BlinkMorph);
+        _keys.Text = $"ボーン {boneKeys} 個・モーフ {morphKeys} 個\n"
+            + $"「{SceneInfoPlugin.BlinkMorph}」: {(blink.Count == 0 ? "キーなし" : string.Join("・", blink.Select(k => $"{k.Frame}（{k.Weight:0.##}）")))}";
+    }
+
     /// <summary>知らせの受け取りをやめる（プラグインを止めたとき）。</summary>
     public void Detach()
     {
         _scene.FrameChanged -= OnChanged;
         _scene.SelectionChanged -= OnChanged;
         _scene.SceneChanged -= OnChanged;
+        _scene.SelectionChanged -= OnKeysChanged;
+        _scene.SceneChanged -= OnKeysChanged;
+        _scene.Edited -= OnKeysChanged;
     }
 
     private void OnChanged(object? sender, EventArgs e) => Refresh();
+
+    private void OnKeysChanged(object? sender, EventArgs e) => RefreshKeys();
 
     private static TextBlock Heading(string text)
     {

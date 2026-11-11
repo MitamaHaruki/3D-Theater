@@ -30,7 +30,7 @@ public sealed class PluginHost
     public static PluginHostInfo Info { get; } = new(TheaterSdk.HostId, TheaterSdk.Version,
     [
         CoreCapabilities.Commands, CoreCapabilities.Settings, UiCapabilities.Panels, UiCapabilities.Dialogs,
-        TheaterCapabilities.SceneRead, TheaterCapabilities.SceneSeek,
+        TheaterCapabilities.SceneRead, TheaterCapabilities.SceneSeek, TheaterCapabilities.SceneEdit,
     ]);
 
     // アプリとプラグインで共通にする契約の DLL（Plugin.Core は PluginManager が足す）
@@ -173,6 +173,7 @@ public sealed class PluginHost
         private readonly PluginEntry _entry;
         private readonly List<IDisposable> _registrations = [];
         private readonly TheaterSceneService _scene;
+        private readonly TheaterEditService _editor;
         private bool _disposed;
 
         public Scope(PluginHost host, PluginEntry entry)
@@ -180,6 +181,7 @@ public sealed class PluginHost
             _host = host;
             _entry = entry;
             _scene = new TheaterSceneService(host._context, (message, ex) => host.Manager.ReportProblem(entry, message, ex));
+            _editor = new TheaterEditService(host._context);
         }
 
         public Window? Owner => _host._owner;
@@ -189,6 +191,7 @@ public sealed class PluginHost
             : serviceType == typeof(IPanelRegistry) ? this
             : serviceType == typeof(IPluginUi) ? this
             : serviceType == typeof(ITheaterScene) ? _scene
+            : serviceType == typeof(ITheaterEditor) ? _editor
             : null;
 
         public IDisposable Register(PluginCommand command)
@@ -241,6 +244,7 @@ public sealed class PluginHost
             }
             _disposed = true;
             _scene.Detach();
+            _editor.Detach();
             for (int i = _registrations.Count - 1; i >= 0; i--)
             {
                 _registrations[i].Dispose();
