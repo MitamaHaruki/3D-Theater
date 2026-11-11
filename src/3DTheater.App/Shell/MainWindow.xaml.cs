@@ -822,37 +822,27 @@ public partial class MainWindow : Window
 
     private void OnReflectionClick(object sender, RoutedEventArgs e)
     {
-        var window = new ReflectionWindow(_context.Rendering) { Owner = this };
-        WindowMemory.Track(window);
-        window.ShowDialog();
+        ShowSettingsDialog(new ReflectionWindow(_context.Rendering) { Owner = this }, "床の映り込みの変更");
     }
 
     private void OnShadowClick(object sender, RoutedEventArgs e)
     {
-        var window = new ShadowWindow(_context.Rendering) { Owner = this };
-        WindowMemory.Track(window);
-        window.ShowDialog();
+        ShowSettingsDialog(new ShadowWindow(_context.Rendering) { Owner = this }, "影の設定の変更");
     }
 
     private void OnEnvironmentClick(object sender, RoutedEventArgs e)
     {
-        var window = new EnvironmentWindow(_context.Rendering, _context.EnvironmentImage) { Owner = this };
-        WindowMemory.Track(window);
-        window.ShowDialog();
+        ShowSettingsDialog(new EnvironmentWindow(_context.Rendering, _context.EnvironmentImage) { Owner = this }, "環境の画像の変更");
     }
 
     private void OnFogClick(object sender, RoutedEventArgs e)
     {
-        var window = new FogWindow(_context.Rendering) { Owner = this };
-        WindowMemory.Track(window);
-        window.ShowDialog();
+        ShowSettingsDialog(new FogWindow(_context.Rendering) { Owner = this }, "霧の変更");
     }
 
     private void OnEffectsClick(object sender, RoutedEventArgs e)
     {
-        var window = new EffectsWindow(_context.Rendering) { Owner = this };
-        WindowMemory.Track(window);
-        window.ShowDialog();
+        ShowSettingsDialog(new EffectsWindow(_context.Rendering) { Owner = this }, "映像効果の変更");
     }
 
     private void OnMaterialsClick(object sender, RoutedEventArgs e) => OpenMaterials(this, _context);
@@ -873,9 +863,7 @@ public partial class MainWindow : Window
 
     private void OnIllustrationClick(object sender, RoutedEventArgs e)
     {
-        var window = new IllustrationWindow(_context.Rendering) { Owner = this };
-        WindowMemory.Track(window);
-        window.ShowDialog();
+        ShowSettingsDialog(new IllustrationWindow(_context.Rendering) { Owner = this }, "イラスト風の変更");
     }
 
     private void OnRenderQualityClick(object sender, RoutedEventArgs e)
@@ -885,9 +873,27 @@ public partial class MainWindow : Window
         window.ShowDialog();
     }
 
-    private void OnSelfShadowClick(object sender, RoutedEventArgs e) => _context.Rendering.SelfShadow = SelfShadowMenuItem.IsChecked;
+    private void OnSelfShadowClick(object sender, RoutedEventArgs e) =>
+        _context.Edits.ChangeSettings("セルフシャドウの切り替え", _context.Rendering, () => _context.Rendering.SelfShadow = SelfShadowMenuItem.IsChecked);
 
-    private void OnGroundShadowClick(object sender, RoutedEventArgs e) => _context.Rendering.GroundShadow = GroundShadowMenuItem.IsChecked;
+    private void OnGroundShadowClick(object sender, RoutedEventArgs e) =>
+        _context.Edits.ChangeSettings("地面の影の切り替え", _context.Rendering, () => _context.Rendering.GroundShadow = GroundShadowMenuItem.IsChecked);
+
+    /// <summary>描き方の設定の画面を開き、閉じたら、開いている間の変更を 1 つの操作として履歴へ積む（Ctrl+Z で開く前に戻せる）。</summary>
+    private void ShowSettingsDialog(Window window, string description)
+    {
+        _context.Playback.Pause();
+        SettingsTransaction edit = _context.Edits.BeginSettings(description, _context.Rendering);
+        WindowMemory.Track(window);
+        try
+        {
+            window.ShowDialog();
+        }
+        finally
+        {
+            edit.Commit();
+        }
+    }
 
     private void UpdateRenderingControls()
     {

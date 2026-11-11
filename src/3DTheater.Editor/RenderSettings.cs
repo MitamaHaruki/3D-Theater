@@ -128,6 +128,23 @@ public sealed class RenderSettings
         }
     }
 
+    /// <summary>今の設定の写し（元に戻すに使う）。</summary>
+    public RenderSettingsSnapshot Capture() =>
+        new(SelfShadow, GroundShadow, Effects, Illustration, Reflection, Fog, ShadowStyle, Environment);
+
+    /// <summary>写しの設定に戻す。</summary>
+    public void Restore(RenderSettingsSnapshot snapshot)
+    {
+        SelfShadow = snapshot.SelfShadow;
+        GroundShadow = snapshot.GroundShadow;
+        Effects = snapshot.Effects;
+        Illustration = snapshot.Illustration;
+        Reflection = snapshot.Reflection;
+        Fog = snapshot.Fog;
+        ShadowStyle = snapshot.ShadowStyle;
+        Environment = snapshot.Environment;
+    }
+
     /// <summary>初期の設定に戻す（新しいプロジェクト）。</summary>
     public void Reset()
     {
@@ -151,3 +168,7 @@ public sealed class RenderSettings
         Changed?.Invoke(this, EventArgs.Empty);
     }
 }
+
+/// <summary>描き方の設定の写し（<see cref="RenderSettings.Capture"/>）。同じ値の写しどうしは等しい。</summary>
+public sealed record RenderSettingsSnapshot(bool SelfShadow, bool GroundShadow, VisualEffects Effects, IllustrationStyle Illustration,
+    FloorReflection Reflection, SceneFog Fog, ShadowStyle ShadowStyle, SceneEnvironment Environment);

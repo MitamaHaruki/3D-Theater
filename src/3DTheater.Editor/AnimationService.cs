@@ -54,6 +54,9 @@ public sealed class AnimationService
     /// <summary>キーの値を当てはめている途中か（この間の値の変化は、手で変えたものではない）。</summary>
     public bool IsApplying => _applying > 0;
 
+    /// <summary>キーを当てはめるシーン。</summary>
+    public SceneDocument Scene => _scene;
+
     /// <summary>自動キーフレーム。初期値は OFF（指示書 3.3）。</summary>
     public bool AutoKey
     {
