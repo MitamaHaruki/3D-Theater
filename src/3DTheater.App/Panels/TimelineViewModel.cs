@@ -9,13 +9,16 @@ public sealed class TimelineViewModel : ObservableObject
 {
     private readonly PlaybackService _playback;
     private readonly AnimationService _animation;
+    private readonly EditService _edits;
     private readonly Action<int> _changeFrameRate;
 
+    /// <param name="edits">終わりのフレーム・ループを元に戻せるように変える。</param>
     /// <param name="changeFrameRate">フレームの速さを選んだときに呼ぶ（キーがあれば位置を合わせるか尋ね、元に戻せるように変える）。</param>
-    public TimelineViewModel(PlaybackService playback, AnimationService animation, Action<int> changeFrameRate)
+    public TimelineViewModel(PlaybackService playback, AnimationService animation, EditService edits, Action<int> changeFrameRate)
     {
         _playback = playback;
         _animation = animation;
+        _edits = edits;
         _changeFrameRate = changeFrameRate;
         playback.FrameChanged += (_, _) => OnPropertyChanged(nameof(CurrentFrame));
         playback.StateChanged += (_, _) => OnPropertyChanged(string.Empty);
@@ -51,20 +54,23 @@ public sealed class TimelineViewModel : ObservableObject
         }
     }
 
+    /// <summary>終わりのフレーム（元に戻せる。欄のホイール・ドラッグで続けて変えた分は 1 つの操作にまとめる）。</summary>
     public double EndFrame
     {
         get => _playback.EndFrame;
         set
         {
-            _playback.EndFrame = (int)Math.Round(value);
+            _edits.ChangeValue("終わりのフレームの変更", () => _playback.EndFrame, v => _playback.EndFrame = v, (int)Math.Round(value),
+                mergeKey: "playback.endFrame");
             OnPropertyChanged(nameof(EndFrame));
         }
     }
 
+    /// <summary>ループ再生（元に戻せる）。</summary>
     public bool Loop
     {
         get => _playback.Loop;
-        set => _playback.Loop = value;
+        set => _edits.ChangeValue($"ループ再生を {(value ? "ON" : "OFF")} にする", () => _playback.Loop, v => _playback.Loop = v, value);
     }
 
     public int FrameRate

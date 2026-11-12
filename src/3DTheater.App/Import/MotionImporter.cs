@@ -111,12 +111,15 @@ internal static class MotionImporter
         {
             targets.Add(display); // 表示・IK のキーも 1 回の元に戻すで戻す
         }
-        context.Edits.Change($"モーションの読み込み（{Path.GetFileName(path)}）", targets,
-            () => imported = MotionImport.ApplyVmd(motion.Document!, model, context.Playback.FrameRate, motion.Report), includeKeys: true);
-        if (imported.LastFrame > context.Playback.EndFrame)
+        // 読み込みと、それに合わせて伸ばした終わりのフレームは、1 回の元に戻すで戻す
+        using (context.Undo.BeginGroup())
         {
-            context.Playback.EndFrame = imported.LastFrame;
-            motion.Report.Info(LoadIssueCategory.Note, $"モーションの長さに合わせて、終わりのフレームを {imported.LastFrame:N0} にしました");
+            context.Edits.Change($"モーションの読み込み（{Path.GetFileName(path)}）", targets,
+                () => imported = MotionImport.ApplyVmd(motion.Document!, model, context.Playback.FrameRate, motion.Report), includeKeys: true);
+            if (context.Edits.ExtendEndFrame(imported.LastFrame))
+            {
+                motion.Report.Info(LoadIssueCategory.Note, $"モーションの長さに合わせて、終わりのフレームを {imported.LastFrame:N0} にしました");
+            }
         }
         context.Animation.ApplyFrame();
         Finish(owner, path, motion.Report, "モーション",
@@ -148,17 +151,20 @@ internal static class MotionImporter
         CameraImportResult? cameraResult = null;
         LightImportResult? lightResult = null;
         SelfShadowImportResult? shadowResult = null;
-        context.Edits.Change($"カメラ・照明のモーションの読み込み（{Path.GetFileName(path)}）", targets, () =>
+        int lastFrame;
+        using (context.Undo.BeginGroup())
         {
-            cameraResult = camera is null ? null : CameraMotion.Apply(vmd, camera, context.Playback.FrameRate, motion.Report);
-            lightResult = light is null ? null : LightMotion.Apply(vmd, light, context.Playback.FrameRate, motion.Report);
-            shadowResult = selfShadow is null ? null : SelfShadowMotion.Apply(vmd, selfShadow, context.Playback.FrameRate, motion.Report);
-        }, includeKeys: true);
-        int lastFrame = Math.Max(Math.Max(cameraResult?.LastFrame ?? 0, lightResult?.LastFrame ?? 0), shadowResult?.LastFrame ?? 0);
-        if (lastFrame > context.Playback.EndFrame)
-        {
-            context.Playback.EndFrame = lastFrame;
-            motion.Report.Info(LoadIssueCategory.Note, $"モーションの長さに合わせて、終わりのフレームを {lastFrame:N0} にしました");
+            context.Edits.Change($"カメラ・照明のモーションの読み込み（{Path.GetFileName(path)}）", targets, () =>
+            {
+                cameraResult = camera is null ? null : CameraMotion.Apply(vmd, camera, context.Playback.FrameRate, motion.Report);
+                lightResult = light is null ? null : LightMotion.Apply(vmd, light, context.Playback.FrameRate, motion.Report);
+                shadowResult = selfShadow is null ? null : SelfShadowMotion.Apply(vmd, selfShadow, context.Playback.FrameRate, motion.Report);
+            }, includeKeys: true);
+            lastFrame = Math.Max(Math.Max(cameraResult?.LastFrame ?? 0, lightResult?.LastFrame ?? 0), shadowResult?.LastFrame ?? 0);
+            if (context.Edits.ExtendEndFrame(lastFrame))
+            {
+                motion.Report.Info(LoadIssueCategory.Note, $"モーションの長さに合わせて、終わりのフレームを {lastFrame:N0} にしました");
+            }
         }
         if (light is null && vmd.LightKeys.Count > 0)
         {

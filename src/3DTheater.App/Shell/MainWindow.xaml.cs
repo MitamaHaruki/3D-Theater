@@ -775,31 +775,34 @@ public partial class MainWindow : Window
         }
     }
 
-    // メニューは押すと印が切り替わってから Click が来る
-    private void OnPhysicsClick(object sender, RoutedEventArgs e)
-    {
-        _context.Physics.Enabled = PhysicsMenuItem.IsChecked;
-        UpdatePhysicsControls();
-    }
+    // メニューは押すと印が切り替わってから Click が来る。どの切り替えも元に戻せる
+    private void OnPhysicsClick(object sender, RoutedEventArgs e) => SetPhysicsEnabled(PhysicsMenuItem.IsChecked);
 
     // ツールバーのボタンは、押した状態そのものを見る（キーボードや支援技術から切り替えたときも効くように）
-    private void OnPhysicsButtonToggled(object sender, RoutedEventArgs e)
+    private void OnPhysicsButtonToggled(object sender, RoutedEventArgs e) => SetPhysicsEnabled(PhysicsButton.IsChecked == true);
+
+    private void SetPhysicsEnabled(bool on)
     {
-        _context.Physics.Enabled = PhysicsButton.IsChecked == true;
+        _context.Edits.ChangeValue($"物理演算を {OnOff(on)} にする", () => _context.Physics.Enabled, v => _context.Physics.Enabled = v, on);
         UpdatePhysicsControls();
     }
 
     private void OnPhysicsFloorClick(object sender, RoutedEventArgs e)
     {
-        _context.Physics.FloorEnabled = PhysicsFloorMenuItem.IsChecked;
+        bool on = PhysicsFloorMenuItem.IsChecked;
+        _context.Edits.ChangeValue($"物理の床との当たりを {OnOff(on)} にする", () => _context.Physics.FloorEnabled, v => _context.Physics.FloorEnabled = v, on);
         UpdatePhysicsControls();
     }
 
     private void OnPhysicsBetweenModelsClick(object sender, RoutedEventArgs e)
     {
-        _context.Physics.BetweenModels = PhysicsBetweenModelsMenuItem.IsChecked;
+        bool on = PhysicsBetweenModelsMenuItem.IsChecked;
+        _context.Edits.ChangeValue($"物理のモデルどうしの当たりを {OnOff(on)} にする", () => _context.Physics.BetweenModels,
+            v => _context.Physics.BetweenModels = v, on);
         UpdatePhysicsControls();
     }
+
+    private static string OnOff(bool on) => on ? "ON" : "OFF";
 
     private void OnResetPhysicsClick(object sender, RoutedEventArgs e)
     {

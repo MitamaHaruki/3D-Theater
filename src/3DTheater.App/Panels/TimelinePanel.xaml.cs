@@ -17,7 +17,7 @@ public partial class TimelinePanel : UserControl
         InitializeComponent();
         _playback = context.Playback;
         _context = context;
-        DataContext = new TimelineViewModel(context.Playback, context.Animation, ChangeFrameRate);
+        DataContext = new TimelineViewModel(context.Playback, context.Animation, context.Edits, ChangeFrameRate);
         _canvas = new TimelineCanvas(context);
         CanvasHost.Child = _canvas;
         HorizontalBar.Margin = new Thickness(TimelineCanvas.NameColumnWidth, 0, 0, 0);

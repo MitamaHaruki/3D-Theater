@@ -36,12 +36,14 @@ internal static class AudioImporter
 
         context.Playback.Pause();
         var node = new AudioNode(Path.GetFileNameWithoutExtension(fullPath), fullPath, clip.Duration);
-        AudioPresenceAction.Replace(context, node);
         int end = node.EndFrame(context.Playback.FrameRate);
-        if (end > context.Playback.EndFrame)
+        // 読み込みと、それに合わせて伸ばした終わりのフレームは、1 回の元に戻すで戻す
+        using (context.Undo.BeginGroup())
         {
-            context.Playback.EndFrame = end;
-            AppLog.Info($"音声の終わりに合わせて、終わりのフレームを {end} にしました");
+            if (AudioPresenceAction.Replace(context, node) && context.Edits.ExtendEndFrame(end))
+            {
+                AppLog.Info($"音声の終わりに合わせて、終わりのフレームを {end} にしました");
+            }
         }
         context.Selection.Select(node, SelectMode.Replace, null);
         AppLog.Info($"音声「{node.Name}」を読み込みました（{clip.Duration:m\\:ss\\.fff}、{clip.SampleRate:N0} Hz・{clip.Channels} ch）");

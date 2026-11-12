@@ -9,9 +9,13 @@ namespace Theater3D.App.Controls;
 /// <summary>
 /// 数値の入力欄。Enter かフォーカスを外したときに確定し、Esc で元に戻す。
 /// 正しくない文字は確定せず元の値に戻す。ホイールで <see cref="Step"/> ずつ増減（Shift で 1/10、Ctrl で 10 倍）。
+/// 書き換えていないとき（入力の焦点があっても）は、外から変わった値（元に戻すなど）をすぐ出し、焦点を外しても確定し直さない。
 /// </summary>
 public sealed class NumberBox : TextBox
 {
+    // この欄が最後に自分で出した文字（利用者が書き換えていなければ Text と同じ）
+    private string? _shownText;
+
     public static readonly DependencyProperty ValueProperty = DependencyProperty.Register(
         nameof(Value), typeof(double), typeof(NumberBox),
         new FrameworkPropertyMetadata(0d, FrameworkPropertyMetadataOptions.BindsTwoWayByDefault, OnValueChanged)
@@ -82,7 +86,7 @@ public sealed class NumberBox : TextBox
         }
         else if (e.Key == Key.Escape)
         {
-            ShowValue();
+            ShowValue(force: true);
             SelectAll();
             e.Handled = true;
         }
@@ -123,19 +127,31 @@ public sealed class NumberBox : TextBox
 
     private static void OnValueChanged(DependencyObject d, DependencyPropertyChangedEventArgs e) => ((NumberBox)d).ShowValue();
 
-    private void ShowValue()
+    /// <summary>利用者が、この欄の出した文字を書き換えたか（入力中か）。</summary>
+    private bool IsEdited => Text != _shownText;
+
+    // 入力中（書き換えた後）は、外から値が変わっても書き換えない。書き換えていなければ、焦点があっても新しい値を出す
+    // （焦点のある欄の値を、編集のメニューの「元に戻す」で戻したときなど）
+    private void ShowValue(bool force = false)
     {
-        if (!IsKeyboardFocusWithin)
+        if (force || !IsKeyboardFocusWithin || !IsEdited)
         {
-            Text = Value.ToString(Format, CultureInfo.CurrentCulture);
+            SetText(Value.ToString(Format, CultureInfo.CurrentCulture));
         }
+    }
+
+    private void SetText(string text)
+    {
+        _shownText = text;
+        Text = text;
     }
 
     private void Commit()
     {
-        if (IsReadOnly)
+        // 書き換えていなければ確定し直さない（外から変わった値を、古い文字で上書きしないため）
+        if (IsReadOnly || !IsEdited)
         {
-            ShowValue();
+            ShowValue(force: true);
             return;
         }
         string text = Text.Trim().TrimEnd('°', ' ', 'm', '%');
@@ -147,7 +163,7 @@ public sealed class NumberBox : TextBox
                 SetAndPush(parsed);
             }
         }
-        Text = Value.ToString(Format, CultureInfo.CurrentCulture);
+        SetText(Value.ToString(Format, CultureInfo.CurrentCulture));
     }
 
     private void SetAndPush(double value)
@@ -156,6 +172,6 @@ public sealed class NumberBox : TextBox
         GetBindingExpression(ValueProperty)?.UpdateSource();
         // 受け取った側が値を丸めることがあるので、確定後の値を表示し直す
         GetBindingExpression(ValueProperty)?.UpdateTarget();
-        Text = Value.ToString(Format, CultureInfo.CurrentCulture);
+        SetText(Value.ToString(Format, CultureInfo.CurrentCulture));
     }
 }

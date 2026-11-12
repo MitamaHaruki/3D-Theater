@@ -21,6 +21,7 @@ public sealed class UndoService(int limit = 300)
 {
     private readonly List<IUndoableAction> _undo = [];
     private readonly List<IUndoableAction> _redo = [];
+    private List<IUndoableAction>? _group;
 
     /// <summary>履歴が変わった（メニューやボタンの有効・無効を合わせるため）。</summary>
     public event EventHandler? Changed;
@@ -43,13 +44,47 @@ public sealed class UndoService(int limit = 300)
     /// <summary>元に戻す・やり直しの途中か（その間に起きた変更は履歴に積まない）。</summary>
     public bool IsReplaying { get; private set; }
 
-    /// <summary>いちばん新しい操作（続けて変えた値を 1 つにまとめるときに見る）。</summary>
-    public IUndoableAction? Top => _undo.Count > 0 ? _undo[^1] : null;
+    /// <summary>
+    /// いちばん新しい操作（続けて変えた値を 1 つにまとめるときに見る）。まとめている途中（<see cref="BeginGroup"/>）は null
+    /// （まとめる前の操作に混ぜないため）。
+    /// </summary>
+    public IUndoableAction? Top => _group is null && _undo.Count > 0 ? _undo[^1] : null;
+
+    /// <summary>
+    /// これから積む操作を、1 回の元に戻す・やり直しにまとめる（読み込みと、それに合わせて伸ばした終わりのフレームなど）。
+    /// 返したものを Dispose すると閉じて積む。中で積んだ操作が 1 つならそのまま、2 つ以上なら、最初の操作の説明で 1 つにまとめる。
+    /// 何も積まなければ何もしない。まとめている途中に呼んだときは、外側にまとめる（何もしないものを返す）。
+    /// </summary>
+    public IDisposable BeginGroup()
+    {
+        if (_group is not null || IsReplaying)
+        {
+            return EmptyScope.Instance;
+        }
+        _group = [];
+        return new GroupScope(this);
+    }
+
+    private void EndGroup()
+    {
+        List<IUndoableAction>? actions = _group;
+        _group = null;
+        if (actions is null || actions.Count == 0)
+        {
+            return;
+        }
+        Push(actions.Count == 1 ? actions[0] : new GroupAction(actions));
+    }
 
     public void Push(IUndoableAction action)
     {
         if (IsReplaying)
         {
+            return;
+        }
+        if (_group is not null)
+        {
+            _group.Add(action);
             return;
         }
         _undo.Add(action);
@@ -119,6 +154,59 @@ public sealed class UndoService(int limit = 300)
 
     private static void Discard(IUndoableAction action) => (action as IDisposable)?.Dispose();
 
+    /// <summary>まとめた操作。元に戻すときは後ろから、やり直すときは前から行う。</summary>
+    private sealed class GroupAction(List<IUndoableAction> actions) : IUndoableAction, IDisposable
+    {
+        public string Description => actions[0].Description;
+
+        public void Undo()
+        {
+            for (int i = actions.Count - 1; i >= 0; i--)
+            {
+                actions[i].Undo();
+            }
+        }
+
+        public void Redo()
+        {
+            foreach (IUndoableAction action in actions)
+            {
+                action.Redo();
+            }
+        }
+
+        public void Dispose()
+        {
+            foreach (IUndoableAction action in actions)
+            {
+                Discard(action);
+            }
+        }
+    }
+
+    private sealed class GroupScope(UndoService owner) : IDisposable
+    {
+        private bool _closed;
+
+        public void Dispose()
+        {
+            if (!_closed)
+            {
+                _closed = true;
+                owner.EndGroup();
+            }
+        }
+    }
+
+    private sealed class EmptyScope : IDisposable
+    {
+        public static readonly EmptyScope Instance = new();
+
+        public void Dispose()
+        {
+        }
+    }
+
     private void Replay(Action action)
     {
         ReplayCount++;
@@ -182,6 +270,70 @@ public sealed class EditService(UndoService undo, AnimationService animation, Pl
         }
         Undo.Push(new SceneChange(this, description, targets, before, after, mergeKey, now, includeKeys) { ReplayCount = Undo.ReplayCount });
         return true;
+    }
+
+    /// <summary>
+    /// 場面の項目でない値（物理の切り替え・終わりのフレーム・ループなど）を <paramref name="set"/> で <paramref name="value"/> にし、
+    /// 元に戻せるように履歴へ積む。値が変わらなければ積まずに false。元に戻す・やり直しの途中なら、値を変えるだけで積まない。
+    /// <paramref name="mergeKey"/> が前の操作と同じで、すぐ後なら、前の操作にまとめる（数の欄のホイール・ドラッグ）。
+    /// </summary>
+    public bool ChangeValue<T>(string description, Func<T> get, Action<T> set, T value, string? mergeKey = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        if (Undo.IsReplaying)
+        {
+            set(value);
+            return false;
+        }
+        T before = get();
+        set(value);
+        T after = get();
+        if (EqualityComparer<T>.Default.Equals(before, after))
+        {
+            return false;
+        }
+        DateTime now = DateTime.UtcNow;
+        if (mergeKey is not null && Undo.Top is ValueChange<T> top && top.MergeKey == mergeKey && now - top.LastChanged < MergeWindow
+            && top.ReplayCount == Undo.ReplayCount)
+        {
+            top.Absorb(after, now);
+            Undo.NotifyTopChanged();
+            return true;
+        }
+        Undo.Push(new ValueChange<T>(description, set, before, after, mergeKey, now) { ReplayCount = Undo.ReplayCount });
+        return true;
+    }
+
+    /// <summary>
+    /// 終わりのフレームを <paramref name="lastFrame"/> まで伸ばす（短くはしない。読み込んだモーション・音声の長さに合わせる）。
+    /// 元に戻せる（読み込みと 1 回の元に戻すにまとめるときは、<see cref="UndoService.BeginGroup"/> の中で呼ぶ）。伸ばしたら true。
+    /// </summary>
+    public bool ExtendEndFrame(int lastFrame) =>
+        lastFrame > playback.EndFrame && ChangeValue("終わりのフレームの変更", () => playback.EndFrame, v => playback.EndFrame = v, lastFrame);
+
+    /// <summary>場面の項目でない値を変える操作 1 つ。</summary>
+    private sealed class ValueChange<T>(string description, Action<T> set, T before, T after, string? mergeKey, DateTime time) : IUndoableAction
+    {
+        private T _after = after;
+
+        public string Description { get; } = description;
+
+        public string? MergeKey { get; } = mergeKey;
+
+        public DateTime LastChanged { get; private set; } = time;
+
+        /// <summary>作ったときの <see cref="UndoService.ReplayCount"/>。</summary>
+        public int ReplayCount { get; init; }
+
+        public void Absorb(T value, DateTime time)
+        {
+            _after = value;
+            LastChanged = time;
+        }
+
+        public void Undo() => set(before);
+
+        public void Redo() => set(_after);
     }
 
     /// <summary>
