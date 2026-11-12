@@ -108,7 +108,7 @@ public partial class OutputWindow : Window
         {
             if (model.Mesh is { } mesh)
             {
-                _items.Add(new DrawItem(mesh, node.GetLocalMatrix(), DrawFlags.None));
+                _items.Add(new DrawItem(mesh, node.WorldMatrix, DrawFlags.None));
             }
         }
         var (lightDirection, lightColor) = SceneLighting.From(_context.MainLight);

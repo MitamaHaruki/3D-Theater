@@ -220,6 +220,26 @@
             <Button Margin="8,0,0,0" Content="材質..." Click="OnMaterialsClick"
                     ToolTip="材質を PBR（金属らしさ・粗さ）や発光で上書きします（モデルのメニューの「材質の設定」と同じ）" />
           </StackPanel>
+          <TextBlock Text="付ける先（ボーンと一緒に動かす）" Style="{StaticResource SectionHeaderStyle}" Margin="0,14,0,6" />
+          <Grid>
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="96" />
+              <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+              <RowDefinition Height="Auto" />
+              <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+            <TextBlock Text="モデル" Style="{StaticResource RowLabelStyle}" />
+            <ComboBox Grid.Column="1" Margin="0,2" MinHeight="0" Padding="6,2" FontSize="12" AutomationProperties.Name="付ける先のモデル"
+                      ItemsSource="{Binding AttachModelChoices}" SelectedItem="{Binding AttachModel}" DisplayMemberPath="Name"
+                      IsEnabled="{Binding IsEditable}" />
+            <TextBlock Grid.Row="1" Text="ボーン" Style="{StaticResource RowLabelStyle}" />
+            <ComboBox Grid.Row="1" Grid.Column="1" Margin="0,2" MinHeight="0" Padding="6,2" FontSize="12" AutomationProperties.Name="付ける先のボーン"
+                      ItemsSource="{Binding AttachBoneChoices}" SelectedItem="{Binding AttachBone}" IsTextSearchEnabled="True"
+                      IsEnabled="{Binding CanChooseAttachBone}" MaxDropDownHeight="360" />
+          </Grid>
+          <TextBlock Margin="0,6,0,0" Style="{StaticResource PlannedNoteStyle}" Text="{Binding AttachNote}" />
           <StackPanel Visibility="{Binding HasModelComment, Converter={StaticResource BoolToVisibility}}">
             <TextBlock Text="モデルのコメント（作者・利用条件など）" Style="{StaticResource SectionHeaderStyle}" Margin="0,12,0,4" />
             <TextBox IsReadOnly="True" TextWrapping="Wrap" MinHeight="0" MaxHeight="160" Padding="6,4" FontSize="11"

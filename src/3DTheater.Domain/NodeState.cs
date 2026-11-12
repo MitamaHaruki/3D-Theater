@@ -17,7 +17,10 @@ public sealed record LightState(float Intensity, Vector3 Color, float Range, flo
 public sealed record TestObjectState(bool SpinWithFrame);
 
 /// <summary>モデルの値（材質の上書き）。</summary>
-public sealed record ModelState(MaterialOverrideSet MaterialOverrides);
+public sealed record ModelState(MaterialOverrideSet MaterialOverrides, ModelAttachment? Attachment = null);
+
+/// <summary>モデルを付ける先（ほかのモデル <paramref name="ModelId"/> の、名前が <paramref name="BoneName"/> のボーン）。</summary>
+public sealed record ModelAttachment(Guid ModelId, string BoneName);
 
 public sealed record AudioState(int StartFrame, float Volume);
 

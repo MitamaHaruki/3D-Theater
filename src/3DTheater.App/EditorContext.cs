@@ -157,6 +157,7 @@ public sealed class EditorContext
         Physics = new PhysicsController(this);
         Audio = new Audio.AudioService(this);
         Poses = new PoseUpdater(this);
+        Attachments = new AttachmentUpdater(this); // ポーズの後に求める
         MorphPresets = Shell.MorphPresetStore.Load();
         EnvironmentImage = new EnvironmentImage(engine, Rendering);
         Rendering.Changed += (_, _) => RenderLoop.InvalidateAll();
@@ -257,6 +258,9 @@ public sealed class EditorContext
 
     /// <summary>ボーン・モーフの値が変わったモデルを、描画の前に変形し直す。</summary>
     public PoseUpdater Poses { get; }
+
+    /// <summary>ボーンに付けたモデルの、付けた先の行列を求める。</summary>
+    public AttachmentUpdater Attachments { get; }
 
     /// <summary>物理演算の ON/OFF と進め方。</summary>
     public PhysicsController Physics { get; }

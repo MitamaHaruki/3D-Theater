@@ -342,6 +342,15 @@ public sealed class ModelEntry
 
     public float[] Scale { get; set; } = [1, 1, 1];
 
+    /// <summary>このモデルの目印（ほかのモデルが付ける先として指す。保存のたびに変わってよい）。</summary>
+    public string? Id { get; set; }
+
+    /// <summary>付けた先のモデルの目印（<see cref="Id"/>）。付けていなければ書かない。位置・回転・拡大は付けた先のボーンから見た値。</summary>
+    public string? AttachTo { get; set; }
+
+    /// <summary>付けた先のボーンの名前。</summary>
+    public string? AttachBone { get; set; }
+
     /// <summary>モデルの中のまとまり（「ボーン/腕」など）の表示とロック。初期のままなら書かない。</summary>
     public List<GroupEntry>? Groups { get; set; }
 
@@ -559,9 +568,10 @@ public static class ProjectCapture
             Keys = l.Keys.Count > 0 ? [.. l.Keys.Keys.Select(KeyCodec.Encode)] : null,
         })];
         project.Lights = lights.Count > 0 ? lights : null;
-        foreach (ModelNode model in scene.ModelsGroup.Children.OfType<ModelNode>())
+        ModelNode[] models = [.. scene.ModelsGroup.Children.OfType<ModelNode>()];
+        foreach (ModelNode model in models)
         {
-            project.Models.Add(Model(model, projectDirectory));
+            project.Models.Add(Model(model, projectDirectory, models));
         }
         project.Models.AddRange(missingModels);
         project.Audio = scene.Audio is { } audio
@@ -620,8 +630,13 @@ public static class ProjectCapture
         return entry;
     }
 
-    private static ModelEntry Model(ModelNode model, string? projectDirectory)
+    private static ModelEntry Model(ModelNode model, string? projectDirectory, IReadOnlyList<ModelNode> models)
     {
+        // 付けた先のモデルがシーンに無い（外した）ときは、今の見た目の置き方で、付けずに書く（開き直したときに飛ばないように）
+        ModelAttachment? attachment = model.Attachment is { } a && models.Any(m => m.Id == a.ModelId) ? a : null;
+        var (position, rotation, scale) = model.Attachment is not null && attachment is null
+            ? ModelAttachments.KeepWorld(model.WorldMatrix, Matrix4x4.Identity)
+            : (model.Position, model.Rotation, model.Scale);
         var entry = new ModelEntry
         {
             File = RelativeOrAbsolute(model.FilePath, projectDirectory),
@@ -629,9 +644,12 @@ public static class ProjectCapture
             Name = model.Name,
             Visible = model.IsVisible,
             Locked = model.IsLocked,
-            Position = V(model.Position),
-            Rotation = V(model.Rotation),
-            Scale = V(model.Scale),
+            Position = V(position),
+            Rotation = V(rotation),
+            Scale = V(scale),
+            Id = model.Id.ToString("N"),
+            AttachTo = attachment?.ModelId.ToString("N"),
+            AttachBone = attachment?.BoneName,
         };
         var groups = new List<GroupEntry>();
         foreach (SceneNode group in model.DescendantsAndSelf().Where(n => n.Kind == SceneNodeKind.Group))
@@ -873,6 +891,51 @@ public static class ProjectApply
     /// 読み込んだモデルに、保存した状態（置き方・まとまりの表示とロック・ボーンとモーフのキーと値）を戻す。
     /// ボーン・モーフは番号と名前が合えばそれを、合わなければ名前で探す（モデルのファイルが変わったとき）。
     /// </summary>
+    /// <summary>
+    /// 読み込んだモデルの、付けた先を戻す（全部のモデルを読み込んでから呼ぶ）。付けた先のモデル・ボーンが見つからなければ、
+    /// 付けずに置き、レポートで知らせる（位置・回転・拡大は、付けた先から見た値のまま）。
+    /// </summary>
+    public static void ApplyAttachments(IReadOnlyList<(ModelEntry Entry, ModelNode? Node)> models, LoadReport report)
+    {
+        var byId = new Dictionary<string, ModelNode>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (entry, node) in models)
+        {
+            if (node is not null && !string.IsNullOrEmpty(entry.Id))
+            {
+                byId.TryAdd(entry.Id, node);
+            }
+        }
+        foreach (var (entry, node) in models)
+        {
+            if (node is null || string.IsNullOrEmpty(entry.AttachTo))
+            {
+                continue;
+            }
+            string bone = entry.AttachBone ?? string.Empty;
+            if (!byId.TryGetValue(entry.AttachTo, out ModelNode? parent) || ReferenceEquals(parent, node))
+            {
+                report.Warning(LoadIssueCategory.InvalidReference, $"モデル「{node.Name}」の付ける先のモデルが見つからないため、付けずに置きます");
+                continue;
+            }
+            if (!parent.Bones.Any(b => b.Name == bone))
+            {
+                report.Warning(LoadIssueCategory.InvalidReference, $"モデル「{node.Name}」の付ける先のボーン「{bone}」が「{parent.Name}」に無いため、付けずに置きます");
+                continue;
+            }
+            node.Attachment = new ModelAttachment(parent.Id, bone);
+        }
+        // 輪になった付け方（壊れたファイル）は外す
+        ModelNode? Find(Guid id) => models.Select(m => m.Node).FirstOrDefault(n => n?.Id == id);
+        foreach (ModelNode node in models.Select(m => m.Node).OfType<ModelNode>())
+        {
+            if (node.Attachment is { } a && Find(a.ModelId) is { } parent && ModelAttachments.WouldLoop(node, parent, Find))
+            {
+                node.Attachment = null;
+                report.Warning(LoadIssueCategory.InvalidReference, $"モデル「{node.Name}」の付ける先が輪になっているため、付けずに置きます");
+            }
+        }
+    }
+
     public static void ApplyModel(ModelNode model, ModelEntry entry, AnimationService animation, LoadReport report)
     {
         var missingBones = new List<string>();

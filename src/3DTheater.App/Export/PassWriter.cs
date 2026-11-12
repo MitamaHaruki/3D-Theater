@@ -132,7 +132,7 @@ internal sealed class PassWriter : IDisposable
         var corners = new List<Vector3>();
         foreach (var (node, model) in Objects())
         {
-            Matrix4x4 world = node.GetLocalMatrix();
+            Matrix4x4 world = node.WorldMatrix;
             Vector3 min = model.DisplayBoundsMin;
             Vector3 max = model.DisplayBoundsMax;
             for (int c = 0; c < 8; c++)
@@ -158,7 +158,7 @@ internal sealed class PassWriter : IDisposable
         int width = smooth ? _options.RenderWidth : _options.Width;
         int height = smooth ? _options.RenderHeight : _options.Height;
         ViewMatrices matrices = ViewCamera.SceneCameraMatrices(_camera, width / (float)height);
-        DrawItem[] items = [.. Objects().Select(x => new DrawItem(x.Model.Mesh!, x.Node.GetLocalMatrix(), DrawFlags.None))];
+        DrawItem[] items = [.. Objects().Select(x => new DrawItem(x.Model.Mesh!, x.Node.WorldMatrix, DrawFlags.None))];
         var (lightDirection, lightColor) = SceneLighting.From(_context.MainLight);
         FrameFlags flags = FrameFlags.UseLight | FrameFlags.ClearColor;
         Vector4 groundShadow = default;

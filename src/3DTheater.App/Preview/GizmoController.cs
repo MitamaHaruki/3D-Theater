@@ -160,7 +160,7 @@ internal sealed class GizmoController(EditorContext context)
                 amount = GizmoMath.Snap(amount, context.Gizmo.MoveSnap);
             }
             Vector3 delta = axis * amount;
-            node.Position = node is BoneNode
+            node.Position = node is BoneNode or ModelNode { Attachment: not null }
                 ? GizmoMath.BoneTranslation(d.StartPosition, delta, d.Target.ParentWorldRotation, d.Target.ModelScale)
                 : d.StartPosition + delta;
         }
@@ -173,6 +173,11 @@ internal sealed class GizmoController(EditorContext context)
             if (node is BoneNode bone)
             {
                 bone.Orientation = GizmoMath.BoneRotation(d.StartOrientation, axis, angle, d.Target.ParentWorldRotation);
+            }
+            else if (node is ModelNode { Attachment: not null })
+            {
+                node.Rotation = SceneRotation.ToDegrees(
+                    GizmoMath.BoneRotation(SceneRotation.ToQuaternion(d.StartDegrees), axis, angle, d.Target.ParentWorldRotation));
             }
             else
             {
@@ -200,6 +205,17 @@ internal sealed class GizmoController(EditorContext context)
         return true;
     }
 
+    // モデルのワールドでの位置・向き・拡大（付けていなければ、モデルの値そのもの）
+    private static (Vector3 Position, Quaternion Rotation, Vector3 Scale) WorldTransform(ModelNode model)
+    {
+        if (model.Attachment is null)
+        {
+            return (model.Position, SceneRotation.ToQuaternion(model.Rotation), model.Scale);
+        }
+        Matrix4x4.Decompose(model.WorldMatrix, out Vector3 scale, out Quaternion rotation, out Vector3 position);
+        return (position, Quaternion.Normalize(rotation), scale);
+    }
+
     /// <summary>今どの区画でもギズモを出せる物（選んでいる物が 1 つで、動かせて、見えているとき）。</summary>
     private Target? CurrentTarget()
     {
@@ -216,16 +232,25 @@ internal sealed class GizmoController(EditorContext context)
         {
             case BoneNode bone when bone.Model is { } model && context.GetLoaded(model) is { } loaded:
             {
-                Matrix4x4 world = model.GetLocalMatrix();
-                Quaternion modelRotation = SceneRotation.ToQuaternion(model.Rotation);
+                Matrix4x4 world = model.WorldMatrix;
+                // ボーンに付けたモデルのボーンは、付けた先に合わせた向き・拡大で動かす
+                var (_, modelRotation, modelScale) = WorldTransform(model);
                 int parent = loaded.Rig.Bones[bone.Index].Parent;
                 Quaternion parentWorld = parent >= 0 ? Quaternion.Normalize(modelRotation * loaded.State.GlobalRotation[parent]) : modelRotation;
                 Quaternion boneWorld = Quaternion.Normalize(modelRotation * loaded.State.GlobalRotation[bone.Index]);
                 return new Target(bone, Vector3.Transform(loaded.State.BonePosition(bone.Index), world), boneWorld,
-                    bone.Traits.CanTranslate, bone.Traits.CanRotate, parentWorld, model.Scale);
+                    bone.Traits.CanTranslate, bone.Traits.CanRotate, parentWorld, modelScale);
             }
             case BoneNode or MorphNode:
                 return null;
+            case ModelNode { Attachment: not null } attached:
+            {
+                // ボーンに付けたモデル: 付けた先のボーンの中で動かす（ボーンと同じ計算）
+                Matrix4x4.Decompose(attached.ParentMatrix, out Vector3 parentScale, out Quaternion parentRotation, out _);
+                parentRotation = Quaternion.Normalize(parentRotation);
+                return new Target(attached, attached.WorldMatrix.Translation,
+                    Quaternion.Normalize(parentRotation * SceneRotation.ToQuaternion(attached.Rotation)), true, true, parentRotation, parentScale);
+            }
             case { HasTransform: true }:
                 return new Target(node, node.Position, SceneRotation.ToQuaternion(node.Rotation), true, true, Quaternion.Identity, Vector3.One);
             default:

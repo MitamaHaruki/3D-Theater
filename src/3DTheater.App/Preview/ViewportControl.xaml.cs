@@ -234,11 +234,11 @@ public partial class ViewportControl : UserControl, IDisposable
         {
             // ボーンは今の姿勢での位置に、モデルは今の姿勢を囲む球に合わせる
             BoneNode bone when bone.Model is { } model && _context.GetLoaded(model) is { } loaded => (
-                Vector3.Transform(loaded.State.BonePosition(bone.Index), model.GetLocalMatrix()),
+                Vector3.Transform(loaded.State.BonePosition(bone.Index), model.WorldMatrix),
                 Math.Max(0.05f, loaded.DisplaySize * 0.12f)),
             ModelNode model when _context.GetLoaded(model) is { } loaded => (
-                Vector3.Transform((loaded.DisplayBoundsMin + loaded.DisplayBoundsMax) * 0.5f, model.GetLocalMatrix()),
-                Math.Max(0.01f, loaded.DisplaySize * 0.5f * MaxScale(model))),
+                Vector3.Transform((loaded.DisplayBoundsMin + loaded.DisplayBoundsMax) * 0.5f, model.WorldMatrix),
+                Math.Max(0.01f, loaded.DisplaySize * 0.5f * ModelAttachments.MaxAxisScale(model.WorldMatrix))),
             _ => SceneEvaluator.BoundingSphere(node),
         };
     }
@@ -330,7 +330,7 @@ public partial class ViewportControl : UserControl, IDisposable
         foreach (var (node, model) in _context.VisibleModels)
         {
             DrawFlags drawFlags = _context.Selection.Contains(node) ? DrawFlags.Selected : DrawFlags.None;
-            _drawItems.Add(new DrawItem(model.Mesh!, node.GetLocalMatrix(), drawFlags));
+            _drawItems.Add(new DrawItem(model.Mesh!, node.WorldMatrix, drawFlags));
         }
         // 重ね描き: ボーンの線、その上にギズモ（どちらも書き出しには映らない）
         _lines.Clear();
@@ -709,9 +709,10 @@ public partial class ViewportControl : UserControl, IDisposable
             Consider(testObject, Picking.IntersectUnitCube(ray, SceneEvaluator.TestObjectWorld(testObject, _context.Playback.CurrentFrame)));
         }
         _context.Poses.UpdateDirtyModels(); // 当たり判定は今の姿勢の形で行う
+        _context.Attachments.Update();
         foreach (var (node, model) in _context.VisibleModels)
         {
-            Consider(node, Picking.IntersectTriangles(ray, node.GetLocalMatrix(), model.Positions, model.Indices, model.BoundsMin, model.BoundsMax));
+            Consider(node, Picking.IntersectTriangles(ray, node.WorldMatrix, model.Positions, model.Indices, model.BoundsMin, model.BoundsMax));
         }
 
         if (nearest is not null)

@@ -68,7 +68,13 @@ public sealed class PhysicsController
 
     /// <summary>モデルを置いた向きに合わせた、モデルの座標での重力（物理はモデルの座標で計算する）。</summary>
     public static Vector3 GravityFor(ModelNode node) =>
-        Vector3.Transform(new Vector3(0, -ModelPhysics.GravityStrength, 0), Quaternion.Inverse(SceneRotation.ToQuaternion(node.Rotation)));
+        Vector3.Transform(new Vector3(0, -ModelPhysics.GravityStrength, 0), Quaternion.Inverse(Placement(node).Rotation));
+
+    /// <summary>モデルのワールドでの置き方（ボーンに付けたモデルは、付けた先のボーンに合わせた置き方）。</summary>
+    private static (Vector3 Position, Quaternion Rotation, float ScaleY) Placement(ModelNode node) =>
+        node.Attachment is null
+            ? (node.Position, SceneRotation.ToQuaternion(node.Rotation), node.Scale.Y)
+            : ModelAttachments.Placement(node.WorldMatrix);
 
     /// <summary>
     /// モデルの座標での床（物理はモデルの座標で計算するので、シーンの床（高さ 0）を、モデルの置き方の逆で直す）。
@@ -80,7 +86,8 @@ public sealed class PhysicsController
         {
             return PhysicsFloor.None;
         }
-        return PhysicsFloor.SceneFloorInModel(SceneRotation.ToQuaternion(node.Rotation), node.Position, node.Scale.Y);
+        var (position, rotation, scaleY) = Placement(node);
+        return PhysicsFloor.SceneFloorInModel(rotation, position, scaleY);
     }
 
     /// <summary>このモデルの今の床（床と当てる設定のとき）。</summary>
@@ -108,7 +115,11 @@ public sealed class PhysicsController
     }
 
     /// <summary>モデルの置き方（物理の座標の行き来に使う）。</summary>
-    internal static ModelPlacement PlacementOf(ModelNode node) => new(node.Position, SceneRotation.ToQuaternion(node.Rotation), node.Scale.Y);
+    internal static ModelPlacement PlacementOf(ModelNode node)
+    {
+        var (position, rotation, scaleY) = Placement(node);
+        return new ModelPlacement(position, rotation, scaleY);
+    }
 
     // このモデルの物理に障害物として置く、ほかのモデル（見えていて、ボーン追従の剛体のあるもの）
     private IEnumerable<(ModelNode Node, LoadedModel Model)> ObstacleModels(ModelNode node) =>

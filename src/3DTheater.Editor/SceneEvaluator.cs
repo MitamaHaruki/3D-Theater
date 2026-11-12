@@ -33,8 +33,8 @@ public static class SceneEvaluator
         return node switch
         {
             ModelNode model => (
-                Vector3.Transform((model.BoundsMin + model.BoundsMax) * 0.5f, model.GetLocalMatrix()),
-                Math.Max(0.01f, (model.BoundsMax - model.BoundsMin).Length() * 0.5f * maxScale)),
+                Vector3.Transform((model.BoundsMin + model.BoundsMax) * 0.5f, model.WorldMatrix), // 付けたモデルは付けた先に合わせて
+                Math.Max(0.01f, (model.BoundsMax - model.BoundsMin).Length() * 0.5f * ModelAttachments.MaxAxisScale(model.WorldMatrix))),
             { Kind: SceneNodeKind.TestObject } => (node.Position, 0.87f * Math.Max(maxScale, 0.01f)), // 1 辺 1 の立方体の対角線の半分
             _ => (node.Position, 1f),
         };

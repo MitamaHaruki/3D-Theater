@@ -1065,7 +1065,7 @@ public partial class MainWindow : Window
         Vector3 target = new(0f, 10f, 0f);
         if (_context.Scene.ModelsGroup.Children.OfType<Domain.ModelNode>().FirstOrDefault() is { } model)
         {
-            target = Vector3.Transform((model.BoundsMin + model.BoundsMax) * 0.5f, model.GetLocalMatrix());
+            target = Vector3.Transform((model.BoundsMin + model.BoundsMax) * 0.5f, model.WorldMatrix);
         }
         Domain.LightNode light = LightPresenceAction.Create(_context.Scene, type, target);
         LightPresenceAction.Add(_context.Scene, _context.Undo, light);
@@ -1308,6 +1308,20 @@ public partial class MainWindow : Window
         }
     }
 
+    private async void OnImportAccessoryClick(object sender, RoutedEventArgs e)
+    {
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = "アクセサリを追加",
+            Filter = ModelImporter.AccessoryFilter,
+            Multiselect = true,
+        };
+        if (dialog.ShowDialog(this) == true)
+        {
+            await ImportFilesAsync(dialog.FileNames);
+        }
+    }
+
     private void OnPreviewDragOver(object sender, DragEventArgs e)
     {
         bool accepted = e.Data.GetData(DataFormats.FileDrop) is string[] files
@@ -1378,7 +1392,9 @@ public partial class MainWindow : Window
             try
             {
                 bool first = _context.Models.Count == 0;
-                Domain.ModelNode? node = await ModelImporter.ImportAsync(_context, path, this);
+                Domain.ModelNode? node = ModelImporter.IsVacFile(path)
+                    ? await ModelImporter.ImportVacAsync(_context, path, this)
+                    : await ModelImporter.ImportAsync(_context, path, this);
                 if (first && node is not null)
                 {
                     FocusViewsOnFirstModel();

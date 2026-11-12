@@ -188,10 +188,12 @@ internal sealed class ProjectService
             {
                 (project.Live ?? new LiveEntry()).ApplyTo(_context.LiveOutput);
             }
+            var models = new List<(ModelEntry Entry, ModelNode? Node)>();
             foreach (ModelEntry entry in project.Models)
             {
-                await OpenModelAsync(entry, baseDirectory, report);
+                models.Add((entry, await OpenModelAsync(entry, baseDirectory, report)));
             }
+            ProjectApply.ApplyAttachments(models, report); // ボーンに付けたモデル（全部読み込んでから）
             if (project.Audio is { } audio)
             {
                 await OpenAudioAsync(audio, baseDirectory, report);
@@ -324,7 +326,7 @@ internal sealed class ProjectService
         }
     }
 
-    private async Task OpenModelAsync(ModelEntry entry, string? baseDirectory, LoadReport report)
+    private async Task<ModelNode?> OpenModelAsync(ModelEntry entry, string? baseDirectory, LoadReport report)
     {
         string label = string.IsNullOrWhiteSpace(entry.Name) ? Path.GetFileName(entry.File) : entry.Name;
         string? modelPath = ProjectApply.ResolveModelPath(entry, baseDirectory);
@@ -333,20 +335,21 @@ internal sealed class ProjectService
             _context.MissingModels.Add(entry);
             report.Warning(LoadIssueCategory.MissingFile,
                 $"モデル「{label}」のファイルが見つかりません（{entry.File}）。このモデルの設定とキーは、保存し直しても消えずに残ります。ファイルを元の場所に戻してから開き直してください");
-            return;
+            return null;
         }
         ModelNode? node = await ModelImporter.ImportAsync(_context, modelPath, _owner, interactive: false);
         if (node is null)
         {
             _context.MissingModels.Add(entry);
             report.Warning(LoadIssueCategory.Format, $"モデル「{label}」を読み込めませんでした（{modelPath}）。このモデルの設定とキーは、保存し直しても消えずに残ります");
-            return;
+            return null;
         }
         ProjectApply.ApplyModel(node, entry, _context.Animation, report);
         if (_context.GetLoaded(node) is { } loaded && loaded.Report.WarningCount > 0)
         {
             report.Info(LoadIssueCategory.Note, $"モデル「{node.Name}」の読み込みレポートに注意が {loaded.Report.WarningCount} 件あります（プロパティ欄の「読み込みレポートを見る」で確かめられます）");
         }
+        return node;
     }
 
     private bool SaveTo(string path)

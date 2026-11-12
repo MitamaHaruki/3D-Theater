@@ -45,7 +45,7 @@
                       ToolTip="モデルの場所・置き方・ボーンとモーフのキー・カメラなどを保存します（モデルのファイルそのものは書き換えません）" />
             <MenuItem Header="名前を付けて保存(_A)..." InputGestureText="Ctrl+Shift+S" Click="OnSaveProjectAsClick" />
             <Separator />
-            <MenuItem Header="モデルを読み込む（PMX）..." InputGestureText="Ctrl+I" Click="OnImportModelClick"
+            <MenuItem Header="モデル・アクセサリを読み込む（PMX / X / VAC）..." InputGestureText="Ctrl+I" Click="OnImportModelClick"
                       ToolTip="PMX モデルをシーンに加えて表示します（ドラッグでも読み込めます）" />
             <MenuItem Header="モーション・ポーズを読み込む（VMD / VPD）..." Click="OnImportMotionClick" shell:ModeOnly.Edit="True"
                       ToolTip="今操作しているモデルに当てはめます（ウィンドウへのドラッグでも読み込めます）" />
@@ -89,7 +89,8 @@
             <MenuItem Header="レイアウトを初期配置に戻す(_R)" Click="OnResetLayoutClick" />
           </MenuItem>
           <MenuItem Header="シーン(_S)">
-            <MenuItem Header="アクセサリを追加..." Style="{StaticResource PlannedItemStyle}" ToolTip="まだできません（アクセサリ（.x などの小物）の読み込みは今後対応します）" />
+            <MenuItem Header="アクセサリを追加（.x / .vac）..." Click="OnImportAccessoryClick"
+                      ToolTip="MMD のアクセサリ（DirectX の .x。テキスト・バイナリ・圧縮）を、MMD と同じく 10 倍の大きさで読み込みます。.vac なら、書かれたボーン（右手首など）に付けて置きます（選んでいるモデルにそのボーンがあれば、そのモデルに）" />
             <MenuItem Header="照明を追加">
               <MenuItem Header="点光源" Tag="Point" Click="OnAddLightClick"
                         ToolTip="電球のように全方向を照らす照明を足します（届く距離で 0 になります）" />
@@ -103,7 +104,7 @@
             <MenuItem Header="カメラを追加" Style="{StaticResource PlannedItemStyle}" ToolTip="まだできません（シーンのカメラは今は 1 つです。カメラを足すのは今後対応します）" />
           </MenuItem>
           <MenuItem Header="モデル(_M)">
-            <MenuItem Header="PMX を読み込む..." InputGestureText="Ctrl+I" Click="OnImportModelClick"
+            <MenuItem Header="PMX・アクセサリを読み込む..." InputGestureText="Ctrl+I" Click="OnImportModelClick"
                       ToolTip="PMX モデルをシーンに加えて表示します（ドラッグでも読み込めます）" />
             <MenuItem Header="選んだモデルを外す" InputGestureText="Delete" Click="OnRemoveModelClick"
                       ToolTip="選んだモデルをシーンから外します（モデルのファイルは消しません。Ctrl+Z で戻せます）" />

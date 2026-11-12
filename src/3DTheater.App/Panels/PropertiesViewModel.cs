@@ -9,6 +9,14 @@ namespace Theater3D.App.Panels;
 /// プロパティ欄の中身。選んだ項目の種類に合わせて、出す欄を切り替える。
 /// 値を変えると再生を一時停止する（再生中の編集は止めてから行う。指示書 3.4）。
 /// </summary>
+/// <summary>付ける先のモデルの候補 1 つ（<see cref="Model"/> が null なら「付けない」）。</summary>
+public sealed record AttachChoice(string Name, ModelNode? Model)
+{
+    public static AttachChoice None { get; } = new("（付けない）", null);
+
+    public override string ToString() => Name;
+}
+
 public sealed class PropertiesViewModel : ObservableObject
 {
     private readonly EditorContext _context;
@@ -117,6 +125,96 @@ public sealed class PropertiesViewModel : ObservableObject
     public bool IsTestObject => _node is TestObjectNode;
 
     public bool IsModel => _node is ModelNode;
+
+    // ===== 付ける先（ほかのモデルのボーン） =====
+    private List<AttachChoice> _attachModelChoices = [];
+    private string _attachModelKey = string.Empty;
+    private List<string> _attachBoneChoices = [];
+    private Guid _attachBoneKey;
+
+    /// <summary>付ける先のモデルの候補（「付けない」と、自分と輪にならないほかのモデル）。</summary>
+    public IReadOnlyList<AttachChoice> AttachModelChoices
+    {
+        get
+        {
+            if (_node is not ModelNode model)
+            {
+                return [];
+            }
+            ModelNode[] others = [.. _context.Scene.ModelsGroup.Children.OfType<ModelNode>().Where(m => !ReferenceEquals(m, model))];
+            string key = model.Id + "|" + string.Join("|", others.Select(o => o.Id + ":" + o.Name + ":" + o.Attachment?.ModelId));
+            if (key != _attachModelKey)
+            {
+                _attachModelKey = key;
+                ModelNode? Find(Guid id) => _context.Scene.ModelsGroup.Children.OfType<ModelNode>().FirstOrDefault(m => m.Id == id);
+                _attachModelChoices = [AttachChoice.None, .. others.Where(o => !ModelAttachments.WouldLoop(model, o, Find)).Select(o => new AttachChoice(o.Name, o))];
+            }
+            return _attachModelChoices;
+        }
+    }
+
+    /// <summary>付ける先のモデル（「付けない」を選ぶと外す。見た目はそのまま）。</summary>
+    public AttachChoice? AttachModel
+    {
+        get => _node is ModelNode { Attachment: { } a }
+            ? AttachModelChoices.FirstOrDefault(c => c.Model?.Id == a.ModelId) ?? AttachChoice.None
+            : AttachChoice.None;
+        set
+        {
+            if (value is null || _node is not ModelNode model || !model.CanEdit || Equals(value, AttachModel))
+            {
+                return; // 候補の入れ替えで空になったときは何もしない
+            }
+            // 付ける先のモデルを選んだら、まずいちばん上のボーンに付ける（見た目は変えない。ボーンの欄で選び直せる）
+            string? bone = value.Model?.Bones.FirstOrDefault()?.Name;
+            Rendering.AttachCommands.SetAttachment(_context, model, value.Model, bone);
+            OnPropertyChanged(string.Empty);
+        }
+    }
+
+    /// <summary>付ける先のボーンの候補（付ける先のモデルのボーンの名前）。</summary>
+    public IReadOnlyList<string> AttachBoneChoices
+    {
+        get
+        {
+            ModelNode? parent = AttachParent;
+            if (parent is null)
+            {
+                _attachBoneKey = Guid.Empty;
+                _attachBoneChoices = [];
+            }
+            else if (_attachBoneKey != parent.Id)
+            {
+                _attachBoneKey = parent.Id;
+                _attachBoneChoices = [.. parent.Bones.Select(b => b.Name)];
+            }
+            return _attachBoneChoices;
+        }
+    }
+
+    public string? AttachBone
+    {
+        get => (_node as ModelNode)?.Attachment?.BoneName;
+        set
+        {
+            if (value is null || _node is not ModelNode model || !model.CanEdit || AttachParent is not { } parent || value == AttachBone)
+            {
+                return;
+            }
+            Rendering.AttachCommands.SetAttachment(_context, model, parent, value);
+            OnPropertyChanged(string.Empty);
+        }
+    }
+
+    public bool CanChooseAttachBone => IsEditable && AttachParent is not null;
+
+    public string AttachNote => _node is ModelNode { Attachment: { } a } && AttachParent is { } parent
+        ? $"「{parent.Name}」の「{a.BoneName}」と一緒に動きます。位置・回転・拡大は、そのボーンから見た値です（付け替えても見た目は変わりません）。"
+        : "マイク・小物などを、ほかのモデルのボーン（手など）に付けて一緒に動かします。付けた瞬間の見た目のまま付きます（MMD の外部親）。";
+
+    private ModelNode? AttachParent => _node is ModelNode { Attachment: { } a }
+        ? _context.Scene.ModelsGroup.Children.OfType<ModelNode>().FirstOrDefault(m => m.Id == a.ModelId)
+        : null;
 
     public bool IsAudio => _node is AudioNode;
 

@@ -576,13 +576,34 @@ public sealed class ModelNode(string name, string filePath, ModelSummary summary
         set => SetProperty(ref _materialOverrides, value ?? MaterialOverrideSet.Empty);
     }
 
-    protected override object? CaptureExtra(bool includeKeys) => new ModelState(MaterialOverrides);
+    private ModelAttachment? _attachment;
+
+    /// <summary>
+    /// 付けた先（ほかのモデルのボーン。MMD の外部親）。付けていれば、位置・回転・拡大は付けた先のボーンから見た値になり、
+    /// ボーンと一緒に動く。元に戻す・やり直しの対象。
+    /// </summary>
+    public ModelAttachment? Attachment
+    {
+        get => _attachment;
+        set => SetProperty(ref _attachment, value);
+    }
+
+    /// <summary>
+    /// 付けた先のボーンの、ワールドでの行列（アプリが描画の前に毎回求めて入れる。付けていなければ使わない）。
+    /// </summary>
+    public Matrix4x4 ParentMatrix { get; set; } = Matrix4x4.Identity;
+
+    /// <summary>ワールドでの置き方（付けていれば、付けた先のボーンの行列を掛ける）。描画・選択・物理はこれを使う。</summary>
+    public Matrix4x4 WorldMatrix => _attachment is null ? GetLocalMatrix() : GetLocalMatrix() * ParentMatrix;
+
+    protected override object? CaptureExtra(bool includeKeys) => new ModelState(MaterialOverrides, Attachment);
 
     protected override void RestoreExtra(object? extra)
     {
         if (extra is ModelState s)
         {
             MaterialOverrides = s.MaterialOverrides;
+            Attachment = s.Attachment;
         }
     }
 

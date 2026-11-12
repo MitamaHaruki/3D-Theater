@@ -29,7 +29,7 @@ internal static class BoneOverlay
         {
             yield break;
         }
-        Matrix4x4 world = model.GetLocalMatrix();
+        Matrix4x4 world = model.WorldMatrix;
         float minLength = MarkerSize(loaded) * 0.25f;
         foreach (BoneNode bone in model.Bones)
         {

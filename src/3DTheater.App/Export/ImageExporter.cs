@@ -229,12 +229,13 @@ internal static class ImageExporter
             model.IsPoseDirty = true; // 物理の焼き込みの結果はキーが無くてもフレームごとに違う
         }
         context.Poses.UpdateDirtyModels();
+        context.Attachments.Update(); // ボーンに付けたモデルは、今の姿勢のボーンに合わせる
 
         int width = options.RenderWidth;
         int height = options.RenderHeight;
         ViewMatrices matrices = ViewCamera.SceneCameraMatrices(camera, width / (float)height);
         DrawItem[] items = [.. context.VisibleModels.Where(x => x.Model.Mesh is not null)
-            .Select(x => new DrawItem(x.Model.Mesh!, x.Node.GetLocalMatrix(), DrawFlags.None))];
+            .Select(x => new DrawItem(x.Model.Mesh!, x.Node.WorldMatrix, DrawFlags.None))];
         var (lightDirection, lightColor) = SceneLighting.From(context.MainLight);
         FrameFlags flags = FrameFlags.UseLight | FrameFlags.ClearColor;
         if (context.Rendering.SelfShadow)
