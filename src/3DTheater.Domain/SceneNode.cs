@@ -230,13 +230,22 @@ public class SceneNode : ObservableObject
 /// <summary>
 /// シーンのカメラ。位置・回転（度）・視野角で置く。キー（<see cref="Keys"/>）は MMD と同じく注視点・回転・距離・視野角で持ち、
 /// 当てはめるときに位置へ直す。注視点は「位置から見ている向きへ <see cref="TargetDistance"/> 進んだ所」。
+/// <see cref="Orthographic"/> にすると平行投影（MMD の「パース OFF」）で写し、写る大きさは注視点までの距離で決まる
+/// （<see cref="OrthographicHeight"/>。視野角は使わない）。
 /// </summary>
 public sealed class CameraNode : SceneNode
 {
+    /// <summary>
+    /// 平行投影のとき、注視点までの距離 1 あたりの、画面の縦に写る長さ（Blender の mmd_tools が MMD のカメラを写すのと同じ 25 / 45。
+    /// 視野角 30 度の透視投影で注視点の所に写る長さ（約 0.536）に近い。MMD 本体との見比べはまだ）。
+    /// </summary>
+    public const float OrthographicHeightPerDistance = 25f / 45f;
+
     private float _fieldOfView = 45f;
     private float _nearClip = 0.1f;
     private float _farClip = 1000f;
     private float _targetDistance = 6f;
+    private bool _orthographic;
     private bool _hasUnregisteredChange;
 
     public CameraNode(string name)
@@ -253,13 +262,23 @@ public sealed class CameraNode : SceneNode
         set => SetProperty(ref _targetDistance, float.IsFinite(value) ? Math.Clamp(value, -100_000f, 100_000f) : _targetDistance);
     }
 
-    /// <summary>今の置き方（注視点・回転・距離・視野角）。</summary>
+    /// <summary>平行投影（MMD の「パース OFF」）で写す。</summary>
+    public bool Orthographic
+    {
+        get => _orthographic;
+        set => SetProperty(ref _orthographic, value);
+    }
+
+    /// <summary>平行投影のとき、画面の縦（書き出しの枠の縦）に写る長さ（注視点までの距離の大きさ × 25 / 45）。</summary>
+    public float OrthographicHeight => Math.Max(MathF.Abs(TargetDistance) * OrthographicHeightPerDistance, 1e-4f);
+
+    /// <summary>今の置き方（注視点・回転・距離・視野角・平行投影）。</summary>
     public CameraPose Pose
     {
         get
         {
             var forward = Vector3.Transform(Vector3.UnitZ, SceneRotation.ToQuaternion(Rotation));
-            return new CameraPose(Position + (forward * TargetDistance), Rotation, TargetDistance, FieldOfView);
+            return new CameraPose(Position + (forward * TargetDistance), Rotation, TargetDistance, FieldOfView, Orthographic);
         }
     }
 
@@ -269,6 +288,7 @@ public sealed class CameraNode : SceneNode
         Rotation = pose.Rotation;
         TargetDistance = pose.Distance;
         FieldOfView = pose.FieldOfView;
+        Orthographic = pose.Orthographic;
         Position = pose.Position;
     }
 
@@ -303,7 +323,7 @@ public sealed class CameraNode : SceneNode
 
     protected override object? CaptureExtra(bool includeKeys) =>
         new CameraState(FieldOfView, NearClip, FarClip, TargetDistance, HasUnregisteredChange,
-            includeKeys ? new KeySnapshot<CameraKey>(Keys.ToArray()) : null);
+            includeKeys ? new KeySnapshot<CameraKey>(Keys.ToArray()) : null, Orthographic);
 
     protected override void RestoreExtra(object? extra)
     {
@@ -319,6 +339,7 @@ public sealed class CameraNode : SceneNode
             NearClip = s.NearClip;
             FarClip = s.FarClip;
             TargetDistance = s.TargetDistance;
+            Orthographic = s.Orthographic;
             HasUnregisteredChange = s.HasUnregisteredChange;
         }
     }

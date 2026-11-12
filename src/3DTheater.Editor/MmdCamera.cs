@@ -80,7 +80,7 @@ public static class CameraMotion
         double scale = frameRate / (double)MotionImport.MmdFrameRate;
         int Scale(int frame) => (int)Math.Round(frame * scale, MidpointRounding.AwayFromZero);
         var keys = new List<CameraKey>();
-        int cuts = 0, orthographic = 0;
+        int cuts = 0;
         VmdCameraKey? previous = null;
         foreach (VmdCameraKey k in vmd.CameraKeys.OrderBy(k => k.Frame))
         {
@@ -90,7 +90,6 @@ public static class CameraMotion
                 key = key with { Kind = KeyInterpolationKind.Step };
                 cuts++;
             }
-            orthographic += k.Orthographic ? 1 : 0;
             keys.Add(key);
             previous = k;
         }
@@ -103,10 +102,6 @@ public static class CameraMotion
         if (cuts > 0)
         {
             report.Info(LoadIssueCategory.Note, $"1 フレームで切り替わるカメラ（{cuts:N0} か所）は、途中の絵が出ないよう段階の補間にしました");
-        }
-        if (orthographic > 0)
-        {
-            report.Info(LoadIssueCategory.Unsupported, $"パース OFF（平行投影）のキー {orthographic:N0} 個は、今は透視投影で表示します");
         }
         if (vmd.BoneKeys.Count > 0 || vmd.MorphKeys.Count > 0)
         {

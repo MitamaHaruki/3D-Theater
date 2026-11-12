@@ -399,15 +399,13 @@ public sealed class AnimationService
     {
         CameraInterpolation interpolation = CameraInterpolation.Linear;
         KeyInterpolationKind kind = KeyInterpolationKind.Curve;
-        bool orthographic = false;
         if (camera.Keys.TryGet(frame, out CameraKey existing))
         {
             interpolation = existing.Interpolation;
             kind = existing.Kind;
-            orthographic = existing.Orthographic;
         }
         CameraPose pose = camera.Pose;
-        return new CameraKey(frame, pose.Target, pose.Rotation, pose.Distance, pose.FieldOfView, interpolation, kind, orthographic);
+        return new CameraKey(frame, pose.Target, pose.Rotation, pose.Distance, pose.FieldOfView, interpolation, kind, pose.Orthographic);
     }
 
     private static void ApplyCamera(CameraNode camera, float frame)
@@ -586,7 +584,7 @@ public sealed class AnimationService
                 Apply(() => ApplyMorph(morph, _playback.CurrentFrame, resetWithoutKeys: false));
                 break;
             case CameraNode camera when e.PropertyName is nameof(SceneNode.Position) or nameof(SceneNode.Rotation)
-                or nameof(CameraNode.FieldOfView) or nameof(CameraNode.TargetDistance):
+                or nameof(CameraNode.FieldOfView) or nameof(CameraNode.TargetDistance) or nameof(CameraNode.Orthographic):
                 if (_autoKey || camera.Keys.Count > 0)
                 {
                     OnUserEdit(camera);

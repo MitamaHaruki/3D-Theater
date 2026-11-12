@@ -43,7 +43,9 @@ public static class EffectsMapping
         Add(fog.Enabled, PostEffectFlags.Fog);
 
         float heightScale = Math.Max(1, pixelHeight) / 1080f;
-        float focus = effects.FocusDistanceFor(sceneCamera?.TargetDistance ?? effects.DofFocusDistance);
+        // 平行投影で注視点の側へ向きを回したカメラ（距離が負）では、注視点までの見る向きの距離は距離の大きさ
+        float focus = effects.FocusDistanceFor(sceneCamera is null ? effects.DofFocusDistance
+            : sceneCamera.Orthographic ? MathF.Abs(sceneCamera.TargetDistance) : sceneCamera.TargetDistance);
         return new PostEffects(flags, effects.Exposure, effects.Contrast, effects.Saturation, effects.Temperature,
             effects.BloomIntensity, effects.BloomThreshold, effects.BloomSpread, effects.Vignette,
             LineColor: IllustrationStyle.ColorOf(style.LineColor),

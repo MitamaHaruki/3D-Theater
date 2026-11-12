@@ -48,12 +48,14 @@ public partial class ViewportControl : UserControl, IDisposable
         SizeChanged += (_, _) => UpdateExportFrame();
         Loaded += (_, _) =>
         {
+            context.Scene.NodeChanged += OnSceneNodeChanged;
             context.ExportSizeChanged += OnExportSizeChanged;
             context.Tools.ActiveChanged += OnToolChanged;
             context.Tools.DragCancelRequested += OnToolDragCancelRequested;
         };
         Unloaded += (_, _) =>
         {
+            context.Scene.NodeChanged -= OnSceneNodeChanged;
             context.ExportSizeChanged -= OnExportSizeChanged;
             context.Tools.ActiveChanged -= OnToolChanged;
             context.Tools.DragCancelRequested -= OnToolDragCancelRequested;
@@ -337,7 +339,7 @@ public partial class ViewportControl : UserControl, IDisposable
             BoneOverlay.AppendTo(_lines, _context);
         }
         LightOverlay.AppendTo(_lines, _context);
-        if (_context.Tools.Active is null) // プラグインの道具を選んでいる間は、ギズモを出さない（道具を持ちかえたのと同じ）
+        if (_context.Tools.Active is null && GizmoAllowed) // プラグインの道具を選んでいる間は、ギズモを出さない（道具を持ちかえたのと同じ）
         {
             _gizmo.Append(_lines, new GizmoController.ViewInfo(matrices.View, matrices.Projection, new Vector2(pixelWidth, pixelHeight) / DpiScale()));
         }
@@ -388,6 +390,12 @@ public partial class ViewportControl : UserControl, IDisposable
         return new GizmoController.ViewInfo(matrices.View, matrices.Projection, size);
     }
 
+    /// <summary>
+    /// この区画でギズモを出すか。カメラ視点の区画では、見ているカメラ自身のギズモは出さない（透視投影では目の位置にあって写らず、
+    /// 平行投影では画面の真ん中に出て、写したい物に重なるため）。
+    /// </summary>
+    private bool GizmoAllowed => !(Camera.Kind == ViewKind.Camera && ReferenceEquals(_context.Selection.Primary, _context.MainCamera));
+
     private float DpiScale() => (float)System.Windows.Media.VisualTreeHelper.GetDpi(this).DpiScaleX;
 
     private void OnCameraChanged()
@@ -395,6 +403,15 @@ public partial class ViewportControl : UserControl, IDisposable
         UpdateHeader();
         UpdateExportFrame();
         Redraw();
+    }
+
+    // カメラの平行投影の切り替え（キーの再生でも変わる）を見出しに出す
+    private void OnSceneNodeChanged(object? sender, SceneNodeChangedEventArgs e)
+    {
+        if (e.Node is CameraNode && e.PropertyName is nameof(CameraNode.Orthographic) or nameof(SceneNode.Name))
+        {
+            UpdateHeader();
+        }
     }
 
     private void OnExportSizeChanged(object? sender, EventArgs e)
@@ -441,7 +458,7 @@ public partial class ViewportControl : UserControl, IDisposable
     {
         ViewNameText.Text = Camera.Kind.DisplayName();
         ProjectionText.Text = Camera.Kind == ViewKind.Camera
-            ? $"{_context.MainCamera?.Name}・書き出し {_context.ExportSize.Width} x {_context.ExportSize.Height} の枠"
+            ? $"{_context.MainCamera?.Name}{(_context.MainCamera is { Orthographic: true } ? "・平行投影" : "")}・書き出し {_context.ExportSize.Width} x {_context.ExportSize.Height} の枠"
             : Camera.IsOrthographic ? "平行投影" : "透視投影";
     }
 
@@ -464,7 +481,7 @@ public partial class ViewportControl : UserControl, IDisposable
                 _surface.CaptureMouse();
                 e.Handled = true;
                 break;
-            case MouseButton.Left when _context.Tools.Active is null && _gizmo.TryBeginDrag(_lastMouse, CurrentView()):
+            case MouseButton.Left when _context.Tools.Active is null && GizmoAllowed && _gizmo.TryBeginDrag(_lastMouse, CurrentView()):
                 // ギズモの取っ手をつかんだときは、選択より先にギズモを動かす
                 _drag = DragMode.Gizmo;
                 _surface.CaptureMouse();
@@ -513,7 +530,7 @@ public partial class ViewportControl : UserControl, IDisposable
         }
         if (_drag == DragMode.None)
         {
-            if (_context.Tools.Active is null && _gizmo.UpdateHover(e.GetPosition(_surface), CurrentView()))
+            if (_context.Tools.Active is null && GizmoAllowed && _gizmo.UpdateHover(e.GetPosition(_surface), CurrentView()))
             {
                 Redraw();
             }

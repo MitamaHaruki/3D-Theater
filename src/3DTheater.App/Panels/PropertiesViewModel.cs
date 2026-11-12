@@ -324,6 +324,13 @@ public sealed class PropertiesViewModel : ObservableObject
         set => Edit("クリップ（遠）", n => ((CameraNode)n).FarClip = (float)value);
     }
 
+    /// <summary>カメラの平行投影（MMD の「パース OFF」）。</summary>
+    public bool CameraOrthographic
+    {
+        get => (_node as CameraNode)?.Orthographic ?? false;
+        set => Edit("平行投影", n => ((CameraNode)n).Orthographic = value);
+    }
+
     public double Intensity
     {
         get => (_node as LightNode)?.Intensity ?? 0;

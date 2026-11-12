@@ -196,14 +196,23 @@ public sealed class ViewCamera
     /// （<see cref="ExportFrame"/>）が、書き出しとまったく同じ写り方で入るようにする:
     /// 区画が書き出しより横長なら縦の画角はそのまま（枠は左右の真ん中）、縦長なら枠を横いっぱいにし、枠の高さがカメラの画角に
     /// なるよう、区画の縦の画角を広げる。
+    /// カメラが平行投影（MMD の「パース OFF」）なら平行投影の行列にし、枠の縦に <see cref="CameraNode.OrthographicHeight"/> が写るようにする。
     /// </summary>
     public static ViewMatrices SceneCameraMatrices(CameraNode sceneCamera, float aspectRatio, float frameAspect = 0f)
     {
         float aspect = aspectRatio > 0f && float.IsFinite(aspectRatio) ? aspectRatio : 1f;
         Vector3 radians = sceneCamera.Rotation * (MathF.PI / 180f);
         CameraBasis cameraBasis = CameraBasis.FromAngles(radians.Y, radians.X, radians.Z);
+        bool widen = frameAspect > 0f && float.IsFinite(frameAspect) && aspect < frameAspect;
+        if (sceneCamera.Orthographic)
+        {
+            float height = sceneCamera.OrthographicHeight * (widen ? frameAspect / aspect : 1f);
+            CameraBasis basis = OrthographicBasis(sceneCamera, cameraBasis);
+            Matrix4x4 ortho = Matrix4x4.CreateOrthographicLeftHanded(height * aspect, height, sceneCamera.NearClip, sceneCamera.FarClip);
+            return new ViewMatrices(basis.CreateViewMatrix(sceneCamera.Position), ortho, basis, sceneCamera.Position, true);
+        }
         float fieldOfView = sceneCamera.FieldOfView * MathF.PI / 180f;
-        if (frameAspect > 0f && float.IsFinite(frameAspect) && aspect < frameAspect)
+        if (widen)
         {
             fieldOfView = 2f * MathF.Atan(MathF.Tan(fieldOfView / 2f) * (frameAspect / aspect));
         }
@@ -228,6 +237,13 @@ public sealed class ViewCamera
         return ((width - frameWidth) / 2f, (height - frameHeight) / 2f, frameWidth, frameHeight);
     }
 
+    /// <summary>
+    /// 平行投影のカメラの向き。注視点がカメラの後ろにある（注視点までの距離が負。MMD の VMD では正）ときは、Blender の mmd_tools と同じく、
+    /// 上の向きのまわりに 180 度回して注視点の側を見る（MMD 本体との見比べはまだ）。
+    /// </summary>
+    private static CameraBasis OrthographicBasis(CameraNode sceneCamera, CameraBasis basis) =>
+        sceneCamera.TargetDistance < 0f ? new CameraBasis(-basis.Forward, -basis.Right, basis.Up) : basis;
+
     private void LeaveCameraView(CameraNode? sceneCamera)
     {
         if (Kind != ViewKind.Camera)
@@ -245,6 +261,19 @@ public sealed class ViewCamera
         Vector3 radians = sceneCamera.Rotation * (MathF.PI / 180f);
         Yaw = WrapAngle(radians.Y);
         Pitch = Math.Clamp(radians.X, -MathF.PI / 2f, MathF.PI / 2f);
+        if (sceneCamera.Orthographic)
+        {
+            // 平行投影のカメラからは、平行投影の自由視点にし、注視点と、縦に写る長さを同じにする
+            if (sceneCamera.TargetDistance < 0f)
+            {
+                Yaw = WrapAngle(Yaw + MathF.PI);
+                Pitch = -Pitch;
+            }
+            IsOrthographic = true;
+            Distance = Math.Clamp(sceneCamera.OrthographicHeight / (2f * MathF.Tan(FieldOfView / 2f)), MinDistance, MaxDistance);
+            Target = sceneCamera.Pose.Target;
+            return;
+        }
         CameraBasis basis = CameraBasis.FromAngles(Yaw, Pitch);
         Target = sceneCamera.Position + (basis.Forward * Distance);
     }

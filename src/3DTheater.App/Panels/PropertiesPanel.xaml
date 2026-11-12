@@ -242,6 +242,7 @@
               <RowDefinition Height="28" />
               <RowDefinition Height="28" />
               <RowDefinition Height="28" />
+              <RowDefinition Height="28" />
               <RowDefinition Height="22" />
             </Grid.RowDefinitions>
             <TextBlock Text="視野角 (FOV)" Style="{StaticResource RowLabelStyle}" />
@@ -255,8 +256,11 @@
             <TextBlock Grid.Row="3" Text="注視点までの距離" Style="{StaticResource RowLabelStyle}"
                        ToolTip="キーを登録するときの注視点（カメラの位置から見ている向きにこの距離だけ進んだ所）。MMD のカメラの「距離」にあたります" />
             <c:NumberBox Grid.Row="3" Grid.Column="2" Value="{Binding TargetDistance}" Step="1" Format="0.00" />
-            <TextBlock Grid.Row="4" Text="キー" Style="{StaticResource RowLabelStyle}" />
-            <TextBlock Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="2" VerticalAlignment="Center" Text="{Binding KeyCountText}" />
+            <CheckBox Grid.Row="4" Grid.ColumnSpan="3" VerticalAlignment="Center" Content="平行投影（パース OFF）"
+                      IsChecked="{Binding CameraOrthographic}" IsEnabled="{Binding IsEditable}"
+                      ToolTip="MMD の「パース OFF」と同じく、遠近の無い写し方にします。写る大きさは注視点までの距離で決まり（距離 45 で縦に 25）、視野角は使いません。キーに入り、次のキーまで切り替わりません。霧と環境の画像の背景はかかりません" />
+            <TextBlock Grid.Row="5" Text="キー" Style="{StaticResource RowLabelStyle}" />
+            <TextBlock Grid.Row="5" Grid.Column="1" Grid.ColumnSpan="2" VerticalAlignment="Center" Text="{Binding KeyCountText}" />
           </Grid>
           <TextBlock Margin="0,6,0,0" Style="{StaticResource PlannedNoteStyle}"
                      Text="被写界深度（ピントの前後のぼけ）・ブルーム・色調補正・周辺減光は、レンダリングのメニューの「映像効果」、線画・塗りなどは「イラスト風」で設定します。被写界深度は初期値で注視点にピントを合わせ、カメラ視点の区画と書き出しにかかります。" />

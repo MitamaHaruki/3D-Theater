@@ -271,6 +271,9 @@ public sealed class NodeEntry
     /// <summary>カメラの注視点までの距離。</summary>
     public float? TargetDistance { get; set; }
 
+    /// <summary>カメラの平行投影（MMD の「パース OFF」。無い古いファイルは透視投影）。</summary>
+    public bool? Orthographic { get; set; }
+
     /// <summary>カメラ・照明の未登録の変更。</summary>
     public bool Unregistered { get; set; }
 
@@ -555,6 +558,7 @@ public static class ProjectCapture
                 entry.NearClip = camera.NearClip;
                 entry.FarClip = camera.FarClip;
                 entry.TargetDistance = camera.TargetDistance;
+                entry.Orthographic = camera.Orthographic ? true : null;
                 entry.Unregistered = camera.HasUnregisteredChange;
                 entry.Keys = camera.Keys.Count > 0 ? [.. camera.Keys.Keys.Select(KeyCodec.Encode)] : null;
                 break;
@@ -772,6 +776,7 @@ public static class ProjectApply
                     camera.NearClip = entry.NearClip ?? camera.NearClip;
                     camera.FarClip = entry.FarClip ?? camera.FarClip;
                     camera.TargetDistance = entry.TargetDistance ?? camera.TargetDistance;
+                    camera.Orthographic = entry.Orthographic ?? false;
                     camera.Keys.ReplaceAll((entry.Keys ?? []).Select(KeyCodec.DecodeCamera).OfType<CameraKey>());
                     camera.HasUnregisteredChange = entry.Unregistered;
                     break;

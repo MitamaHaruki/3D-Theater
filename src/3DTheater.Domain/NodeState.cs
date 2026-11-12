@@ -8,7 +8,8 @@ namespace Theater3D.Domain;
 /// </summary>
 public sealed record NodeState(string Name, bool IsVisible, bool IsLocked, Vector3 Position, Vector3 Rotation, Vector3 Scale, object? Extra = null);
 
-public sealed record CameraState(float FieldOfView, float NearClip, float FarClip, float TargetDistance, bool HasUnregisteredChange, KeySnapshot<CameraKey>? Keys);
+public sealed record CameraState(float FieldOfView, float NearClip, float FarClip, float TargetDistance, bool HasUnregisteredChange, KeySnapshot<CameraKey>? Keys,
+    bool Orthographic = false);
 
 public sealed record LightState(float Intensity, Vector3 Color, float Range, float SpotAngle, float SpotSoftness, bool CastsShadow,
     bool HasUnregisteredChange = false, KeySnapshot<LightKey>? Keys = null);

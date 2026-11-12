@@ -83,7 +83,8 @@ public readonly record struct CameraInterpolation(BezierCurve X, BezierCurve Y, 
 /// <summary>カメラの置き方（MMD と同じく、注視点・回転・注視点からの距離・視野角で表す）。</summary>
 /// <param name="Rotation">回転（度、シーンの項目と同じく Z → X → Y の順。X が正なら見下ろす）。補間では成分ごとに直線で動くので、1 周を超える回転も表せる。</param>
 /// <param name="Distance">注視点から手前へ下がる距離（正の数）。</param>
-public readonly record struct CameraPose(Vector3 Target, Vector3 Rotation, float Distance, float FieldOfView)
+/// <param name="Orthographic">平行投影（MMD の「パース OFF」）。キーの間では補間せず、前のキーの値のまま。</param>
+public readonly record struct CameraPose(Vector3 Target, Vector3 Rotation, float Distance, float FieldOfView, bool Orthographic = false)
 {
     /// <summary>カメラの位置（注視点から、見ている向きの逆へ距離だけ下がった所）。</summary>
     public Vector3 Position => Target - (Forward * Distance);
@@ -105,12 +106,13 @@ public readonly record struct BoneKey(int Frame, Vector3 Translation, Quaternion
 
 /// <summary>
 /// カメラのキー 1 つ。注視点・回転・距離・視野角を、それぞれの曲線で補間する（位置を直線で補間しないので、注視点のまわりを回る動きが崩れない）。
-/// <see cref="Interpolation"/> と <see cref="Kind"/> は前のキーからこのキーまでの動き方。<see cref="Orthographic"/> は MMD の「パース OFF」（今は使わず、書き戻すために持つ）。
+/// <see cref="Interpolation"/> と <see cref="Kind"/> は前のキーからこのキーまでの動き方。<see cref="Orthographic"/> は MMD の「パース OFF」
+/// （平行投影。このキーから次のキーまで、この値のまま）。
 /// </summary>
 public readonly record struct CameraKey(int Frame, Vector3 Target, Vector3 Rotation, float Distance, float FieldOfView,
     CameraInterpolation Interpolation, KeyInterpolationKind Kind = KeyInterpolationKind.Curve, bool Orthographic = false) : IKeyframe
 {
-    public CameraPose Pose => new(Target, Rotation, Distance, FieldOfView);
+    public CameraPose Pose => new(Target, Rotation, Distance, FieldOfView, Orthographic);
 }
 
 /// <summary>モーフのキー 1 つ。<see cref="Curve"/> と <see cref="Kind"/> は前のキーからこのキーまでの動き方。</summary>
@@ -488,9 +490,11 @@ public static class KeyframeEvaluator
             float.Lerp(a.Target.Z, b.Target.Z, ip.Z.Evaluate(t)));
         // 回転は四元数の球面補間ではなく、角度を成分ごとに直線で動かす（MMD と同じ。1 周を超える回転も表せる）
         Vector3 rotation = Vector3.Lerp(a.Rotation, b.Rotation, ip.Rotation.Evaluate(t));
+        // 平行投影かどうかは補間しない（次のキーまで前のキーの値。MMD と同じ）
         pose = new CameraPose(target, rotation,
             float.Lerp(a.Distance, b.Distance, ip.Distance.Evaluate(t)),
-            float.Lerp(a.FieldOfView, b.FieldOfView, ip.FieldOfView.Evaluate(t)));
+            float.Lerp(a.FieldOfView, b.FieldOfView, ip.FieldOfView.Evaluate(t)),
+            a.Orthographic);
         return true;
     }
 
