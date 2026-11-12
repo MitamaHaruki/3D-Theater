@@ -56,8 +56,18 @@ public partial class MainWindow : Window
         if (mode == AppMode.Live)
         {
             AppLog.Info($"ライブモードの画面にしました（エディットだけのメニュー・ボタン {hidden} 個を隠しました）");
+            // カメラ視点の区画の枠は、配信用の画面の大きさに合わせる
+            context.LiveOutput.Changed += (_, _) => context.SetExportSize(context.LiveOutput.Width, context.LiveOutput.Height);
+            BuildOutputMenus();
         }
-        _context.SetExportSize(_settings.Export.Width, _settings.Export.Height); // カメラ視点の書き出しの枠
+        if (mode == AppMode.Live)
+        {
+            _context.SetExportSize(_context.LiveOutput.Width, _context.LiveOutput.Height); // カメラ視点の配信用の画面の枠
+        }
+        else
+        {
+            _context.SetExportSize(_settings.Export.Width, _settings.Export.Height); // カメラ視点の書き出しの枠
+        }
         _renderFailure = engineError;
 
         Icon = AppIcon.CreateBitmap(64);
@@ -165,6 +175,7 @@ public partial class MainWindow : Window
         _statusTimer.Stop();
         _context.Playback.Pause();
         _context.RenderLoop.Stop();
+        _output?.Close(); // 置き場所を覚えるため、設定を書く前に閉じる（描画先もエンジンより先に片付く）
 
         WindowMemory.SaveTo(_settings); // メインのウィンドウの置き場所は、閉じる知らせ（base.OnClosing）で覚えてある
         _settings.Window = null;
@@ -753,6 +764,95 @@ public partial class MainWindow : Window
     private void OnNewProjectClick(object sender, RoutedEventArgs e) => _project.New();
 
     private AppMode OtherMode => _mode == AppMode.Live ? AppMode.Edit : AppMode.Live;
+
+    // ===== ライブのメニュー =====
+    private Live.OutputWindow? _output;
+
+    private void OnLiveMenuOpened(object sender, RoutedEventArgs e)
+    {
+        OutputMenuItem.IsChecked = _output is not null;
+        OutputTopmostMenuItem.IsEnabled = _output is not null;
+        OutputTopmostMenuItem.IsChecked = _output?.Topmost == true;
+        BuildOutputMenus();
+    }
+
+    // 配信用の画面の大きさと背景の候補（今の設定に印）
+    private void BuildOutputMenus()
+    {
+        LiveOutputSettings output = _context.LiveOutput;
+        OutputSizeMenu.Items.Clear();
+        foreach (var (width, height, name) in LiveOutputSizes.Presets)
+        {
+            var item = new MenuItem { Header = name, IsCheckable = true, IsChecked = output.Width == width && output.Height == height };
+            item.Click += (_, _) =>
+            {
+                output.SetSize(width, height);
+                ShowNotice($"配信用の画面の大きさを {width} × {height} にしました", false);
+            };
+            OutputSizeMenu.Items.Add(item);
+        }
+        OutputBackgroundMenu.Items.Clear();
+        foreach (var (color, name) in LiveOutputBackgrounds.Presets)
+        {
+            var item = new MenuItem { Header = name, IsCheckable = true, IsChecked = output.Background == color };
+            item.Click += (_, _) =>
+            {
+                output.Background = color;
+                ShowNotice($"配信用の画面の背景を「{name}」にしました", false);
+            };
+            OutputBackgroundMenu.Items.Add(item);
+        }
+    }
+
+    private void OnOutputClick(object sender, RoutedEventArgs e)
+    {
+        if (_output is not null)
+        {
+            _output.Close();
+            return;
+        }
+        _output = new Live.OutputWindow(_context, this);
+        _output.Closed += (_, _) => _output = null;
+        _output.Show();
+    }
+
+    private void OnOutputTopmostClick(object sender, RoutedEventArgs e)
+    {
+        if (_output is not null)
+        {
+            _output.Topmost = OutputTopmostMenuItem.IsChecked;
+        }
+    }
+
+    private void OnRemoveIdleMotionClick(object sender, RoutedEventArgs e)
+    {
+        if (_context.ActiveModel is not { } model)
+        {
+            ShowNotice("待機モーションを外すモデルを、シーンの一覧かプレビューで選んでください", true);
+            return;
+        }
+        bool hasKeys = model.Bones.Any(b => b.Keys.Count > 0) || model.Morphs.Any(m => m.Keys.Count > 0) || (model.Display?.Keys.Count ?? 0) > 0;
+        if (!hasKeys)
+        {
+            ShowNotice($"「{model.Name}」には待機モーションがありません", false);
+            return;
+        }
+        Domain.SceneNode[] nodes = [.. model.Bones, .. model.Morphs, .. (model.Display is { } display ? [display] : Array.Empty<Domain.SceneNode>())];
+        _context.Edits.Change($"待機モーションを外す（{model.Name}）", nodes, () =>
+        {
+            foreach (Domain.BoneNode bone in model.Bones)
+            {
+                bone.Keys.ReplaceAll([]);
+            }
+            foreach (Domain.MorphNode morph in model.Morphs)
+            {
+                morph.Keys.ReplaceAll([]);
+            }
+            model.Display?.Keys.ReplaceAll([]);
+            model.ResetPose();
+        }, includeKeys: true);
+        ShowNotice($"「{model.Name}」の待機モーションを外しました（Ctrl+Z で戻せます）", false);
+    }
 
     private void OnStartOtherModeClick(object sender, RoutedEventArgs e) => AppLauncher.Start(OtherMode);
 

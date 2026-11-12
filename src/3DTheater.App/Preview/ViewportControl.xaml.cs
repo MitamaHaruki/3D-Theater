@@ -458,7 +458,7 @@ public partial class ViewportControl : UserControl, IDisposable
     {
         ViewNameText.Text = Camera.Kind.DisplayName();
         ProjectionText.Text = Camera.Kind == ViewKind.Camera
-            ? $"{_context.MainCamera?.Name}{(_context.MainCamera is { Orthographic: true } ? "・平行投影" : "")}・書き出し {_context.ExportSize.Width} x {_context.ExportSize.Height} の枠"
+            ? $"{_context.MainCamera?.Name}{(_context.MainCamera is { Orthographic: true } ? "・平行投影" : "")}・{(_context.IsLive ? "配信" : "書き出し")} {_context.ExportSize.Width} x {_context.ExportSize.Height} の枠"
             : Camera.IsOrthographic ? "平行投影" : "透視投影";
     }
 

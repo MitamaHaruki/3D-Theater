@@ -1,0 +1,10 @@
+<Window x:Class="Theater3D.App.Live.OutputWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="3D Theater 配信用の画面"
+        Width="960" Height="540"
+        Background="Black" UseLayoutRounding="True" ShowInTaskbar="True"
+        FontFamily="Yu Gothic UI" FontSize="12">
+  <!-- シーンのカメラから見た絵だけを、窓いっぱいに描く（OBS などのウィンドウキャプチャで取り込む） -->
+  <Grid x:Name="Host" />
+</Window>

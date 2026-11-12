@@ -139,9 +139,10 @@ public sealed class LoadedModel : IDisposable
 /// </summary>
 public sealed class EditorContext
 {
-    public EditorContext(NativeEngine? engine)
+    public EditorContext(NativeEngine? engine, AppMode mode = AppMode.Edit)
     {
         Engine = engine;
+        Mode = mode;
         Scene = SceneDocument.CreateDefault();
         Selection = new SelectionService();
         Playback = new PlaybackService();
@@ -165,9 +166,27 @@ public sealed class EditorContext
         Selection.Changed += (_, _) => RenderLoop.InvalidateAll();
         Playback.FrameChanged += (_, _) => RenderLoop.InvalidateAll();
         Playback.StateChanged += (_, _) => RenderLoop.RequestRender();
+
+        if (mode == AppMode.Live)
+        {
+            Animation.TracksUserEdits = false; // ライブはキーを打たないので、未登録の変更の印を付けない
+            LiveRuntime = new Live.LiveRuntime(this); // 物理の後に作る（描画の繰り返しを止めない決まりを上書きする）
+        }
     }
 
     public NativeEngine? Engine { get; }
+
+    /// <summary>エディットモードかライブモードか（起動したときに決まり、変わらない）。</summary>
+    public AppMode Mode { get; }
+
+    /// <summary>ライブモードか。</summary>
+    public bool IsLive => Mode == AppMode.Live;
+
+    /// <summary>ライブモードの時計（待機モーションのループ・物理をいつも動かす）。エディットでは null。</summary>
+    public Live.LiveRuntime? LiveRuntime { get; }
+
+    /// <summary>ライブモードの配信用の画面の設定（ライブのファイルに保存する）。</summary>
+    public LiveOutputSettings LiveOutput { get; } = new();
 
     /// <summary>作品の描き方（セルフシャドウ・地面の影。プロジェクトに保存する）。</summary>
     public RenderSettings Rendering { get; } = new();
@@ -296,6 +315,7 @@ public sealed class EditorContext
         Physics.FloorEnabled = true;
         Physics.BetweenModels = true;
         Rendering.Reset();
+        LiveOutput.Reset();
         Animation.NotifyStateChanged();
         Undo.Clear();
         RenderLoop.InvalidateAll();

@@ -2,6 +2,7 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:c="clr-namespace:Theater3D.App.Controls"
+             xmlns:shell="clr-namespace:Theater3D.App.Shell"
              Background="{StaticResource PanelBrush}">
   <UserControl.Resources>
     <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
@@ -46,7 +47,7 @@
           <TextBox MinHeight="0" Height="26" Padding="6,2" FontSize="13" IsEnabled="{Binding CanRename}"
                    Text="{Binding NodeName, UpdateSourceTrigger=LostFocus}" />
         </DockPanel>
-        <TextBlock Margin="0,6,0,0" TextWrapping="Wrap" Foreground="#FFE0A040"
+        <TextBlock Margin="0,6,0,0" TextWrapping="Wrap" Foreground="#FFE0A040" shell:ModeOnly.Edit="True"
                    Text="＊ キーに登録していない変更があります。フレームを動かしても値は保ちます（タイムラインの「すべて登録」か「破棄」で決めます。I で選んだ項目を登録）。"
                    Visibility="{Binding HasUnregisteredChange, Converter={StaticResource BoolToVisibility}}" />
         <TextBlock Margin="0,6,0,0" Text="編集ロック中のため変更できません（シーン一覧の鍵で外せます）。"
@@ -129,8 +130,8 @@
             <TextBlock Grid.Column="1" Margin="0,2" Text="{Binding BoneParentText}" TextWrapping="Wrap" />
             <TextBlock Grid.Row="1" Text="性質" Style="{StaticResource RowLabelStyle}" VerticalAlignment="Top" Margin="0,2,6,2" />
             <TextBlock Grid.Row="1" Grid.Column="1" Margin="0,2" Text="{Binding BoneTraitsText}" TextWrapping="Wrap" />
-            <TextBlock Grid.Row="2" Text="キー" Style="{StaticResource RowLabelStyle}" Margin="0,2,6,2" />
-            <TextBlock Grid.Row="2" Grid.Column="1" Margin="0,2" Text="{Binding KeyCountText}" />
+            <TextBlock Grid.Row="2" Text="キー" Style="{StaticResource RowLabelStyle}" Margin="0,2,6,2" shell:ModeOnly.Edit="True" />
+            <TextBlock Grid.Row="2" Grid.Column="1" Margin="0,2" Text="{Binding KeyCountText}" shell:ModeOnly.Edit="True" />
           </Grid>
           <TextBlock Margin="0,6,0,0" Style="{StaticResource PlannedNoteStyle}"
                      Visibility="{Binding IsBoneIkLinkNote, Converter={StaticResource BoolToVisibility}}"
@@ -160,8 +161,8 @@
             <TextBlock Grid.Column="1" Grid.ColumnSpan="2" VerticalAlignment="Center" Text="{Binding Morph.TypeName}" />
             <TextBlock Grid.Row="1" Text="分類" Style="{StaticResource RowLabelStyle}" />
             <TextBlock Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" VerticalAlignment="Center" Text="{Binding MorphCategoryText}" />
-            <TextBlock Grid.Row="3" Text="キー" Style="{StaticResource RowLabelStyle}" />
-            <TextBlock Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" VerticalAlignment="Center" Text="{Binding KeyCountText}" />
+            <TextBlock Grid.Row="3" Text="キー" Style="{StaticResource RowLabelStyle}" shell:ModeOnly.Edit="True" />
+            <TextBlock Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" VerticalAlignment="Center" Text="{Binding KeyCountText}" shell:ModeOnly.Edit="True" />
             <TextBlock Grid.Row="2" Text="値" Style="{StaticResource RowLabelStyle}" />
             <Slider Grid.Row="2" Grid.Column="1" Margin="0,0,8,0" VerticalAlignment="Center" Minimum="0" Maximum="1"
                     SmallChange="0.01" LargeChange="0.1" Value="{Binding MorphWeight}" IsEnabled="{Binding IsEditable}" />
@@ -259,8 +260,8 @@
             <CheckBox Grid.Row="4" Grid.ColumnSpan="3" VerticalAlignment="Center" Content="平行投影（パース OFF）"
                       IsChecked="{Binding CameraOrthographic}" IsEnabled="{Binding IsEditable}"
                       ToolTip="MMD の「パース OFF」と同じく、遠近の無い写し方にします。写る大きさは注視点までの距離で決まり（距離 45 で縦に 25）、視野角は使いません。キーに入り、次のキーまで切り替わりません。霧と環境の画像の背景はかかりません" />
-            <TextBlock Grid.Row="5" Text="キー" Style="{StaticResource RowLabelStyle}" />
-            <TextBlock Grid.Row="5" Grid.Column="1" Grid.ColumnSpan="2" VerticalAlignment="Center" Text="{Binding KeyCountText}" />
+            <TextBlock Grid.Row="5" Text="キー" Style="{StaticResource RowLabelStyle}" shell:ModeOnly.Edit="True" />
+            <TextBlock Grid.Row="5" Grid.Column="1" Grid.ColumnSpan="2" VerticalAlignment="Center" Text="{Binding KeyCountText}" shell:ModeOnly.Edit="True" />
           </Grid>
           <TextBlock Margin="0,6,0,0" Style="{StaticResource PlannedNoteStyle}"
                      Text="被写界深度（ピントの前後のぼけ）・ブルーム・色調補正・周辺減光は、レンダリングのメニューの「映像効果」、線画・塗りなどは「イラスト風」で設定します。被写界深度は初期値で注視点にピントを合わせ、カメラ視点の区画と書き出しにかかります。" />
@@ -338,9 +339,9 @@
                        Visibility="{Binding IsSpotLight, Converter={StaticResource BoolToVisibility}}" ToolTip="0 でくっきり、1 でなめらか" />
             <c:NumberBox Grid.Row="5" Grid.Column="2" Value="{Binding SpotSoftness}" Step="0.05" Format="0.00"
                          Visibility="{Binding IsSpotLight, Converter={StaticResource BoolToVisibility}}" />
-            <TextBlock Grid.Row="6" Text="キー" Style="{StaticResource RowLabelStyle}"
+            <TextBlock Grid.Row="6" Text="キー" Style="{StaticResource RowLabelStyle}" shell:ModeOnly.Edit="True"
                        ToolTip="位置・回転・色・明るさ・届く距離・広がり・ぼかしをキーで動かせます（タイムラインの「キーを登録」）" />
-            <TextBlock Grid.Row="6" Grid.Column="1" Grid.ColumnSpan="2" VerticalAlignment="Center" Text="{Binding KeyCountText}" />
+            <TextBlock Grid.Row="6" Grid.Column="1" Grid.ColumnSpan="2" VerticalAlignment="Center" Text="{Binding KeyCountText}" shell:ModeOnly.Edit="True" />
           </Grid>
           <CheckBox Margin="0,6,0,0" Content="影を落とす（影をレイトレーシングで求めるとき）" IsChecked="{Binding LightCastsShadow}"
                     IsEnabled="{Binding IsEditable}" Visibility="{Binding IsAddedLight, Converter={StaticResource BoolToVisibility}}"
@@ -381,8 +382,8 @@
               </DataTemplate>
             </ItemsControl.ItemTemplate>
           </ItemsControl>
-          <TextBlock Margin="0,8,0,0" Text="{Binding KeyCountText}" />
-          <TextBlock Margin="0,6,0,0" Style="{StaticResource PlannedNoteStyle}"
+          <TextBlock Margin="0,8,0,0" Text="{Binding KeyCountText}" shell:ModeOnly.Edit="True" />
+          <TextBlock Margin="0,6,0,0" Style="{StaticResource PlannedNoteStyle}" shell:ModeOnly.Edit="True"
                      Text="MMD の「表示・IK」と同じく、モデルの表示と IK の切り替えをキーで持ちます（次のキーまで変えない）。タイムラインの「キーを登録」で今のフレームに置きます。MMD のモーションの表示・IK のキーも読み書きします。" />
         </StackPanel>
 

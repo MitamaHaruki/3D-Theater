@@ -56,6 +56,12 @@ public sealed class AnimationService
     /// <summary>キーの値を当てはめている途中か（この間の値の変化は、手で変えたものではない）。</summary>
     public bool IsApplying => _applying > 0;
 
+    /// <summary>
+    /// 手で変えた値に「未登録の変更」の印を付けるか（初期値は付ける）。ライブモードはキーを打たないので付けない
+    /// （印が無いので、待機モーションのキーのあるボーンは、次の当てはめでモーションの値に戻る）。
+    /// </summary>
+    public bool TracksUserEdits { get; set; } = true;
+
     /// <summary>キーを当てはめるシーン。</summary>
     public SceneDocument Scene => _scene;
 
@@ -153,6 +159,47 @@ public sealed class AnimationService
         {
             _applying--;
         }
+    }
+
+    /// <summary>
+    /// ライブモード: 経過時間 <paramref name="seconds"/> のときの値を、モデルごとのモーション（ボーン・モーフ・表示・IK のキー）に当てはめる。
+    /// モデルごとに、そのモデルの最後のキーまでの長さで繰り返す（待機モーションのループ。長さの違うモーションも、それぞれの長さで回る）。
+    /// キーが 0 フレーム目にしか無いモデル（ポーズ）とキーの無いモデルは触らない。当てはめたモデルがあれば true。
+    /// </summary>
+    public bool ApplyLive(double seconds)
+    {
+        bool applied = false;
+        _applying++;
+        try
+        {
+            foreach (ModelNode model in Models)
+            {
+                int length = LastKeyFrame(model);
+                if (length <= 0)
+                {
+                    continue;
+                }
+                applied = true;
+                float frame = LiveLoop.Frame(seconds, _playback.FrameRate, length);
+                foreach (BoneNode bone in model.Bones)
+                {
+                    ApplyBone(bone, frame, resetWithoutKeys: false);
+                }
+                foreach (MorphNode morph in model.Morphs)
+                {
+                    ApplyMorph(morph, frame, resetWithoutKeys: false);
+                }
+                if (model.Display is { } display)
+                {
+                    ApplyDisplay(display, frame);
+                }
+            }
+        }
+        finally
+        {
+            _applying--;
+        }
+        return applied;
     }
 
     /// <summary>
@@ -622,6 +669,10 @@ public sealed class AnimationService
 
     private void OnUserEdit(SceneNode node)
     {
+        if (!TracksUserEdits)
+        {
+            return;
+        }
         if (_autoKey && node.CanEdit)
         {
             Register([node]);

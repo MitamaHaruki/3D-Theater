@@ -17,13 +17,17 @@ public sealed class SceneTreeItem : ObservableObject
 
     private readonly EditService _edits;
 
-    public SceneTreeItem(SceneNode node, SceneTreeItem? parent, EditService edits)
+    private readonly Func<SceneNode, bool>? _shows;
+
+    /// <param name="shows">一覧に出す項目か（null なら全部。ライブモードでは、キーのための行と音声を出さない）。子の行にも同じ決まりを使う。</param>
+    public SceneTreeItem(SceneNode node, SceneTreeItem? parent, EditService edits, Func<SceneNode, bool>? shows = null)
     {
         Node = node;
         Parent = parent;
         _edits = edits;
+        _shows = shows;
         _isExpanded = !node.StartsCollapsed;
-        Children = new ObservableCollection<SceneTreeItem>(node.Children.Select(c => new SceneTreeItem(c, this, edits)));
+        Children = new ObservableCollection<SceneTreeItem>(node.Children.Where(Shows).Select(c => new SceneTreeItem(c, this, edits, shows)));
         node.PropertyChanged += OnNodePropertyChanged;
         ((INotifyCollectionChanged)node.Children).CollectionChanged += OnNodeChildrenChanged;
     }
@@ -149,14 +153,16 @@ public sealed class SceneTreeItem : ObservableObject
         return IsShownByFilter;
     }
 
+    private bool Shows(SceneNode node) => _shows?.Invoke(node) ?? true;
+
     // モデルの読み込みなどで子が増減したら、行を合わせる（今ある行は開閉などの状態ごと使い回す）
     private void OnNodeChildrenChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
         var existing = Children.ToDictionary(c => c.Node);
         Children.Clear();
-        foreach (SceneNode child in Node.Children)
+        foreach (SceneNode child in Node.Children.Where(Shows))
         {
-            Children.Add(existing.TryGetValue(child, out SceneTreeItem? item) ? item : new SceneTreeItem(child, this, _edits));
+            Children.Add(existing.TryGetValue(child, out SceneTreeItem? item) ? item : new SceneTreeItem(child, this, _edits, _shows));
         }
         IsExpanded = true;
     }

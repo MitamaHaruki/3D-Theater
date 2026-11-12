@@ -53,6 +53,7 @@ public partial class App : Application
             ShutdownMode = ShutdownMode.OnMainWindowClose;
         }
         settings.LastMode = mode;
+        ModeOnly.CurrentMode = mode; // 画面を作る前に（モードで出し分ける部品が、作られるときに決める）
         AppLog.Info($"{AppModes.DisplayName(mode)}モードで起動します");
 
         _engine = CreateEngine(options, out string? engineError);
@@ -61,7 +62,7 @@ public partial class App : Application
         {
             AppLog.Info("安全モードで起動します（プラグインを始めません）");
         }
-        var window = new MainWindow(new EditorContext(_engine), engineError, options.SafeMode, mode, settings);
+        var window = new MainWindow(new EditorContext(_engine, mode), engineError, options.SafeMode, mode, settings);
         MainWindow = window;
         window.Show();
         window.ImportOnStartup(files);

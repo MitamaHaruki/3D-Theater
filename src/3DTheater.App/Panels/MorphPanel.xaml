@@ -2,6 +2,7 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:c="clr-namespace:Theater3D.App.Controls"
+             xmlns:shell="clr-namespace:Theater3D.App.Shell"
              Background="{StaticResource PanelBrush}">
   <UserControl.Resources>
     <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
@@ -59,7 +60,7 @@
         </Grid>
       </DockPanel>
       <!-- 未登録の変更があるときだけ出す -->
-      <DockPanel Margin="0,4,0,0" Visibility="{Binding HasUnregistered, Converter={StaticResource BoolToVisibility}}">
+      <DockPanel Margin="0,4,0,0" Visibility="{Binding HasUnregistered, Converter={StaticResource BoolToVisibility}}" shell:ModeOnly.Edit="True">
         <Button DockPanel.Dock="Right" Style="{StaticResource SmallTextButtonStyle}" Content="まとめて登録" Click="OnRegisterChangedClick"
                 ToolTip="このモデルのモーフの未登録の変更を、全部今のフレームのキーにします（元に戻せます）" />
         <TextBlock VerticalAlignment="Center" FontSize="11.5" Foreground="#FFF0A040" Text="{Binding UnregisteredNote}" />
@@ -186,7 +187,7 @@
             <c:NumberBox Grid.Column="2" Value="{Binding Weight}" Step="0.01" Format="0.000"
                          IsReadOnly="{Binding IsEditable, Converter={x:Static c:BoolNegation.Instance}}" />
             <Button Grid.Column="3" Margin="2,0,0,0" Style="{StaticResource KeyButtonStyle}" Content="{Binding KeyGlyph}"
-                    ToolTip="{Binding KeyToolTip}" IsEnabled="{Binding IsEditable}" Click="OnKeyClick" />
+                    ToolTip="{Binding KeyToolTip}" IsEnabled="{Binding IsEditable}" Click="OnKeyClick" shell:ModeOnly.Edit="True" />
           </Grid>
         </DataTemplate>
       </ListBox.ItemTemplate>

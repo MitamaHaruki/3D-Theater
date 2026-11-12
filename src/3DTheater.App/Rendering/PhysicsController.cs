@@ -17,6 +17,7 @@ namespace Theater3D.App.Rendering;
 /// - 画面の物理: 焼き込みがまだのフレームと、止まっているときに姿勢を変えた直後（しばらく実際の時間で動かす）は、
 ///   画面用の物理を <see cref="PhysicsClock"/> の進め方（<see cref="Current"/>）で計算する。
 /// 焼き込みは UI スレッドで小分けにして行う（シーンの値を別のスレッドから読まないように）。
+/// ライブモードでは焼き込みを作らず、画面の物理を実際の時間でいつも進める（<see cref="PhysicsClock.NextLive"/>。タイムラインが無いため）。
 /// </summary>
 public sealed class PhysicsController
 {
@@ -55,6 +56,10 @@ public sealed class PhysicsController
     {
         get
         {
+            if (_context.IsLive)
+            {
+                return null; // ライブは焼き込みを作らない
+            }
             int total = _context.Playback.EndFrame + 1;
             int[] done = [.. PhysicsModels.Select(p => p.Model.Bake?.Count ?? 0)];
             return done.Length == 0 ? null : (Math.Min(done.Min(), total), total);
@@ -249,6 +254,10 @@ public sealed class PhysicsController
     /// </summary>
     internal bool TryApplyBaked(ModelNode node, LoadedModel model, float frame)
     {
+        if (_context.IsLive && !ForceBaked)
+        {
+            return false; // ライブは画面の物理だけ
+        }
         bool playing = _context.Playback.IsPlaying;
         if (!_enabled || (!ForceBaked && !playing && _clock.IsSettling(DateTime.UtcNow)))
         {
@@ -375,7 +384,7 @@ public sealed class PhysicsController
 
     private void ScheduleBake()
     {
-        if (_bakeScheduled || !_enabled)
+        if (_bakeScheduled || !_enabled || _context.IsLive)
         {
             return;
         }
@@ -461,6 +470,21 @@ public sealed class PhysicsController
         Current = PhysicsStep.None;
         if (!_enabled || !HasPhysicsModels)
         {
+            return;
+        }
+        if (_context.IsLive)
+        {
+            // ライブ: フレームに関係なく、実際の時間でいつも進める
+            PhysicsStep live = _clock.NextLive(elapsed);
+            if (live.Kind != PhysicsStepKind.None)
+            {
+                Current = live;
+                foreach (LoadedModel model in _context.Models.Values.Where(m => m.Physics is not null))
+                {
+                    model.IsPoseDirty = true;
+                }
+                _context.RenderLoop.InvalidateAll();
+            }
             return;
         }
         bool settling = _clock.IsSettling(DateTime.UtcNow);

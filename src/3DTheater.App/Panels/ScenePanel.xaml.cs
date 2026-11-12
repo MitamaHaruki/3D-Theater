@@ -5,6 +5,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
 using Theater3D.App.Logging;
+using Theater3D.Domain;
 using Theater3D.Editor;
 
 namespace Theater3D.App.Panels;
@@ -24,7 +25,11 @@ public partial class ScenePanel : UserControl
     {
         InitializeComponent();
         _context = context;
-        _root = new SceneTreeItem(context.Scene.Root, null, context.Edits);
+        // ライブモードは、キーのための行（映像効果・セルフ影）と音声のまとまりを出さない
+        Func<SceneNode, bool>? shows = context.IsLive
+            ? node => node is not (EffectsNode or SelfShadowNode) && !ReferenceEquals(node, context.Scene.AudioGroup)
+            : null;
+        _root = new SceneTreeItem(context.Scene.Root, null, context.Edits, shows);
         Tree.ItemsSource = new[] { _root };
         context.Selection.Changed += (_, _) => SyncSelection();
         SyncSelection();

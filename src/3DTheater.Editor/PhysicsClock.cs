@@ -71,4 +71,20 @@ public sealed class PhysicsClock
         }
         return PhysicsStep.None;
     }
+
+    /// <summary>
+    /// ライブモードの進め方: フレームに関係なく、画面の更新ごとに実際の時間だけ進める（1 回で <see cref="MaxSettleStep"/> まで）。
+    /// 置き直しを頼まれていれば（物理をリセット・物理を入れ直したとき）、まず置き直す。
+    /// </summary>
+    public PhysicsStep NextLive(TimeSpan elapsed)
+    {
+        if (_resetRequested)
+        {
+            _resetRequested = false;
+            return PhysicsStep.Reset;
+        }
+        return elapsed > TimeSpan.Zero
+            ? new PhysicsStep(PhysicsStepKind.Step, Math.Min((float)elapsed.TotalSeconds, MaxSettleStep))
+            : PhysicsStep.None;
+    }
 }

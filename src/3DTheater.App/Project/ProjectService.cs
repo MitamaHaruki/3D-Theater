@@ -46,6 +46,7 @@ internal sealed class ProjectService
             }
         };
         context.Physics.Changed += (_, _) => OnPlaybackSettingsChanged();
+        context.LiveOutput.Changed += (_, _) => MarkDirty(); // 配信用の画面の大きさ・背景（ライブのファイルに保存する）
         context.Rendering.Changed += (_, _) => OnPlaybackSettingsChanged();
         context.Playback.StateChanged += (_, _) => OnPlaybackSettingsChanged();
         _autosaveTimer = new DispatcherTimer(AutosaveInterval, DispatcherPriority.Background, (_, _) => Autosave(), owner.Dispatcher);
@@ -182,6 +183,10 @@ internal sealed class ProjectService
             {
                 // 開いた値を、映像効果の手の変更とみなさない
                 (project.Rendering ?? new RenderingEntry()).ApplyTo(_context.Rendering, baseDirectory);
+            }
+            if (_mode == AppMode.Live)
+            {
+                (project.Live ?? new LiveEntry()).ApplyTo(_context.LiveOutput);
             }
             foreach (ModelEntry entry in project.Models)
             {
@@ -352,6 +357,7 @@ internal sealed class ProjectService
             ProjectFile project = ProjectCapture.Capture(_context.Scene, _context.Playback, _context.Animation,
                 Path.GetDirectoryName(fullPath), _context.MissingModels, _context.MissingAudio);
             project.Mode = ModeName;
+            project.Live = LiveSettings;
             project.Physics = _context.Physics.Enabled;
             project.PhysicsFloor = _context.Physics.FloorEnabled;
             project.PhysicsBetweenModels = _context.Physics.BetweenModels;
@@ -399,6 +405,7 @@ internal sealed class ProjectService
             string? directory = CurrentPath is null ? null : Path.GetDirectoryName(CurrentPath);
             ProjectFile project = ProjectCapture.Capture(_context.Scene, _context.Playback, _context.Animation, directory, _context.MissingModels, _context.MissingAudio);
             project.Mode = ModeName;
+            project.Live = LiveSettings;
             project.Physics = _context.Physics.Enabled;
             project.PhysicsFloor = _context.Physics.FloorEnabled;
             project.PhysicsBetweenModels = _context.Physics.BetweenModels;
@@ -414,6 +421,9 @@ internal sealed class ProjectService
 
     // ファイルに書くモードの名前（ライブだけ）
     private string? ModeName => _mode == AppMode.Live ? AppModes.LiveName : null;
+
+    // ファイルに書くライブの設定（ライブだけ）
+    private LiveEntry? LiveSettings => _mode == AppMode.Live ? LiveEntry.From(_context.LiveOutput) : null;
 
     // 自動保存は、同じモードのものだけを探す（拡張子で分かれている）
     private string? FindOrphanAutosave()

@@ -58,6 +58,36 @@ public sealed class ProjectFile
 
     /// <summary>「照明を追加」で足した照明（無ければ書かない）。</summary>
     public List<LightEntry>? Lights { get; set; }
+
+    /// <summary>ライブモードだけ: 配信用の画面の設定（エディットのファイルには書かない）。</summary>
+    public LiveEntry? Live { get; set; }
+}
+
+/// <summary>ライブモードの設定（配信用の画面の大きさと背景の色 #RRGGBB）。</summary>
+public sealed class LiveEntry
+{
+    public int OutputWidth { get; set; } = 1920;
+
+    public int OutputHeight { get; set; } = 1080;
+
+    public string OutputBackground { get; set; } = "#00FF00";
+
+    public static LiveEntry From(LiveOutputSettings output) => new()
+    {
+        OutputWidth = output.Width,
+        OutputHeight = output.Height,
+        OutputBackground = ImageExport.FormatColor(output.Background),
+    };
+
+    /// <summary>設定へ入れる（読めない色は初めの緑のまま）。</summary>
+    public void ApplyTo(LiveOutputSettings output)
+    {
+        output.SetSize(OutputWidth, OutputHeight);
+        if (ImageExport.TryParseColor(OutputBackground, out Vector3 color))
+        {
+            output.Background = color;
+        }
+    }
 }
 
 /// <summary>足した照明 1 つ。色は #RRGGBB、種類は「directional」「point」「spot」。</summary>

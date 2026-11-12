@@ -120,6 +120,20 @@
             <MenuItem Header="材質の設定..." Click="OnMaterialsClick"
                       ToolTip="選んだモデルの材質を、PBR（金属らしさ・粗さ）や発光で上書きします。PMX の材質は書き換えません（プロジェクトに保存し、元に戻せます）" />
           </MenuItem>
+          <MenuItem x:Name="LiveMenu" Header="ライブ(_L)" SubmenuOpened="OnLiveMenuOpened" shell:ModeOnly.Live="True">
+            <MenuItem x:Name="OutputMenuItem" Header="配信用の画面を出す" IsCheckable="True" Click="OnOutputClick"
+                      ToolTip="シーンのカメラから見た絵だけを、別の窓に出します（格子・ボーン・ギズモは出しません）。OBS などのウィンドウキャプチャで取り込み、背景の色をクロマキーで抜きます" />
+            <MenuItem x:Name="OutputSizeMenu" Header="配信用の画面の大きさ"
+                      ToolTip="配信用の画面の中（描く絵）の大きさ。窓の大きさを手で変えると、絵もその大きさで描きます（ライブのファイルに保存します）" />
+            <MenuItem x:Name="OutputBackgroundMenu" Header="配信用の画面の背景"
+                      ToolTip="背景を塗る色（クロマキーで抜く色）。環境の画像を背景に出しているときは、その画像を描きます（ライブのファイルに保存します）" />
+            <MenuItem x:Name="OutputTopmostMenuItem" Header="配信用の画面をいつも手前に出す" IsCheckable="True" Click="OnOutputTopmostClick" />
+            <Separator />
+            <MenuItem Header="待機モーション・ポーズを読み込む（VMD / VPD）..." Click="OnImportMotionClick"
+                      ToolTip="選んだモデル（キャラクター）に当てはめます。モーションは、そのモーションの長さで繰り返します。ポーズはその姿勢のままにします（ウィンドウへのドラッグでも読み込めます）" />
+            <MenuItem Header="待機モーションを外す" Click="OnRemoveIdleMotionClick"
+                      ToolTip="選んだモデルのモーションのキーを消し、姿勢を初期の形に戻します（Ctrl+Z で戻せます）" />
+          </MenuItem>
           <MenuItem Header="モーション(_A)" SubmenuOpened="OnMotionMenuOpened" shell:ModeOnly.Edit="True">
             <MenuItem Header="モーション・ポーズを読み込む（VMD / VPD）..." Click="OnImportMotionClick" />
             <MenuItem Header="モーションを書き出す（VMD）..." Click="OnExportMotionClick"
