@@ -38,15 +38,25 @@ public partial class MainWindow : Window
     private bool _videoMemoryUnavailable;
     private bool _busy;
     private readonly Project.ProjectService _project;
+    private readonly AppMode _mode;
 
-    public MainWindow(EditorContext context, string? engineError, bool safeMode = false)
+    /// <param name="mode">エディットモードかライブモードか（ライブでは、キーフレームの編集・書き出しのメニューとパネルを出さない）。</param>
+    /// <param name="settings">利用者の設定（起動の処理で読んだもの。無ければここで読む）。</param>
+    public MainWindow(EditorContext context, string? engineError, bool safeMode = false, AppMode mode = AppMode.Edit, UserSettings? settings = null)
     {
         InitializeComponent();
         _context = context;
-        _project = new Project.ProjectService(context, this);
+        _mode = mode;
+        int hidden = ModeOnly.Apply(this, mode);
+        OtherModeMenuItem.Header = $"{AppModes.DisplayName(OtherMode)}モードを別の窓で起動";
+        _project = new Project.ProjectService(context, this, mode);
         _project.StateChanged += (_, _) => UpdateTitle();
         _project.Opened += (_, _) => FocusViewsOnFirstModel();
-        _settings = UserSettingsStore.Load();
+        _settings = settings ?? UserSettingsStore.Load();
+        if (mode == AppMode.Live)
+        {
+            AppLog.Info($"ライブモードの画面にしました（エディットだけのメニュー・ボタン {hidden} 個を隠しました）");
+        }
         _context.SetExportSize(_settings.Export.Width, _settings.Export.Height); // カメラ視点の書き出しの枠
         _renderFailure = engineError;
 
@@ -59,10 +69,16 @@ public partial class MainWindow : Window
         {
             WindowMemory.Set(WindowMemory.MainWindowKey, WindowMemory.FromLegacy(legacy));
         }
-        WindowMemory.Track(this, WindowMemory.MainWindowKey, allowMaximize: true);
+        // ライブモードの窓は、エディットとは別の置き場所を覚える（初めてなら、エディットの置き場所から始める）
+        string windowKey = mode == AppMode.Live ? WindowMemory.LiveWindowKey : WindowMemory.MainWindowKey;
+        if (WindowMemory.Get(windowKey) is null && WindowMemory.Get(WindowMemory.MainWindowKey) is { } editPlacement)
+        {
+            WindowMemory.Set(windowKey, editPlacement);
+        }
+        WindowMemory.Track(this, windowKey, allowMaximize: true);
 
         Dock.Theme = new Vs2013DarkTheme();
-        _layout = new DockingLayout(Dock, context);
+        _layout = new DockingLayout(Dock, context, mode);
         _layout.PreviewCreated += (_, preview) => preview.ViewportActivated += (_, view) => Activate(preview, view);
         _layout.PreviewRemoved += (_, preview) => OnPreviewRemoved(preview);
         Dock.ActiveContentChanged += (_, _) =>
@@ -113,6 +129,7 @@ public partial class MainWindow : Window
         context.Rendering.Changed += (_, _) => UpdateRenderingControls();
         UpdatePhysicsControls();
         UpdateRenderingControls();
+        UpdateTitle();
 
         _statusTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(500), DispatcherPriority.Background, (_, _) => UpdateStatus(), Dispatcher);
         _statusTimer.Start();
@@ -178,6 +195,7 @@ public partial class MainWindow : Window
         Key key = e.Key == Key.System ? e.SystemKey : e.Key;
         ModifierKeys modifiers = Keyboard.Modifiers;
         bool inSceneTree = IsFocusWithin<ScenePanel>();
+        bool edit = _mode == AppMode.Edit; // 再生・フレームの移動・キーの操作はエディットモードだけ
 
         // 視点のショートカットは、最後に操作したプレビューの区画が受け取る
         if (_activeView is not null && (IsFocusWithin<ViewportControl>() || key is >= Key.NumPad0 and <= Key.NumPad9 or Key.Decimal))
@@ -191,25 +209,25 @@ public partial class MainWindow : Window
 
         switch (key)
         {
-            case Key.Space:
+            case Key.Space when edit:
                 _context.Playback.TogglePlay();
                 e.Handled = true;
                 break;
-            case Key.Left when !inSceneTree:
+            case Key.Left when edit && !inSceneTree:
                 _context.Playback.Pause();
                 _context.Playback.Step(-1);
                 e.Handled = true;
                 break;
-            case Key.Right when !inSceneTree:
+            case Key.Right when edit && !inSceneTree:
                 _context.Playback.Pause();
                 _context.Playback.Step(1);
                 e.Handled = true;
                 break;
-            case Key.Home:
+            case Key.Home when edit:
                 _context.Playback.GoToStart();
                 e.Handled = true;
                 break;
-            case Key.End:
+            case Key.End when edit:
                 _context.Playback.GoToEnd();
                 e.Handled = true;
                 break;
@@ -226,7 +244,7 @@ public partial class MainWindow : Window
                 }
                 e.Handled = true;
                 break;
-            case Key.Delete when KeyCommands.HasSelection(_context):
+            case Key.Delete when edit && KeyCommands.HasSelection(_context):
                 KeyCommands.Delete(_context);
                 e.Handled = true;
                 break;
@@ -234,11 +252,11 @@ public partial class MainWindow : Window
                 RemoveSelectedModels();
                 e.Handled = true;
                 break;
-            case Key.C when modifiers == ModifierKeys.Control && KeyCommands.HasSelection(_context):
+            case Key.C when edit && modifiers == ModifierKeys.Control && KeyCommands.HasSelection(_context):
                 KeyCommands.Copy(_context);
                 e.Handled = true;
                 break;
-            case Key.V when modifiers == ModifierKeys.Control && KeyCommands.CanPaste(_context):
+            case Key.V when edit && modifiers == ModifierKeys.Control && KeyCommands.CanPaste(_context):
                 KeyCommands.Paste(_context, _context.Playback.CurrentFrame);
                 e.Handled = true;
                 break;
@@ -275,7 +293,7 @@ public partial class MainWindow : Window
                 _context.Gizmo.Tool = key switch { Key.Q => GizmoTool.Select, Key.W => GizmoTool.Move, _ => GizmoTool.Rotate };
                 e.Handled = true;
                 break;
-            case Key.I when modifiers == ModifierKeys.None:
+            case Key.I when edit && modifiers == ModifierKeys.None:
                 RegisterKeys();
                 e.Handled = true;
                 break;
@@ -334,7 +352,7 @@ public partial class MainWindow : Window
 
     private void BuildPanelsMenu()
     {
-        foreach (var (id, title) in DockingLayout.PanelIds)
+        foreach (var (id, title) in _layout.Panels)
         {
             var item = new MenuItem { Header = title, IsCheckable = true, Tag = id };
             item.Click += (_, _) => _layout.TogglePanel(id);
@@ -734,6 +752,23 @@ public partial class MainWindow : Window
 
     private void OnNewProjectClick(object sender, RoutedEventArgs e) => _project.New();
 
+    private AppMode OtherMode => _mode == AppMode.Live ? AppMode.Edit : AppMode.Live;
+
+    private void OnStartOtherModeClick(object sender, RoutedEventArgs e) => AppLauncher.Start(OtherMode);
+
+    private void OnToolsMenuOpened(object sender, RoutedEventArgs e) =>
+        AssociationMenuItem.IsChecked = FileAssociationService.IsRegistered(FileAssociationService.ExePath);
+
+    private void OnAssociationClick(object sender, RoutedEventArgs e)
+    {
+        FileAssociationCommands.Toggle(this, AssociationMenuItem.IsChecked);
+        bool registered = FileAssociationService.IsRegistered(FileAssociationService.ExePath);
+        AssociationMenuItem.IsChecked = registered;
+        ShowNotice(registered
+            ? ".3dtproj と .3dtlive を、ダブルクリックでこのアプリのそのモードで開けるようにしました"
+            : "ファイルの関連付けを外しました", false);
+    }
+
     private async void OnOpenProjectClick(object sender, RoutedEventArgs e) => await _project.OpenWithDialogAsync();
 
     private void OnSaveProjectClick(object sender, RoutedEventArgs e) => _project.Save();
@@ -991,7 +1026,8 @@ public partial class MainWindow : Window
 
     private void UpdateTitle()
     {
-        string title = $"{_project.DisplayName}{(_project.IsDirty ? " ＊" : string.Empty)} - 3D Theater{(_safeMode ? "（安全モード）" : string.Empty)}";
+        string app = _mode == AppMode.Live ? "3D Theater ライブ" : "3D Theater";
+        string title = $"{_project.DisplayName}{(_project.IsDirty ? " ＊" : string.Empty)} - {app}{(_safeMode ? "（安全モード）" : string.Empty)}";
         TitleText.Text = title;
         Title = title;
     }

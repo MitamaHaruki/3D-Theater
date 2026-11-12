@@ -23,6 +23,9 @@ internal static partial class WindowMemory
     /// <summary>メインのウィンドウの名前。</summary>
     public const string MainWindowKey = "MainWindow";
 
+    /// <summary>ライブモードのメインのウィンドウの名前（エディットとは別の置き場所を覚える）。</summary>
+    public const string LiveWindowKey = "LiveWindow";
+
     private const int SW_HIDE = 0;
     private const int SW_SHOWMINIMIZED = 2;
     private const int SW_SHOWMAXIMIZED = 3;

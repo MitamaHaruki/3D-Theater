@@ -29,6 +29,12 @@ public sealed class UserSettings
 
     public Dictionary<string, PreviewSettings> Previews { get; set; } = [];
 
+    /// <summary>ライブモードのプレビューの分け方（レイアウトは <see cref="UserSettingsStore.LayoutFileFor"/> で別のファイル）。</summary>
+    public Dictionary<string, PreviewSettings> LivePreviews { get; set; } = [];
+
+    /// <summary>前回起動したモード（モードを選ぶ画面で、初めに選んでおく）。</summary>
+    public Theater3D.Editor.AppMode? LastMode { get; set; }
+
     /// <summary>ギズモの方式・道具・座標（全プレビューで共通の初期設定。指示書 2.6）。</summary>
     public GizmoPreferences Gizmo { get; set; } = new();
 
@@ -116,6 +122,10 @@ public static class UserSettingsStore
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "3DTheater", "UserSettings");
 
     public static string LayoutFile => Path.Combine(Directory, "layout.xml");
+
+    /// <summary>モードごとのドッキングの並び（エディットは今までどおり layout.xml、ライブは layout_live.xml）。</summary>
+    public static string LayoutFileFor(Theater3D.Editor.AppMode mode) =>
+        mode == Theater3D.Editor.AppMode.Live ? Path.Combine(Directory, "layout_live.xml") : LayoutFile;
 
     public static string SettingsFile => Path.Combine(Directory, "settings.json");
 

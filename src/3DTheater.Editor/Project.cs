@@ -7,7 +7,7 @@ using Theater3D.Formats;
 
 namespace Theater3D.Editor;
 
-// プロジェクトファイル（.3dtproj）の中身。UTF-8 の JSON で、先頭に形式の名前と版を持つ（指示書 8 章）。
+// プロジェクトファイル（エディットは .3dtproj、ライブは .3dtlive）の中身。UTF-8 の JSON で、先頭に形式の名前と版を持つ（指示書 8 章）。
 // モデルは場所だけを持ち（中身は元のファイルから読む。原本は書き換えない）、ボーン・モーフは
 // 初期の状態から変えたもの（キー・姿勢・未登録の変更・ロック・非表示）だけを書く。
 // キーは数の並びで短く書く（ボーン: フレーム・移動 3・回転 4・種類、曲線が直線でなければ 16 個足す）。
@@ -17,6 +17,12 @@ public sealed class ProjectFile
     public string Format { get; set; } = ProjectSerializer.FormatId;
 
     public int Version { get; set; } = ProjectSerializer.CurrentVersion;
+
+    /// <summary>
+    /// モード（ライブモードのファイルだけ「live」。無ければエディット）。開くモードは拡張子で決め、
+    /// これは拡張子が分からないときに使う（<see cref="AppModes.ModeOfProject"/>）。
+    /// </summary>
+    public string? Mode { get; set; }
 
     /// <summary>保存したアプリの版（参考）。</summary>
     public string? App { get; set; }
@@ -436,7 +442,8 @@ public static class ProjectSerializer
 {
     public const string FormatId = "3DTheater.Project";
     public const int CurrentVersion = 1;
-    public const string Extension = ".3dtproj";
+    /// <summary>エディットモードの拡張子（ライブは <see cref="AppModes.LiveExtension"/>）。</summary>
+    public const string Extension = AppModes.EditExtension;
 
     private static readonly JsonSerializerOptions Options = new()
     {

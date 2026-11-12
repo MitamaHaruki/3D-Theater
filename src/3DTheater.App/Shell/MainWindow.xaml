@@ -2,6 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:ad="https://github.com/Dirkster99/AvalonDock"
+        xmlns:shell="clr-namespace:Theater3D.App.Shell"
         Title="3D Theater"
         Width="1440" Height="900" MinWidth="900" MinHeight="560"
         WindowStartupLocation="CenterScreen"
@@ -46,27 +47,30 @@
             <Separator />
             <MenuItem Header="モデルを読み込む（PMX）..." InputGestureText="Ctrl+I" Click="OnImportModelClick"
                       ToolTip="PMX モデルをシーンに加えて表示します（ドラッグでも読み込めます）" />
-            <MenuItem Header="モーション・ポーズを読み込む（VMD / VPD）..." Click="OnImportMotionClick"
+            <MenuItem Header="モーション・ポーズを読み込む（VMD / VPD）..." Click="OnImportMotionClick" shell:ModeOnly.Edit="True"
                       ToolTip="今操作しているモデルに当てはめます（ウィンドウへのドラッグでも読み込めます）" />
-            <MenuItem Header="音声を読み込む（WAV / MP3 など）..." Click="OnImportAudioClick"
+            <MenuItem Header="音声を読み込む（WAV / MP3 など）..." Click="OnImportAudioClick" shell:ModeOnly.Edit="True"
                       ToolTip="曲などを読み込み、再生に合わせて鳴らします（音声は 1 つまで。ウィンドウへのドラッグでも読み込めます）" />
-            <MenuItem Header="音声を外す" Click="OnRemoveAudioClick" ToolTip="シーンから音声を外します（ファイルは消しません。Ctrl+Z で戻せます）" />
-            <MenuItem Header="書き出す（PNG・連番・動画）..." Click="OnExportStillClick"
+            <MenuItem Header="音声を外す" Click="OnRemoveAudioClick" shell:ModeOnly.Edit="True" ToolTip="シーンから音声を外します（ファイルは消しません。Ctrl+Z で戻せます）" />
+            <MenuItem Header="書き出す（PNG・連番・動画）..." Click="OnExportStillClick" shell:ModeOnly.Edit="True"
                       ToolTip="シーンのカメラから見た絵を PNG で書き出します（レンダリングのメニューと同じ）" />
             <!-- プラグインのファイルの形式（あるときだけ出す） -->
             <MenuItem x:Name="PluginImportMenu" Header="読み込む（プラグインの形式）" Visibility="Collapsed" SubmenuOpened="OnPluginFileMenuOpened" />
             <MenuItem x:Name="PluginExportMenu" Header="書き出す（プラグインの形式）" Visibility="Collapsed" SubmenuOpened="OnPluginFileMenuOpened" />
+            <Separator />
+            <MenuItem x:Name="OtherModeMenuItem" Click="OnStartOtherModeClick"
+                      ToolTip="もう一方のモードを、別の窓（別のアプリ）で起動します。今の窓の作業はそのまま残ります" />
             <Separator />
             <MenuItem Header="終了(_X)" InputGestureText="Alt+F4" Click="OnExitClick" />
           </MenuItem>
           <MenuItem Header="編集(_E)" SubmenuOpened="OnEditMenuOpened">
             <MenuItem x:Name="UndoMenuItem" Header="元に戻す(_U)" InputGestureText="Ctrl+Z" Click="OnUndoClick" />
             <MenuItem x:Name="RedoMenuItem" Header="やり直し(_R)" InputGestureText="Ctrl+Y" Click="OnRedoClick" />
-            <Separator />
-            <MenuItem x:Name="CopyKeysMenuItem" Header="キーをコピー(_C)" InputGestureText="Ctrl+C" Click="OnCopyKeysClick"
+            <Separator shell:ModeOnly.Edit="True" />
+            <MenuItem x:Name="CopyKeysMenuItem" Header="キーをコピー(_C)" InputGestureText="Ctrl+C" Click="OnCopyKeysClick" shell:ModeOnly.Edit="True"
                       ToolTip="タイムラインで選んだキーをコピーします" />
-            <MenuItem x:Name="PasteKeysMenuItem" Header="キーを今のフレームに貼り付け(_P)" InputGestureText="Ctrl+V" Click="OnPasteKeysClick" />
-            <MenuItem x:Name="DeleteKeysMenuItem" Header="キーを削除(_D)" InputGestureText="Delete" Click="OnDeleteKeysClick" />
+            <MenuItem x:Name="PasteKeysMenuItem" Header="キーを今のフレームに貼り付け(_P)" InputGestureText="Ctrl+V" Click="OnPasteKeysClick" shell:ModeOnly.Edit="True" />
+            <MenuItem x:Name="DeleteKeysMenuItem" Header="キーを削除(_D)" InputGestureText="Delete" Click="OnDeleteKeysClick" shell:ModeOnly.Edit="True" />
             <Separator />
             <MenuItem Header="すべて選択(_A)" InputGestureText="Ctrl+A" Click="OnSelectAllClick" />
             <MenuItem Header="選択を解除" InputGestureText="Esc" Click="OnClearSelectionClick" />
@@ -116,7 +120,7 @@
             <MenuItem Header="材質の設定..." Click="OnMaterialsClick"
                       ToolTip="選んだモデルの材質を、PBR（金属らしさ・粗さ）や発光で上書きします。PMX の材質は書き換えません（プロジェクトに保存し、元に戻せます）" />
           </MenuItem>
-          <MenuItem Header="モーション(_A)" SubmenuOpened="OnMotionMenuOpened">
+          <MenuItem Header="モーション(_A)" SubmenuOpened="OnMotionMenuOpened" shell:ModeOnly.Edit="True">
             <MenuItem Header="モーション・ポーズを読み込む（VMD / VPD）..." Click="OnImportMotionClick" />
             <MenuItem Header="モーションを書き出す（VMD）..." Click="OnExportMotionClick"
                       ToolTip="今操作しているモデルのボーン・モーフのキーを、MMD のモーションとして書き出します" />
@@ -152,18 +156,21 @@
                       ToolTip="色調補正（明るさ・コントラスト・彩度・色温度）、ブルーム、周辺減光、環境光の遮り、被写界深度を設定します。書き出しにもかかります（プロジェクトに保存します）" />
             <MenuItem Header="イラスト風..." Click="OnIllustrationClick"
                       ToolTip="線画・塗り（明るさの段階を減らす）・影の色・紙の質感を設定します。書き出しにもかかります（プロジェクトに保存します）" />
-            <Separator />
-            <MenuItem Header="静止画を書き出す（PNG）..." Click="OnExportStillClick"
+            <Separator shell:ModeOnly.Edit="True" />
+            <MenuItem Header="静止画を書き出す（PNG）..." Click="OnExportStillClick" shell:ModeOnly.Edit="True"
                       ToolTip="今のフレームを、シーンのカメラから見た絵で PNG に書き出します（背景の透過もできます）" />
-            <MenuItem Header="連番を書き出す（PNG）..." Click="OnExportSequenceClick"
+            <MenuItem Header="連番を書き出す（PNG）..." Click="OnExportSequenceClick" shell:ModeOnly.Edit="True"
                       ToolTip="フレームの範囲を 1 フレーム 1 枚の PNG で書き出します（名前_0000.png …）" />
-            <MenuItem Header="動画を書き出す（MP4）..." Click="OnExportVideoClick"
+            <MenuItem Header="動画を書き出す（MP4）..." Click="OnExportVideoClick" shell:ModeOnly.Edit="True"
                       ToolTip="フレームの範囲を MP4 の動画（H.264・AAC）で書き出します。シーンの音声も入れられます" />
             <Separator />
             <MenuItem Header="描画品質の設定..." Click="OnRenderQualityClick"
                       ToolTip="プレビューの品質（軽い・ふつう・きれい。線や輪郭のなめらかさと影の細かさ）を選びます。書き出しはいつも高い品質で描きます" />
           </MenuItem>
-          <MenuItem Header="ツール(_T)">
+          <MenuItem Header="ツール(_T)" SubmenuOpened="OnToolsMenuOpened">
+            <MenuItem x:Name="AssociationMenuItem" Header=".3dtproj・.3dtlive をダブルクリックで開けるようにする" IsCheckable="True" Click="OnAssociationClick"
+                      ToolTip="エクスプローラーでファイルをダブルクリックしたときに、このアプリのそのモード（.3dtproj はエディット、.3dtlive はライブ）で開くようにします。この PC の今の利用者に登録し、管理者の権限は要りません。外すと登録を消します" />
+            <Separator />
             <MenuItem Header="設定..." Style="{StaticResource PlannedItemStyle}" ToolTip="まだできません（操作感度・ショートカットの設定は今後対応します）" />
           </MenuItem>
           <MenuItem x:Name="PluginsMenu" Header="プラグイン(_P)" />
@@ -227,7 +234,7 @@
             <Button Style="{StaticResource TextButtonStyle}" Content="2 画面" Tag="SideBySide" Click="OnPreviewLayoutClick" ToolTip="選んでいるプレビューを 2 画面にする" />
             <Button Style="{StaticResource TextButtonStyle}" Content="4 画面" Tag="Quad" Click="OnPreviewLayoutClick" ToolTip="選んでいるプレビューを 4 画面にする" />
             <Rectangle Style="{StaticResource ToolbarSeparatorStyle}" />
-            <Button x:Name="PlayButton" Style="{StaticResource IconButtonStyle}" Content="&#xE768;" Click="OnPlayClick" ToolTip="再生 / 一時停止（Space）" />
+            <Button x:Name="PlayButton" Style="{StaticResource IconButtonStyle}" Content="&#xE768;" Click="OnPlayClick" ToolTip="再生 / 一時停止（Space）" shell:ModeOnly.Edit="True" />
             <ToggleButton x:Name="PhysicsButton" Style="{StaticResource TextButtonStyle}" Content="物理"
                           Checked="OnPhysicsButtonToggled" Unchecked="OnPhysicsButtonToggled"
                           ToolTip="物理演算（髪・スカートなどの揺れ）の ON / OFF" />
@@ -252,8 +259,8 @@
           <TextBlock x:Name="VideoMemoryText" DockPanel.Dock="Right" Margin="18,0,0,0" VerticalAlignment="Center" Foreground="{StaticResource SubTextBrush}" />
           <TextBlock x:Name="FrameRateText" DockPanel.Dock="Right" Margin="18,0,0,0" VerticalAlignment="Center" Foreground="{StaticResource SubTextBrush}" />
           <TextBlock x:Name="RendererText" DockPanel.Dock="Right" Margin="18,0,0,0" VerticalAlignment="Center" Foreground="{StaticResource SubTextBrush}" />
-          <TextBlock x:Name="FrameText" DockPanel.Dock="Right" Margin="18,0,0,0" VerticalAlignment="Center" Foreground="{StaticResource SubTextBrush}" />
-          <TextBlock x:Name="PhysicsText" DockPanel.Dock="Right" Margin="18,0,0,0" VerticalAlignment="Center" Foreground="{StaticResource SubTextBrush}"
+          <TextBlock x:Name="FrameText" DockPanel.Dock="Right" Margin="18,0,0,0" VerticalAlignment="Center" Foreground="{StaticResource SubTextBrush}" shell:ModeOnly.Edit="True" />
+          <TextBlock x:Name="PhysicsText" DockPanel.Dock="Right" Margin="18,0,0,0" VerticalAlignment="Center" Foreground="{StaticResource SubTextBrush}" shell:ModeOnly.Edit="True"
                      ToolTip="物理の焼き込み（0 フレーム目から順に計算した結果を覚えておく）の進み具合。できたフレームは、どこから来ても同じ姿勢になります" />
           <!-- プラグインの欄（アプリの欄の左） -->
           <StackPanel x:Name="PluginStatusArea" DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center" />

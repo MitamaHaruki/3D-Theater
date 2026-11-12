@@ -12,28 +12,30 @@ using Theater3D.Formats;
 namespace Theater3D.App.Project;
 
 /// <summary>
-/// プロジェクト（.3dtproj）の新規・開く・保存と、変更の有無・自動保存・復旧を受け持つ（指示書 8 章）。
+/// プロジェクト（エディットは .3dtproj、ライブは .3dtlive）の新規・開く・保存と、変更の有無・自動保存・復旧を受け持つ（指示書 8 章）。
+/// もう一方のモードのファイルを開こうとしたら、そのモードを別の窓で起動するか尋ねる。
 /// 保存は一時ファイルに書いてから置き換える。保存していない変更があるときは、閉じる・新規・開く の前に確かめる。
 /// 自動保存は、変更があれば数分ごとに作業用のフォルダーへ書き、きちんと閉じたら消す。
 /// 起動したときに、ほかの（終わっている）アプリの自動保存が残っていれば、開くかどうかを尋ねる。
 /// </summary>
 internal sealed class ProjectService
 {
-    public const string FileFilter = "3D Theater のプロジェクト (*.3dtproj)|*.3dtproj|すべてのファイル (*.*)|*.*";
     private static readonly TimeSpan AutosaveInterval = TimeSpan.FromMinutes(2);
 
     private readonly EditorContext _context;
     private readonly Window _owner;
+    private readonly AppMode _mode;
     private readonly DispatcherTimer _autosaveTimer;
     private int _suppressDirty;
     private (int FrameRate, int EndFrame, bool Loop, bool Physics, bool PhysicsFloor, bool PhysicsBetweenModels, bool SelfShadow, bool GroundShadow,
         VisualEffects Effects, IllustrationStyle Illustration, FloorReflection Reflection, SceneFog Fog, ShadowStyle Shadows, SceneEnvironment Environment)
         _playbackSettings;
 
-    public ProjectService(EditorContext context, Window owner)
+    public ProjectService(EditorContext context, Window owner, AppMode mode = AppMode.Edit)
     {
         _context = context;
         _owner = owner;
+        _mode = mode;
         _playbackSettings = PlaybackSettings();
         context.Undo.Changed += (_, _) => MarkDirty();
         context.Scene.NodeChanged += (_, e) =>
@@ -68,9 +70,14 @@ internal sealed class ProjectService
     public static string AutosaveDirectory { get; } =
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "3DTheater", "AutoSave");
 
-    private static string OwnAutosaveFile => Path.Combine(AutosaveDirectory, $"autosave_{Environment.ProcessId}{ProjectSerializer.Extension}");
+    public AppMode Mode => _mode;
 
-    public static bool IsProjectFile(string path) => Path.GetExtension(path).Equals(ProjectSerializer.Extension, StringComparison.OrdinalIgnoreCase);
+    private string FileFilter => AppModes.FileFilter(_mode);
+
+    private string OwnAutosaveFile => Path.Combine(AutosaveDirectory, $"autosave_{Environment.ProcessId}{AppModes.Extension(_mode)}");
+
+    /// <summary>どちらかのモードのプロジェクトファイル（ドラッグで開く。もう一方のモードなら、そのモードで開くか尋ねる）。</summary>
+    public static bool IsProjectFile(string path) => AppModes.ModeOfFile(path) is not null;
 
     public void MarkDirty()
     {
@@ -109,7 +116,7 @@ internal sealed class ProjectService
         {
             return false;
         }
-        var dialog = new Microsoft.Win32.OpenFileDialog { Title = "プロジェクトを開く", Filter = FileFilter };
+        var dialog = new Microsoft.Win32.OpenFileDialog { Title = _mode == AppMode.Live ? "ライブを開く" : "プロジェクトを開く", Filter = FileFilter };
         return dialog.ShowDialog(_owner) == true && await OpenAsync(dialog.FileName);
     }
 
@@ -119,7 +126,16 @@ internal sealed class ProjectService
     /// </summary>
     public async Task<bool> OpenAsync(string path, string? recoveredFrom = null)
     {
-        if (IsBusy || !ConfirmDiscard("プロジェクトを開く"))
+        if (IsBusy)
+        {
+            return false;
+        }
+        if (AppModes.ModeOfFile(path) is { } fileMode && fileMode != _mode)
+        {
+            OfferOtherMode(path, fileMode);
+            return false;
+        }
+        if (!ConfirmDiscard("プロジェクトを開く"))
         {
             return false;
         }
@@ -141,6 +157,12 @@ internal sealed class ProjectService
         if (project is null)
         {
             ShowReport(fullPath, report);
+            return false;
+        }
+        if (AppModes.ModeOfFile(fullPath) is null && AppModes.ModeOfProject(project) != _mode)
+        {
+            // 拡張子の分からないファイル（すべてのファイルから選んだとき）は、中に書いたモードで確かめる
+            OfferOtherMode(fullPath, AppModes.ModeOfProject(project));
             return false;
         }
 
@@ -218,12 +240,37 @@ internal sealed class ProjectService
         {
             Title = "名前を付けて保存",
             Filter = FileFilter,
-            DefaultExt = ProjectSerializer.Extension,
+            DefaultExt = AppModes.Extension(_mode),
             AddExtension = true,
             FileName = CurrentPath is null ? "無題" : Path.GetFileName(CurrentPath),
             InitialDirectory = CurrentPath is null ? null : Path.GetDirectoryName(CurrentPath),
         };
-        return dialog.ShowDialog(_owner) == true && SaveTo(dialog.FileName);
+        if (dialog.ShowDialog(_owner) != true)
+        {
+            return false;
+        }
+        string path = dialog.FileName;
+        if (AppModes.ModeOfFile(path) is { } other && other != _mode)
+        {
+            // もう一方のモードの拡張子で保存すると、次にダブルクリックしたときに違うモードで開いてしまう
+            path = Path.ChangeExtension(path, AppModes.Extension(_mode));
+            AppLog.Info($"{AppModes.DisplayName(_mode)}モードのファイルなので、拡張子を {AppModes.Extension(_mode)} にして保存します: {path}");
+        }
+        return SaveTo(path);
+    }
+
+    /// <summary>もう一方のモードのファイルを開こうとしたとき: そのモードを別の窓で起動して開くか尋ねる。</summary>
+    private void OfferOtherMode(string path, AppMode fileMode)
+    {
+        string name = AppModes.DisplayName(fileMode);
+        AppLog.Info($"{name}モードのファイルのため、今の窓では開きません: {path}");
+        MessageBoxResult answer = MessageBox.Show(_owner,
+            $"「{Path.GetFileName(path)}」は{name}モードのファイルです。\n\n{name}モードを別の窓で起動して開きますか？（今の窓の作業はそのまま残ります）",
+            "3D Theater", MessageBoxButton.YesNo, MessageBoxImage.Question);
+        if (answer == MessageBoxResult.Yes)
+        {
+            AppLauncher.Start(fileMode, path);
+        }
     }
 
     /// <summary>閉じてよいか（保存していない変更があれば尋ねる）。閉じるときは自動保存も消す。</summary>
@@ -304,6 +351,7 @@ internal sealed class ProjectService
         {
             ProjectFile project = ProjectCapture.Capture(_context.Scene, _context.Playback, _context.Animation,
                 Path.GetDirectoryName(fullPath), _context.MissingModels, _context.MissingAudio);
+            project.Mode = ModeName;
             project.Physics = _context.Physics.Enabled;
             project.PhysicsFloor = _context.Physics.FloorEnabled;
             project.PhysicsBetweenModels = _context.Physics.BetweenModels;
@@ -350,6 +398,7 @@ internal sealed class ProjectService
         {
             string? directory = CurrentPath is null ? null : Path.GetDirectoryName(CurrentPath);
             ProjectFile project = ProjectCapture.Capture(_context.Scene, _context.Playback, _context.Animation, directory, _context.MissingModels, _context.MissingAudio);
+            project.Mode = ModeName;
             project.Physics = _context.Physics.Enabled;
             project.PhysicsFloor = _context.Physics.FloorEnabled;
             project.PhysicsBetweenModels = _context.Physics.BetweenModels;
@@ -363,13 +412,17 @@ internal sealed class ProjectService
         }
     }
 
-    private static string? FindOrphanAutosave()
+    // ファイルに書くモードの名前（ライブだけ）
+    private string? ModeName => _mode == AppMode.Live ? AppModes.LiveName : null;
+
+    // 自動保存は、同じモードのものだけを探す（拡張子で分かれている）
+    private string? FindOrphanAutosave()
     {
         if (!Directory.Exists(AutosaveDirectory))
         {
             return null;
         }
-        return Directory.EnumerateFiles(AutosaveDirectory, $"autosave_*{ProjectSerializer.Extension}")
+        return Directory.EnumerateFiles(AutosaveDirectory, $"autosave_*{AppModes.Extension(_mode)}")
             .Where(f => !IsRunning(f))
             .OrderByDescending(File.GetLastWriteTimeUtc)
             .FirstOrDefault();

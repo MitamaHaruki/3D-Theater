@@ -3,6 +3,8 @@ using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Threading;
 using Theater3D.App.Logging;
+using Theater3D.App.Shell;
+using Theater3D.Editor;
 using Theater3D.Engine.Interop;
 
 namespace Theater3D.App;
@@ -24,16 +26,45 @@ public partial class App : Application
         NativeLog.MessageReceived += OnNativeLog;
 
         var options = StartupOptions.Parse(e.Args);
+        UserSettings settings = UserSettingsStore.Load();
+        List<string> files = [.. options.Files];
+        // モード: プロジェクトファイルを渡されたらその種類、「--edit」「--live」があればそれ。どちらも無ければ選んでもらう
+        var (decided, note) = AppModes.Decide(options.Files, options.Switches);
+        if (note is not null)
+        {
+            AppLog.Info(note);
+        }
+        if (decided is not { } mode)
+        {
+            // 選ぶ画面を閉じてもアプリを終えないよう、終わり方を一時的に変える
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            var chooser = new ModeSelectWindow(settings.LastMode);
+            if (chooser.ShowDialog() != true || chooser.SelectedMode is not { } chosen)
+            {
+                AppLog.Info("モードを選ばずに終了します");
+                Shutdown();
+                return;
+            }
+            mode = chosen;
+            if (chooser.SelectedFile is { } file)
+            {
+                files.Insert(0, file);
+            }
+            ShutdownMode = ShutdownMode.OnMainWindowClose;
+        }
+        settings.LastMode = mode;
+        AppLog.Info($"{AppModes.DisplayName(mode)}モードで起動します");
+
         _engine = CreateEngine(options, out string? engineError);
 
         if (options.SafeMode)
         {
             AppLog.Info("安全モードで起動します（プラグインを始めません）");
         }
-        var window = new Shell.MainWindow(new EditorContext(_engine), engineError, options.SafeMode);
+        var window = new MainWindow(new EditorContext(_engine), engineError, options.SafeMode, mode, settings);
         MainWindow = window;
         window.Show();
-        window.ImportOnStartup(options.Files);
+        window.ImportOnStartup(files);
     }
 
     protected override void OnExit(ExitEventArgs e)
@@ -139,9 +170,10 @@ public partial class App : Application
         e.Handled = true;
     }
 
-    /// <param name="Files">「--」で始まらない引数。起動後に読み込むモデルのファイル。</param>
+    /// <param name="Files">「--」で始まらない引数。起動後に読み込むモデル・開くプロジェクトのファイル。</param>
     /// <param name="SafeMode">安全モード（プラグインを始めない）。「--safe-mode」か、Shift を押しながらの起動。</param>
-    private sealed record StartupOptions(bool UseWarp, bool DebugLayer, IReadOnlyList<string> Files, bool SafeMode)
+    /// <param name="Switches">「--」で始まる引数（「--edit」「--live」でモードを決める）。</param>
+    private sealed record StartupOptions(bool UseWarp, bool DebugLayer, IReadOnlyList<string> Files, bool SafeMode, IReadOnlyList<string> Switches)
     {
         public static StartupOptions Parse(string[] args)
         {
@@ -155,7 +187,8 @@ public partial class App : Application
             bool safeMode = args.Contains("--safe-mode", StringComparer.OrdinalIgnoreCase)
                 || System.Windows.Input.Keyboard.IsKeyDown(System.Windows.Input.Key.LeftShift)
                 || System.Windows.Input.Keyboard.IsKeyDown(System.Windows.Input.Key.RightShift);
-            return new StartupOptions(useWarp, debugLayer, files, safeMode);
+            string[] switches = [.. args.Where(a => a.StartsWith("--", StringComparison.Ordinal))];
+            return new StartupOptions(useWarp, debugLayer, files, safeMode, switches);
         }
     }
 }
