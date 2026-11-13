@@ -149,6 +149,40 @@ public sealed class LiveTests
         Assert.AreEqual(new Vector3(0, 1, 0), broken.Background, "読めない色は緑のまま");
     }
 
+    [TestMethod]
+    public void TrackingSettingsAreSavedWithTheTargetModel()
+    {
+        var model = Guid.NewGuid();
+        var tracking = new FaceRetargetSettings { Mirror = true, Gaze = false, BodySway = false, Smoothing = 0.8f, TargetModelId = model };
+        var project = new ProjectFile { Mode = AppModes.LiveName, Live = LiveEntry.From(new LiveOutputSettings(), tracking) };
+        string json = ProjectSerializer.Serialize(project);
+        StringAssert.Contains(json, "\"tracking\":{\"target\":\"" + model.ToString("N") + "\"");
+        StringAssert.Contains(json, "\"mirror\":true");
+
+        // 読み込みでは、ファイルの中のモデルの目印から、読み込み直したモデルの Id を探す
+        var reopened = Guid.NewGuid();
+        var read = new FaceRetargetSettings();
+        int changes = 0;
+        read.Changed += (_, _) => changes++;
+        ProjectSerializer.Deserialize(json, new LoadReport())!.Live!.Tracking!.ApplyTo(read, id => id == model.ToString("N") ? reopened : null);
+        Assert.AreEqual(reopened, read.TargetModelId);
+        Assert.IsTrue(read.Mirror);
+        Assert.IsFalse(read.Gaze);
+        Assert.IsTrue(read.UpperBody);
+        Assert.IsFalse(read.BodySway);
+        Assert.AreEqual(0.8f, read.Smoothing, 1e-6f);
+        Assert.IsGreaterThan(0, changes, "変わったことを知らせる（保存していない印・パネルの表示）");
+
+        // 当てはめるモデルが見つからなければ「自動で選ぶ」に戻す
+        new TrackingEntry { Target = "ないモデル" }.ApplyTo(read, _ => null);
+        Assert.IsNull(read.TargetModelId);
+        Assert.IsFalse(read.Mirror, "書いていない値は既定（映像と同じ向き）");
+
+        // 自動で選ぶときは、モデルを書かない
+        StringAssert.DoesNotMatch(ProjectSerializer.Serialize(new ProjectFile { Mode = AppModes.LiveName, Live = LiveEntry.From(new LiveOutputSettings(), new FaceRetargetSettings()) }),
+            new System.Text.RegularExpressions.Regex("\"target\""));
+    }
+
     private static ModelNode AddModel(SceneDocument scene, string name)
     {
         var model = new ModelNode(name, name + ".pmx", new ModelSummary("PMX 2.0", 0, 0, 0, 0, 1, 1, 0, 0), string.Empty, Vector3.Zero, Vector3.One);

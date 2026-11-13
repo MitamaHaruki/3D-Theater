@@ -55,9 +55,9 @@ public sealed class DockingLayout
             _panels[TimelineId] = ("タイムライン", new TimelinePanel(context), AnchorableShowStrategy.Bottom);
             _panels[GraphId] = ("グラフ", new GraphEditorPanel(context), AnchorableShowStrategy.Bottom);
         }
-        else if (context.Tracking is { } tracking)
+        else if (context.Tracking is not null)
         {
-            _panels[TrackingId] = ("トラッキング", new Live.TrackingPanel(tracking), AnchorableShowStrategy.Right); // 顔のトラッキングはライブだけ
+            _panels[TrackingId] = ("トラッキング", new Live.TrackingPanel(context), AnchorableShowStrategy.Right); // 顔のトラッキングはライブだけ
         }
         dock.DocumentClosed += (_, e) =>
         {

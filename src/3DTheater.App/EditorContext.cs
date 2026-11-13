@@ -125,6 +125,9 @@ public sealed class LoadedModel : IDisposable
     /// <summary>姿勢を変えたが、まだ変形し直していない。</summary>
     public bool IsPoseDirty { get; set; }
 
+    /// <summary>描く直前のポーズに重ねる、顔のトラッキングの分（ライブモード。無ければ null）。</summary>
+    public Live.FaceOverlay? FaceOverlay { get; set; }
+
     public void Dispose()
     {
         Mesh?.Dispose();
@@ -173,6 +176,7 @@ public sealed class EditorContext
             Animation.TracksUserEdits = false; // ライブはキーを打たないので、未登録の変更の印を付けない
             LiveRuntime = new Live.LiveRuntime(this); // 物理の後に作る（描画の繰り返しを止めない決まりを上書きする）
             Tracking = new Live.TrackingService();
+            TrackingDriver = new Live.TrackingDriver(this, Tracking, LiveTracking); // 待機モーションの後に当てはめる
         }
     }
 
@@ -189,6 +193,12 @@ public sealed class EditorContext
 
     /// <summary>ライブモードの顔のトラッキング（エディットでは null）。</summary>
     public Live.TrackingService? Tracking { get; }
+
+    /// <summary>顔のトラッキングをキャラクターに当てはめる部品（エディットでは null）。</summary>
+    public Live.TrackingDriver? TrackingDriver { get; }
+
+    /// <summary>顔のトラッキングの当てはめ方（ライブのファイルに保存する）。</summary>
+    public FaceRetargetSettings LiveTracking { get; } = new();
 
     /// <summary>ライブモードの配信用の画面の設定（ライブのファイルに保存する）。</summary>
     public LiveOutputSettings LiveOutput { get; } = new();
@@ -324,6 +334,7 @@ public sealed class EditorContext
         Physics.BetweenModels = true;
         Rendering.Reset();
         LiveOutput.Reset();
+        LiveTracking.Reset();
         Animation.NotifyStateChanged();
         Undo.Clear();
         RenderLoop.InvalidateAll();

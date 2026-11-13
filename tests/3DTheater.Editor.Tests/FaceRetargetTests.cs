@@ -1,0 +1,260 @@
+using System.Numerics;
+
+namespace Theater3D.Editor.Tests;
+
+/// <summary>顔のトラッキングを、キャラクターのボーンとモーフに当てはめる計算。</summary>
+[TestClass]
+public sealed class FaceRetargetTests
+{
+    private static readonly Vector3 Forward = new(0, 0, -1); // モデルの前（カメラの方）
+    private static readonly Vector3 Up = Vector3.UnitY;
+
+    private static FaceSignal Face(float yaw = 0, float pitch = 0, float roll = 0, float x = 360, float size = 300, params (string Name, float Value)[] blend)
+    {
+        var values = new Dictionary<string, float> { ["eyeBlinkLeft"] = 0.1f, ["eyeBlinkRight"] = 0.1f };
+        foreach (var (name, value) in blend)
+        {
+            values[name] = value;
+        }
+        return new FaceSignal(yaw, pitch, roll, new Vector2(x, 500), size, values);
+    }
+
+    // 同じ顔を 3 秒続けて渡し、落ち着いた結果を返す
+    private static FaceOutput Settle(FaceRetarget retarget, FaceSignal? face, double start = 0)
+    {
+        FaceOutput output = FaceOutput.Neutral;
+        for (int i = 0; i <= 90; i++)
+        {
+            output = retarget.Compute(face, start + (i / 30.0));
+        }
+        return output;
+    }
+
+    private static FaceRetarget Calibrated(Action<FaceRetargetSettings>? configure = null)
+    {
+        var settings = new FaceRetargetSettings();
+        configure?.Invoke(settings);
+        var retarget = new FaceRetarget(settings);
+        retarget.Calibrate(Face());
+        return retarget;
+    }
+
+    private static Quaternion Total(FaceOutput o) => o.UpperBody * o.Neck * o.Head;
+
+    [TestMethod]
+    public void ScreenDirectionsBecomeModelRotations()
+    {
+        Assert.IsGreaterThan(0.3f, Vector3.Transform(Forward, FaceRetarget.ModelRotation(20, 0, 0)).X, "画面の右（モデルの +X）を向く");
+        Assert.IsGreaterThan(0.15f, Vector3.Transform(Forward, FaceRetarget.ModelRotation(0, 10, 0)).Y, "上を向く");
+        Assert.IsGreaterThan(0.2f, Vector3.Transform(Up, FaceRetarget.ModelRotation(0, 0, 15)).X, "画面の上で時計回り（頭の上が画面の右へ）");
+    }
+
+    [TestMethod]
+    public void TurnsLikeTheVideoOrLikeAMirror()
+    {
+        Assert.IsFalse(new FaceRetargetSettings().Mirror, "既定は映像と同じ向き");
+
+        // 本人が自分の右を向く → カメラの絵では左を向く（左右の値は負）
+        FaceSignal turnedRight = Face(yaw: -25);
+        Vector3 video = Vector3.Transform(Forward, Total(Settle(Calibrated(), turnedRight)));
+        Assert.IsLessThan(-0.3f, video.X, "映像と同じ向き: キャラクターの右（画面の左）へ向く");
+        Vector3 mirrored = Vector3.Transform(Forward, Total(Settle(Calibrated(s => s.Mirror = true), turnedRight)));
+        Assert.IsGreaterThan(0.3f, mirrored.X, "鏡のように: 画面の右へ向く");
+
+        // 本人が右へかしげる → 絵の上で反時計回り（傾きは負）→ 映像と同じ向き: 画面の上でも反時計回り。鏡のように: 時計回り
+        Vector3 tilted = Vector3.Transform(Up, Total(Settle(Calibrated(s => s.BodySway = false), Face(roll: -20))));
+        Assert.IsLessThan(-0.25f, tilted.X);
+        Vector3 tiltedMirror = Vector3.Transform(Up, Total(Settle(Calibrated(s => { s.BodySway = false; s.Mirror = true; }), Face(roll: -20))));
+        Assert.IsGreaterThan(0.25f, tiltedMirror.X);
+    }
+
+    [TestMethod]
+    public void TheTurnIsSharedByUpperBodyNeckAndHead()
+    {
+        FaceOutput output = Settle(Calibrated(s => s.BodySway = false), Face(yaw: -30));
+        float Angle(Quaternion q) => 2 * MathF.Acos(Math.Clamp(MathF.Abs(q.W), -1f, 1f)) * 180 / MathF.PI;
+        Assert.AreEqual(30f * FaceRetarget.UpperBodyShare, Angle(output.UpperBody), 0.5f);
+        Assert.AreEqual(30f * FaceRetarget.NeckShare, Angle(output.Neck), 0.5f);
+        Assert.AreEqual(30f * (1 - FaceRetarget.UpperBodyShare - FaceRetarget.NeckShare), Angle(output.Head), 0.5f);
+        Assert.AreEqual(30f, Angle(Total(output)), 0.5f, "合わせると本人の向き");
+
+        FaceOutput noBody = Settle(Calibrated(s => { s.UpperBody = false; s.BodySway = false; }), Face(yaw: -30));
+        Assert.AreEqual(Quaternion.Identity, noBody.UpperBody, "上半身を使わない");
+    }
+
+    [TestMethod]
+    public void CalibrationRemovesTheNeutralPose()
+    {
+        var retarget = new FaceRetarget(new FaceRetargetSettings());
+        FaceSignal neutral = FaceRetarget.Average([Face(roll: -4, pitch: 3), Face(roll: -5, pitch: 3), Face(roll: -3, pitch: 3)]);
+        Assert.AreEqual(-4f, neutral.Roll, 1e-5f, "何枚かの平均");
+        retarget.Calibrate(neutral);
+        Assert.IsTrue(retarget.IsCalibrated);
+        FaceOutput output = Settle(retarget, Face(roll: -4, pitch: 3));
+        Assert.AreEqual(1f, Total(output).W, 1e-4f, "正面のときの傾きは使わない");
+    }
+
+    [TestMethod]
+    public void BlinksAndWinksFollowTheMirror()
+    {
+        // 本人の右目を閉じる（MediaPipe は閉じても 0.6〜0.8）
+        FaceSignal rightClosed = Face(blend: ("eyeBlinkRight", 0.7f));
+        FaceOutput video = Settle(Calibrated(), rightClosed);
+        Assert.AreEqual(1f, video.Morphs[FaceRetarget.WinkRight], 1e-3f, "映像と同じ向き: キャラクターの右目");
+        Assert.AreEqual(0f, video.Morphs[FaceRetarget.WinkLeft], 1e-3f);
+        Assert.AreEqual(0f, video.Morphs[FaceRetarget.Blink], 1e-3f);
+        FaceOutput mirrored = Settle(Calibrated(s => s.Mirror = true), rightClosed);
+        Assert.AreEqual(1f, mirrored.Morphs[FaceRetarget.WinkLeft], 1e-3f, "鏡のように: キャラクターの左目");
+        Assert.AreEqual(0f, mirrored.Morphs[FaceRetarget.WinkRight], 1e-3f);
+
+        FaceOutput both = Settle(Calibrated(), Face(blend: [("eyeBlinkLeft", 0.65f), ("eyeBlinkRight", 0.7f)]));
+        Assert.AreEqual(1f, both.Morphs[FaceRetarget.Blink], 1e-3f, "両目ならまばたき");
+        Assert.AreEqual(0f, both.Morphs[FaceRetarget.WinkLeft] + both.Morphs[FaceRetarget.WinkRight], 1e-3f);
+
+        Assert.AreEqual(0f, FaceRetarget.BlinkAmount(0.14f, 0.1f), "正面とほぼ同じなら開いたまま");
+        Assert.AreEqual(0.5f, FaceRetarget.BlinkAmount(0.325f, 0.1f), 1e-3f);
+    }
+
+    [TestMethod]
+    public void SmallEyeDifferencesAndTurnedHeadsDoNotWink()
+    {
+        // 正面で片目だけ閉じたら、そのままウィンク
+        Assert.AreEqual((1f, 0f), FaceRetarget.LinkEyes(1f, 0f, 0f));
+        // 片目だけ少し細めた（差が小さい）なら、両目をそろえる
+        (float left, float right) = FaceRetarget.LinkEyes(0.4f, 0.2f, 0f);
+        Assert.AreEqual(0.3f, left, 1e-4f);
+        Assert.AreEqual(0.3f, right, 1e-4f);
+        // 差のうち、そろえる幅を越えた分だけ残す
+        (left, right) = FaceRetarget.LinkEyes(0.75f, 0f, 0f);
+        Assert.AreEqual(0.375f + (0.5f / 0.75f * 0.5f), left, 1e-4f);
+        Assert.AreEqual(0.375f - (0.5f / 0.75f * 0.5f), right, 1e-4f);
+        // 頭を横へ向けると、片目を閉じていても両目をそろえていく（30° でそろう、20° で半分）
+        Assert.AreEqual((0.5f, 0.5f), FaceRetarget.LinkEyes(1f, 0f, -30f));
+        (left, right) = FaceRetarget.LinkEyes(1f, 0f, 20f);
+        Assert.AreEqual(0.75f, left, 1e-4f);
+        Assert.AreEqual(0.25f, right, 1e-4f);
+
+        // 横や上を向いて、片目だけ閉じ気味に読めても、キャラクターはウィンクしない
+        FaceOutput turned = Settle(Calibrated(), Face(yaw: 32f, blend: [("eyeBlinkLeft", 0.3f), ("eyeBlinkRight", 0.08f)]));
+        Assert.AreEqual(0f, turned.Morphs[FaceRetarget.WinkLeft] + turned.Morphs[FaceRetarget.WinkRight], 1e-3f);
+        FaceOutput up = Settle(Calibrated(), Face(pitch: 36f, blend: [("eyeBlinkLeft", 0.39f), ("eyeBlinkRight", 0.22f)]));
+        Assert.AreEqual(0f, up.Morphs[FaceRetarget.WinkLeft] + up.Morphs[FaceRetarget.WinkRight], 1e-3f);
+        Assert.IsGreaterThan(0.2f, up.Morphs[FaceRetarget.Blink], "そろえた分は、両目のまばたきになる");
+    }
+
+    [TestMethod]
+    public void MouthShapesApproximateTheVowels()
+    {
+        FaceOutput a = Settle(Calibrated(), Face(blend: ("jawOpen", 0.8f)));
+        Assert.IsGreaterThan(0.9f, a.Morphs[FaceRetarget.A], "口を大きく開けると「あ」");
+        Assert.AreEqual(0f, a.Morphs[FaceRetarget.U], 1e-3f);
+
+        FaceOutput u = Settle(Calibrated(), Face(blend: [("mouthPucker", 0.9f), ("jawOpen", 0.1f)]));
+        Assert.IsGreaterThan(0.9f, u.Morphs[FaceRetarget.U], "すぼめると「う」");
+        Assert.AreEqual(0f, u.Morphs[FaceRetarget.A], 1e-3f);
+
+        FaceOutput o = Settle(Calibrated(), Face(blend: [("mouthFunnel", 0.6f), ("jawOpen", 0.3f)]));
+        Assert.IsGreaterThan(0.8f, o.Morphs[FaceRetarget.O], "とがらせると「お」");
+
+        FaceOutput i = Settle(Calibrated(), Face(blend: [("mouthStretchLeft", 0.6f), ("mouthStretchRight", 0.6f)]));
+        Assert.IsGreaterThan(0.9f, i.Morphs[FaceRetarget.I], "横に広げると「い」");
+
+        FaceOutput smile = Settle(Calibrated(), Face(blend: [("mouthSmileLeft", 0.8f), ("mouthSmileRight", 0.8f)]));
+        Assert.IsGreaterThan(0.9f, smile.Morphs[FaceRetarget.Smile]);
+    }
+
+    [TestMethod]
+    public void BrowsUseTheDifferenceFromTheNeutralFace()
+    {
+        var retarget = new FaceRetarget(new FaceRetargetSettings());
+        retarget.Calibrate(Face(blend: ("browDownLeft", 0.5f)));
+        FaceOutput same = Settle(retarget, Face(blend: ("browDownLeft", 0.5f)));
+        Assert.AreEqual(0f, same.Morphs[FaceRetarget.BrowAngry], 1e-3f, "正面のときの眉の寄せ方は使わない");
+        FaceOutput up = Settle(Calibrated(), Face(blend: ("browInnerUp", 0.9f)));
+        Assert.IsGreaterThan(0.9f, up.Morphs[FaceRetarget.BrowUp]);
+    }
+
+    [TestMethod]
+    public void BodySwaysWithTheFacePosition()
+    {
+        // 本人が右へ動く → 絵では左へ（x が減る）→ 映像と同じ向き: 画面の左へ傾く。鏡のように: 画面の右へ傾く
+        FaceOutput moved = Settle(Calibrated(s => s.UpperBody = false), Face(x: 300));
+        Assert.AreEqual(-MathF.Sin(5f * MathF.PI / 180), Vector3.Transform(Up, moved.UpperBody).X, 1e-3f,
+            "上半身が画面の左へ傾く（顔の大きさの 0.2 倍動いたら 5°）");
+        FaceOutput movedMirror = Settle(Calibrated(s => { s.UpperBody = false; s.Mirror = true; }), Face(x: 300));
+        Assert.AreEqual(MathF.Sin(5f * MathF.PI / 180), Vector3.Transform(Up, movedMirror.UpperBody).X, 1e-3f);
+        FaceOutput closer = Settle(Calibrated(s => s.UpperBody = false), Face(size: 360));
+        Assert.IsLessThan(-0.05f, Vector3.Transform(Up, closer.UpperBody).Z, "近づくと前（カメラの方）へ傾く");
+        FaceOutput off = Settle(Calibrated(s => { s.UpperBody = false; s.BodySway = false; }), Face(x: 300, size: 360));
+        Assert.AreEqual(Quaternion.Identity, off.UpperBody);
+    }
+
+    [TestMethod]
+    public void GazeFollowsTheEyes()
+    {
+        // 本人が自分の右を見る（右目は外、左目は内）
+        FaceSignal lookRight = Face(blend: [("eyeLookOutRight", 0.8f), ("eyeLookInLeft", 0.8f)]);
+        FaceOutput video = Settle(Calibrated(), lookRight);
+        Assert.IsLessThan(-0.2f, Vector3.Transform(Forward, video.Eyes).X, "映像と同じ向き: キャラクターの右（画面の左）を見る");
+        FaceOutput mirrored = Settle(Calibrated(s => s.Mirror = true), lookRight);
+        Assert.IsGreaterThan(0.2f, Vector3.Transform(Forward, mirrored.Eyes).X, "鏡のように: 画面の右を見る");
+        FaceOutput off = Settle(Calibrated(s => s.Gaze = false), lookRight);
+        Assert.AreEqual(Quaternion.Identity, off.Eyes);
+    }
+
+    [TestMethod]
+    public void LosingTheFaceEasesBackToNeutral()
+    {
+        FaceRetarget retarget = Calibrated();
+        Settle(retarget, Face(yaw: -30, blend: ("jawOpen", 0.8f)));
+        FaceOutput back = Settle(retarget, null, start: 10);
+        Assert.AreEqual(1f, Total(back).W, 1e-3f, "見失ったら正面へ戻る");
+        Assert.AreEqual(0f, back.Morphs[FaceRetarget.A], 1e-3f);
+    }
+
+    [TestMethod]
+    public void OneEuroFilterSmoothsJitterButFollowsMoves()
+    {
+        var filter = new OneEuroFilter { MinCutoff = 1f };
+        var rng = new Random(1);
+        float sum = 0;
+        for (int i = 0; i < 300; i++)
+        {
+            float v = filter.Filter(10 + (float)(rng.NextDouble() - 0.5), i / 30.0);
+            if (i > 60)
+            {
+                sum += MathF.Abs(v - 10);
+            }
+        }
+        Assert.IsLessThan(0.12f, sum / 239, "ぶれ（±0.5）を小さくする");
+        for (int i = 300; i < 330; i++)
+        {
+            filter.Filter(20, i / 30.0);
+        }
+        Assert.AreEqual(20f, filter.Filter(20, 11), 0.5f, "動いたら 1 秒ほどで追いつく");
+    }
+
+    [TestMethod]
+    public void RigNamesIgnoreWidthAndCase()
+    {
+        Assert.AreEqual(FaceRigNames.Normalize("ウィンク2右"), FaceRigNames.Normalize("ｳｨﾝｸ２右"));
+        string[] morphs = ["真面目", "ｳｨﾝｸ右", "口角上げ", "にっこり"];
+        Assert.AreEqual(1, FaceRigNames.Find(morphs, ["ウィンク右"]));
+        Assert.AreEqual(2, FaceRigNames.Find(morphs, FaceRigNames.Morphs[FaceRetarget.Smile]), "候補の先のものを使う");
+        Assert.AreEqual(-1, FaceRigNames.Find(morphs, ["あ"]));
+    }
+
+    [TestMethod]
+    public void SettingsClampAndNotify()
+    {
+        var settings = new FaceRetargetSettings();
+        int changes = 0;
+        settings.Changed += (_, _) => changes++;
+        settings.Smoothing = 2f;
+        Assert.AreEqual(1f, settings.Smoothing);
+        settings.Smoothing = float.NaN;
+        Assert.AreEqual(0.5f, settings.Smoothing);
+        settings.Mirror = false;
+        Assert.AreEqual(2, changes, "変わらなければ知らせない");
+    }
+}

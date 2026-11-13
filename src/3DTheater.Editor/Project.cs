@@ -72,11 +72,15 @@ public sealed class LiveEntry
 
     public string OutputBackground { get; set; } = "#00FF00";
 
-    public static LiveEntry From(LiveOutputSettings output) => new()
+    /// <summary>顔のトラッキングの当てはめ方（無い前の版のファイルは初めの値）。</summary>
+    public TrackingEntry? Tracking { get; set; }
+
+    public static LiveEntry From(LiveOutputSettings output, FaceRetargetSettings? tracking = null) => new()
     {
         OutputWidth = output.Width,
         OutputHeight = output.Height,
         OutputBackground = ImageExport.FormatColor(output.Background),
+        Tracking = tracking is null ? null : TrackingEntry.From(tracking),
     };
 
     /// <summary>設定へ入れる（読めない色は初めの緑のまま）。</summary>
@@ -87,6 +91,43 @@ public sealed class LiveEntry
         {
             output.Background = color;
         }
+    }
+}
+
+/// <summary>顔のトラッキングの当てはめ方。当てはめるモデルは、モデルの目印（<see cref="ModelEntry.Id"/>）で書く。</summary>
+public sealed class TrackingEntry
+{
+    public string? Target { get; set; }
+
+    public bool Mirror { get; set; }
+
+    public bool Gaze { get; set; } = true;
+
+    public bool UpperBody { get; set; } = true;
+
+    public bool BodySway { get; set; } = true;
+
+    public float Smoothing { get; set; } = 0.5f;
+
+    public static TrackingEntry From(FaceRetargetSettings s) => new()
+    {
+        Target = s.TargetModelId?.ToString("N"),
+        Mirror = s.Mirror,
+        Gaze = s.Gaze,
+        UpperBody = s.UpperBody,
+        BodySway = s.BodySway,
+        Smoothing = s.Smoothing,
+    };
+
+    /// <summary>設定へ入れる。<paramref name="findModel"/> は、モデルの目印から今のモデルの Id を探す。</summary>
+    public void ApplyTo(FaceRetargetSettings s, Func<string, Guid?> findModel)
+    {
+        s.Mirror = Mirror;
+        s.Gaze = Gaze;
+        s.UpperBody = UpperBody;
+        s.BodySway = BodySway;
+        s.Smoothing = Smoothing;
+        s.TargetModelId = Target is { } id ? findModel(id) : null;
     }
 }
 

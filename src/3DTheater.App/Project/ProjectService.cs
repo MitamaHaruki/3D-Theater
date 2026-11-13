@@ -47,6 +47,7 @@ internal sealed class ProjectService
         };
         context.Physics.Changed += (_, _) => OnPlaybackSettingsChanged();
         context.LiveOutput.Changed += (_, _) => MarkDirty(); // 配信用の画面の大きさ・背景（ライブのファイルに保存する）
+        context.LiveTracking.Changed += (_, _) => MarkDirty(); // 顔のトラッキングの当てはめ方
         context.Rendering.Changed += (_, _) => OnPlaybackSettingsChanged();
         context.Playback.StateChanged += (_, _) => OnPlaybackSettingsChanged();
         _autosaveTimer = new DispatcherTimer(AutosaveInterval, DispatcherPriority.Background, (_, _) => Autosave(), owner.Dispatcher);
@@ -194,6 +195,12 @@ internal sealed class ProjectService
                 models.Add((entry, await OpenModelAsync(entry, baseDirectory, report)));
             }
             ProjectApply.ApplyAttachments(models, report); // ボーンに付けたモデル（全部読み込んでから）
+            if (_mode == AppMode.Live)
+            {
+                // 顔のトラッキングの当てはめ方（当てはめるモデルは、保存したときの目印から今のモデルを探す）
+                (project.Live?.Tracking ?? new TrackingEntry()).ApplyTo(_context.LiveTracking,
+                    id => models.FirstOrDefault(m => string.Equals(m.Entry.Id, id, StringComparison.OrdinalIgnoreCase)).Node?.Id);
+            }
             if (project.Audio is { } audio)
             {
                 await OpenAudioAsync(audio, baseDirectory, report);
@@ -426,7 +433,7 @@ internal sealed class ProjectService
     private string? ModeName => _mode == AppMode.Live ? AppModes.LiveName : null;
 
     // ファイルに書くライブの設定（ライブだけ）
-    private LiveEntry? LiveSettings => _mode == AppMode.Live ? LiveEntry.From(_context.LiveOutput) : null;
+    private LiveEntry? LiveSettings => _mode == AppMode.Live ? LiveEntry.From(_context.LiveOutput, _context.LiveTracking) : null;
 
     // 自動保存は、同じモードのものだけを探す（拡張子で分かれている）
     private string? FindOrphanAutosave()

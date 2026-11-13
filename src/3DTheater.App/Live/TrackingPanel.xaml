@@ -2,8 +2,8 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              Background="{StaticResource PanelBrush}">
-  <DockPanel Margin="10,8">
-    <StackPanel DockPanel.Dock="Top">
+  <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+    <StackPanel Margin="10,8">
       <TextBlock Text="映像（カメラ）" Style="{StaticResource SectionHeaderStyle}" Margin="0,0,0,6" />
       <DockPanel>
         <Button DockPanel.Dock="Right" Margin="4,0,0,0" Style="{StaticResource IconButtonStyle}" Content="&#xE72C;"
@@ -15,12 +15,37 @@
         <Button x:Name="StopButton" Margin="8,0,0,0" MinWidth="88" Content="停止" AutomationProperties.Name="トラッキングを停止" Click="OnStopClick" />
       </StackPanel>
       <TextBlock x:Name="StatusText" Margin="0,8,0,0" TextWrapping="Wrap" AutomationProperties.AutomationId="TrackingStatus" />
+
+      <Border Margin="0,8,0,0" Height="220" Background="#FF000000" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+        <Image x:Name="Preview" Stretch="Uniform" />
+      </Border>
+      <TextBlock x:Name="ValuesText" Margin="0,8,0,0" TextWrapping="Wrap" AutomationProperties.AutomationId="TrackingValues" />
+
+      <TextBlock Text="キャラクターへの当てはめ" Style="{StaticResource SectionHeaderStyle}" Margin="0,14,0,6" />
+      <DockPanel>
+        <TextBlock DockPanel.Dock="Left" Width="72" VerticalAlignment="Center" Text="モデル" Foreground="{StaticResource SubTextBrush}" />
+        <ComboBox x:Name="TargetCombo" MinHeight="0" Padding="6,2" FontSize="12" AutomationProperties.Name="トラッキングを当てはめるモデル"
+                  DropDownOpened="OnTargetDropDownOpened" SelectionChanged="OnTargetChanged" />
+      </DockPanel>
+      <Button Margin="0,8,0,0" HorizontalAlignment="Left" MinWidth="120" Content="正面にする" AutomationProperties.Name="正面にする" Click="OnCalibrateClick"
+              ToolTip="今の顔（カメラの方をまっすぐ見た顔）を正面として覚え直します。始めたときも、初めの 0.5 秒ほどで覚えます" />
+      <CheckBox x:Name="MirrorCheck" Margin="0,10,0,0" Content="鏡のように動かす" AutomationProperties.Name="鏡のように動かす" Checked="OnOptionClick" Unchecked="OnOptionClick"
+                ToolTip="入れると、鏡に映った自分のように動きます（あなたが右を向くと、画面でも右へ。映像とは左右が逆になります）。外すと、映像と同じ向きに動きます（あなたが右を向くと、キャラクターも自分の右へ）" />
+      <CheckBox x:Name="GazeCheck" Margin="0,6,0,0" Content="目線を動かす（両目のボーン）" AutomationProperties.Name="目線を動かす" Checked="OnOptionClick" Unchecked="OnOptionClick" />
+      <CheckBox x:Name="UpperBodyCheck" Margin="0,6,0,0" Content="上半身も少し動かす" AutomationProperties.Name="上半身も少し動かす" Checked="OnOptionClick" Unchecked="OnOptionClick"
+                ToolTip="首の動きの 15% を上半身に分けます" />
+      <CheckBox x:Name="BodySwayCheck" Margin="0,6,0,0" Content="頭の位置で体をずらす" AutomationProperties.Name="頭の位置で体をずらす" Checked="OnOptionClick" Unchecked="OnOptionClick"
+                ToolTip="画面の中で顔が左右に動いた分だけ上半身を傾け、カメラに近づいた分だけ前へ傾けます" />
+      <DockPanel Margin="0,10,0,0">
+        <TextBlock DockPanel.Dock="Left" Width="72" VerticalAlignment="Center" Text="なめらかさ" Foreground="{StaticResource SubTextBrush}" />
+        <Slider x:Name="SmoothingSlider" Minimum="0" Maximum="1" SmallChange="0.05" LargeChange="0.1" VerticalAlignment="Center"
+                AutomationProperties.Name="なめらかさ" ValueChanged="OnSmoothingChanged"
+                ToolTip="右へ寄せるほど、なめらかになります（そのぶん少し遅れます）" />
+      </DockPanel>
+      <TextBlock x:Name="RigText" Margin="0,8,0,0" TextWrapping="Wrap" AutomationProperties.AutomationId="TrackingRig" />
+      <TextBlock x:Name="AppliedText" Margin="0,4,0,0" TextWrapping="Wrap" Foreground="{StaticResource SubTextBrush}" AutomationProperties.AutomationId="TrackingApplied" />
+      <TextBlock Margin="0,8,0,0" Style="{StaticResource PlannedNoteStyle}"
+                 Text="カメラが無いときは「動画のファイル...」で、顔を撮った動画を読ませて確かめられます。スマホは、Android なら Windows の「モバイル デバイス」で、iPhone なら DroidCam などのアプリでカメラにできます。当てはめ方はライブのファイルに保存します。" />
     </StackPanel>
-    <TextBlock DockPanel.Dock="Bottom" Margin="0,6,0,0" Style="{StaticResource PlannedNoteStyle}"
-               Text="今は顔の動きを読んで見せるだけです（キャラクターへの当てはめは次の段で足します）。カメラが無いときは「動画のファイル...」で、顔を撮った動画を読ませて確かめられます。スマホは、Android なら Windows の「モバイル デバイス」で、iPhone なら DroidCam などのアプリでカメラにできます。" />
-    <TextBlock x:Name="ValuesText" DockPanel.Dock="Bottom" Margin="0,8,0,0" TextWrapping="Wrap" AutomationProperties.AutomationId="TrackingValues" />
-    <Border Margin="0,8,0,0" Background="#FF000000" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
-      <Image x:Name="Preview" Stretch="Uniform" />
-    </Border>
-  </DockPanel>
+  </ScrollViewer>
 </UserControl>
