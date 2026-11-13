@@ -62,9 +62,26 @@ public sealed class TrackingService : IDisposable
 
     public void StartFile(string path) => Start(Path.GetFileName(path), () => CameraCapture.OpenFile(path, loop: true));
 
+    /// <summary>前に始めた映像で、もう一度始められるか（キーの「トラッキングの開始・停止」に使う）。</summary>
+    public bool CanRestart => _lastStart is not null;
+
+    /// <summary>前に始めた映像で、もう一度始める（無ければ false）。</summary>
+    public bool Restart()
+    {
+        if (_lastStart is not { } last)
+        {
+            return false;
+        }
+        Start(last.Name, last.Open);
+        return true;
+    }
+
+    private (string Name, Func<CameraCapture> Open)? _lastStart;
+
     private void Start(string name, Func<CameraCapture> open)
     {
         Stop();
+        _lastStart = (name, open);
         _stop = false;
         SourceName = name;
         Error = null;

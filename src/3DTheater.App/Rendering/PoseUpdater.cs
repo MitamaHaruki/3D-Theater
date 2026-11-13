@@ -87,7 +87,8 @@ public sealed class PoseUpdater
         {
             input.MorphWeights[morph.Index] = morph.Weight;
         }
-        model.FaceOverlay?.ApplyTo(input); // 顔のトラッキング（ライブ）は、場面の値の上に重ねる
+        model.FaceOverlay?.ApplyTo(input, model.TrackingEyeScale); // 顔のトラッキング（ライブ）は、場面の値の上に重ねる
+        model.ExpressionOverlay?.ApplyTo(input); // キーで出した表情・モーフ（ライブ）は、トラッキングより優先
         // 表示・IK で切った IK は解かない
         Array.Fill(input.IkEnabled, true);
         if (node.Display is { } display)

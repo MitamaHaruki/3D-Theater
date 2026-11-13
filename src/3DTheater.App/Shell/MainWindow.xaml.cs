@@ -125,6 +125,10 @@ public partial class MainWindow : Window
         BuildPluginFileMenus();
         BuildViewKindsMenu();
         context.RenderLoop.RenderFailed += OnRenderFailed;
+        if (context.Hotkeys is { } hotkeys)
+        {
+            hotkeys.Notice += (_, notice) => ShowNotice(notice.Text, notice.IsError); // キー操作の知らせ（トラッキング・仮想カメラ）
+        }
         context.RenderLoop.DeviceStateChanged += OnDeviceStateChanged;
         context.Playback.StateChanged += (_, _) => UpdatePlayButton();
         context.Playback.FrameChanged += (_, _) => UpdateFrameText();
@@ -179,6 +183,7 @@ public partial class MainWindow : Window
         _output?.Close(); // 置き場所を覚えるため、設定を書く前に閉じる（描画先もエンジンより先に片付く）
         _context.Tracking?.Dispose(); // カメラを放す
         _context.VirtualCamera?.Dispose(); // 仮想カメラをしまう（描画先もエンジンより先に片付く）
+        _context.Hotkeys?.Dispose(); // キー操作を Windows から外す
 
         WindowMemory.SaveTo(_settings); // メインのウィンドウの置き場所は、閉じる知らせ（base.OnClosing）で覚えてある
         _settings.Window = null;

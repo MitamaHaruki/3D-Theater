@@ -1,0 +1,20 @@
+<UserControl x:Class="Theater3D.App.Live.HotkeyPanel"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="{StaticResource PanelBrush}">
+  <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+    <StackPanel Margin="10,8">
+      <DockPanel>
+        <Button DockPanel.Dock="Right" MinWidth="88" Content="キーを足す" AutomationProperties.Name="キーを足す" Click="OnAddClick" />
+        <TextBlock Text="キー操作" Style="{StaticResource SectionHeaderStyle}" VerticalAlignment="Center" />
+      </DockPanel>
+      <TextBlock Margin="0,6,0,0" TextWrapping="Wrap" Foreground="{StaticResource SubTextBrush}"
+                 Text="ほかのアプリを使っている間も効きます（そのキーは、使っているアプリには渡しません）。Ctrl・Alt・Shift と組み合わせると、ほかのアプリの操作とぶつかりにくくなります。" />
+      <StackPanel x:Name="RowsHost" Margin="0,8,0,0" />
+      <TextBlock x:Name="EmptyText" Margin="0,8,0,0" TextWrapping="Wrap" Foreground="{StaticResource SubTextBrush}"
+                 Text="まだキーがありません。「キーを足す」で足してください。" />
+      <TextBlock Margin="0,10,0,0" Style="{StaticResource PlannedNoteStyle}"
+                 Text="表情は、モーフのパネルの「表情のプリセット」で保存したものを使います。表情は、目を閉じる表情の間だけトラッキングのまばたきを止め、口と首はトラッキングのまま動きます。小物の表示は、その場だけ入れ替えます（保存しません）。キーの決まりはライブのファイルに保存します。" />
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

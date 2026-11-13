@@ -75,13 +75,21 @@ public sealed class LiveEntry
     /// <summary>顔のトラッキングの当てはめ方（無い前の版のファイルは初めの値）。</summary>
     public TrackingEntry? Tracking { get; set; }
 
-    public static LiveEntry From(LiveOutputSettings output, FaceRetargetSettings? tracking = null) => new()
+    /// <summary>キー操作（無ければ書かない）。</summary>
+    public List<HotkeyEntry>? Hotkeys { get; set; }
+
+    public static LiveEntry From(LiveOutputSettings output, FaceRetargetSettings? tracking = null, HotkeySettings? hotkeys = null) => new()
     {
         OutputWidth = output.Width,
         OutputHeight = output.Height,
         OutputBackground = ImageExport.FormatColor(output.Background),
         Tracking = tracking is null ? null : TrackingEntry.From(tracking),
+        Hotkeys = hotkeys is null || hotkeys.Bindings.Count == 0 ? null : [.. hotkeys.Bindings.Select(HotkeyEntry.From)],
     };
+
+    /// <summary>キー操作を設定へ入れる（読めない項目は飛ばす）。<paramref name="findModel"/> は、モデルの目印から今のモデルの Id を探す。</summary>
+    public void ApplyTo(HotkeySettings settings, Func<string, Guid?> findModel) =>
+        settings.SetAll((Hotkeys ?? []).Select(h => h.ToBinding(findModel)).OfType<HotkeyBinding>());
 
     /// <summary>設定へ入れる（読めない色は初めの緑のまま）。</summary>
     public void ApplyTo(LiveOutputSettings output)
@@ -91,6 +99,56 @@ public sealed class LiveEntry
         {
             output.Background = color;
         }
+    }
+}
+
+/// <summary>
+/// キー 1 つ。キーは「Ctrl+Shift+1」の形、動かすものは expression・visibility・morph・trackingToggle・trackingCalibrate・virtualCamera、
+/// 押し方は toggle・hold。モデルは、モデルの目印（<see cref="ModelEntry.Id"/>）で書く。名前は表情のプリセットかモーフの名前。
+/// </summary>
+public sealed class HotkeyEntry
+{
+    private static readonly (HotkeyAction Action, string Name)[] ActionNames =
+    [
+        (HotkeyAction.Expression, "expression"),
+        (HotkeyAction.ModelVisibility, "visibility"),
+        (HotkeyAction.Morph, "morph"),
+        (HotkeyAction.TrackingToggle, "trackingToggle"),
+        (HotkeyAction.TrackingCalibrate, "trackingCalibrate"),
+        (HotkeyAction.VirtualCameraToggle, "virtualCamera"),
+    ];
+
+    public string? Key { get; set; }
+
+    public string Action { get; set; } = "expression";
+
+    public string Mode { get; set; } = "toggle";
+
+    public string? Model { get; set; }
+
+    public string? Name { get; set; }
+
+    public static HotkeyEntry From(HotkeyBinding binding) => new()
+    {
+        Key = binding.Gesture?.ToString(),
+        Action = Array.Find(ActionNames, p => p.Action == binding.Action).Name,
+        Mode = binding.Mode == HotkeyMode.Hold ? "hold" : "toggle",
+        Model = binding.Model?.ToString("N"),
+        Name = binding.Name,
+    };
+
+    /// <summary>キー操作にする。動かすものが分からなければ null（新しい版で足したものなど）。見つからないモデルは「決めていない」にする。</summary>
+    public HotkeyBinding? ToBinding(Func<string, Guid?> findModel)
+    {
+        int index = Array.FindIndex(ActionNames, p => string.Equals(p.Name, Action, StringComparison.OrdinalIgnoreCase));
+        if (index < 0)
+        {
+            return null;
+        }
+        HotkeyMode mode = string.Equals(Mode, "hold", StringComparison.OrdinalIgnoreCase) ? HotkeyMode.Hold : HotkeyMode.Toggle;
+        Guid? model = string.IsNullOrEmpty(Model) ? null : findModel(Model);
+        string? name = string.IsNullOrWhiteSpace(Name) ? null : Name;
+        return new HotkeyBinding(Guid.NewGuid(), HotkeyGesture.Parse(Key), ActionNames[index].Action, mode, model, name);
     }
 }
 

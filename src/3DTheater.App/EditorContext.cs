@@ -128,6 +128,15 @@ public sealed class LoadedModel : IDisposable
     /// <summary>描く直前のポーズに重ねる、顔のトラッキングの分（ライブモード。無ければ null）。</summary>
     public Live.FaceOverlay? FaceOverlay { get; set; }
 
+    /// <summary>描く直前のポーズに重ねる、キーで出した表情・モーフ（ライブモード。トラッキングより優先。無ければ null）。</summary>
+    public Live.ExpressionOverlay? ExpressionOverlay { get; set; }
+
+    /// <summary>トラッキングのまばたき・ウィンクに掛ける倍率（キーで目を閉じる表情を出している間は小さくする）。</summary>
+    public float TrackingEyeScale { get; set; } = 1f;
+
+    /// <summary>キーで、その場だけ表示を入れ替えているか（場面の「表示」は書き換えない。保存もしない）。</summary>
+    public bool VisibilityFlipped { get; set; }
+
     public void Dispose()
     {
         Mesh?.Dispose();
@@ -178,6 +187,7 @@ public sealed class EditorContext
             Tracking = new Live.TrackingService();
             TrackingDriver = new Live.TrackingDriver(this, Tracking, LiveTracking); // 待機モーションの後に当てはめる
             VirtualCamera = new Live.VirtualCameraService(this);
+            Hotkeys = new Live.HotkeyService(this); // トラッキングの後に当てはめる（表情を優先する）
         }
     }
 
@@ -200,6 +210,12 @@ public sealed class EditorContext
 
     /// <summary>ライブモードの仮想カメラ（エディットでは null）。</summary>
     public Live.VirtualCameraService? VirtualCamera { get; }
+
+    /// <summary>ライブモードのキー操作（エディットでは null）。</summary>
+    public Live.HotkeyService? Hotkeys { get; }
+
+    /// <summary>キー操作の一覧（ライブのファイルに保存する）。</summary>
+    public HotkeySettings LiveHotkeys { get; } = new();
 
     /// <summary>顔のトラッキングの当てはめ方（ライブのファイルに保存する）。</summary>
     public FaceRetargetSettings LiveTracking { get; } = new();
@@ -304,7 +320,7 @@ public sealed class EditorContext
     /// <summary>シーンの「モデル」の並び順で、見えていて（目の印と表示・IK の表示の両方）GPU に載っているモデル。</summary>
     public IEnumerable<(ModelNode Node, LoadedModel Model)> VisibleModels =>
         Scene.ModelsGroup.Children.OfType<ModelNode>()
-            .Where(n => n.IsEffectivelyVisible && n.IsShownByDisplay && Models.TryGetValue(n.Id, out LoadedModel? m) && m.Mesh is not null)
+            .Where(n => Models.TryGetValue(n.Id, out LoadedModel? m) && m.Mesh is not null && (n.IsEffectivelyVisible != m.VisibilityFlipped) && n.IsShownByDisplay)
             .Select(n => (n, Models[n.Id]));
 
     /// <summary>プロジェクトを開いたときに見つからなかったモデル（保存し直しても消さずに、そのまま書き戻す）。</summary>
@@ -339,6 +355,7 @@ public sealed class EditorContext
         Rendering.Reset();
         LiveOutput.Reset();
         LiveTracking.Reset();
+        LiveHotkeys.Reset();
         Animation.NotifyStateChanged();
         Undo.Clear();
         RenderLoop.InvalidateAll();

@@ -26,6 +26,7 @@ public sealed class DockingLayout
     public const string LogId = "Panel.Log";
     public const string GraphId = "Panel.Graph";
     public const string TrackingId = "Panel.Tracking";
+    public const string HotkeysId = "Panel.Hotkeys";
     private const string PreviewPrefix = "Preview.";
     private const string PluginPrefix = "Plugin/";
 
@@ -58,6 +59,10 @@ public sealed class DockingLayout
         else if (context.Tracking is not null)
         {
             _panels[TrackingId] = ("トラッキング", new Live.TrackingPanel(context), AnchorableShowStrategy.Right); // 顔のトラッキングはライブだけ
+        }
+        if (mode == AppMode.Live && context.Hotkeys is not null)
+        {
+            _panels[HotkeysId] = ("キー操作", new Live.HotkeyPanel(context), AnchorableShowStrategy.Right); // キー操作もライブだけ
         }
         dock.DocumentClosed += (_, e) =>
         {

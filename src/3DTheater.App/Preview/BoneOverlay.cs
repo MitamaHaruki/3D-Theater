@@ -25,7 +25,8 @@ internal static class BoneOverlay
     public static IEnumerable<DisplayedBone> Enumerate(EditorContext context)
     {
         ModelNode? model = context.ActiveModel;
-        if (model is null || !model.IsEffectivelyVisible || context.GetLoaded(model) is not { } loaded)
+        // キー操作でその場だけ隠したモデル（ライブ）も、ボーンを描かない
+        if (model is null || context.GetLoaded(model) is not { } loaded || model.IsEffectivelyVisible == loaded.VisibilityFlipped)
         {
             yield break;
         }

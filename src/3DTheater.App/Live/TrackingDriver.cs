@@ -195,12 +195,23 @@ public sealed class TrackingDriver
     }
 }
 
-/// <summary>描く直前のポーズに重ねる、顔のトラッキングの分（ボーンに掛ける回転と、モーフの重み）。</summary>
-public sealed record FaceOverlay(IReadOnlyList<(int Bone, Quaternion Rotation)> Bones, IReadOnlyList<(int Morph, float Weight)> Morphs)
+/// <summary>
+/// 描く直前のポーズに重ねる、顔のトラッキングの分（ボーンに掛ける回転と、モーフの重み）。まばたき・ウィンクは <see cref="EyeMorphs"/> に分けて持ち、
+/// キーで目を閉じる表情を出している間は弱める（<see cref="ApplyTo"/> の eyeScale）。
+/// </summary>
+public sealed record FaceOverlay(IReadOnlyList<(int Bone, Quaternion Rotation)> Bones, IReadOnlyList<(int Morph, float Weight)> Morphs,
+    IReadOnlyList<(int Morph, float Weight)> EyeMorphs)
 {
-    /// <summary>ポーズの入力に重ねる（回転は今の回転の内側に掛け、モーフは大きいほう）。</summary>
-    public void ApplyTo(Animation.PoseInput input)
+    /// <summary>ポーズの入力に重ねる（回転は今の回転の内側に掛け、モーフは大きいほう。まばたき・ウィンクは eyeScale 倍）。</summary>
+    public void ApplyTo(Animation.PoseInput input, float eyeScale = 1f)
     {
+        foreach (var (morph, weight) in EyeMorphs)
+        {
+            if ((uint)morph < (uint)input.MorphWeights.Length)
+            {
+                input.MorphWeights[morph] = Math.Max(input.MorphWeights[morph], weight * Math.Clamp(eyeScale, 0f, 1f));
+            }
+        }
         foreach (var (bone, rotation) in Bones)
         {
             if ((uint)bone < (uint)input.Rotations.Length)
@@ -343,13 +354,14 @@ public sealed class FaceRig
             bones.Add((_eyes, output.Eyes));
         }
         var morphs = new List<(int, float)>(_morphs.Count);
+        var eyes = new List<(int, float)>(3);
         foreach (var (key, index) in _morphs)
         {
             if (output.Morphs.TryGetValue(key, out float weight))
             {
-                morphs.Add((index, weight));
+                (key is FaceRetarget.Blink or FaceRetarget.WinkLeft or FaceRetarget.WinkRight ? eyes : morphs).Add((index, weight));
             }
         }
-        return new FaceOverlay(bones, morphs);
+        return new FaceOverlay(bones, morphs, eyes);
     }
 }
