@@ -3,6 +3,8 @@
 #include <string>
 
 #include "Capture.h"
+#include "Convert.h"
+#include "VirtualCamera.h"
 #include "Writer.h"
 
 namespace {
@@ -50,6 +52,15 @@ tv::Capture& ToCapture(TvCapture* handle)
         throw tv::Error(TV_E_INVALID_ARG, L"capture が正しくありません（NULL か、破棄済みの可能性があります）");
     }
     return *capture;
+}
+
+tv::VirtualCamera& ToVirtualCamera(TvVirtualCamera* handle)
+{
+    auto* camera = reinterpret_cast<tv::VirtualCamera*>(handle);
+    if (!camera || !camera->IsValid()) {
+        throw tv::Error(TV_E_INVALID_ARG, L"camera が正しくありません（NULL か、破棄済みの可能性があります）");
+    }
+    return *camera;
 }
 
 } // namespace
@@ -194,6 +205,56 @@ TV_API TvResult TV_CALL tv_capture_destroy(TvCapture* capture)
         return TV_OK;
     }
     return Guard([&] { delete &ToCapture(capture); });
+}
+
+TV_API TvResult TV_CALL tv_convert_bgra_to_nv12(
+    const void* bgra, int32_t stride, int32_t width, int32_t height, void* nv12, int32_t nv12_size, int32_t matrix)
+{
+    return Guard([&] {
+        Require(bgra != nullptr && nv12 != nullptr, L"bgra か nv12 が NULL です");
+        Require(width >= 2 && height >= 2 && width <= 8192 && height <= 8192, L"大きさは 2〜8192 にしてください");
+        Require(width % 2 == 0 && height % 2 == 0, L"幅と高さは偶数にしてください（NV12 の決まり）");
+        Require(stride >= width * 4, L"1 行の長さが短すぎます");
+        Require(static_cast<int64_t>(nv12_size) >= static_cast<int64_t>(width) * height * 3 / 2, L"nv12 の場所が小さすぎます");
+        Require(matrix == TV_YUV_BT709 || matrix == TV_YUV_BT601, L"色の決まりが正しくありません");
+        tv::BgraToNv12(static_cast<const BYTE*>(bgra), stride, static_cast<UINT32>(width), static_cast<UINT32>(height),
+            static_cast<BYTE*>(nv12), matrix == TV_YUV_BT601 ? tv::YuvMatrix::Bt601 : tv::YuvMatrix::Bt709);
+    });
+}
+
+TV_API int32_t TV_CALL tv_virtual_camera_supported(void)
+{
+    return tv::VirtualCamera::IsSupported() ? 1 : 0;
+}
+
+TV_API TvResult TV_CALL tv_virtual_camera_create(const wchar_t* friendly_name, const wchar_t* clsid, TvVirtualCamera** out_camera)
+{
+    return Guard([&] {
+        Require(out_camera != nullptr, L"out_camera が NULL です");
+        *out_camera = nullptr;
+        Require(friendly_name && friendly_name[0] != L'\0', L"カメラの名前が空です");
+        Require(clsid && clsid[0] == L'{', L"clsid は {...} の形にしてください");
+        *out_camera = reinterpret_cast<TvVirtualCamera*>(new tv::VirtualCamera(friendly_name, clsid));
+    });
+}
+
+TV_API TvResult TV_CALL tv_virtual_camera_destroy(TvVirtualCamera* camera)
+{
+    if (!camera) {
+        return TV_OK;
+    }
+    return Guard([&] { delete &ToVirtualCamera(camera); });
+}
+
+TV_API TvResult TV_CALL tv_capture_open_activate(const wchar_t* dll_path, const wchar_t* clsid, TvCapture** out_capture)
+{
+    return Guard([&] {
+        Require(out_capture != nullptr, L"out_capture が NULL です");
+        *out_capture = nullptr;
+        Require(dll_path && dll_path[0] != L'\0', L"DLL の場所が空です");
+        Require(clsid && clsid[0] == L'{', L"clsid は {...} の形にしてください");
+        *out_capture = reinterpret_cast<TvCapture*>(tv::Capture::OpenActivate(dll_path, clsid));
+    });
 }
 
 } // extern "C"

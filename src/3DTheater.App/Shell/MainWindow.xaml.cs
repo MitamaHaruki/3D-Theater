@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.IO;
 using System.Numerics;
 using System.Windows;
 using System.Windows.Controls;
@@ -177,6 +178,7 @@ public partial class MainWindow : Window
         _context.RenderLoop.Stop();
         _output?.Close(); // 置き場所を覚えるため、設定を書く前に閉じる（描画先もエンジンより先に片付く）
         _context.Tracking?.Dispose(); // カメラを放す
+        _context.VirtualCamera?.Dispose(); // 仮想カメラをしまう（描画先もエンジンより先に片付く）
 
         WindowMemory.SaveTo(_settings); // メインのウィンドウの置き場所は、閉じる知らせ（base.OnClosing）で覚えてある
         _settings.Window = null;
@@ -774,7 +776,120 @@ public partial class MainWindow : Window
         OutputMenuItem.IsChecked = _output is not null;
         OutputTopmostMenuItem.IsEnabled = _output is not null;
         OutputTopmostMenuItem.IsChecked = _output?.Topmost == true;
+        ShowVirtualCameraState();
         BuildOutputMenus();
+    }
+
+    private void ShowVirtualCameraState()
+    {
+        Live.VirtualCameraService? camera = _context.VirtualCamera;
+        VirtualCameraMenuItem.IsChecked = camera?.IsOn == true;
+        VirtualCameraMenuItem.IsEnabled = camera is { IsBusy: false };
+        VirtualCameraStatusItem.Header = camera?.Status ?? string.Empty;
+        VirtualCameraStatusItem.Visibility = camera?.IsOn == true ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private async void OnVirtualCameraClick(object sender, RoutedEventArgs e)
+    {
+        if (_context.VirtualCamera is not { } camera || camera.IsBusy)
+        {
+            ShowVirtualCameraState();
+            return;
+        }
+        try
+        {
+            if (camera.IsOn)
+            {
+                await camera.StopAsync();
+                ShowNotice("仮想カメラをしまいました（ほかのアプリのカメラの一覧から消えます）", false);
+                return;
+            }
+            if (!Live.VirtualCameraService.IsSupported)
+            {
+                ShowNotice("この Windows では仮想カメラを使えません（Windows 11 が要ります）。OBS の仮想カメラで代わりにできます", true);
+                return;
+            }
+            if (!await EnsureVirtualCameraRegisteredAsync())
+            {
+                return;
+            }
+            await camera.StartAsync();
+            ShowNotice($"仮想カメラ「{Media.VirtualCameraProtocol.FriendlyName}」を出しました。Zoom・Discord・OBS などのカメラの一覧から選べます", false);
+        }
+        catch (Exception ex) when (ex is IOException or Media.VideoException or InvalidOperationException)
+        {
+            MessageBox.Show(this, $"仮想カメラを出せませんでした。\n\n{ex.Message}", "3D Theater", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            ShowVirtualCameraState();
+        }
+    }
+
+    // カメラの元が登録されていなければ（前の版なら）、確かめてから管理者として登録する
+    private async Task<bool> EnsureVirtualCameraRegisteredAsync()
+    {
+        Live.VirtualCameraRegistration registration = Live.VirtualCameraSetup.Check();
+        if (registration == Live.VirtualCameraRegistration.Registered)
+        {
+            return true;
+        }
+        string message = registration == Live.VirtualCameraRegistration.NotRegistered
+            ? "仮想カメラを使うには、初めに 1 回だけ、カメラの元を Windows に登録します（管理者の権限が要ります）。\n\nこの後に出る確認の窓で「はい」を押してください。"
+            : "仮想カメラの元が前の版のままです。新しい版に登録し直します（管理者の権限が要ります）。\n\nこの後に出る確認の窓で「はい」を押してください。";
+        if (MessageBox.Show(this, message, "3D Theater", MessageBoxButton.OKCancel, MessageBoxImage.Information) != MessageBoxResult.OK)
+        {
+            return false;
+        }
+        try
+        {
+            await Live.VirtualCameraSetup.RunElevatedAsync(register: true);
+        }
+        catch (OperationCanceledException)
+        {
+            ShowNotice("仮想カメラの登録をやめました", false);
+            return false;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or Win32Exception)
+        {
+            AppLog.Error("仮想カメラの元を登録できませんでした", ex);
+            MessageBox.Show(this, $"仮想カメラの元を登録できませんでした。\n\n{ex.Message}", "3D Theater", MessageBoxButton.OK, MessageBoxImage.Error);
+            return false;
+        }
+        if (Live.VirtualCameraSetup.Check() != Live.VirtualCameraRegistration.Registered)
+        {
+            MessageBox.Show(this, "仮想カメラの元の登録を確かめられませんでした。", "3D Theater", MessageBoxButton.OK, MessageBoxImage.Error);
+            return false;
+        }
+        ShowNotice("仮想カメラの元を Windows に登録しました", false);
+        return true;
+    }
+
+    private async void OnUnregisterVirtualCameraClick(object sender, RoutedEventArgs e)
+    {
+        if (MessageBox.Show(this, "仮想カメラの元の登録を外します（管理者の確認が出ます）。仮想カメラを使っていれば、しまいます。", "3D Theater",
+                MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK)
+        {
+            return;
+        }
+        try
+        {
+            if (_context.VirtualCamera is { IsOn: true } camera)
+            {
+                await camera.StopAsync();
+            }
+            await Live.VirtualCameraSetup.RunElevatedAsync(register: false);
+            ShowNotice("仮想カメラの元の登録を外しました", false);
+        }
+        catch (OperationCanceledException)
+        {
+            ShowNotice("登録を外すのをやめました", false);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or Win32Exception)
+        {
+            AppLog.Error("仮想カメラの元の登録を外せませんでした", ex);
+            MessageBox.Show(this, $"仮想カメラの元の登録を外せませんでした。\n\n{ex.Message}", "3D Theater", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
     }
 
     // 配信用の画面の大きさと背景の候補（今の設定に印）
@@ -857,8 +972,11 @@ public partial class MainWindow : Window
 
     private void OnStartOtherModeClick(object sender, RoutedEventArgs e) => AppLauncher.Start(OtherMode);
 
-    private void OnToolsMenuOpened(object sender, RoutedEventArgs e) =>
+    private void OnToolsMenuOpened(object sender, RoutedEventArgs e)
+    {
         AssociationMenuItem.IsChecked = FileAssociationService.IsRegistered(FileAssociationService.ExePath);
+        VirtualCameraUnregisterMenuItem.IsEnabled = _context.VirtualCamera is not null && Live.VirtualCameraSetup.Check() != Live.VirtualCameraRegistration.NotRegistered;
+    }
 
     private void OnAssociationClick(object sender, RoutedEventArgs e)
     {

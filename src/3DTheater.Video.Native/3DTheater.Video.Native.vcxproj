@@ -77,11 +77,15 @@
   <ItemGroup>
     <ClInclude Include="include\tv_video.h" />
     <ClInclude Include="src\Capture.h" />
+    <ClInclude Include="src\Convert.h" />
+    <ClInclude Include="src\VirtualCamera.h" />
     <ClInclude Include="src\Writer.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\Api.cpp" />
     <ClCompile Include="src\Capture.cpp" />
+    <ClCompile Include="src\Convert.cpp" />
+    <ClCompile Include="src\VirtualCamera.cpp" />
     <ClCompile Include="src\Writer.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- 音声の読み込み・波形・再生（NAudio）と、動画の書き出し（C++ の DLL）。画面（WPF）には依存しない -->
+  <!-- 音声の読み込み・波形・再生（NAudio）と、動画の書き出し・カメラの読み込み・仮想カメラ（C++ の DLL）。画面（WPF）には依存しない -->
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>Theater3D.Media</RootNamespace>
@@ -21,9 +21,19 @@
                       SetPlatform="Platform=x64"
                       Private="false" />
   </ItemGroup>
+  <!-- 仮想カメラの元（Windows のカメラの仕組みが読み込む COM の部品）。アプリの隣に置き、登録するときに決まった場所へ写す -->
+  <ItemGroup>
+    <ProjectReference Include="..\3DTheater.VirtualCamera\3DTheater.VirtualCamera.vcxproj"
+                      ReferenceOutputAssembly="false"
+                      SkipGetTargetFrameworkProperties="true"
+                      SetPlatform="Platform=x64"
+                      Private="false" />
+  </ItemGroup>
   <ItemGroup>
     <None Include="$(NativeOutDir)3DTheater.Video.Native.dll" Link="3DTheater.Video.Native.dll" CopyToOutputDirectory="PreserveNewest" Visible="false" />
     <None Include="$(NativeOutDir)3DTheater.Video.Native.pdb" Link="3DTheater.Video.Native.pdb" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+    <None Include="$(NativeOutDir)3DTheater.VirtualCamera.dll" Link="3DTheater.VirtualCamera.dll" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+    <None Include="$(NativeOutDir)3DTheater.VirtualCamera.pdb" Link="3DTheater.VirtualCamera.pdb" CopyToOutputDirectory="PreserveNewest" Visible="false" />
   </ItemGroup>
 
 </Project>

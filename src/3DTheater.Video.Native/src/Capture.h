@@ -16,6 +16,8 @@ public:
     static Capture* OpenCamera(const wchar_t* id, int width, int height, int frameRate);
     // 動画のファイルを開く（確かめ用。loop なら終わりで先頭に戻る）
     static Capture* OpenFile(const wchar_t* path, bool loop);
+    // COM の部品の DLL から、カメラの元（IMFActivate）を直接作って開く（確かめ用。登録は要らない）
+    static Capture* OpenActivate(const wchar_t* dllPath, const wchar_t* clsid);
 
     ~Capture();
 
@@ -35,10 +37,12 @@ public:
 private:
     Capture() = default;
     void UseRgbOutput();
+    void CreateReader();
 
     static constexpr uint32_t kMagic = 0x43415054; // "CAPT"
     uint32_t magic_ = kMagic;
     MediaStartup startup_;
+    ComPtr<IMFActivate> activate_;
     ComPtr<IMFMediaSource> source_;
     ComPtr<IMFSourceReader> reader_;
     UINT32 width_ = 0;

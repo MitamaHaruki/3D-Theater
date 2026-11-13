@@ -1,5 +1,7 @@
 #include "Writer.h"
 
+#include "Convert.h"
+
 #include <codecapi.h>
 #include <mferror.h>
 #include <objbase.h>
@@ -26,43 +28,6 @@ void SetColorStandard(IMFMediaType* type)
     CheckHr(type->SetUINT32(MF_MT_YUV_MATRIX, MFVideoTransferMatrix_BT709), L"映像の色の決まりの設定");
     CheckHr(type->SetUINT32(MF_MT_VIDEO_PRIMARIES, MFVideoPrimaries_BT709), L"映像の色の決まりの設定");
     CheckHr(type->SetUINT32(MF_MT_TRANSFER_FUNCTION, MFVideoTransFunc_709), L"映像の色の決まりの設定");
-}
-
-// BGRA（上の行から）を NV12（明るさの面のあとに、2 × 2 画素ごとの色差 U・V を交互に並べた面）にする。
-// BT.709・明るさ 16〜235・色差 16〜240。Windows の変換に任せると、小さい動画では別の決まり（BT.601）で変換されるため自分で行う
-void BgraToNv12(const BYTE* bgra, int stride, UINT32 width, UINT32 height, BYTE* nv12)
-{
-    // 係数は 65536 倍の整数（BT.709 の Kr = 0.2126、Kb = 0.0722 を、明るさ 219 段・色差 224 段に合わせたもの）
-    constexpr int kYr = 11966, kYg = 40254, kYb = 4064;
-    constexpr int kUr = -6596, kUg = -22189, kUb = 28784;
-    constexpr int kVr = 28784, kVg = -26145, kVb = -2639;
-    constexpr int kHalf = 1 << 15;
-    BYTE* luma = nv12;
-    BYTE* chroma = nv12 + static_cast<size_t>(width) * height;
-    for (UINT32 y = 0; y < height; y += 2) {
-        const BYTE* row0 = bgra + static_cast<size_t>(y) * stride;
-        const BYTE* row1 = row0 + stride;
-        BYTE* luma0 = luma + static_cast<size_t>(y) * width;
-        BYTE* luma1 = luma0 + width;
-        BYTE* uv = chroma + static_cast<size_t>(y / 2) * width;
-        for (UINT32 x = 0; x < width; x += 2) {
-            int sumB = 0, sumG = 0, sumR = 0;
-            const BYTE* pixels[4] = { row0 + x * 4, row0 + x * 4 + 4, row1 + x * 4, row1 + x * 4 + 4 };
-            BYTE* targets[4] = { luma0 + x, luma0 + x + 1, luma1 + x, luma1 + x + 1 };
-            for (int i = 0; i < 4; ++i) {
-                const int b = pixels[i][0], g = pixels[i][1], r = pixels[i][2];
-                *targets[i] = static_cast<BYTE>(((kYr * r + kYg * g + kYb * b + kHalf) >> 16) + 16);
-                sumB += b;
-                sumG += g;
-                sumR += r;
-            }
-            // 4 画素の平均（合計を 4 で割る分は、シフトを 2 つ増やして行う）
-            const int u = ((kUr * sumR + kUg * sumG + kUb * sumB + (kHalf << 2)) >> 18) + 128;
-            const int v = ((kVr * sumR + kVg * sumG + kVb * sumB + (kHalf << 2)) >> 18) + 128;
-            uv[x] = static_cast<BYTE>(std::clamp(u, 16, 240));
-            uv[x + 1] = static_cast<BYTE>(std::clamp(v, 16, 240));
-        }
-    }
 }
 
 ComPtr<IMFMediaType> NewType(const GUID& major, const GUID& subtype)
@@ -192,7 +157,7 @@ void Writer::WriteVideo(const void* bgra, int stride, int64_t frameIndex)
     CheckHr(MFCreateMemoryBuffer(bytes, &buffer), L"映像のバッファーの作成", TV_E_OUT_OF_MEMORY);
     BYTE* destination = nullptr;
     CheckHr(buffer->Lock(&destination, nullptr, nullptr), L"映像のバッファーのロック");
-    BgraToNv12(static_cast<const BYTE*>(bgra), stride, width_, height_, destination);
+    BgraToNv12(static_cast<const BYTE*>(bgra), stride, width_, height_, destination, YuvMatrix::Bt709);
     buffer->Unlock();
     CheckHr(buffer->SetCurrentLength(bytes), L"映像のバッファーの設定");
 

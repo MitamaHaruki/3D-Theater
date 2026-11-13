@@ -14,7 +14,7 @@ MMD 系のモデルを使って 3D アニメーションを作る、Windows 用�
 - ライブの舞台（その 2）: MMD のアクセサリ（DirectX の .x。テキスト・バイナリ・圧縮）を、MMD と同じく 10 倍の大きさで読み込む（シーンのメニュー「アクセサリを追加」・ドラッグ）。.vac を読むと、書かれたボーン（ネギなら右手首）に付けて置く。プロパティ欄の「付ける先」で、マイクなどのモデルやアクセサリを、ほかのモデルのボーン（手など）に付けて一緒に動かせる（MMD の外部親。付けた瞬間の見た目のまま付き、元に戻せて、保存する）。エディットモードでも使える
 - 顔のトラッキング（その 1）: ライブモードの「トラッキング」パネルで、カメラ（または確かめ用に、顔を撮った動画のファイル）を選んで開始すると、映像から顔の点（478 個）・表情の値（目を閉じる・口を開ける・笑顔など 52 個）・頭の向き（左右・上下・傾き）を読み、映像に顔の点を重ねて見せる（Google の MediaPipe の顔のモデルを、ONNX Runtime で CPU で動かす。1 枚 8 ms ほど）。スマホは、Android なら Windows の「モバイル デバイス」で、iPhone なら DroidCam などのアプリでカメラにできる
 - 顔のトラッキング（その 2）: トラッキングを始めると、キャラクター（「頭」のボーンを持つモデル。パネルで選ぶこともできる）の頭・首・上半身・目線・まばたき・ウィンク・口（あいうえお・口角）・眉が、顔に合わせて動く。初めの 0.5 秒ほどの顔を「正面」として覚える（「正面にする」で覚え直す）。左右は映像と同じ向きに動く（あなたが右を向くと、キャラクターも自分の右へ。「鏡のように動かす」を入れると、鏡に映った自分のように動く）。顔の位置で上半身を傾ける、なめらかさの調節もできる。当てはめ方はライブのファイルに保存する。場面のボーンやモーフの値は書き換えず、待機モーションの上に顔の動きを重ねる
-- 仮想カメラ（今は OBS で代わりに）: OBS に「ウィンドウキャプチャ」で「3D Theater 配信用の画面」を足し、フィルターの「クロマキー」で背景の色を抜いて、「仮想カメラ開始」を押すと、Zoom・Discord などで「OBS Virtual Camera」として選べる。自前の仮想カメラ（Windows 11 の仕組み）は、顔のトラッキングの後で作る
+- 仮想カメラ（Windows 11）: ライブのメニューの「仮想カメラを使う」を入れると、Zoom・Discord・Teams・OBS・ブラウザーなどのカメラの一覧に「3D Theater (Windows 仮想カメラ)」が出て、配信用の画面と同じ絵（大きさ・背景の色も。1 秒に 30 枚）を送る。入れている間だけ出て、切る・アプリを閉じると消える。初めて入れるときだけ、カメラの元（部品）を Windows に登録するので、管理者の確認が出る（DLL は `C:\Program Files\3D Theater\VirtualCamera` に置く。ツールのメニューの「仮想カメラの登録を外す...」で外せる。アプリを新しくしたときは登録し直す）。Windows 10 では、OBS に「ウィンドウキャプチャ」で「3D Theater 配信用の画面」を足し、フィルターの「クロマキー」で背景の色を抜いて「仮想カメラ開始」を押すと、代わりにできる
 
 Phase 5 で新しくできたこと:
 
@@ -261,8 +261,9 @@ src/
   3DTheater.Animation/             ボーン・IK・モーフの計算と頂点の変形（画面にもエンジンにも依存しない）
   3DTheater.Physics/               物理演算（C# 側。PMX の剛体とジョイントからモデルの物理を作る）
   3DTheater.Physics.Native/        C++ の物理演算（Bullet を組み込んだ DLL。公開する関数は include/tp_physics.h）
-  3DTheater.Media/                 音声の読み込み・波形・再生（NAudio）と、動画（MP4）を書く部品・カメラと動画を読む部品の C# 側
-  3DTheater.Video.Native/          C++ の動画の書き手とカメラ・動画の読み手（Media Foundation を包んだ DLL。公開する関数は include/tv_video.h）
+  3DTheater.Media/                 音声の読み込み・波形・再生（NAudio）と、動画（MP4）を書く部品・カメラと動画を読む部品・仮想カメラへ絵を渡す部品の C# 側
+  3DTheater.Video.Native/          C++ の動画の書き手とカメラ・動画の読み手・仮想カメラを出す部品（Media Foundation を包んだ DLL。公開する関数は include/tv_video.h）
+  3DTheater.VirtualCamera/         C++ の仮想カメラの元（Windows のカメラの仕組みが読み込む COM の部品。アプリとの受け渡しの決まりは include/tvc_protocol.h）
   3DTheater.Tracking/              顔のトラッキング（MediaPipe の顔のモデルを ONNX Runtime で動かす。画面に依存しない）
   3DTheater.Engine.Interop/        C# から C++ を呼ぶ境界
   3DTheater.Engine.Native/         C++ の描画エンジン（公開する関数は include/tt_engine.h）
@@ -274,7 +275,7 @@ tests/
   3DTheater.Formats.Tests/         PMX・VMD・VPD の読み込みのテスト（実在のファイルは使わず、テストの中でデータを作る）
   3DTheater.Animation.Tests/       ボーン・IK・付与・モーフ・変形のテスト
   3DTheater.Physics.Tests/         物理演算のテスト（落下・振り子・衝突・髪の揺れ）
-  3DTheater.Media.Tests/           音声の読み込みと波形、動画の書き出し、カメラの代わりに動画を読むテスト
+  3DTheater.Media.Tests/           音声の読み込みと波形、動画の書き出し、カメラの代わりに動画を読む、仮想カメラ（色の変換・受け渡し・カメラの元を読む）のテスト
   3DTheater.Tracking.Tests/        顔のトラッキングのテスト（決まりの計算・モデルの読み込み。公式の MediaPipe との比べは、比べる写真を渡したときだけ）
   3DTheater.Engine.Interop.Tests/  C# 側から見たエンジンのテスト
   3DTheater.Engine.Native.Tests/   C++ の公開関数のテスト

@@ -129,6 +129,9 @@
             <MenuItem x:Name="OutputBackgroundMenu" Header="配信用の画面の背景"
                       ToolTip="背景を塗る色（クロマキーで抜く色）。環境の画像を背景に出しているときは、その画像を描きます（ライブのファイルに保存します）" />
             <MenuItem x:Name="OutputTopmostMenuItem" Header="配信用の画面をいつも手前に出す" IsCheckable="True" Click="OnOutputTopmostClick" />
+            <MenuItem x:Name="VirtualCameraMenuItem" Header="仮想カメラを使う" IsCheckable="True" Click="OnVirtualCameraClick"
+                      ToolTip="Zoom・Discord・OBS などのカメラの一覧に「3D Theater」を出し、配信用の画面と同じ絵（大きさ・背景の色も）を送ります。入れている間だけ出ます（Windows 11 が要ります。初めに 1 回だけ管理者の確認が出ます）" />
+            <MenuItem x:Name="VirtualCameraStatusItem" IsEnabled="False" Visibility="Collapsed" />
             <Separator />
             <MenuItem Header="待機モーション・ポーズを読み込む（VMD / VPD）..." Click="OnImportMotionClick"
                       ToolTip="選んだモデル（キャラクター）に当てはめます。モーションは、そのモーションの長さで繰り返します。ポーズはその姿勢のままにします（ウィンドウへのドラッグでも読み込めます）" />
@@ -185,6 +188,8 @@
           <MenuItem Header="ツール(_T)" SubmenuOpened="OnToolsMenuOpened">
             <MenuItem x:Name="AssociationMenuItem" Header=".3dtproj・.3dtlive をダブルクリックで開けるようにする" IsCheckable="True" Click="OnAssociationClick"
                       ToolTip="エクスプローラーでファイルをダブルクリックしたときに、このアプリのそのモード（.3dtproj はエディット、.3dtlive はライブ）で開くようにします。この PC の今の利用者に登録し、管理者の権限は要りません。外すと登録を消します" />
+            <MenuItem x:Name="VirtualCameraUnregisterMenuItem" Header="仮想カメラの登録を外す..." Click="OnUnregisterVirtualCameraClick" shell:ModeOnly.Live="True"
+                      ToolTip="Windows に登録した仮想カメラの元（カメラの一覧に「3D Theater」を出す部品）を外します。管理者の確認が出ます" />
             <Separator />
             <MenuItem Header="設定..." Style="{StaticResource PlannedItemStyle}" ToolTip="まだできません（操作感度・ショートカットの設定は今後対応します）" />
           </MenuItem>

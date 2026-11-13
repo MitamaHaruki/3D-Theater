@@ -24,7 +24,7 @@ extern "C" {
 #endif
 
 #define TV_API_VERSION_MAJOR 0
-#define TV_API_VERSION_MINOR 2
+#define TV_API_VERSION_MINOR 3
 #define TV_API_VERSION ((TV_API_VERSION_MAJOR << 16) | TV_API_VERSION_MINOR)
 
 typedef int32_t TvResult;
@@ -63,6 +63,15 @@ typedef struct TvCameraInfo {
 
 // 映像の読み手（カメラか動画のファイル）。作ったスレッドで読み、壊すこと
 typedef struct TvCapture TvCapture;
+
+// 仮想カメラ（Windows 11）。作ったスレッドで壊すこと
+typedef struct TvVirtualCamera TvVirtualCamera;
+
+// NV12 にするときの色の決まり（tv_convert_bgra_to_nv12）
+enum {
+    TV_YUV_BT709 = 0, // HD の動画の決まり
+    TV_YUV_BT601 = 1, // カメラの映像として多くのアプリが読む決まり
+};
 
 typedef struct TvCaptureInfo {
     uint32_t struct_size;
@@ -117,6 +126,24 @@ TV_API TvResult TV_CALL tv_capture_read(TvCapture* capture, void* bgra, int32_t 
 // 待っている tv_capture_read をやめさせる（ほかのスレッドから呼んでよい。この後の読み出しは失敗する。壊すのは作ったスレッドで）
 TV_API TvResult TV_CALL tv_capture_cancel(TvCapture* capture);
 TV_API TvResult TV_CALL tv_capture_destroy(TvCapture* capture);
+
+// ===== API 0.3 =====
+
+// BGRA（上の行から）を NV12（明るさ 16〜235・色差 16〜240）にする。幅と高さは偶数。nv12 には width × height × 3 / 2 バイト以上を渡す。
+// matrix は TV_YUV_*
+TV_API TvResult TV_CALL tv_convert_bgra_to_nv12(
+    const void* bgra, int32_t stride, int32_t width, int32_t height, void* nv12, int32_t nv12_size, int32_t matrix);
+
+// この Windows で仮想カメラを作れるか（Windows 11 以降なら 1）
+TV_API int32_t TV_CALL tv_virtual_camera_supported(void);
+// 今の利用者だけに見える仮想カメラを作って出す（壊すまで、ほかのアプリのカメラの一覧に出る。管理者の権限は要らない）。
+// clsid は、HKLM に登録したカメラの元（COM の部品）の "{...}"
+TV_API TvResult TV_CALL tv_virtual_camera_create(const wchar_t* friendly_name, const wchar_t* clsid, TvVirtualCamera** out_camera);
+// 仮想カメラをしまう（ほかのアプリの一覧から消える）。NULL なら何もせず TV_OK
+TV_API TvResult TV_CALL tv_virtual_camera_destroy(TvVirtualCamera* camera);
+
+// 確かめ用: COM の部品の DLL（dll_path）から、カメラの元（clsid の IMFActivate）を直接作って読む（登録は要らない）
+TV_API TvResult TV_CALL tv_capture_open_activate(const wchar_t* dll_path, const wchar_t* clsid, TvCapture** out_capture);
 
 #ifdef __cplusplus
 }

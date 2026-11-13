@@ -25,6 +25,13 @@ public partial class App : Application
         RegisterExceptionHandlers();
         NativeLog.MessageReceived += OnNativeLog;
 
+        // 仮想カメラの元の登録・外す（管理者として起動し直されたとき）。窓を出さずに終える
+        if (Live.VirtualCameraSetup.TryRunCommand(e.Args, out int setupExitCode))
+        {
+            Shutdown(setupExitCode);
+            return;
+        }
+
         var options = StartupOptions.Parse(e.Args);
         UserSettings settings = UserSettingsStore.Load();
         List<string> files = [.. options.Files];

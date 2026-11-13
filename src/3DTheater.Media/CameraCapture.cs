@@ -96,6 +96,22 @@ public sealed unsafe partial class CameraCapture : IDisposable
     }
 
     /// <summary>
+    /// 確かめ用: カメラの元の DLL（COM の部品）から、<paramref name="clsid"/> の部品を直接作って読む（Windows への登録は要らない）。
+    /// 仮想カメラの元（<see cref="VirtualCameraProtocol.DllName"/>）を、ほかのアプリと同じ読み方で確かめるのに使う。
+    /// </summary>
+    public static CameraCapture OpenActivate(string dllPath, string clsid)
+    {
+        VideoNative.CheckVersion(3, "カメラの元の読み込み");
+        nint handle;
+        fixed (char* path = dllPath)
+        fixed (char* id = clsid)
+        {
+            Check(tv_capture_open_activate(path, id, &handle));
+        }
+        return Wrap(handle);
+    }
+
+    /// <summary>
     /// 次のフレームを待って <paramref name="bgra"/> に書く（1 行は幅 × 4 バイト）。時刻は 100 ナノ秒単位。
     /// 動画のファイルの終わり（繰り返さないとき）なら false。
     /// </summary>
@@ -233,6 +249,10 @@ public sealed unsafe partial class CameraCapture : IDisposable
     [LibraryImport(Library)]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     private static partial int tv_capture_open_file(char* path, int loop, nint* capture);
+
+    [LibraryImport(Library)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    private static partial int tv_capture_open_activate(char* dllPath, char* clsid, nint* capture);
 
     [LibraryImport(Library)]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]

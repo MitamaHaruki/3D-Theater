@@ -177,6 +177,7 @@ public sealed class EditorContext
             LiveRuntime = new Live.LiveRuntime(this); // 物理の後に作る（描画の繰り返しを止めない決まりを上書きする）
             Tracking = new Live.TrackingService();
             TrackingDriver = new Live.TrackingDriver(this, Tracking, LiveTracking); // 待機モーションの後に当てはめる
+            VirtualCamera = new Live.VirtualCameraService(this);
         }
     }
 
@@ -196,6 +197,9 @@ public sealed class EditorContext
 
     /// <summary>顔のトラッキングをキャラクターに当てはめる部品（エディットでは null）。</summary>
     public Live.TrackingDriver? TrackingDriver { get; }
+
+    /// <summary>ライブモードの仮想カメラ（エディットでは null）。</summary>
+    public Live.VirtualCameraService? VirtualCamera { get; }
 
     /// <summary>顔のトラッキングの当てはめ方（ライブのファイルに保存する）。</summary>
     public FaceRetargetSettings LiveTracking { get; } = new();

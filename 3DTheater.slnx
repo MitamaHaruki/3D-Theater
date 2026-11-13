@@ -44,6 +44,7 @@
     <Project Path="src/3DTheater.Engine.Native/3DTheater.Engine.Native.vcxproj" Id="1a745fae-c32c-4add-8be6-151c2fa9a983" />
     <Project Path="src/3DTheater.Physics.Native/3DTheater.Physics.Native.vcxproj" Id="a4c72fb4-58d8-4b48-9f09-a3562d583da5" />
     <Project Path="src/3DTheater.Video.Native/3DTheater.Video.Native.vcxproj" Id="932aa29d-dba6-4e60-8951-251ab9d5ca25" />
+    <Project Path="src/3DTheater.VirtualCamera/3DTheater.VirtualCamera.vcxproj" Id="dea72081-4d85-4de6-be65-71f03f42a5cd" />
   </Folder>
   <Folder Name="/plugins/">
     <Project Path="plugins/3DTheater.SamplePlugin/3DTheater.SamplePlugin.csproj">

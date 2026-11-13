@@ -73,11 +73,7 @@ Capture* Capture::OpenCamera(const wchar_t* id, int width, int height, int frame
     CheckHr(attributes->SetGUID(MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE, MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID), L"カメラを開く設定");
     CheckHr(attributes->SetString(MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_SYMBOLIC_LINK, id), L"カメラを開く設定");
     CheckHr(MFCreateDeviceSource(attributes.Get(), &capture->source_), L"カメラを開く（ほかのアプリが使っていないか、カメラの使用が許可されているか確かめてください）");
-
-    ComPtr<IMFAttributes> readerAttributes;
-    CheckHr(MFCreateAttributes(&readerAttributes, 1), L"読み込みの設定の作成");
-    CheckHr(readerAttributes->SetUINT32(MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING, TRUE), L"読み込みの設定"); // BGRA へ変換させる
-    CheckHr(MFCreateSourceReaderFromMediaSource(capture->source_.Get(), readerAttributes.Get(), &capture->reader_), L"カメラの読み手の作成");
+    capture->CreateReader();
 
     // カメラが出せる形のうち、大きさがいちばん近く、フレームの速さが足りるものを選ぶ
     ComPtr<IMFMediaType> best;
@@ -110,6 +106,38 @@ Capture* Capture::OpenCamera(const wchar_t* id, int width, int height, int frame
     }
     capture->UseRgbOutput();
     return capture.release();
+}
+
+Capture* Capture::OpenActivate(const wchar_t* dllPath, const wchar_t* clsid)
+{
+    auto capture = std::unique_ptr<Capture>(new Capture());
+    // DLL は放さない（作った部品が使っている間に外れないよう、このプロセスの終わりまで置いておく）
+    HMODULE module = LoadLibraryExW(dllPath, nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
+    if (!module) {
+        throw Error(TV_E_INVALID_ARG, std::format(L"カメラの元の DLL を読み込めません（{}）", GetLastError()));
+    }
+    using GetClassObject = HRESULT(STDAPICALLTYPE*)(REFCLSID, REFIID, LPVOID*);
+    auto getClassObject = reinterpret_cast<GetClassObject>(GetProcAddress(module, "DllGetClassObject"));
+    if (!getClassObject) {
+        throw Error(TV_E_INVALID_ARG, L"DLL に DllGetClassObject がありません");
+    }
+    CLSID id{};
+    CheckHr(CLSIDFromString(clsid, &id), L"CLSID の読み取り", TV_E_INVALID_ARG);
+    ComPtr<IClassFactory> factory;
+    CheckHr(getClassObject(id, IID_PPV_ARGS(&factory)), L"カメラの元の部品の取得");
+    CheckHr(factory->CreateInstance(nullptr, IID_PPV_ARGS(&capture->activate_)), L"カメラの元の作成");
+    CheckHr(capture->activate_->ActivateObject(IID_PPV_ARGS(&capture->source_)), L"カメラの元の起動");
+    capture->CreateReader();
+    capture->UseRgbOutput();
+    return capture.release();
+}
+
+void Capture::CreateReader()
+{
+    ComPtr<IMFAttributes> readerAttributes;
+    CheckHr(MFCreateAttributes(&readerAttributes, 1), L"読み込みの設定の作成");
+    CheckHr(readerAttributes->SetUINT32(MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING, TRUE), L"読み込みの設定"); // BGRA へ変換させる
+    CheckHr(MFCreateSourceReaderFromMediaSource(source_.Get(), readerAttributes.Get(), &reader_), L"カメラの読み手の作成");
 }
 
 Capture* Capture::OpenFile(const wchar_t* path, bool loop)
@@ -151,6 +179,10 @@ Capture::~Capture()
     if (source_) {
         source_->Shutdown();
         source_.Reset();
+    }
+    if (activate_) {
+        activate_->ShutdownObject();
+        activate_.Reset();
     }
 }
 
