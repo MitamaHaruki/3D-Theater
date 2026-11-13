@@ -55,7 +55,7 @@
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>mfplat.lib;mfreadwrite.lib;mfuuid.lib;ole32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>mf.lib;mfplat.lib;mfreadwrite.lib;mfuuid.lib;ole32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='Debug'">
@@ -76,10 +76,12 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="include\tv_video.h" />
+    <ClInclude Include="src\Capture.h" />
     <ClInclude Include="src\Writer.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\Api.cpp" />
+    <ClCompile Include="src\Capture.cpp" />
     <ClCompile Include="src\Writer.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

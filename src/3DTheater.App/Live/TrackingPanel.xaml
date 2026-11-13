@@ -1,0 +1,26 @@
+<UserControl x:Class="Theater3D.App.Live.TrackingPanel"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="{StaticResource PanelBrush}">
+  <DockPanel Margin="10,8">
+    <StackPanel DockPanel.Dock="Top">
+      <TextBlock Text="映像（カメラ）" Style="{StaticResource SectionHeaderStyle}" Margin="0,0,0,6" />
+      <DockPanel>
+        <Button DockPanel.Dock="Right" Margin="4,0,0,0" Style="{StaticResource IconButtonStyle}" Content="&#xE72C;"
+                AutomationProperties.Name="カメラの一覧を更新" ToolTip="カメラの一覧を読み直します（スマホをカメラにしたときなど）" Click="OnRefreshClick" />
+        <ComboBox x:Name="SourceCombo" MinHeight="0" Padding="6,2" FontSize="12" AutomationProperties.Name="トラッキングの映像" />
+      </DockPanel>
+      <StackPanel Margin="0,8,0,0" Orientation="Horizontal">
+        <Button x:Name="StartButton" MinWidth="88" Content="開始" AutomationProperties.Name="トラッキングを開始" Click="OnStartClick" />
+        <Button x:Name="StopButton" Margin="8,0,0,0" MinWidth="88" Content="停止" AutomationProperties.Name="トラッキングを停止" Click="OnStopClick" />
+      </StackPanel>
+      <TextBlock x:Name="StatusText" Margin="0,8,0,0" TextWrapping="Wrap" AutomationProperties.AutomationId="TrackingStatus" />
+    </StackPanel>
+    <TextBlock DockPanel.Dock="Bottom" Margin="0,6,0,0" Style="{StaticResource PlannedNoteStyle}"
+               Text="今は顔の動きを読んで見せるだけです（キャラクターへの当てはめは次の段で足します）。カメラが無いときは「動画のファイル...」で、顔を撮った動画を読ませて確かめられます。スマホは、Android なら Windows の「モバイル デバイス」で、iPhone なら DroidCam などのアプリでカメラにできます。" />
+    <TextBlock x:Name="ValuesText" DockPanel.Dock="Bottom" Margin="0,8,0,0" TextWrapping="Wrap" AutomationProperties.AutomationId="TrackingValues" />
+    <Border Margin="0,8,0,0" Background="#FF000000" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+      <Image x:Name="Preview" Stretch="Uniform" />
+    </Border>
+  </DockPanel>
+</UserControl>

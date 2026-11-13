@@ -25,6 +25,7 @@ public sealed class DockingLayout
     public const string TimelineId = "Panel.Timeline";
     public const string LogId = "Panel.Log";
     public const string GraphId = "Panel.Graph";
+    public const string TrackingId = "Panel.Tracking";
     private const string PreviewPrefix = "Preview.";
     private const string PluginPrefix = "Plugin/";
 
@@ -53,6 +54,10 @@ public sealed class DockingLayout
             // キーフレームの編集はエディットモードだけ
             _panels[TimelineId] = ("タイムライン", new TimelinePanel(context), AnchorableShowStrategy.Bottom);
             _panels[GraphId] = ("グラフ", new GraphEditorPanel(context), AnchorableShowStrategy.Bottom);
+        }
+        else if (context.Tracking is { } tracking)
+        {
+            _panels[TrackingId] = ("トラッキング", new Live.TrackingPanel(tracking), AnchorableShowStrategy.Right); // 顔のトラッキングはライブだけ
         }
         dock.DocumentClosed += (_, e) =>
         {
@@ -129,6 +134,7 @@ public sealed class DockingLayout
         (TimelineId, "タイムライン"),
         (GraphId, "グラフ"),
         (LogId, "ログ"),
+        (TrackingId, "トラッキング"),
     ];
 
     /// <summary>このモードで使うパネル（表示のメニューに出す）。</summary>
@@ -222,6 +228,10 @@ public sealed class DockingLayout
         var right = new LayoutAnchorablePane { DockWidth = new GridLength(330) };
         right.Children.Add(CreateAnchorable(PropertiesId));
         right.Children.Add(CreateAnchorable(MorphId));
+        if (_panels.ContainsKey(TrackingId))
+        {
+            right.Children.Add(CreateAnchorable(TrackingId));
+        }
         right.SelectedContentIndex = 0;
 
         var root = new LayoutPanel { Orientation = Orientation.Horizontal };

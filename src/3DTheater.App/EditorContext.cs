@@ -172,6 +172,7 @@ public sealed class EditorContext
         {
             Animation.TracksUserEdits = false; // ライブはキーを打たないので、未登録の変更の印を付けない
             LiveRuntime = new Live.LiveRuntime(this); // 物理の後に作る（描画の繰り返しを止めない決まりを上書きする）
+            Tracking = new Live.TrackingService();
         }
     }
 
@@ -185,6 +186,9 @@ public sealed class EditorContext
 
     /// <summary>ライブモードの時計（待機モーションのループ・物理をいつも動かす）。エディットでは null。</summary>
     public Live.LiveRuntime? LiveRuntime { get; }
+
+    /// <summary>ライブモードの顔のトラッキング（エディットでは null）。</summary>
+    public Live.TrackingService? Tracking { get; }
 
     /// <summary>ライブモードの配信用の画面の設定（ライブのファイルに保存する）。</summary>
     public LiveOutputSettings LiveOutput { get; } = new();

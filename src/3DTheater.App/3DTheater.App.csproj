@@ -26,6 +26,7 @@
     <ProjectReference Include="..\3DTheater.Engine.Interop\3DTheater.Engine.Interop.csproj" />
     <ProjectReference Include="..\3DTheater.Physics\3DTheater.Physics.csproj" />
     <ProjectReference Include="..\3DTheater.Media\3DTheater.Media.csproj" />
+    <ProjectReference Include="..\3DTheater.Tracking\3DTheater.Tracking.csproj" />
     <ProjectReference Include="..\Plugin.Core\Plugin.Core.csproj" />
     <ProjectReference Include="..\Plugin.UI.Wpf\Plugin.UI.Wpf.csproj" />
     <ProjectReference Include="..\3DTheater.Plugin.SDK\3DTheater.Plugin.SDK.csproj" />

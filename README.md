@@ -12,6 +12,8 @@ MMD 系のモデルを使って 3D アニメーションを作る、Windows 用�
 - モードを分ける: 起動するときに、エディットモード（これまでのアプリ。キーフレームでモーションを付け、画像・動画に書き出す）とライブモード（部屋・小物・キャラクターを置き、配信などでその場で動かす）を選ぶ。保存するファイルは、エディットが `.3dtproj`、ライブが `.3dtlive`。ファイルを渡したとき（ダブルクリックで開いたときなど）は、選ばずにそのモードで起動する。ライブモードの窓には、モーション・キー・書き出しのメニュー、再生のボタン、タイムライン、グラフを出さない。ツールのメニュー「.3dtproj・.3dtlive をダブルクリックで開けるようにする」で、今の利用者にファイルの関連付けを登録する（外すこともできる）。ファイルのメニューで、もう一方のモードを別の窓で起動できる
 - ライブの舞台（その 1）: ライブでは物理を実際の時間でいつも動かす（焼き込みは作らない）。ライブのメニュー「待機モーション・ポーズを読み込む」で、選んだモデルにモーションを当てはめると、モデルごとにそのモーションの長さで繰り返す（「待機モーションを外す」で外せる）。「配信用の画面を出す」で、シーンのカメラから見た絵だけ（格子・ボーン・ギズモ無し）を別の窓に出す。背景はグリーンバックなどのクロマキーの色、大きさは 1920 × 1080・1280 × 720・縦長・正方形から選び、ライブのファイルに保存する。OBS などのウィンドウキャプチャで「3D Theater 配信用の画面」を取り込む。ライブでは、モーフ欄・プロパティ欄のキーの操作と、シーンの一覧の映像効果・セルフ影・音声の行を出さない
 - ライブの舞台（その 2）: MMD のアクセサリ（DirectX の .x。テキスト・バイナリ・圧縮）を、MMD と同じく 10 倍の大きさで読み込む（シーンのメニュー「アクセサリを追加」・ドラッグ）。.vac を読むと、書かれたボーン（ネギなら右手首）に付けて置く。プロパティ欄の「付ける先」で、マイクなどのモデルやアクセサリを、ほかのモデルのボーン（手など）に付けて一緒に動かせる（MMD の外部親。付けた瞬間の見た目のまま付き、元に戻せて、保存する）。エディットモードでも使える
+- 顔のトラッキング（その 1）: ライブモードの「トラッキング」パネルで、カメラ（または確かめ用に、顔を撮った動画のファイル）を選んで開始すると、映像から顔の点（478 個）・表情の値（目を閉じる・口を開ける・笑顔など 52 個）・頭の向き（左右・上下・傾き）を読み、映像に顔の点を重ねて見せる（Google の MediaPipe の顔のモデルを、ONNX Runtime で CPU で動かす。1 枚 8 ms ほど）。キャラクターへの当てはめは次の段。スマホは、Android なら Windows の「モバイル デバイス」で、iPhone なら DroidCam などのアプリでカメラにできる
+- 仮想カメラ（今は OBS で代わりに）: OBS に「ウィンドウキャプチャ」で「3D Theater 配信用の画面」を足し、フィルターの「クロマキー」で背景の色を抜いて、「仮想カメラ開始」を押すと、Zoom・Discord などで「OBS Virtual Camera」として選べる。自前の仮想カメラ（Windows 11 の仕組み）は、顔のトラッキングの後で作る
 
 Phase 5 で新しくできたこと:
 
@@ -258,8 +260,9 @@ src/
   3DTheater.Animation/             ボーン・IK・モーフの計算と頂点の変形（画面にもエンジンにも依存しない）
   3DTheater.Physics/               物理演算（C# 側。PMX の剛体とジョイントからモデルの物理を作る）
   3DTheater.Physics.Native/        C++ の物理演算（Bullet を組み込んだ DLL。公開する関数は include/tp_physics.h）
-  3DTheater.Media/                 音声の読み込み・波形・再生（NAudio）と、動画（MP4）を書く部品の C# 側
-  3DTheater.Video.Native/          C++ の動画の書き手（Media Foundation を包んだ DLL。公開する関数は include/tv_video.h）
+  3DTheater.Media/                 音声の読み込み・波形・再生（NAudio）と、動画（MP4）を書く部品・カメラと動画を読む部品の C# 側
+  3DTheater.Video.Native/          C++ の動画の書き手とカメラ・動画の読み手（Media Foundation を包んだ DLL。公開する関数は include/tv_video.h）
+  3DTheater.Tracking/              顔のトラッキング（MediaPipe の顔のモデルを ONNX Runtime で動かす。画面に依存しない）
   3DTheater.Engine.Interop/        C# から C++ を呼ぶ境界
   3DTheater.Engine.Native/         C++ の描画エンジン（公開する関数は include/tt_engine.h）
   Plugin.Core/                     プラグインの共通の契約と、読み込み・管理（アプリにも WPF にも依存しない）
@@ -270,13 +273,18 @@ tests/
   3DTheater.Formats.Tests/         PMX・VMD・VPD の読み込みのテスト（実在のファイルは使わず、テストの中でデータを作る）
   3DTheater.Animation.Tests/       ボーン・IK・付与・モーフ・変形のテスト
   3DTheater.Physics.Tests/         物理演算のテスト（落下・振り子・衝突・髪の揺れ）
-  3DTheater.Media.Tests/           音声の読み込みと波形、動画の書き出しのテスト
+  3DTheater.Media.Tests/           音声の読み込みと波形、動画の書き出し、カメラの代わりに動画を読むテスト
+  3DTheater.Tracking.Tests/        顔のトラッキングのテスト（決まりの計算・モデルの読み込み。公式の MediaPipe との比べは、比べる写真を渡したときだけ）
   3DTheater.Engine.Interop.Tests/  C# 側から見たエンジンのテスト
   3DTheater.Engine.Native.Tests/   C++ の公開関数のテスト
   Plugin.Core.Tests/               プラグインの plugin.json・互換性・読み込み・有効と無効・異常時のテスト
   Plugin.TestPlugins/              テストで読み込むプラグイン（正しく動くもの・例外を投げるものなど）
 plugins/
   3DTheater.SamplePlugin/          サンプルのプラグイン（シーンの情報。アプリの出力の Plugins\SceneInfo に写る）
+models/
+  face_landmarker/                 顔のモデル（MediaPipe の Face Landmarker を ONNX に変えたもの。Apache-2.0。NOTICE.txt）
+tools/
+  convert_face_models.py           顔のモデルを取り寄せて ONNX に変え、元と同じ答えになるか確かめる（作り直すときだけ）
 external/
   bullet3/                         Bullet Physics 3.25 のソース（そのまま写したもの。external/README.md）
   3DTheater.Bullet.vcxproj         Bullet を静的ライブラリにするプロジェクト

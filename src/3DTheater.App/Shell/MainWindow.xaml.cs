@@ -176,6 +176,7 @@ public partial class MainWindow : Window
         _context.Playback.Pause();
         _context.RenderLoop.Stop();
         _output?.Close(); // 置き場所を覚えるため、設定を書く前に閉じる（描画先もエンジンより先に片付く）
+        _context.Tracking?.Dispose(); // カメラを放す
 
         WindowMemory.SaveTo(_settings); // メインのウィンドウの置き場所は、閉じる知らせ（base.OnClosing）で覚えてある
         _settings.Window = null;

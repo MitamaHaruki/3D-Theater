@@ -52,6 +52,7 @@ if (-not $SkipTests) {
                          'tests\3DTheater.Animation.Tests\3DTheater.Animation.Tests.csproj',
                          'tests\3DTheater.Physics.Tests\3DTheater.Physics.Tests.csproj',
                          'tests\3DTheater.Media.Tests\3DTheater.Media.Tests.csproj',
+                         'tests\3DTheater.Tracking.Tests\3DTheater.Tracking.Tests.csproj',
                          'tests\Plugin.Core.Tests\Plugin.Core.Tests.csproj') {
         Write-Host "==> C# のテスト（$([IO.Path]::GetFileNameWithoutExtension($project))）" -ForegroundColor Cyan
         dotnet test (Join-Path $root $project) --no-build -c $Configuration -p:Platform=x64

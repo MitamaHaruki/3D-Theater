@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- 顔のトラッキング: カメラの絵から顔の点・表情の値・頭の向きを求める（MediaPipe の顔のモデルを ONNX Runtime で動かす）。画面（WPF）には依存しない -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Theater3D.Tracking</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.23.2" />
+  </ItemGroup>
+
+  <!-- 顔のモデル（models/face_landmarker。Apache-2.0）を、出力の Models\FaceLandmarker に置く -->
+  <ItemGroup>
+    <None Include="$(RepoRoot)models\face_landmarker\*.onnx" Link="Models\FaceLandmarker\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(RepoRoot)models\face_landmarker\NOTICE.txt" Link="Models\FaceLandmarker\NOTICE.txt" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

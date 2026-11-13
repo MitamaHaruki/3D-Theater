@@ -2,6 +2,7 @@
 #include <new>
 #include <string>
 
+#include "Capture.h"
 #include "Writer.h"
 
 namespace {
@@ -40,6 +41,15 @@ void Require(bool condition, const wchar_t* message)
     if (!condition) {
         throw tv::Error(TV_E_INVALID_ARG, message);
     }
+}
+
+tv::Capture& ToCapture(TvCapture* handle)
+{
+    auto* capture = reinterpret_cast<tv::Capture*>(handle);
+    if (!capture || !capture->IsValid()) {
+        throw tv::Error(TV_E_INVALID_ARG, L"capture が正しくありません（NULL か、破棄済みの可能性があります）");
+    }
+    return *capture;
 }
 
 } // namespace
@@ -115,6 +125,75 @@ TV_API TvResult TV_CALL tv_probe_file(
         tv::Probe(path, info, first_frame, stride, buffer_size);
         *out_info = info;
     });
+}
+
+TV_API int32_t TV_CALL tv_camera_list(TvCameraInfo* items, int32_t capacity)
+{
+    int32_t count = 0;
+    const TvResult result = Guard([&] {
+        Require(capacity >= 0 && (capacity == 0 || items != nullptr), L"items が NULL です");
+        count = tv::ListCameras(items, capacity);
+    });
+    return result == TV_OK ? count : result;
+}
+
+TV_API TvResult TV_CALL tv_capture_open_camera(const wchar_t* id, int32_t width, int32_t height, int32_t frame_rate, TvCapture** out_capture)
+{
+    return Guard([&] {
+        Require(out_capture != nullptr, L"out_capture が NULL です");
+        *out_capture = nullptr;
+        Require(id && id[0] != L'\0', L"カメラの目印が空です");
+        Require(width >= 16 && height >= 16 && width <= 8192 && height <= 8192, L"大きさは 16〜8192 にしてください");
+        Require(frame_rate >= 1 && frame_rate <= 240, L"フレームの速さは 1〜240 にしてください");
+        *out_capture = reinterpret_cast<TvCapture*>(tv::Capture::OpenCamera(id, width, height, frame_rate));
+    });
+}
+
+TV_API TvResult TV_CALL tv_capture_open_file(const wchar_t* path, int32_t loop, TvCapture** out_capture)
+{
+    return Guard([&] {
+        Require(out_capture != nullptr, L"out_capture が NULL です");
+        *out_capture = nullptr;
+        Require(path && path[0] != L'\0', L"path が空です");
+        *out_capture = reinterpret_cast<TvCapture*>(tv::Capture::OpenFile(path, loop != 0));
+    });
+}
+
+TV_API TvResult TV_CALL tv_capture_get_info(TvCapture* capture, TvCaptureInfo* out_info)
+{
+    return Guard([&] {
+        Require(out_info && out_info->struct_size == sizeof(TvCaptureInfo), L"TvCaptureInfo が NULL か、struct_size が合いません");
+        TvCaptureInfo info{};
+        info.struct_size = sizeof(TvCaptureInfo);
+        ToCapture(capture).GetInfo(info);
+        *out_info = info;
+    });
+}
+
+TV_API TvResult TV_CALL tv_capture_read(TvCapture* capture, void* bgra, int32_t stride, int32_t buffer_size, int64_t* out_timestamp)
+{
+    bool read = false;
+    const TvResult result = Guard([&] {
+        int64_t timestamp = 0;
+        read = ToCapture(capture).Read(bgra, stride, buffer_size, timestamp);
+        if (out_timestamp) {
+            *out_timestamp = timestamp;
+        }
+    });
+    return result == TV_OK && !read ? TV_E_END_OF_STREAM : result;
+}
+
+TV_API TvResult TV_CALL tv_capture_cancel(TvCapture* capture)
+{
+    return Guard([&] { ToCapture(capture).Cancel(); });
+}
+
+TV_API TvResult TV_CALL tv_capture_destroy(TvCapture* capture)
+{
+    if (!capture) {
+        return TV_OK;
+    }
+    return Guard([&] { delete &ToCapture(capture); });
 }
 
 } // extern "C"
