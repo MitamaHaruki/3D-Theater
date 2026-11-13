@@ -11,6 +11,12 @@ namespace Theater3D.Editor;
 public sealed record FaceSignal(float Yaw, float Pitch, float Roll, Vector2 FaceCenter, float FaceSize, IReadOnlyDictionary<string, float> Blendshapes)
 {
     public float Value(string name) => Blendshapes.TryGetValue(name, out float v) ? v : 0f;
+
+    /// <summary>
+    /// まばたきの値を 0〜1 に広げる幅（正面のときより、どれだけ閉じたら閉じきりとみなすか）。カメラ（MediaPipe）は閉じても 0.6〜0.8 にしか
+    /// 届かないので狭く、スマホ（ARKit）は 1 近くまで届くので広くする。
+    /// </summary>
+    public float BlinkRange { get; init; } = FaceRetarget.CameraBlinkRange;
 }
 
 /// <summary>キャラクターへの当てはめ方（ライブのファイルに保存する）。</summary>
@@ -64,6 +70,46 @@ public sealed class FaceRetargetSettings
         _bodySway = true;
         _smoothing = 0.5f;
         _target = null;
+        Changed?.Invoke(this, EventArgs.Empty);
+    }
+}
+
+/// <summary>
+/// スマホから受け取るときの設定（ライブのファイルに保存する）。VTube Studio の形式で頼むスマホの IP と、頭の向きを逆にするか
+/// （アプリが向きの決まりを公開していないので、逆なら利用者が直せるようにする）。
+/// </summary>
+public sealed class PhoneTrackingSettings
+{
+    private string _address = string.Empty;
+    private bool _invertYaw;
+    private bool _invertPitch;
+    private bool _invertRoll;
+
+    public event EventHandler? Changed;
+
+    /// <summary>スマホの IP（VTube Studio・MeowFace に頼むとき）。</summary>
+    public string Address { get => _address; set => Set(ref _address, (value ?? string.Empty).Trim()); }
+
+    public bool InvertYaw { get => _invertYaw; set => Set(ref _invertYaw, value); }
+
+    public bool InvertPitch { get => _invertPitch; set => Set(ref _invertPitch, value); }
+
+    public bool InvertRoll { get => _invertRoll; set => Set(ref _invertRoll, value); }
+
+    public void Reset()
+    {
+        _address = string.Empty;
+        _invertYaw = _invertPitch = _invertRoll = false;
+        Changed?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void Set<T>(ref T field, T value)
+    {
+        if (EqualityComparer<T>.Default.Equals(field, value))
+        {
+            return;
+        }
+        field = value;
         Changed?.Invoke(this, EventArgs.Empty);
     }
 }
@@ -151,7 +197,7 @@ public sealed class FaceRetarget
             blend[key] = signals.Sum(s => s.Value(key)) / n;
         }
         return new FaceSignal(signals.Sum(s => s.Yaw) / n, signals.Sum(s => s.Pitch) / n, signals.Sum(s => s.Roll) / n,
-            signals.Aggregate(Vector2.Zero, (a, s) => a + s.FaceCenter) / n, signals.Sum(s => s.FaceSize) / n, blend);
+            signals.Aggregate(Vector2.Zero, (a, s) => a + s.FaceCenter) / n, signals.Sum(s => s.FaceSize) / n, blend) { BlinkRange = signals[^1].BlinkRange };
     }
 
     /// <summary>
@@ -204,8 +250,8 @@ public sealed class FaceRetarget
 
         var morphs = new Dictionary<string, float>(MorphKeys.Count);
         // まばたき: 正面のときの開き具合から、閉じきるまでを 0〜1 に広げる（MediaPipe は閉じても 1 まで届かない）
-        (float subjectLeft, float subjectRight) = LinkEyes(BlinkAmount(s.Value("eyeBlinkLeft"), neutral.Value("eyeBlinkLeft")),
-            BlinkAmount(s.Value("eyeBlinkRight"), neutral.Value("eyeBlinkRight")), turn);
+        (float subjectLeft, float subjectRight) = LinkEyes(BlinkAmount(s.Value("eyeBlinkLeft"), neutral.Value("eyeBlinkLeft"), s.BlinkRange),
+            BlinkAmount(s.Value("eyeBlinkRight"), neutral.Value("eyeBlinkRight"), s.BlinkRange), turn);
         float modelLeft = Filter("blinkL", mirror ? subjectRight : subjectLeft, time, smooth * 0.4f);
         float modelRight = Filter("blinkR", mirror ? subjectLeft : subjectRight, time, smooth * 0.4f);
         float both = Math.Min(modelLeft, modelRight);
@@ -226,6 +272,7 @@ public sealed class FaceRetarget
         morphs[E] = Filter("e", Clamp01(Math.Min(jaw, stretch) * 1.5f), time, mouthSmooth);
         morphs[O] = Filter("o", Clamp01(1.4f * funnel), time, mouthSmooth);
         morphs[Smile] = Filter("smile", Clamp01(1.2f * smile), time, mouthSmooth);
+        LimitVowels(morphs);
 
         // 眉
         morphs[BrowUp] = Filter("browUp", Clamp01(1.2f * Math.Max(Expression(s, neutral, "browInnerUp"),
@@ -248,11 +295,43 @@ public sealed class FaceRetarget
     }
 
     /// <summary>まばたきの値を 0〜1 にする（正面のときより 0.05 閉じた所から、0.4 閉じた所まで）。</summary>
-    public static float BlinkAmount(float value, float neutral)
+    public static float BlinkAmount(float value, float neutral, float range = CameraBlinkRange)
     {
         float open = Math.Clamp(neutral, 0f, 0.5f) + 0.05f;
-        return Clamp01((value - open) / 0.35f);
+        return Clamp01((value - open) / Math.Max(range, 0.05f));
     }
+
+    /// <summary>
+    /// あいうえおの合計を 1 までにする。いちばん強い形はそのまま残し、ほかの形を残りの分に収める（大きく開けたときは「あ」だけになる）。
+    /// MMD のモデルの口の形は 1 つずつ作られているので、重ねると口が作りの範囲を超え、歯や舌が顎を突き抜けるため
+    /// （スマホは、大きく開けると口を開ける・すぼめる・横に広げるが一緒に大きくなる。利用者の iPhone で見つかった）。
+    /// </summary>
+    public static void LimitVowels(IDictionary<string, float> morphs)
+    {
+        string[] vowels = [A, I, U, E, O];
+        float Get(string key) => morphs.TryGetValue(key, out float value) ? value : 0f;
+        string top = vowels.MaxBy(Get)!;
+        float rest = vowels.Where(v => v != top).Sum(Get);
+        float budget = Math.Max(0f, 1f - Get(top));
+        if (rest <= budget || rest <= 0)
+        {
+            return;
+        }
+        float scale = budget / rest;
+        foreach (string vowel in vowels)
+        {
+            if (vowel != top && morphs.ContainsKey(vowel))
+            {
+                morphs[vowel] *= scale;
+            }
+        }
+    }
+
+    /// <summary>まばたきを広げる幅（カメラ。MediaPipe は閉じても 0.6〜0.8）。</summary>
+    public const float CameraBlinkRange = 0.35f;
+
+    /// <summary>まばたきを広げる幅（スマホ。ARKit は閉じると 1 近く）。</summary>
+    public const float PhoneBlinkRange = 0.6f;
 
     /// <summary>
     /// 左右の目の閉じ具合（0〜1）の差を整える。差が <see cref="WinkDeadZone"/> までならそろえ、それより大きい分だけ片目を閉じる。

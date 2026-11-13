@@ -31,10 +31,13 @@ public sealed class TrackingDriver
     private FaceRig? _rig;
     private long _stoppedAt = -1;
 
-    internal TrackingDriver(EditorContext context, TrackingService tracking, FaceRetargetSettings settings)
+    private readonly PhoneTrackingSettings _phone;
+
+    internal TrackingDriver(EditorContext context, TrackingService tracking, FaceRetargetSettings settings, PhoneTrackingSettings phone)
     {
         _context = context;
         _tracking = tracking;
+        _phone = phone;
         _retarget = new FaceRetarget(settings);
         settings.Changed += (_, _) => _rig = null; // 対象のモデルが変わったかもしれない
         context.Scene.NodeChanged += (_, e) =>
@@ -95,7 +98,7 @@ public sealed class TrackingDriver
                 return; // 新しい絵がまだ無い
             }
             _lastSequence = snapshot.Sequence;
-            signal = ToSignal(snapshot.Result);
+            signal = snapshot.Phone is { } phone ? ToSignal(phone) : ToSignal(snapshot.Result);
             if (_calibrating)
             {
                 if (signal is not null)
@@ -174,6 +177,17 @@ public sealed class TrackingDriver
             Angle(o.UpperBody * o.Neck * o.Head), M(FaceRetarget.Blink), M(FaceRetarget.WinkLeft), M(FaceRetarget.WinkRight),
             M(FaceRetarget.A), M(FaceRetarget.I), M(FaceRetarget.U), M(FaceRetarget.E), M(FaceRetarget.O), M(FaceRetarget.Smile),
             M(FaceRetarget.BrowUp), M(FaceRetarget.BrowAngry));
+    }
+
+    // スマホの値: 頭の向きをカメラと同じ決まりにし（逆にする設定も）、まばたきは広い幅で 0〜1 にする
+    private FaceSignal? ToSignal(PhoneFrame phone)
+    {
+        if (!phone.FaceFound)
+        {
+            return null;
+        }
+        PhonePose pose = PhonePoseMapping.ToCameraConvention(phone, _phone.InvertYaw, _phone.InvertPitch, _phone.InvertRoll);
+        return new FaceSignal(pose.Yaw, pose.Pitch, pose.Roll, pose.Center, pose.Size, phone.Blendshapes) { BlinkRange = FaceRetarget.PhoneBlinkRange };
     }
 
     private static FaceSignal? ToSignal(FaceTrackingResult? result)

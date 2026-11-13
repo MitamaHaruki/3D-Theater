@@ -8,8 +8,22 @@
       <DockPanel>
         <Button DockPanel.Dock="Right" Margin="4,0,0,0" Style="{StaticResource IconButtonStyle}" Content="&#xE72C;"
                 AutomationProperties.Name="カメラの一覧を更新" ToolTip="カメラの一覧を読み直します（スマホをカメラにしたときなど）" Click="OnRefreshClick" />
-        <ComboBox x:Name="SourceCombo" MinHeight="0" Padding="6,2" FontSize="12" AutomationProperties.Name="トラッキングの映像" />
+        <ComboBox x:Name="SourceCombo" MinHeight="0" Padding="6,2" FontSize="12" AutomationProperties.Name="トラッキングの映像" SelectionChanged="OnSourceChanged" />
       </DockPanel>
+      <StackPanel x:Name="PhonePanel" Margin="0,8,0,0" Visibility="Collapsed">
+        <DockPanel x:Name="PhoneAddressRow">
+          <TextBlock DockPanel.Dock="Left" Width="72" VerticalAlignment="Center" Text="スマホの IP" Foreground="{StaticResource SubTextBrush}" />
+          <TextBox x:Name="PhoneAddressBox" MinHeight="0" Padding="4,2" AutomationProperties.Name="スマホの IP" TextChanged="OnPhoneAddressChanged"
+                   ToolTip="スマホのアプリに出ている IP（例: 192.168.1.20）" />
+        </DockPanel>
+        <TextBlock x:Name="PhoneHelpText" Margin="0,6,0,0" TextWrapping="Wrap" Foreground="{StaticResource SubTextBrush}" AutomationProperties.AutomationId="PhoneHelp" />
+        <WrapPanel Margin="0,6,0,0">
+          <CheckBox x:Name="PhoneInvertYawCheck" Content="左右を逆に" AutomationProperties.Name="スマホの左右を逆にする" Checked="OnPhoneOptionChanged" Unchecked="OnPhoneOptionChanged"
+                    ToolTip="首を振ったときに、キャラクターが思った向きと逆に向くときに入れます" />
+          <CheckBox x:Name="PhoneInvertPitchCheck" Margin="12,0,0,0" Content="上下を逆に" AutomationProperties.Name="スマホの上下を逆にする" Checked="OnPhoneOptionChanged" Unchecked="OnPhoneOptionChanged" />
+          <CheckBox x:Name="PhoneInvertRollCheck" Margin="12,0,0,0" Content="傾きを逆に" AutomationProperties.Name="スマホの傾きを逆にする" Checked="OnPhoneOptionChanged" Unchecked="OnPhoneOptionChanged" />
+        </WrapPanel>
+      </StackPanel>
       <StackPanel Margin="0,8,0,0" Orientation="Horizontal">
         <Button x:Name="StartButton" MinWidth="88" Content="開始" AutomationProperties.Name="トラッキングを開始" Click="OnStartClick" />
         <Button x:Name="StopButton" Margin="8,0,0,0" MinWidth="88" Content="停止" AutomationProperties.Name="トラッキングを停止" Click="OnStopClick" />
@@ -17,7 +31,11 @@
       <TextBlock x:Name="StatusText" Margin="0,8,0,0" TextWrapping="Wrap" AutomationProperties.AutomationId="TrackingStatus" />
 
       <Border Margin="0,8,0,0" Height="220" Background="#FF000000" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
-        <Image x:Name="Preview" Stretch="Uniform" />
+        <Grid>
+          <Image x:Name="Preview" Stretch="Uniform" />
+          <TextBlock x:Name="PreviewNote" Margin="12" VerticalAlignment="Center" HorizontalAlignment="Center" TextWrapping="Wrap" TextAlignment="Center"
+                     Foreground="{StaticResource SubTextBrush}" Visibility="Collapsed" Text="スマホから受け取っています（映像はありません）" />
+        </Grid>
       </Border>
       <TextBlock x:Name="ValuesText" Margin="0,8,0,0" TextWrapping="Wrap" AutomationProperties.AutomationId="TrackingValues" />
 
@@ -45,7 +63,7 @@
       <TextBlock x:Name="RigText" Margin="0,8,0,0" TextWrapping="Wrap" AutomationProperties.AutomationId="TrackingRig" />
       <TextBlock x:Name="AppliedText" Margin="0,4,0,0" TextWrapping="Wrap" Foreground="{StaticResource SubTextBrush}" AutomationProperties.AutomationId="TrackingApplied" />
       <TextBlock Margin="0,8,0,0" Style="{StaticResource PlannedNoteStyle}"
-                 Text="カメラが無いときは「動画のファイル...」で、顔を撮った動画を読ませて確かめられます。スマホは、Android なら Windows の「モバイル デバイス」で、iPhone なら DroidCam などのアプリでカメラにできます。当てはめ方はライブのファイルに保存します。" />
+                 Text="カメラが無いときは「動画のファイル...」で、顔を撮った動画を読ませて確かめられます。スマホは、顔のアプリ（VTube Studio・MeowFace・iFacialMocap）から受け取るか、カメラにして使えます（Android は Windows の「モバイル デバイス」、iPhone は DroidCam などのアプリ）。スマホの顔のアプリのほうが、表情を細かく読めます。当てはめ方はライブのファイルに保存します。" />
     </StackPanel>
   </ScrollViewer>
 </UserControl>

@@ -49,6 +49,7 @@ internal sealed class ProjectService
         context.LiveOutput.Changed += (_, _) => MarkDirty(); // 配信用の画面の大きさ・背景（ライブのファイルに保存する）
         context.LiveTracking.Changed += (_, _) => MarkDirty(); // 顔のトラッキングの当てはめ方
         context.LiveHotkeys.Changed += (_, _) => MarkDirty(); // キー操作
+        context.LivePhone.Changed += (_, _) => MarkDirty(); // スマホから受け取るときの設定
         context.Rendering.Changed += (_, _) => OnPlaybackSettingsChanged();
         context.Playback.StateChanged += (_, _) => OnPlaybackSettingsChanged();
         _autosaveTimer = new DispatcherTimer(AutosaveInterval, DispatcherPriority.Background, (_, _) => Autosave(), owner.Dispatcher);
@@ -201,6 +202,7 @@ internal sealed class ProjectService
                 // 顔のトラッキングの当てはめ方（当てはめるモデルは、保存したときの目印から今のモデルを探す）
                 Guid? FindModel(string id) => models.FirstOrDefault(m => string.Equals(m.Entry.Id, id, StringComparison.OrdinalIgnoreCase)).Node?.Id;
                 (project.Live?.Tracking ?? new TrackingEntry()).ApplyTo(_context.LiveTracking, FindModel);
+                (project.Live?.Tracking ?? new TrackingEntry()).ApplyTo(_context.LivePhone);
                 (project.Live ?? new LiveEntry()).ApplyTo(_context.LiveHotkeys, FindModel); // キー操作
             }
             if (project.Audio is { } audio)
@@ -435,7 +437,7 @@ internal sealed class ProjectService
     private string? ModeName => _mode == AppMode.Live ? AppModes.LiveName : null;
 
     // ファイルに書くライブの設定（ライブだけ）
-    private LiveEntry? LiveSettings => _mode == AppMode.Live ? LiveEntry.From(_context.LiveOutput, _context.LiveTracking, _context.LiveHotkeys) : null;
+    private LiveEntry? LiveSettings => _mode == AppMode.Live ? LiveEntry.From(_context.LiveOutput, _context.LiveTracking, _context.LiveHotkeys, _context.LivePhone) : null;
 
     // 自動保存は、同じモードのものだけを探す（拡張子で分かれている）
     private string? FindOrphanAutosave()

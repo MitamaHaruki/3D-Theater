@@ -185,7 +185,7 @@ public sealed class EditorContext
             Animation.TracksUserEdits = false; // ライブはキーを打たないので、未登録の変更の印を付けない
             LiveRuntime = new Live.LiveRuntime(this); // 物理の後に作る（描画の繰り返しを止めない決まりを上書きする）
             Tracking = new Live.TrackingService();
-            TrackingDriver = new Live.TrackingDriver(this, Tracking, LiveTracking); // 待機モーションの後に当てはめる
+            TrackingDriver = new Live.TrackingDriver(this, Tracking, LiveTracking, LivePhone); // 待機モーションの後に当てはめる
             VirtualCamera = new Live.VirtualCameraService(this);
             Hotkeys = new Live.HotkeyService(this); // トラッキングの後に当てはめる（表情を優先する）
         }
@@ -216,6 +216,9 @@ public sealed class EditorContext
 
     /// <summary>キー操作の一覧（ライブのファイルに保存する）。</summary>
     public HotkeySettings LiveHotkeys { get; } = new();
+
+    /// <summary>スマホから受け取るときの設定（ライブのファイルに保存する）。</summary>
+    public PhoneTrackingSettings LivePhone { get; } = new();
 
     /// <summary>顔のトラッキングの当てはめ方（ライブのファイルに保存する）。</summary>
     public FaceRetargetSettings LiveTracking { get; } = new();
@@ -356,6 +359,7 @@ public sealed class EditorContext
         LiveOutput.Reset();
         LiveTracking.Reset();
         LiveHotkeys.Reset();
+        LivePhone.Reset();
         Animation.NotifyStateChanged();
         Undo.Clear();
         RenderLoop.InvalidateAll();

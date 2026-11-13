@@ -178,6 +178,15 @@ public sealed class LiveTests
         Assert.IsNull(read.TargetModelId);
         Assert.IsFalse(read.Mirror, "書いていない値は既定（映像と同じ向き）");
 
+        // スマホの設定も一緒に書く
+        var phone = new PhoneTrackingSettings { Address = " 192.168.1.20 ", InvertPitch = true };
+        string withPhone = ProjectSerializer.Serialize(new ProjectFile { Mode = AppModes.LiveName, Live = LiveEntry.From(new LiveOutputSettings(), tracking, null, phone) });
+        var readPhone = new PhoneTrackingSettings();
+        ProjectSerializer.Deserialize(withPhone, new LoadReport())!.Live!.Tracking!.ApplyTo(readPhone);
+        Assert.AreEqual("192.168.1.20", readPhone.Address, "前後の空白は除く");
+        Assert.IsTrue(readPhone.InvertPitch);
+        Assert.IsFalse(readPhone.InvertYaw);
+
         // 自動で選ぶときは、モデルを書かない
         StringAssert.DoesNotMatch(ProjectSerializer.Serialize(new ProjectFile { Mode = AppModes.LiveName, Live = LiveEntry.From(new LiveOutputSettings(), new FaceRetargetSettings()) }),
             new System.Text.RegularExpressions.Regex("\"target\""));

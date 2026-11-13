@@ -113,6 +113,13 @@ public sealed class FaceRetargetTests
 
         Assert.AreEqual(0f, FaceRetarget.BlinkAmount(0.14f, 0.1f), "正面とほぼ同じなら開いたまま");
         Assert.AreEqual(0.5f, FaceRetarget.BlinkAmount(0.325f, 0.1f), 1e-3f);
+        Assert.AreEqual(0.5f, FaceRetarget.BlinkAmount(0.45f, 0.1f, FaceRetarget.PhoneBlinkRange), 1e-3f, "スマホ（ARKit）は広く");
+
+        // スマホの値は、半分閉じても閉じきりにならない
+        FaceRetarget phone = Calibrated();
+        phone.Calibrate(Face() with { BlinkRange = FaceRetarget.PhoneBlinkRange });
+        FaceOutput half = Settle(phone, Face(blend: [("eyeBlinkLeft", 0.45f), ("eyeBlinkRight", 0.45f)]) with { BlinkRange = FaceRetarget.PhoneBlinkRange });
+        Assert.AreEqual(0.5f, half.Morphs[FaceRetarget.Blink], 0.02f);
     }
 
     [TestMethod]
@@ -158,6 +165,19 @@ public sealed class FaceRetargetTests
 
         FaceOutput i = Settle(Calibrated(), Face(blend: [("mouthStretchLeft", 0.6f), ("mouthStretchRight", 0.6f)]));
         Assert.IsGreaterThan(0.9f, i.Morphs[FaceRetarget.I], "横に広げると「い」");
+
+        // 大きく開けると、すぼめる・横に広げるも一緒に大きくなる（スマホ）。口の形は重ねず、合計を 1 までにする
+        FaceOutput wide = Settle(Calibrated(), Face(blend: [("jawOpen", 0.95f), ("mouthFunnel", 0.3f), ("mouthStretchLeft", 0.4f), ("mouthStretchRight", 0.4f)]));
+        float sum = new[] { FaceRetarget.A, FaceRetarget.I, FaceRetarget.U, FaceRetarget.E, FaceRetarget.O }.Sum(k => wide.Morphs[k]);
+        Assert.AreEqual(1f, wide.Morphs[FaceRetarget.A], 1e-3f, "いちばん強い「あ」はそのまま");
+        Assert.IsLessThan(1.001f, sum, "あいうえおの合計は 1 まで（重ねると歯や舌が顎を突き抜ける）");
+
+        var some = new Dictionary<string, float> { [FaceRetarget.A] = 0.6f, [FaceRetarget.E] = 0.6f, [FaceRetarget.O] = 0.2f, [FaceRetarget.Smile] = 0.9f };
+        FaceRetarget.LimitVowels(some);
+        Assert.AreEqual(0.6f, some[FaceRetarget.A], 1e-5f, "同じ強さなら先のものを残す");
+        Assert.AreEqual(0.3f, some[FaceRetarget.E], 1e-5f, "残り 0.4 を、0.6 と 0.2 の割合で分ける");
+        Assert.AreEqual(0.1f, some[FaceRetarget.O], 1e-5f);
+        Assert.AreEqual(0.9f, some[FaceRetarget.Smile], "口角は口の形ではないので変えない");
 
         FaceOutput smile = Settle(Calibrated(), Face(blend: [("mouthSmileLeft", 0.8f), ("mouthSmileRight", 0.8f)]));
         Assert.IsGreaterThan(0.9f, smile.Morphs[FaceRetarget.Smile]);

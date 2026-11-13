@@ -78,12 +78,13 @@ public sealed class LiveEntry
     /// <summary>キー操作（無ければ書かない）。</summary>
     public List<HotkeyEntry>? Hotkeys { get; set; }
 
-    public static LiveEntry From(LiveOutputSettings output, FaceRetargetSettings? tracking = null, HotkeySettings? hotkeys = null) => new()
+    public static LiveEntry From(LiveOutputSettings output, FaceRetargetSettings? tracking = null, HotkeySettings? hotkeys = null,
+        PhoneTrackingSettings? phone = null) => new()
     {
         OutputWidth = output.Width,
         OutputHeight = output.Height,
         OutputBackground = ImageExport.FormatColor(output.Background),
-        Tracking = tracking is null ? null : TrackingEntry.From(tracking),
+        Tracking = tracking is null ? null : TrackingEntry.From(tracking, phone),
         Hotkeys = hotkeys is null || hotkeys.Bindings.Count == 0 ? null : [.. hotkeys.Bindings.Select(HotkeyEntry.From)],
     };
 
@@ -167,7 +168,16 @@ public sealed class TrackingEntry
 
     public float Smoothing { get; set; } = 0.5f;
 
-    public static TrackingEntry From(FaceRetargetSettings s) => new()
+    /// <summary>スマホの IP（VTube Studio・MeowFace に頼むとき。空なら書かない）。</summary>
+    public string? PhoneAddress { get; set; }
+
+    public bool PhoneInvertYaw { get; set; }
+
+    public bool PhoneInvertPitch { get; set; }
+
+    public bool PhoneInvertRoll { get; set; }
+
+    public static TrackingEntry From(FaceRetargetSettings s, PhoneTrackingSettings? phone = null) => new()
     {
         Target = s.TargetModelId?.ToString("N"),
         Mirror = s.Mirror,
@@ -175,7 +185,20 @@ public sealed class TrackingEntry
         UpperBody = s.UpperBody,
         BodySway = s.BodySway,
         Smoothing = s.Smoothing,
+        PhoneAddress = string.IsNullOrEmpty(phone?.Address) ? null : phone.Address,
+        PhoneInvertYaw = phone?.InvertYaw ?? false,
+        PhoneInvertPitch = phone?.InvertPitch ?? false,
+        PhoneInvertRoll = phone?.InvertRoll ?? false,
     };
+
+    /// <summary>スマホの設定へ入れる。</summary>
+    public void ApplyTo(PhoneTrackingSettings phone)
+    {
+        phone.Address = PhoneAddress ?? string.Empty;
+        phone.InvertYaw = PhoneInvertYaw;
+        phone.InvertPitch = PhoneInvertPitch;
+        phone.InvertRoll = PhoneInvertRoll;
+    }
 
     /// <summary>設定へ入れる。<paramref name="findModel"/> は、モデルの目印から今のモデルの Id を探す。</summary>
     public void ApplyTo(FaceRetargetSettings s, Func<string, Guid?> findModel)
