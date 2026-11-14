@@ -40,6 +40,7 @@ public partial class MainWindow : Window
     private bool _busy;
     private readonly Project.ProjectService _project;
     private readonly AppMode _mode;
+    private bool _closeWithoutAsking;
 
     /// <param name="mode">エディットモードかライブモードか（ライブでは、キーフレームの編集・書き出しのメニューとパネルを出さない）。</param>
     /// <param name="settings">利用者の設定（起動の処理で読んだもの。無ければここで読む）。</param>
@@ -170,8 +171,8 @@ public partial class MainWindow : Window
         {
             return;
         }
-        // 保存していない変更があれば、保存するか尋ねる（黙って捨てない）
-        if (!_project.ConfirmClose())
+        // 保存していない変更があれば、保存するか尋ねる（黙って捨てない。確かめの「--exit-after」で閉じるときは尋ねない）
+        if (!_project.ConfirmClose(ask: !_closeWithoutAsking))
         {
             e.Cancel = true;
             return;
@@ -768,6 +769,73 @@ public partial class MainWindow : Window
                 await ImportFilesAsync(files);
             }
         });
+    }
+
+    /// <summary>
+    /// 確かめのための起動の指定（「--track-camera」「--exit-after」）を行う。コマンドだけで確かめを進めるため（設計判断記録 77 章）。
+    /// </summary>
+    public void RunChecks(CheckOptions check)
+    {
+        foreach (string problem in check.Problems)
+        {
+            AppLog.Warning(problem);
+        }
+        if (check.TrackCamera)
+        {
+            StartTrackingForCheck(check.CameraName);
+        }
+        if (check.ExitAfter is { } after)
+        {
+            AppLog.Info($"確かめのため、起動してから {PerformanceText.Duration(after)}で閉じます（保存は尋ねません）");
+            var timer = new DispatcherTimer(DispatcherPriority.Normal, Dispatcher) { Interval = after };
+            timer.Tick += (_, _) =>
+            {
+                timer.Stop();
+                AppLog.Info($"確かめのため、起動してから {PerformanceText.Duration(after)}たったので閉じます");
+                _closeWithoutAsking = true;
+                try
+                {
+                    Close();
+                }
+                catch (InvalidOperationException ex)
+                {
+                    // 確かめの窓を開いている途中などで閉じられないとき
+                    _closeWithoutAsking = false;
+                    AppLog.Warning("確かめのために閉じようとしましたが、閉じられませんでした", ex);
+                }
+            };
+            timer.Start();
+        }
+    }
+
+    private void StartTrackingForCheck(string? cameraName)
+    {
+        if (_context.Tracking is not { } tracking)
+        {
+            AppLog.Warning($"{CheckOptions.TrackCameraOption} は、ライブモードでだけ使えます");
+            return;
+        }
+        IReadOnlyList<Media.CameraDevice> cameras;
+        try
+        {
+            cameras = Media.CameraCapture.ListCameras();
+        }
+        catch (Exception ex) when (ex is Media.VideoException or DllNotFoundException)
+        {
+            AppLog.Warning("カメラの一覧を読めませんでした", ex);
+            return;
+        }
+        AppLog.Info($"カメラの一覧: {(cameras.Count == 0 ? "（なし）" : string.Join("・", cameras.Select(c => c.Name)))}");
+        Media.CameraDevice? camera = cameraName is null
+            ? cameras.FirstOrDefault()
+            : cameras.FirstOrDefault(c => c.Name.Contains(cameraName, StringComparison.OrdinalIgnoreCase));
+        if (camera is null)
+        {
+            AppLog.Warning(cameraName is null ? "カメラが見つからないため、トラッキングを始めません" : $"「{cameraName}」を名前に含むカメラが無いため、トラッキングを始めません");
+            return;
+        }
+        AppLog.Info($"確かめのため、カメラ「{camera.Name}」でトラッキングを始めます");
+        tracking.StartCamera(camera);
     }
 
     private void OnNewProjectClick(object sender, RoutedEventArgs e) => _project.New();

@@ -44,7 +44,7 @@ public static class AppLog
         {
             Directory.CreateDirectory(LogDirectory);
             DeleteOldLogs();
-            CurrentLogFile = Path.Combine(LogDirectory, $"3DTheater_{DateTime.Now:yyyyMMdd}.log");
+            CurrentLogFile = Path.Combine(LogDirectory, ChooseFileName($"3DTheater_{DateTime.Now:yyyyMMdd}"));
             var stream = new FileStream(CurrentLogFile, FileMode.Append, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
             lock (Gate)
             {
@@ -65,6 +65,55 @@ public static class AppLog
         {
             s_writer?.Dispose();
             s_writer = null;
+        }
+        try
+        {
+            s_fileOwner?.ReleaseMutex();
+        }
+        catch (ApplicationException)
+        {
+            // 持っていない（別のスレッドから呼ばれた）ときは、プロセスが終わると放される
+        }
+        s_fileOwner?.Dispose();
+        s_fileOwner = null;
+    }
+
+    // 書いているファイルの持ち主の印（プロセスが終わるまで持つ）
+    private static Mutex? s_fileOwner;
+
+    /// <summary>
+    /// 書くファイルの名前を決める。同じ日に、もう 1 つの 3D Theater（もう一方のモードなど）が同じファイルに書いていると、
+    /// 2 つが別々の位置に書いて、行が上書きされて消える（確かめで分かった）。そのときは「_2」「_3」…の付いたファイルにする。
+    /// </summary>
+    private static string ChooseFileName(string stem)
+    {
+        const int MaxFiles = 9;
+        for (int n = 1; ; n++)
+        {
+            string name = n == 1 ? $"{stem}.log" : $"{stem}_{n}.log";
+            var owner = new Mutex(false, $@"Local\3DTheater.Log.{name}");
+            bool owned;
+            try
+            {
+                owned = owner.WaitOne(0);
+            }
+            catch (AbandonedMutexException)
+            {
+                owned = true; // 前の持ち主が落ちた
+            }
+            if (owned || n == MaxFiles)
+            {
+                if (owned)
+                {
+                    s_fileOwner = owner;
+                }
+                else
+                {
+                    owner.Dispose(); // 多すぎるときは、最後のファイルに一緒に書く
+                }
+                return name;
+            }
+            owner.Dispose();
         }
     }
 

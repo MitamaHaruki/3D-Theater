@@ -291,10 +291,12 @@ internal sealed class ProjectService
         }
     }
 
-    /// <summary>閉じてよいか（保存していない変更があれば尋ねる）。閉じるときは自動保存も消す。</summary>
-    public bool ConfirmClose()
+    /// <summary>
+    /// 閉じてよいか（保存していない変更があれば尋ねる。<paramref name="ask"/> が false なら尋ねない）。閉じるときは自動保存も消す。
+    /// </summary>
+    public bool ConfirmClose(bool ask = true)
     {
-        if (!ConfirmDiscard("終了する"))
+        if (ask && !ConfirmDiscard("終了する"))
         {
             return false;
         }

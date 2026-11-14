@@ -4,8 +4,9 @@
 
 .DESCRIPTION
     Release でビルドし、.NET を中に入れて発行（self-contained）する。C++ の部品が使う Visual C++ の実行時ライブラリも、
-    アプリの隣に置く（app-local。Visual Studio の再頒布用のフォルダーから写す）。確かめの手順書・ログを集める道具・
-    ライセンス一覧を足して、artifacts\package に zip を作る。テストは流さない（先に .\build.ps1 で流しておく）。
+    アプリの隣に置く（app-local。Visual Studio の再頒布用のフォルダーから写す）。確かめの手順書・Claude への指示書・
+    ログを集める道具・ライセンス一覧を足して、artifacts\package に zip を作る（指示書は zip の隣にも置く）。
+    テストは流さない（先に .\build.ps1 で流しておく）。
 
 .EXAMPLE
     .\package.ps1                     # artifacts\package\3DTheater-確かめ用-日付.zip を作る
@@ -64,9 +65,11 @@ if (-not $crt) { throw 'Visual C++ の再頒布用の実行時ライブラリ（
 Copy-Item (Join-Path $crt.FullName '*.dll') $stage -Force
 Write-Host "==> Visual C++ の実行時ライブラリ: $($crt.FullName)" -ForegroundColor Cyan
 
-# 5) 確かめの手順書・ログを集める道具・ライセンス一覧
+# 5) 確かめの手順書・Claude への指示書・ログを集める道具・ライセンス一覧
 $package = Join-Path $root 'tools\package'
+$instructions = Join-Path $package 'Claude への指示書.md'
 Copy-Item (Join-Path $package '確かめの手順.txt') $stage
+Copy-Item $instructions $stage
 Copy-Item (Join-Path $package 'ログを集める.cmd') $stage
 Copy-Item (Join-Path $package 'collect-logs.ps1') $stage
 Copy-Item (Join-Path $root 'docs\ライセンス一覧.md') $stage
@@ -87,4 +90,6 @@ $zip = Join-Path $OutDir ('3DTheater-確かめ用-{0}-{1}.zip' -f ($version -rep
 if (Test-Path $zip) { Remove-Item $zip -Force }
 [System.IO.Compression.ZipFile]::CreateFromDirectory($stage, $zip, [System.IO.Compression.CompressionLevel]::Optimal, $true, [System.Text.Encoding]::UTF8)
 $files = Get-ChildItem $stage -Recurse -File
+# ほかの PC の Claude が zip を開く前に読めるよう、指示書は zip の隣にも置く
+Copy-Item $instructions $OutDir -Force
 Write-Host ('==> 完了: {0}（{1:F0} MB。展開すると {2} 個・{3:F0} MB）' -f $zip, ((Get-Item $zip).Length / 1MB), $files.Count, (($files | Measure-Object Length -Sum).Sum / 1MB)) -ForegroundColor Green

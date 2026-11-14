@@ -74,6 +74,7 @@ public partial class App : Application
         MainWindow = window;
         window.Show();
         window.ImportOnStartup(files);
+        window.RunChecks(CheckOptions.Parse(options.Switches));
     }
 
     protected override void OnExit(ExitEventArgs e)

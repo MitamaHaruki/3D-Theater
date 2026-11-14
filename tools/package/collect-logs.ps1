@@ -1,5 +1,5 @@
 ﻿# 3D Theater の確かめの結果を集める（確かめ用の zip に入れる道具）。
-# ログと、パソコンの様子（Windows の版・CPU・メモリ・GPU・カメラ・画面・カメラの使用の許可）と、アプリが落ちたときの Windows の記録を、
+# ログ（速さの行だけを抜き出した speed.txt も）と、パソコンの様子（Windows の版・CPU・メモリ・GPU・カメラ・画面・カメラの使用の許可）と、アプリが落ちたときの Windows の記録を、
 # 1 つの zip にしてデスクトップに置く。顔の映像や写真は入れない。
 # Windows PowerShell 5.1 でも動くように書く（このファイルは BOM 付きの UTF-8 にする。BOM が無いと 5.1 は日本語を読み違える）。
 param(
@@ -20,6 +20,16 @@ if (Test-Path $logDir) {
     $logs = @(Get-ChildItem $logDir -Filter '*.log' | Where-Object { $_.LastWriteTime -gt (Get-Date).AddDays(-14) })
     foreach ($log in $logs) { Copy-Item $log.FullName (Join-Path $work 'logs') }
 }
+
+# 速さのログ（ライブモードの 1 分ごとの速さと重さ・まとめ。設計判断記録 77 章）と、起動・終了・カメラ・エラー・警告の行を、
+# 読みやすいよう別のファイルにも抜き出す（ログは BOM の無い UTF-8 なので、読み方を指定する）
+$speed = New-Object System.Collections.Generic.List[string]
+foreach ($log in $logs) {
+    foreach ($line in (Get-Content $log.FullName -Encoding UTF8)) {
+        if ($line -match '\[(速さ|重さ|まとめ)\]|\] CPU: |カメラ|起動します|終了します|\[(ERROR|WARN )\]') { $speed.Add($line) }
+    }
+}
+[System.IO.File]::WriteAllLines((Join-Path $work 'speed.txt'), $speed, (New-Object System.Text.UTF8Encoding $true))
 
 # パソコンの様子
 $lines = New-Object System.Collections.Generic.List[string]

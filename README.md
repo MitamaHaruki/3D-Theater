@@ -188,7 +188,8 @@ powershell -ExecutionPolicy Bypass -File .\build.ps1
 
 - `artifacts\package\3DTheater-確かめ用-版-日付.zip` ができる（80 MB ほど）。ほかの PC（Windows 10 / 11 の 64 ビット）で、展開するだけで動く
   - .NET と Visual C++ の実行時ライブラリを中に入れてある（相手の PC に入れなくてよい）
-- 中に、カメラの顔のトラッキングの「確かめの手順.txt」と、ログと PC の様子を 1 つの zip にまとめる「ログを集める.cmd」が入っている（ライブモードのログには、1 分ごとの速さと重さが入る）
+- 中に、カメラの顔のトラッキングの「確かめの手順.txt」と、ログと PC の様子を 1 つの zip にまとめる「ログを集める.cmd」が入っている（ライブモードのログには、1 分ごとの速さと重さが入る。速さの行だけを抜き出した speed.txt も入れる）
+- 「Claude への指示書.md」（zip の中と隣）: 相手の PC の Claude が読んで、コマンドだけで確かめを進める（`--track-camera`・`--exit-after` で起動し、コンセントと電池で 5 分ずつ動かし、結果とメモを受け渡しのフォルダーに置く）
 - テストは流さないので、先に `.\build.ps1` で流しておく
 - 署名していないので、相手の PC では「Windows によって PC が保護されました」と出る（「詳細情報」→「実行」）
 
@@ -215,6 +216,8 @@ src\3DTheater.App\bin\x64\Debug\net10.0-windows\3DTheater.exe
 | PMX・.x・.vac のパス | 起動したあとに、そのモデル・アクセサリを読み込む（いくつでも並べられる） |
 | VMD / VPD ファイルのパス | モデルを読み込んだ後に、そのモーション・ポーズを当てはめる |
 | プロジェクト（.3dtproj）・ライブ（.3dtlive）のパス | そのモードで起動して開く（`--edit` / `--live` と食い違うときはファイルを優先する） |
+| `--track-camera` / `--track-camera=名前の一部` | 確かめ用: ライブモードで、起動したらカメラで顔のトラッキングを始める（名前を渡すと、名前にそれを含むカメラ） |
+| `--exit-after=秒` | 確かめ用: 起動してからその秒数（10 秒〜1 日）で、保存を尋ねずに閉じる（速さのまとめはログに書く） |
 
 GPU での初期化に失敗したときは、自動でソフトウェア描画に切り替えて起動する。
 GPU の面を WPF と共有できない環境では、描いた絵を読み出して表示する方式に自動で切り替える（状態表示に「読み出し方式」と出る）。
@@ -256,7 +259,7 @@ GPU の面を WPF と共有できない環境では、描いた絵を読み出�
 |---|---|
 | レイアウト・プレビューの分け方・ウィンドウの位置と最大化（設定などの画面の位置も）・ギズモ・描画品質・書き出しの設定・前回のモード | `%APPDATA%\3DTheater\UserSettings\`（並びはエディットが `layout.xml`、ライブが `layout_live.xml`） |
 | ファイルの関連付け（登録したときだけ） | `HKEY_CURRENT_USER\Software\Classes` の `.3dtproj`・`.3dtlive`・`3DTheater.Project`・`3DTheater.LiveProject` |
-| ログ | `%LOCALAPPDATA%\3DTheater\Logs\`（メニュー「ヘルプ → ログフォルダーを開く」） |
+| ログ | `%LOCALAPPDATA%\3DTheater\Logs\`（メニュー「ヘルプ → ログフォルダーを開く」。同じ日に 2 つ目の 3D Theater を起動すると、`_2` の付いたファイルに書く） |
 | 自動保存 | `%LOCALAPPDATA%\3DTheater\AutoSave\`（保存せずに終わったとき、次に起動すると復旧するか尋ねる） |
 | プラグインの有効・無効と、プラグインごとの設定 | `%APPDATA%\3DTheater\UserSettings\settings.json` の `Plugins` |
 | プラグイン（利用者が入れるもの） | `%APPDATA%\3DTheater\Plugins\`（アプリと一緒に配るものは、アプリのフォルダーの `Plugins\`） |
