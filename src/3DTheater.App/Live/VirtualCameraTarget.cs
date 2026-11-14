@@ -17,6 +17,9 @@ internal sealed class VirtualCameraTarget : IRenderTarget, IDisposable
 {
     private static readonly long Interval = Stopwatch.Frequency / VirtualCameraProtocol.FrameRate;
 
+    // 予定より少し早い画面の更新でも描く（更新の時刻の揺れの分。2 ms）
+    private static readonly long Slack = Stopwatch.Frequency / 500;
+
     private readonly EditorContext _context;
     private readonly VirtualCameraFrames _frames;
     private readonly LiveFrameBuilder _builder;
@@ -25,7 +28,7 @@ internal sealed class VirtualCameraTarget : IRenderTarget, IDisposable
     private int _height;
     private int _sampleCount = 1;
     private bool _pending;
-    private long _lastSubmit;
+    private long _nextDue;
     private bool _disposed;
 
     public VirtualCameraTarget(EditorContext context, VirtualCameraFrames frames)
@@ -46,8 +49,10 @@ internal sealed class VirtualCameraTarget : IRenderTarget, IDisposable
 
     public bool CanRender => !_disposed && _context.Engine is not null && _frames.TryGetWanted(out _, out _);
 
-    // 時間で描く（1 秒に 30 回）。ライブモードは描画ループを止めないので、毎回の画面更新で確かめる
-    public bool NeedsRender => Stopwatch.GetTimestamp() - _lastSubmit >= Interval;
+    // 時間で描く（1 秒に 30 回）。ライブモードは描画ループを止めないので、毎回の画面更新で確かめる。
+    // 次の予定は、描いた時刻からではなく、前の予定から 1/30 秒ずつ進める（描いた時刻から数えると、画面の更新が 1 秒に 75 回のときは
+    // 3 回に 1 回（25 回/秒）、60 回のときも時刻の揺れで 2 回か 3 回に 1 回しか描けない。速さのログで分かった）
+    public bool NeedsRender => Stopwatch.GetTimestamp() >= _nextDue - Slack;
 
     public void Invalidate()
     {
@@ -70,7 +75,8 @@ internal sealed class VirtualCameraTarget : IRenderTarget, IDisposable
         {
             return false;
         }
-        _lastSubmit = Stopwatch.GetTimestamp();
+        long now = Stopwatch.GetTimestamp();
+        _nextDue = now - _nextDue > Interval ? now + Interval : _nextDue + Interval; // 遅れすぎたら（頼まれていなかったなど）、今から数え直す
         _view.Render(_builder.Build(width, height));
         _pending = true;
         return true;

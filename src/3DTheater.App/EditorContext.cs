@@ -188,6 +188,7 @@ public sealed class EditorContext
             TrackingDriver = new Live.TrackingDriver(this, Tracking, LiveTracking, LivePhone); // 待機モーションの後に当てはめる
             VirtualCamera = new Live.VirtualCameraService(this);
             Hotkeys = new Live.HotkeyService(this); // トラッキングの後に当てはめる（表情を優先する）
+            Performance = new Live.PerformanceMonitor(this);
         }
     }
 
@@ -213,6 +214,9 @@ public sealed class EditorContext
 
     /// <summary>ライブモードのキー操作（エディットでは null）。</summary>
     public Live.HotkeyService? Hotkeys { get; }
+
+    /// <summary>ライブモードの速さと重さのログ（1 分ごと。エディットでは null）。</summary>
+    public Live.PerformanceMonitor? Performance { get; }
 
     /// <summary>キー操作の一覧（ライブのファイルに保存する）。</summary>
     public HotkeySettings LiveHotkeys { get; } = new();

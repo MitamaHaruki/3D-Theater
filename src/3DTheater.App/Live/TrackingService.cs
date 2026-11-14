@@ -4,6 +4,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Numerics;
 using Theater3D.App.Logging;
+using Theater3D.Editor;
 using Theater3D.Media;
 using Theater3D.Tracking;
 
@@ -14,6 +15,7 @@ namespace Theater3D.App.Live;
 /// スマホの顔のアプリ（VTube Studio・MeowFace・iFacialMocap）から受け取ることもできる（<see cref="StartPhone"/>。絵は無い）。
 /// 結果は最新の 1 つだけを持つ（画面は時々読みに来る。<see cref="Latest"/>・<see cref="ReadFrame"/>）。
 /// 動画のファイルは、映像の時刻に合わせて実際の速さで読む（終わりで先頭に戻る）。
+/// 速さ（処理の時間・回数・顔を見つけた割合）を <see cref="Statistics"/> に数え、止めたときにまとめをログに書く。
 /// </summary>
 public sealed class TrackingService : IDisposable
 {
@@ -34,6 +36,9 @@ public sealed class TrackingService : IDisposable
 
     /// <summary>読んでいる映像の名前（カメラの名前・ファイルの名前）。</summary>
     public string? SourceName { get; private set; }
+
+    /// <summary>速さを数える（ライブモードの速さのログが 1 分ごとに読む）。</summary>
+    public TrackingStats Statistics { get; } = new();
 
     /// <summary>最後に止まったときのエラー（無ければ null）。</summary>
     public string? Error { get; private set; }
@@ -140,6 +145,7 @@ public sealed class TrackingService : IDisposable
             using var tracker = new FaceTracker();
             AppLog.Info($"映像を開きました（{capture.Width} × {capture.Height}・{capture.FrameRate:F1} 回/秒{(capture.IsFile ? "・動画のファイル" : string.Empty)}）");
             var buffers = new[] { new byte[capture.FrameBytes], new byte[capture.FrameBytes] };
+            Statistics.Begin(phone: false);
             int current = 0;
             long? firstTime = null;
             long wallStart = 0;
@@ -148,10 +154,12 @@ public sealed class TrackingService : IDisposable
             while (!_stop)
             {
                 byte[] frame = buffers[current];
+                long readStart = Stopwatch.GetTimestamp();
                 if (!capture.Read(frame, out long timestamp))
                 {
                     break;
                 }
+                double waitMilliseconds = Stopwatch.GetElapsedTime(readStart).TotalMilliseconds; // 映像が届くのを待った時間
                 if (capture.IsFile)
                 {
                     // 動画のファイルは、映像の時刻に合わせて待つ（先頭に戻ったら測り直す）
@@ -168,6 +176,7 @@ public sealed class TrackingService : IDisposable
                     }
                 }
                 FaceTrackingResult result = tracker.Process(new BgraImage(frame, capture.Width, capture.Height));
+                Statistics.AddCameraFrame(result.Milliseconds, waitMilliseconds, result.Found, result.Detected);
                 if (result.Found)
                 {
                     DrawDots(frame, capture.Width, capture.Height, result.Landmarks);
@@ -195,6 +204,7 @@ public sealed class TrackingService : IDisposable
             {
                 _capture = null;
             }
+            LogSummary();
             if (!_stop)
             {
                 StateChanged?.Invoke(this, EventArgs.Empty);
@@ -212,6 +222,7 @@ public sealed class TrackingService : IDisposable
             using var receiver = new PhoneReceiver(ports, IPAddress.Any, phone is null ? null : new IPEndPoint(phone, PhoneMessages.VTubeStudioPort));
             receiver.FrameReceived += (frame, from) =>
             {
+                Statistics.AddPhoneFrame(frame.FaceFound);
                 lock (_lock)
                 {
                     double fps = rate.Tick();
@@ -220,6 +231,7 @@ public sealed class TrackingService : IDisposable
                 }
             };
             receiver.Start(); // 初めてのときは、Windows のファイアウォールの確認が出ることがある
+            Statistics.Begin(phone: true);
             AppLog.Info($"スマホから受け取ります（ポート {string.Join("・", ports)}{(phone is null ? string.Empty : $"・{phone}:{PhoneMessages.VTubeStudioPort} に頼む")}）");
             while (!_stop)
             {
@@ -237,10 +249,20 @@ public sealed class TrackingService : IDisposable
         }
         finally
         {
+            LogSummary();
             if (!_stop)
             {
                 StateChanged?.Invoke(this, EventArgs.Empty);
             }
+        }
+    }
+
+    // 止めたときに、この 1 回分の速さのまとめを書く（始められなかったときは書かない）
+    private void LogSummary()
+    {
+        if (Statistics.Finish() is { } run)
+        {
+            AppLog.Info($"[まとめ] 顔のトラッキング: {PerformanceText.Tracking(run)}");
         }
     }
 

@@ -181,6 +181,7 @@ public partial class MainWindow : Window
         _context.Playback.Pause();
         _context.RenderLoop.Stop();
         _output?.Close(); // 置き場所を覚えるため、設定を書く前に閉じる（描画先もエンジンより先に片付く）
+        _context.Performance?.Dispose(); // 速さのまとめを書く（トラッキングを止める前に）
         _context.Tracking?.Dispose(); // カメラを放す
         _context.VirtualCamera?.Dispose(); // 仮想カメラをしまう（描画先もエンジンより先に片付く）
         _context.Hotkeys?.Dispose(); // キー操作を Windows から外す

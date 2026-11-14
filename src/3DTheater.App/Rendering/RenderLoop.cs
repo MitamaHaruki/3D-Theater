@@ -77,6 +77,7 @@ public sealed class RenderLoop(NativeEngine? engine, PlaybackService playback)
     private readonly FrameTimer _waitTimer = new();
     private readonly FrameTimer _presentTimer = new();
     private readonly FrameTimer _gpuTimer = new();
+    private double? _lastGpuMilliseconds;
 
     public event EventHandler<RenderFailedEventArgs>? RenderFailed;
 
@@ -96,6 +97,9 @@ public sealed class RenderLoop(NativeEngine? engine, PlaybackService playback)
 
     /// <summary>描き直す区画が無く再生もしていなくても、描画ループを止めない条件（物理が落ち着くまでなど）。</summary>
     public Func<bool>? KeepRunning { get; set; }
+
+    /// <summary>描いた回数・時間・つかえを数える（ライブモードの速さのログが 1 分ごとに読む）。</summary>
+    public RenderStats Statistics { get; } = new();
 
     /// <summary>直近 1 秒ほどで実際に描いた回数。止まっているときは 0。</summary>
     public double FramesPerSecond { get; private set; }
@@ -179,6 +183,8 @@ public sealed class RenderLoop(NativeEngine? engine, PlaybackService playback)
         long now = Stopwatch.GetTimestamp();
         TimeSpan step = Stopwatch.GetElapsedTime(_lastTimestamp, now);
         _lastTimestamp = now;
+        Statistics.AddTick(step.TotalMilliseconds);
+        _lastGpuMilliseconds = null;
         playback.Advance(step > MaxStep ? MaxStep : step); // 再生位置が進むと、各区画は Invalidate される
         Ticking?.Invoke(this, step > MaxStep ? MaxStep : step);
 
@@ -187,7 +193,9 @@ public sealed class RenderLoop(NativeEngine? engine, PlaybackService playback)
         LastRenderedTargetCount = rendered;
         if (rendered > 0)
         {
-            _frameTimer.Add(Stopwatch.GetElapsedTime(now));
+            TimeSpan frame = Stopwatch.GetElapsedTime(now);
+            _frameTimer.Add(frame);
+            Statistics.AddFrame(frame.TotalMilliseconds, _lastGpuMilliseconds);
             _framesInSample++;
         }
         UpdateFrameRate(now);
@@ -385,6 +393,7 @@ public sealed class RenderLoop(NativeEngine? engine, PlaybackService playback)
         if (any)
         {
             _gpuTimer.Add(TimeSpan.FromMilliseconds(sum));
+            _lastGpuMilliseconds = sum;
         }
     }
 

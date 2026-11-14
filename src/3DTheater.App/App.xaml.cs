@@ -22,6 +22,7 @@ public partial class App : Application
 
         AppLog.Initialize();
         AppLog.Info($"3D Theater {VersionText} を起動します（.NET {Environment.Version} / {RuntimeInformation.OSDescription}）");
+        AppLog.Info($"CPU: {Logging.SystemInfo.MachineText}・論理 CPU {Environment.ProcessorCount} 個");
         RegisterExceptionHandlers();
         NativeLog.MessageReceived += OnNativeLog;
 
