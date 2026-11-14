@@ -12,6 +12,8 @@ namespace Theater3D.App.Live;
 /// 閉じるときに「[まとめ]」（平均・最大・メモリの増え方・電池の減り方）を書く。
 /// ほかの PC で確かめてもらったとき、「ログを集める」だけで、速さとメモリの様子が分かるようにするため。
 /// UI スレッドで動かす（描画の数え方は UI スレッドのもの）。
+/// 書くのは、ふつうの優先度のタイマー。優先度を低くすると、GPU が追いつかず描画で手がいっぱいのときに後回しになり、
+/// 1 分ごとのはずが 1 分 14 秒ごとなどになった（ノートパソコンで分かった）。1 分に 1 回、プロセスの値を読むだけなので、描画の邪魔はほとんどしない。
 /// </summary>
 public sealed class PerformanceMonitor : IDisposable
 {
@@ -50,7 +52,7 @@ public sealed class PerformanceMonitor : IDisposable
         _lastPower = _firstPower;
         string power = _firstPower is { } p ? $"・電源 {p.Describe()}" : string.Empty;
         AppLog.Info($"[速さ] 速さと重さを {PerformanceText.Duration(Interval)}ごとに書きます（論理 CPU {Environment.ProcessorCount} 個{power}）");
-        _timer = new DispatcherTimer(Interval, DispatcherPriority.Background, (_, _) => Write(), Dispatcher.CurrentDispatcher);
+        _timer = new DispatcherTimer(Interval, DispatcherPriority.Normal, (_, _) => Write(), Dispatcher.CurrentDispatcher);
         _timer.Start();
     }
 

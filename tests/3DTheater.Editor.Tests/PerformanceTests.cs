@@ -132,18 +132,33 @@ public sealed class PerformanceTests
         trend.Add(TimeSpan.FromMinutes(2), 600);
         trend.Add(TimeSpan.FromMinutes(3), 600.2);
         Assert.IsNull(trend.GrowthPerHour, $"{MemoryTrend.MinimumSamples} 個より少なければ求めない");
-        for (int minute = 4; minute <= 10; minute++)
+        for (int minute = 4; minute <= 21; minute++)
         {
             trend.Add(TimeSpan.FromMinutes(minute), 600 + (0.2 * (minute - 2))); // 1 時間で 12 MB 増える
         }
+        Assert.IsNull(trend.GrowthPerHour, $"2 分目から {MemoryTrend.MinimumSpan.TotalMinutes} 分の値がそろうまで求めない");
+        trend.Add(TimeSpan.FromMinutes(22), 604);
+        Assert.AreEqual(TimeSpan.FromMinutes(22), MemoryTrend.TimeNeeded);
         Assert.AreEqual(12, trend.GrowthPerHour!.Value, 1e-6);
         Assert.AreEqual(TimeSpan.FromMinutes(2), trend.GrowthFrom);
         Assert.AreEqual(300, trend.First);
-        Assert.AreEqual(601.6, trend.Peak!.Value, 1e-9);
-        Assert.AreEqual(601.6, trend.Last!.Value, 1e-9);
+        Assert.AreEqual(300, trend.Lowest);
+        Assert.AreEqual(604, trend.Peak!.Value, 1e-9);
+        Assert.AreEqual(604, trend.Last!.Value, 1e-9);
+
+        // ノートパソコンで 5 分動かしたときの値（上下しているだけ）: 1 時間あたりに引き伸ばさない
+        var laptop = new MemoryTrend();
+        double[] minutes = [1100, 1099, 1093, 1093, 1121];
+        for (int i = 0; i < minutes.Length; i++)
+        {
+            laptop.Add(TimeSpan.FromMinutes(i + 1), minutes[i]);
+        }
+        Assert.IsNull(laptop.GrowthPerHour);
+        Assert.AreEqual(1093, laptop.Lowest);
+        Assert.AreEqual(1121, laptop.Peak);
 
         var flat = new MemoryTrend();
-        for (int minute = 0; minute <= 6; minute++)
+        for (int minute = 0; minute <= 25; minute++)
         {
             flat.Add(TimeSpan.FromMinutes(minute), 849);
         }
@@ -214,7 +229,7 @@ public sealed class PerformanceTests
             PerformanceText.Load(load));
 
         var memory = new MemoryTrend();
-        for (int minute = 0; minute <= 10; minute++)
+        for (int minute = 0; minute <= 30; minute++)
         {
             memory.Add(TimeSpan.FromMinutes(minute), minute < 2 ? 500 : 600 + (0.2 * (minute - 2)));
         }
@@ -225,9 +240,18 @@ public sealed class PerformanceTests
         StringAssert.StartsWith(text, "[まとめ] ライブモード 10 分 30 秒: 描画 平均 30.0 回/秒（つかえ 2 回）");
         StringAssert.Contains(text, "トラッキング 計 30 秒（30.0 回/秒・処理 平均 12.3 ms");
         StringAssert.Contains(text, "CPU 平均 22%・最大 35%");
-        StringAssert.Contains(text, "メモリ 始め 500 MB・最大 602 MB・終わり 602 MB・増え方 +12 MB/時（2 分目から）");
+        StringAssert.Contains(text, "メモリ 始め 500 MB・最小 500 MB・最大 606 MB・終わり 606 MB・増え方 +12 MB/時（2 分目から）");
         StringAssert.Contains(text, "GPU のメモリ 最大 0.45 GB");
         StringAssert.Contains(text, "電源 電池 80%・電源モード「バランス」 → 電池 72%・電源モード「バランス」");
+
+        var five = new MemoryTrend();
+        for (int minute = 1; minute <= 5; minute++)
+        {
+            five.Add(TimeSpan.FromMinutes(minute), 1093 + minute);
+        }
+        StringAssert.Contains(
+            PerformanceText.Summary(summary with { Memory = five }),
+            "メモリ 始め 1094 MB・最小 1094 MB・最大 1098 MB・終わり 1098 MB・増え方は、22 分ほど動かすと分かる");
 
         var shortRun = new SessionSummary(TimeSpan.FromSeconds(50), render, null, 10, 10, new MemoryTrend(), null, null, null);
         Assert.AreEqual("[まとめ] ライブモード 50 秒: 描画 平均 30.0 回/秒（つかえ 2 回）／CPU 平均 10%・最大 10%", PerformanceText.Summary(shortRun));

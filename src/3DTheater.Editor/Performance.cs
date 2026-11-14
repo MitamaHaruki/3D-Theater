@@ -340,8 +340,11 @@ public sealed class RenderStats
 }
 
 /// <summary>
-/// メモリの量の移り変わり（1 分ごとの値）。始め・いちばん多いとき・終わりと、増え方（1 時間あたり。最小二乗の直線の傾き）を求める。
+/// メモリの量の移り変わり（1 分ごとの値）。始め・いちばん少ないとき・いちばん多いとき・終わりと、増え方（1 時間あたり。最小二乗の直線の傾き）を求める。
 /// 起動した直後はモデルの読み込みなどで増えるので、増え方は <see cref="WarmUp"/> より後の値で求める。値は持たずに和だけを持つ（長く動かしても増えない）。
+/// メモリは 1 分ごとに数十 MB 上下することがあり（ノートパソコンで ±25 MB ほど）、短い間の値で傾きを求めると、上下を「1 時間あたり」に
+/// 引き伸ばして大きく見せてしまう（5 分で +390 MB/時と出た。±14 MB の上下なら、5 分の傾きは ±370 MB/時ほど、20 分なら ±30 MB/時ほどぶれる）。
+/// そのため、<see cref="WarmUp"/> より後に <see cref="MinimumSpan"/> 以上の値がそろうまで求めない。
 /// </summary>
 public sealed class MemoryTrend
 {
@@ -350,7 +353,14 @@ public sealed class MemoryTrend
     /// <summary>増え方を求めるのに要る、<see cref="WarmUp"/> より後の値の数。</summary>
     public const int MinimumSamples = 3;
 
+    /// <summary>増え方を求めるのに要る、<see cref="WarmUp"/> より後の値の時間の幅。</summary>
+    public static readonly TimeSpan MinimumSpan = TimeSpan.FromMinutes(20);
+
+    /// <summary>増え方が分かるまでに動かす時間（起動してから）。</summary>
+    public static TimeSpan TimeNeeded => WarmUp + MinimumSpan;
+
     private double? _origin;
+    private double _lastX;
     private int _n;
     private double _sumX;
     private double _sumY;
@@ -358,6 +368,8 @@ public sealed class MemoryTrend
     private double _sumXx;
 
     public double? First { get; private set; }
+
+    public double? Lowest { get; private set; }
 
     public double? Peak { get; private set; }
 
@@ -369,6 +381,7 @@ public sealed class MemoryTrend
     public void Add(TimeSpan at, double megabytes)
     {
         First ??= megabytes;
+        Lowest = Math.Min(Lowest ?? megabytes, megabytes);
         Peak = Math.Max(Peak ?? megabytes, megabytes);
         Last = megabytes;
         if (at < WarmUp)
@@ -378,6 +391,7 @@ public sealed class MemoryTrend
         GrowthFrom ??= at;
         _origin ??= at.TotalHours;
         double x = at.TotalHours - _origin.Value; // 小さな数にしてから掛ける（桁落ちを防ぐ）
+        _lastX = x;
         _n++;
         _sumX += x;
         _sumY += megabytes;
@@ -390,7 +404,7 @@ public sealed class MemoryTrend
     {
         get
         {
-            if (_n < MinimumSamples)
+            if (_n < MinimumSamples || _lastX < MinimumSpan.TotalHours - 1e-9)
             {
                 return null;
             }
@@ -634,8 +648,9 @@ public static class PerformanceText
         {
             string growth = memory.GrowthPerHour is double perHour && memory.GrowthFrom is { } from
                 ? string.Format(C, "・増え方 {0:+0;-0;0} MB/時（{1} 分目から）", perHour, (int)from.TotalMinutes)
-                : "・増え方は、4 分ほど動かすと分かる"; // 2 分目からの値が 3 つ要る
-            parts.Add(string.Format(C, "メモリ 始め {0:F0} MB・最大 {1:F0} MB・終わり {2:F0} MB{3}", first, memory.Peak, memory.Last, growth));
+                : $"・増え方は、{Duration(MemoryTrend.TimeNeeded)}ほど動かすと分かる";
+            parts.Add(string.Format(
+                C, "メモリ 始め {0:F0} MB・最小 {1:F0} MB・最大 {2:F0} MB・終わり {3:F0} MB{4}", first, memory.Lowest, memory.Peak, memory.Last, growth));
         }
         if (s.GpuPeakGigabytes is double gpu)
         {

@@ -26,7 +26,7 @@ if (Test-Path $logDir) {
 $speed = New-Object System.Collections.Generic.List[string]
 foreach ($log in $logs) {
     foreach ($line in (Get-Content $log.FullName -Encoding UTF8)) {
-        if ($line -match '\[(速さ|重さ|まとめ)\]|\] CPU: |カメラ|起動します|終了します|\[(ERROR|WARN )\]') { $speed.Add($line) }
+        if ($line -match '\[(速さ|重さ|まとめ)\]|\] CPU: |カメラ|起動します|終了します|止めるのに|\[(ERROR|WARN )\]') { $speed.Add($line) }
     }
 }
 [System.IO.File]::WriteAllLines((Join-Path $work 'speed.txt'), $speed, (New-Object System.Text.UTF8Encoding $true))

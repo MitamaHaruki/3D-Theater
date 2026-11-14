@@ -20,6 +20,7 @@ namespace Theater3D.App.Live;
 public sealed class TrackingService : IDisposable
 {
     private static readonly uint DotColor = 0xFF40E0FF; // 顔の点の色（BGRA の並びで 水色）
+    private static readonly TimeSpan StopTimeout = TimeSpan.FromSeconds(5);
 
     private readonly object _lock = new();
     private readonly object _captureLock = new();
@@ -28,6 +29,9 @@ public sealed class TrackingService : IDisposable
     private CameraCapture? _capture;
     private TrackingSnapshot _latest = TrackingSnapshot.Empty;
     private byte[]? _frame;
+
+    // 読み込み用のスレッドが今していること（止まらないときに、どこで止まっているかをログに書くため）
+    private volatile string _phase = string.Empty;
 
     /// <summary>始めた・止めた・エラーで止まった（読み込み用のスレッドから知らせることがある）。</summary>
     public event EventHandler? StateChanged;
@@ -125,23 +129,32 @@ public sealed class TrackingService : IDisposable
         {
             _capture?.Cancel(); // 届かないフレームを待っていても、すぐ戻らせる
         }
-        if (!thread.Join(TimeSpan.FromSeconds(5)))
+        long stopping = Stopwatch.GetTimestamp();
+        if (!thread.Join(StopTimeout))
         {
-            AppLog.Warning("顔のトラッキングのスレッドが止まりません");
+            AppLog.Warning($"顔のトラッキングのスレッドが {StopTimeout.TotalSeconds:F0} 秒で止まりません（{_phase}）");
         }
+        else if (Stopwatch.GetElapsedTime(stopping) is { TotalSeconds: > 1 } took)
+        {
+            AppLog.Info($"顔のトラッキングを止めるのに {took.TotalSeconds:F1} 秒かかりました");
+        }
+        LogSummary(); // スレッドが止まりきらなくても、まとめは書く（スレッドが先に書いていれば、何もしない）
         _thread = null;
         StateChanged?.Invoke(this, EventArgs.Empty);
     }
 
     private void Run(Func<CameraCapture> open)
     {
+        CameraCapture? capture = null;
         try
         {
-            using CameraCapture capture = open();
+            _phase = "カメラを開いている";
+            capture = open();
             lock (_captureLock)
             {
                 _capture = capture;
             }
+            _phase = "顔のモデルを読んでいる";
             using var tracker = new FaceTracker();
             AppLog.Info($"映像を開きました（{capture.Width} × {capture.Height}・{capture.FrameRate:F1} 回/秒{(capture.IsFile ? "・動画のファイル" : string.Empty)}）");
             var buffers = new[] { new byte[capture.FrameBytes], new byte[capture.FrameBytes] };
@@ -154,6 +167,7 @@ public sealed class TrackingService : IDisposable
             while (!_stop)
             {
                 byte[] frame = buffers[current];
+                _phase = "映像が届くのを待っている";
                 long readStart = Stopwatch.GetTimestamp();
                 if (!capture.Read(frame, out long timestamp))
                 {
@@ -175,6 +189,7 @@ public sealed class TrackingService : IDisposable
                         Thread.Sleep(due);
                     }
                 }
+                _phase = "顔を読んでいる";
                 FaceTrackingResult result = tracker.Process(new BgraImage(frame, capture.Width, capture.Height));
                 Statistics.AddCameraFrame(result.Milliseconds, waitMilliseconds, result.Found, result.Detected);
                 if (result.Found)
@@ -200,11 +215,14 @@ public sealed class TrackingService : IDisposable
         }
         finally
         {
+            // まとめは、カメラを閉じるより先に書く（閉じるのに時間がかかると、アプリが先に終わって、まとめが抜けるため。ノートパソコンで起きた）
+            LogSummary();
             lock (_captureLock)
             {
                 _capture = null;
             }
-            LogSummary();
+            CloseCapture(capture);
+            _phase = string.Empty;
             if (!_stop)
             {
                 StateChanged?.Invoke(this, EventArgs.Empty);
@@ -257,7 +275,23 @@ public sealed class TrackingService : IDisposable
         }
     }
 
-    // 止めたときに、この 1 回分の速さのまとめを書く（始められなかったときは書かない）
+    private void CloseCapture(CameraCapture? capture)
+    {
+        if (capture is null)
+        {
+            return;
+        }
+        _phase = "カメラを閉じている";
+        long closing = Stopwatch.GetTimestamp();
+        capture.Dispose();
+        TimeSpan took = Stopwatch.GetElapsedTime(closing);
+        if (took > TimeSpan.FromSeconds(1))
+        {
+            AppLog.Info($"カメラを閉じるのに {took.TotalSeconds:F1} 秒かかりました");
+        }
+    }
+
+    // 止めたときに、この 1 回分の速さのまとめを書く（始められなかったときは書かない。2 回目からは何もしない）
     private void LogSummary()
     {
         if (Statistics.Finish() is { } run)
