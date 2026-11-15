@@ -2074,8 +2074,10 @@ public partial class MainWindow : Window, Live.ILiveSceneActions, Live.ILiveScen
             await _project.OpenAsync(projectFile); // プロジェクトは 1 つだけ開く
             return;
         }
-        await ImportModelsAsync(files.Where(ModelImporter.IsModelFile));
-        foreach (string path in files.Where(MotionImporter.IsMotionFile))
+        // モーションだけの FBX（形が無く、動くテイクがある）は、モデルでなくモーションとして読む（設計判断記録 85 章）
+        var fbxMotions = new HashSet<string>(files.Where(MotionImporter.IsFbxMotion), StringComparer.OrdinalIgnoreCase);
+        await ImportModelsAsync(files.Where(f => ModelImporter.IsModelFile(f) && !fbxMotions.Contains(f)));
+        foreach (string path in files.Where(f => MotionImporter.IsMotionFile(f) || fbxMotions.Contains(f)))
         {
             SetStatus($"読み込み中: {System.IO.Path.GetFileName(path)}", isError: false);
             _busy = true;

@@ -5,22 +5,31 @@ using Theater3D.App.Logging;
 using Theater3D.Domain;
 using Theater3D.Editor;
 using Theater3D.Formats;
+using Theater3D.Formats.Fbx;
 using Theater3D.Formats.Vmd;
 
 namespace Theater3D.App.Import;
 
 /// <summary>
-/// モーション（VMD）とポーズ（VPD）を読み込み、今操作しているモデルに当てはめる。
+/// モーション（VMD・FBX）とポーズ（VPD）を読み込み、今操作しているモデルに当てはめる。FBX のモーションは、当てはめるモデルの骨組みに合わせて
+/// VMD の中身にしてから当てはめる（設計判断記録 85 章）。
 /// モーションはキーとして足し（同じフレームのキーは置き換える）、ポーズは今の値として置く（未登録の変更になる）。
 /// 注意があれば読み込みレポートを出す。ファイルの読み込みは画面を止めないよう別のスレッドで行う。
 /// </summary>
 internal static class MotionImporter
 {
-    public const string FileFilter = "モーション・ポーズ (*.vmd;*.vpd)|*.vmd;*.vpd|モーション (*.vmd)|*.vmd|ポーズ (*.vpd)|*.vpd|すべてのファイル (*.*)|*.*";
+    public const string FileFilter =
+        "モーション・ポーズ (*.vmd;*.vpd;*.fbx)|*.vmd;*.vpd;*.fbx|モーション (*.vmd)|*.vmd|ポーズ (*.vpd)|*.vpd|FBX のモーション (*.fbx)|*.fbx|すべてのファイル (*.*)|*.*";
 
     public static bool IsMotionFile(string path) =>
         Path.GetExtension(path).Equals(".vmd", StringComparison.OrdinalIgnoreCase)
         || Path.GetExtension(path).Equals(".vpd", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// モーションだけの FBX か（形が無く、動くテイクがある。Mixamo の「スキンなし」など）。ドラッグしたときに、モデルかモーションかを分ける
+    /// （中身を読むので、ドラッグの途中では呼ばない）。
+    /// </summary>
+    public static bool IsFbxMotion(string path) => FbxReader.IsFbxFile(path) && FbxMotionReader.LooksLikeMotion(path);
 
     /// <summary>当てはめる先: 今操作しているモデル。無ければ、シーンにモデルが 1 体だけならそのモデル。</summary>
     public static ModelNode? TargetModel(EditorContext context)
@@ -36,8 +45,9 @@ internal static class MotionImporter
     public static async Task ImportAsync(EditorContext context, string path, Window owner)
     {
         bool isPoseFile = Path.GetExtension(path).Equals(".vpd", StringComparison.OrdinalIgnoreCase);
+        bool isFbx = FbxReader.IsFbxFile(path);
         VmdLoadResult? preloaded = null;
-        if (!isPoseFile)
+        if (!isPoseFile && !isFbx)
         {
             // カメラ・照明用のモーション（またはカメラ・照明を選んでいるとき）は、モデルではなくシーンのカメラ・照明に当てはめる。
             // 照明のキーは、照明を選んでいればその照明、そうでなければ MMD の照明へ
@@ -99,7 +109,21 @@ internal static class MotionImporter
             return;
         }
 
-        VmdLoadResult motion = preloaded ?? await Task.Run(() => VmdReader.Load(path));
+        VmdLoadResult motion;
+        if (isFbx)
+        {
+            // FBX のモーション: 当てはめるモデルの骨組みに合わせて、VMD の中身にする
+            if (context.GetLoaded(model)?.Document is not { } document)
+            {
+                AppLog.Warning($"モーションを読み込めませんでした（モデル「{model.Name}」の中身がありません）: {path}");
+                return;
+            }
+            motion = await Task.Run(() => FbxMotionReader.Load(path, document));
+        }
+        else
+        {
+            motion = preloaded ?? await Task.Run(() => VmdReader.Load(path));
+        }
         if (!motion.Succeeded)
         {
             Finish(owner, path, motion.Report, "モーション", $"モーションを読み込めませんでした: {path}");

@@ -6,10 +6,11 @@ using System.Text;
 using Theater3D.Formats.Fbx;
 using Theater3D.Formats.Gltf;
 using Theater3D.Formats.Pmx;
+using Theater3D.Formats.Vmd;
 
 namespace Theater3D.Formats.Tests;
 
-/// <summary>FBX を、PMX と同じ中身にする（設計判断記録 83 章）。</summary>
+/// <summary>FBX を、PMX と同じ中身にする（設計判断記録 83 章）。FBX のモーションを、キャラクターに当てはめる（85 章）。</summary>
 [TestClass]
 public sealed class FbxReaderTests
 {
@@ -518,6 +519,162 @@ public sealed class FbxReaderTests
     }
 
     [TestMethod]
+    public void MotionIsRetargetedToTheCharacter()
+    {
+        // 元: T の字の人型（cm・正面が +Z）。1 秒で、左腕を Z の周りに 60 度上げ、頭を Y の周りに 30 度（モデルの左へ）、腰を 10 cm 下げる
+        var (motion, bones) = MotionSkeleton();
+        AddCurves(motion, bones["LeftArm"], "Lcl Rotation", "R", [0, 0, 0], [0, 0, 60]);
+        AddCurves(motion, bones["Head"], "Lcl Rotation", "R", [0, 0, 0], [0, 30, 0]);
+        AddCurves(motion, bones["Hips"], "Lcl Translation", "T", [0, 100, 0], [0, 90, 0]);
+        // キャラクター: 同じ骨組みを読み込んだもの（腕は A の字）
+        var (model, _) = MotionSkeleton();
+        long body = model.Add("Model", "Body", "Mesh");
+        model.Connect(body, 0);
+        model.Connect(Triangle(model, [0, 0, 0, 10, 0, 0, 0, 10, 0]), body);
+        PmxDocument target = Load(FbxTestWriter.Binary(model.Nodes(7400)));
+
+        VmdLoadResult result = FbxMotionReader.Read(FbxTestWriter.Binary(motion.Nodes(7400)), target);
+        Assert.IsTrue(result.Succeeded, string.Join("\n", result.Report.Issues.Select(i => i.Message)));
+        VmdDocument vmd = result.Document!;
+        Assert.AreEqual(30, vmd.LastFrame, "1 秒を 30 fps で");
+        Assert.AreEqual(31, vmd.BoneKeys.Count(k => k.Bone.Text == "左腕"), "毎フレームにキー");
+        // 足の IK を切る
+        CollectionAssert.IsSubsetOf(new[] { "左足ＩＫ", "右足ＩＫ", "左つま先ＩＫ", "右つま先ＩＫ" },
+            vmd.VisibilityKeys.Single().IkStates.Where(s => !s.Enabled).Select(s => s.Bone.Text).ToArray());
+
+        // 0 フレーム目: 元と同じく T の字（キャラクターは A の字なので、腕を水平に戻す）
+        AssertNear(Vector3.UnitX, Direction(target, vmd, 0, "左腕", "左ひじ"), "腕は水平");
+        AssertNear(-Vector3.UnitX, Direction(target, vmd, 0, "右腕", "右ひじ"));
+        // 30 フレーム目: 元と同じ向き（MMD の座標。正面は -Z）
+        AssertNear(new Vector3(0.5f, 0.866f, 0), Direction(target, vmd, 30, "左腕", "左ひじ"), "左腕は 60 度上");
+        AssertNear(new Vector3(0.5f, 0.866f, 0), Direction(target, vmd, 30, "左ひじ", "左手首"), "前腕も一緒に");
+        AssertNear(new Vector3(0.5f, 0, -0.866f), Vector3.Transform(-Vector3.UnitZ, Global(target, vmd, 30, "頭")), "頭はモデルの左へ");
+        AssertNear(new Vector3(0, -1.25f, 0), vmd.BoneKeys.Single(k => k.Bone.Text == "センター" && k.Frame == 30).Translation, "腰の 10 cm はセンターの 1.25");
+        AssertNear(-Vector3.UnitY, Direction(target, vmd, 30, "右足", "右ひざ"), "動かない足はそのまま");
+    }
+
+    [TestMethod]
+    public void MotionNeedsAHumanoidAndAnimation()
+    {
+        var (model, _) = MotionSkeleton();
+        long body = model.Add("Model", "Body", "Mesh");
+        model.Connect(body, 0);
+        model.Connect(Triangle(model, [0, 0, 0, 10, 0, 0, 0, 10, 0]), body);
+        PmxDocument target = Load(FbxTestWriter.Binary(model.Nodes(7400)));
+
+        var (still, _) = MotionSkeleton();
+        VmdLoadResult noAnimation = FbxMotionReader.Read(FbxTestWriter.Binary(still.Nodes(7400)), target);
+        Assert.IsFalse(noAnimation.Succeeded);
+        Assert.IsTrue(noAnimation.Report.Issues.Any(i => i.Message.Contains("アニメーション", StringComparison.Ordinal)));
+
+        var props = new TestScene();
+        long door = props.Add("Model", "Door", "Null");
+        props.Connect(door, 0);
+        AddCurves(props, door, "Lcl Rotation", "R", [0, 0, 0], [0, 90, 0]);
+        VmdLoadResult notHuman = FbxMotionReader.Read(FbxTestWriter.Binary(props.Nodes(7400)), target);
+        Assert.IsFalse(notHuman.Succeeded);
+        Assert.IsTrue(notHuman.Report.Issues.Any(i => i.Message.Contains("人型", StringComparison.Ordinal)));
+    }
+
+    [TestMethod]
+    public void RealFbxMotionIsRetargeted()
+    {
+        // アリシアの骨に Blender で付けた動き（artifacts\motion-samples。リポジトリには入れない）を、Twist（VRM）に当てはめる
+        string? folder = FindSamples("motion-samples", "*.fbx");
+        string? vrmFolder = FindSamples("vrm-samples", "*.vrm");
+        if (folder is null || vrmFolder is null || !File.Exists(Path.Combine(folder, "Alicia_Motion.fbx")))
+        {
+            Assert.Inconclusive("artifacts\\motion-samples に確かめ用のモーションがありません");
+        }
+        PmxDocument target = GltfReader.Load(Path.Combine(vrmFolder!, "VRM1_Constraint_Twist_Sample.vrm")).Document!;
+        VmdLoadResult result = FbxMotionReader.Load(Path.Combine(folder!, "Alicia_Motion.fbx"), target);
+        Assert.IsTrue(result.Succeeded, string.Join("\n", result.Report.Issues.Select(i => i.Message)));
+        VmdDocument vmd = result.Document!;
+        // Blender で付けた向き（上が +Z・正面が -Y）を MMD の座標（上が +Y・正面が -Z）にしたもの
+        AssertNear(new Vector3(0.5f, 0.866f, 0), Direction(target, vmd, 30, "左腕", "左ひじ"), "左腕を 60 度上", 0.06f);
+        AssertNear(new Vector3(0, 0, -1), Direction(target, vmd, 30, "右ひじ", "右手首"), "右の前腕を前へ", 0.06f);
+        AssertNear(new Vector3(0, -0.707f, -0.707f), Direction(target, vmd, 30, "左足", "左ひざ"), "左の太ももを前へ 45 度", 0.06f);
+        AssertNear(new Vector3(0, -0.966f, 0.259f), Direction(target, vmd, 30, "左ひざ", "左足首"), "ひざを 60 度", 0.06f);
+        AssertNear(new Vector3(0.47f, -0.342f, -0.814f), Vector3.Transform(-Vector3.UnitZ, Global(target, vmd, 30, "頭")), "頭を左へ（背骨と一緒に前へ）", 0.06f);
+        AssertNear(new Vector3(0, 0.94f, -0.342f), Vector3.Transform(Vector3.UnitY, Global(target, vmd, 30, "上半身")), "背骨を前へ 20 度", 0.06f);
+        Assert.IsLessThan(-1f, vmd.BoneKeys.Single(k => k.Bone.Text == "センター" && k.Frame == 30).Translation.Y, "腰を下げる");
+        AssertNear(Vector3.UnitX, Direction(target, vmd, 0, "左腕", "左ひじ"), "0 フレーム目は T の字", 0.06f);
+    }
+
+    // モーションの確かめ用の人型（Mixamo と同じ名前・T の字・cm・正面が +Z）
+    private static (TestScene Scene, Dictionary<string, long> Bones) MotionSkeleton()
+    {
+        var scene = new TestScene();
+        var bones = new Dictionary<string, long>();
+        long Bone(string name, string? parent, double x, double y, double z)
+        {
+            long id = scene.Add("Model", name, "LimbNode", Props(P("Lcl Translation", "Lcl Translation", x, y, z)));
+            scene.Connect(id, parent is null ? 0 : bones[parent]);
+            bones[name] = id;
+            return id;
+        }
+        Bone("Hips", null, 0, 100, 0);
+        Bone("Spine", "Hips", 0, 10, 0);
+        Bone("Spine1", "Spine", 0, 15, 0);
+        Bone("Neck", "Spine1", 0, 20, 0);
+        Bone("Head", "Neck", 0, 10, 0);
+        foreach ((string side, double sign) in new[] { ("Left", 1.0), ("Right", -1.0) })
+        {
+            Bone(side + "Shoulder", "Spine1", sign * 3, 18, 0);
+            Bone(side + "Arm", side + "Shoulder", sign * 10, 0, 0);
+            Bone(side + "ForeArm", side + "Arm", sign * 25, 0, 0);
+            Bone(side + "Hand", side + "ForeArm", sign * 22, 0, 0);
+            Bone(side + "UpLeg", "Hips", sign * 10, -5, 0);
+            Bone(side + "Leg", side + "UpLeg", 0, -45, 0);
+            Bone(side + "Foot", side + "Leg", 0, -42, 0);
+            Bone(side + "ToeBase", side + "Foot", 0, -6, 12);
+        }
+        return (scene, bones);
+    }
+
+    // 0 秒の値から 1 秒の値へ、まっすぐ動く曲線（X・Y・Z）を、テイクの 1 つ目のレイヤーに足す
+    private static void AddCurves(TestScene scene, long model, string property, string kind, double[] from, double[] to)
+    {
+        const long Second = 46186158000;
+        long stack = scene.Stack ??= scene.Add("AnimationStack", "Take 001", string.Empty,
+            Props(P("LocalStart", "KTime", 0L), P("LocalStop", "KTime", Second)));
+        long layer = scene.Layer ??= AddLayer(scene, stack);
+        long node = scene.Add("AnimationCurveNode", kind, string.Empty, Props(P("d|X", "Number", from[0]), P("d|Y", "Number", from[1]), P("d|Z", "Number", from[2])));
+        scene.Connect(node, layer);
+        scene.ConnectProperty(node, model, property);
+        string[] axes = ["d|X", "d|Y", "d|Z"];
+        for (int k = 0; k < 3; k++)
+        {
+            long curve = scene.Add("AnimationCurve", string.Empty, string.Empty, new FbxTestNode("Default", from[k]),
+                new FbxTestNode("KeyTime", new[] { 0L, Second }), new FbxTestNode("KeyValueFloat", new[] { (float)from[k], (float)to[k] }));
+            scene.ConnectProperty(curve, node, axes[k]);
+        }
+    }
+
+    private static long AddLayer(TestScene scene, long stack)
+    {
+        long layer = scene.Add("AnimationLayer", "BaseLayer", string.Empty);
+        scene.Connect(layer, stack);
+        return layer;
+    }
+
+    // キーを当てはめた、キャラクターのボーンのワールドでの回転（親から順に掛ける。キーの無いボーンは回さない）
+    private static Quaternion Global(PmxDocument target, VmdDocument vmd, int frame, string bone)
+    {
+        var local = vmd.BoneKeys.Where(k => k.Frame == frame).ToDictionary(k => k.Bone.Text, k => k.Rotation);
+        Quaternion Of(int index) => index < 0 ? Quaternion.Identity
+            : Of(target.Bones[index].ParentIndex) * (local.TryGetValue(target.Bones[index].Name, out Quaternion q) ? q : Quaternion.Identity);
+        return Of(Array.FindIndex(target.Bones, b => b.Name == bone));
+    }
+
+    private static Vector3 Direction(PmxDocument target, VmdDocument vmd, int frame, string from, string to)
+    {
+        PmxBone a = target.Bones.Single(b => b.Name == from);
+        PmxBone b = target.Bones.Single(b => b.Name == to);
+        return Vector3.Normalize(Vector3.Transform(b.Position - a.Position, Global(target, vmd, frame, from)));
+    }
+
+    [TestMethod]
     public void RealFbxSamplesLoad()
     {
         // VRM の公式サンプルを Blender で FBX にしたもの（artifacts\fbx-samples に置いたとき。リポジトリには入れない）
@@ -725,8 +882,8 @@ public sealed class FbxReaderTests
         Assert.IsGreaterThanOrEqualTo(e.VertexOffsets.Count * 0.98, (double)same, $"{model}: 「{morph}」の同じ頂点の動き {same}/{e.VertexOffsets.Count}");
     }
 
-    private static void AssertNear(Vector3 expected, Vector3 actual, string? message = null) =>
-        Assert.IsLessThan(1e-3f, Vector3.Distance(expected, actual), $"期待 {expected}・実際 {actual} {message}");
+    private static void AssertNear(Vector3 expected, Vector3 actual, string? message = null, float tolerance = 1e-3f) =>
+        Assert.IsLessThan(tolerance, Vector3.Distance(expected, actual), $"期待 {expected}・実際 {actual} {message}");
 
     private static string? FindSamples(string folder, string pattern)
     {
@@ -762,6 +919,11 @@ public sealed class FbxReaderTests
         public void Connect(long child, long parent) => _connections.Add(new FbxTestNode("C", "OO", child, parent));
 
         public void ConnectProperty(long child, long parent, string property) => _connections.Add(new FbxTestNode("C", "OP", child, parent, property));
+
+        /// <summary>モーションのテイクとレイヤー（<see cref="AddCurves"/> で作る）。</summary>
+        public long? Stack { get; set; }
+
+        public long? Layer { get; set; }
 
         public List<FbxTestNode> Nodes(int version) =>
         [
@@ -879,6 +1041,12 @@ internal static class FbxTestWriter
                 break;
             case double[] doubles:
                 Array(w, 'd', MemoryMarshal.AsBytes(doubles.AsSpan()), doubles.Length, compress);
+                break;
+            case float[] floats:
+                Array(w, 'f', MemoryMarshal.AsBytes(floats.AsSpan()), floats.Length, compress);
+                break;
+            case long[] longs:
+                Array(w, 'l', MemoryMarshal.AsBytes(longs.AsSpan()), longs.Length, compress);
                 break;
             case int[] ints:
                 Array(w, 'i', MemoryMarshal.AsBytes(ints.AsSpan()), ints.Length, compress);

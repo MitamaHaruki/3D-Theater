@@ -61,13 +61,13 @@ internal static class FbxConverter
 
         public (byte[] Glb, IReadOnlyDictionary<string, int>? Humanoid, IReadOnlyList<Gltf.VrmExpression> Expressions) Build()
         {
-            Matrix4x4 axis = AxisConversion(out string axisText);
+            Matrix4x4 axis = FbxTransform.AxisConversion(scene, out string axisText, out _flippedHandedness);
             foreach (FbxObject model in scene.OfKind("Model"))
             {
                 _nodeOf[model.Id] = _models.Count;
                 _models.Add(model);
             }
-            int[] parentOf = [.. _models.Select(ParentNode)];
+            int[] parentOf = FbxTransform.Parents(_models);
             var childrenOf = new List<int>[_models.Count];
             for (int i = 0; i < _models.Count; i++)
             {
@@ -79,7 +79,7 @@ internal static class FbxConverter
             var locals = new Matrix4x4[_models.Count];
             for (int i = 0; i < _models.Count; i++)
             {
-                locals[i] = LocalMatrix(_models[i]);
+                locals[i] = FbxTransform.LocalMatrix(_models[i]);
                 if (parentOf[i] < 0)
                 {
                     locals[i] *= axis;
@@ -89,7 +89,7 @@ internal static class FbxConverter
             // 人型のボーン（2 段目）: ボーンの名前から推し量る。左右が逆なら（後ろを向いていれば）、Y の周りに半回転させて前を向かせる
             string[] names = [.. _models.Select(m => m.Name)];
             _humanoid = FbxHumanoid.Guess(names, parentOf, out _missingBones);
-            if (_humanoid.Count > 0 && FacesBackward(locals, parentOf))
+            if (_humanoid.Count > 0 && FbxTransform.FacesBackward(_humanoid, FbxTransform.Worlds(locals, parentOf)))
             {
                 Matrix4x4 turn = Matrix4x4.CreateRotationY(MathF.PI);
                 for (int i = 0; i < _models.Count; i++)
@@ -152,135 +152,6 @@ internal static class FbxConverter
             _expressions = FbxExpressions.Guess(_meshTargets);
             ReportNotes(axisText);
             return (_out.ToGlb(root), _humanoid.Count > 0 ? _humanoid : null, _expressions);
-        }
-
-        // glTF と同じく正面が +Z なら、モデルの左（左腕・左足）は +X にある。逆なら後ろを向いている
-        private bool FacesBackward(Matrix4x4[] locals, int[] parentOf)
-        {
-            Vector3 World(int node)
-            {
-                Matrix4x4 m = locals[node];
-                for (int p = parentOf[node], guard = 0; p >= 0 && guard++ < locals.Length; p = parentOf[p])
-                {
-                    m *= locals[p];
-                }
-                return m.Translation;
-            }
-            foreach (string part in new[] { "UpperArm", "Shoulder", "Hand", "UpperLeg", "Foot" })
-            {
-                if (_humanoid.TryGetValue("left" + part, out int left) && _humanoid.TryGetValue("right" + part, out int right))
-                {
-                    float difference = World(left).X - World(right).X;
-                    if (MathF.Abs(difference) > 1e-4f)
-                    {
-                        return difference < 0;
-                    }
-                }
-            }
-            return false;
-        }
-
-        // 親のノード（つながっている 1 つ目の Model。輪になっていれば、いちばん上とみなす）
-        private int ParentNode(FbxObject model)
-        {
-            FbxObject? parent = model.Parents.Find(p => p.Kind == "Model");
-            if (parent is null || !_nodeOf.TryGetValue(parent.Id, out int index))
-            {
-                return -1;
-            }
-            var seen = new HashSet<long> { model.Id };
-            for (FbxObject? p = parent; p is not null; p = p.Parents.Find(q => q.Kind == "Model"))
-            {
-                if (!seen.Add(p.Id))
-                {
-                    return -1;
-                }
-            }
-            return index;
-        }
-
-        // ---- 軸と長さ ----
-
-        // ファイルの軸（右・上・正面）を glTF の X・Y・Z に並べ替え、単位（cm）を m にする行列（行ベクトル）
-        private Matrix4x4 AxisConversion(out string text)
-        {
-            FbxObject? s = scene.Settings;
-            int up = (int)(s?.Number("UpAxis", 1) ?? 1);
-            int front = (int)(s?.Number("FrontAxis", 2) ?? 2);
-            int coord = (int)(s?.Number("CoordAxis", 0) ?? 0);
-            float upSign = Sign(s?.Number("UpAxisSign", 1) ?? 1);
-            float frontSign = Sign(s?.Number("FrontAxisSign", 1) ?? 1);
-            float coordSign = Sign(s?.Number("CoordAxisSign", 1) ?? 1);
-            if (up is < 0 or > 2 || front is < 0 or > 2 || coord is < 0 or > 2 || up == front || up == coord || front == coord)
-            {
-                (up, front, coord, upSign, frontSign, coordSign) = (1, 2, 0, 1, 1, 1);
-            }
-            double unit = s?.Number("UnitScaleFactor", 1) ?? 1;
-            if (!(unit > 1e-9 && unit < 1e9))
-            {
-                unit = 1;
-            }
-            var m = new Matrix4x4 { M44 = 1 };
-            m[coord, 0] = coordSign;
-            m[up, 1] = upSign;
-            m[front, 2] = frontSign;
-            if (m.GetDeterminant() < 0)
-            {
-                // 左手系と書かれたファイル: 右の軸を逆にして、右手系にそろえる
-                m[coord, 0] = -coordSign;
-                _flippedHandedness = true;
-            }
-            string[] names = ["X", "Y", "Z"];
-            text = FormattableString.Invariant($"上が {(upSign < 0 ? "-" : "+")}{names[up]}・正面が {(frontSign < 0 ? "-" : "+")}{names[front]}・長さの 1 は {unit:0.###} cm");
-            return m * Matrix4x4.CreateScale((float)(unit / 100.0));
-
-            static float Sign(double v) => v < 0 ? -1f : 1f;
-        }
-
-        // ---- ノードの位置・向き・大きさ（FBX の決まり） ----
-
-        // 列ベクトルで書くと T × Roff × Rp × Rpre × R × Rpost⁻¹ × Rp⁻¹ × Soff × Sp × S × Sp⁻¹。行ベクトルなので逆の順に掛ける
-        private static Matrix4x4 LocalMatrix(FbxObject m)
-        {
-            Vector3 t = m.Vector("Lcl Translation", Vector3.Zero);
-            Vector3 r = m.Vector("Lcl Rotation", Vector3.Zero);
-            Vector3 s = m.Vector("Lcl Scaling", Vector3.One);
-            Vector3 pre = m.Vector("PreRotation", Vector3.Zero);
-            Vector3 post = m.Vector("PostRotation", Vector3.Zero);
-            Vector3 rotationOffset = m.Vector("RotationOffset", Vector3.Zero);
-            Vector3 rotationPivot = m.Vector("RotationPivot", Vector3.Zero);
-            Vector3 scalingOffset = m.Vector("ScalingOffset", Vector3.Zero);
-            Vector3 scalingPivot = m.Vector("ScalingPivot", Vector3.Zero);
-            int order = (int)m.Number("RotationOrder", 0);
-            Matrix4x4.Invert(Euler(post, 0), out Matrix4x4 postInverse);
-            return Matrix4x4.CreateTranslation(-scalingPivot) * Matrix4x4.CreateScale(s) * Matrix4x4.CreateTranslation(scalingPivot)
-                * Matrix4x4.CreateTranslation(scalingOffset) * Matrix4x4.CreateTranslation(-rotationPivot)
-                * postInverse * Euler(r, order) * Euler(pre, 0)
-                * Matrix4x4.CreateTranslation(rotationPivot) * Matrix4x4.CreateTranslation(rotationOffset) * Matrix4x4.CreateTranslation(t);
-        }
-
-        // 形だけに掛かる位置・向き・大きさ（Geometric〜。子のノードには掛からない）
-        private static Matrix4x4 GeometricMatrix(FbxObject m) =>
-            Matrix4x4.CreateScale(m.Vector("GeometricScaling", Vector3.One)) * Euler(m.Vector("GeometricRotation", Vector3.Zero), 0)
-            * Matrix4x4.CreateTranslation(m.Vector("GeometricTranslation", Vector3.Zero));
-
-        /// <summary>
-        /// 回転（度）の行列（行ベクトル）。順の番号は FBX の RotationOrder（0 = XYZ: X を先に回す、1 = XZY、2 = YZX、3 = YXZ、4 = ZXY、5 = ZYX）。
-        /// </summary>
-        internal static Matrix4x4 Euler(Vector3 degrees, int order)
-        {
-            Matrix4x4 x = Matrix4x4.CreateRotationX(degrees.X * MathF.PI / 180f);
-            Matrix4x4 y = Matrix4x4.CreateRotationY(degrees.Y * MathF.PI / 180f);
-            Matrix4x4 z = Matrix4x4.CreateRotationZ(degrees.Z * MathF.PI / 180f);
-            return order switch
-            {
-                1 => x * z * y,
-                2 => y * z * x,
-                3 => y * x * z,
-                4 => z * x * y,
-                5 => z * y * x,
-                _ => x * y * z,
-            };
         }
 
         private static JsonArray MatrixArray(Matrix4x4 m) =>
@@ -373,7 +244,7 @@ internal static class FbxConverter
             }
 
             // 形だけに掛かる変形は、骨で変形しない形にだけ掛ける（骨で変形する形は、Transform に含まれている）
-            Matrix4x4 geometric = GeometricMatrix(model);
+            Matrix4x4 geometric = FbxTransform.GeometricMatrix(model);
             bool applyGeometric = influences is null && !geometric.IsIdentity;
             Matrix4x4 normalMatrix = Matrix4x4.Identity;
             if (applyGeometric && Matrix4x4.Invert(geometric, out Matrix4x4 inverse))
