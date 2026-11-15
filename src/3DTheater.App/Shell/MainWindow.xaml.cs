@@ -7,6 +7,7 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Shell;
 using System.Windows.Threading;
 using AvalonDock.Themes;
 using Theater3D.App.Import;
@@ -42,6 +43,11 @@ public partial class MainWindow : Window
     private readonly AppMode _mode;
     private bool _closeWithoutAsking;
 
+    // ライブモードの画面（設計判断記録 78 章）
+    private Live.LiveShell? _live;
+    private readonly FullScreenSwitcher? _fullScreen;
+    private Live.LiveSettingsWindow? _liveSettings;
+
     /// <param name="mode">エディットモードかライブモードか（ライブでは、キーフレームの編集・書き出しのメニューとパネルを出さない）。</param>
     /// <param name="settings">利用者の設定（起動の処理で読んだもの。無ければここで読む）。</param>
     public MainWindow(EditorContext context, string? engineError, bool safeMode = false, AppMode mode = AppMode.Edit, UserSettings? settings = null)
@@ -57,7 +63,7 @@ public partial class MainWindow : Window
         _settings = settings ?? UserSettingsStore.Load();
         if (mode == AppMode.Live)
         {
-            AppLog.Info($"ライブモードの画面にしました（エディットだけのメニュー・ボタン {hidden} 個を隠しました）");
+            AppLog.Info($"ライブモードの画面にしました（標準のタイトルバー・プレビュー 1 枚。エディットだけの部品 {hidden} 個を隠しました）");
             // カメラ視点の区画の枠は、配信用の画面の大きさに合わせる
             context.LiveOutput.Changed += (_, _) => context.SetExportSize(context.LiveOutput.Width, context.LiveOutput.Height);
             BuildOutputMenus();
@@ -74,7 +80,25 @@ public partial class MainWindow : Window
 
         Icon = AppIcon.CreateBitmap(64);
         TitleIcon.Source = AppIcon.CreateDrawing();
-        TitleBarHelper.Attach(this, MaximizeButton, RootBorder);
+        if (mode == AppMode.Edit)
+        {
+            // メニューをタイトルバーに入れるため、タイトルバーを自前で描く（指示書 2.2）
+            WindowChrome.SetWindowChrome(this, new WindowChrome
+            {
+                CaptionHeight = 34,
+                ResizeBorderThickness = new Thickness(6),
+                GlassFrameThickness = new Thickness(0),
+                CornerRadius = new CornerRadius(0),
+                UseAeroCaptionButtons = false,
+            });
+            TitleBarHelper.Attach(this, MaximizeButton, RootBorder);
+        }
+        else
+        {
+            // ライブは標準のタイトルバー（メニューは出さない）。F11 で仮想フルスクリーン（設計判断記録 78 章）
+            FullScreenSwitcher.UseDarkTitleBar(this);
+            _fullScreen = new FullScreenSwitcher(this);
+        }
         // ウィンドウの置き場所: 前回閉じたときの位置・大きさ・最大化に戻す（前の版の設定は、初めて起動したときに移す）
         WindowMemory.Load(_settings);
         if (WindowMemory.Get(WindowMemory.MainWindowKey) is null && _settings.Window is { } legacy)
@@ -116,7 +140,14 @@ public partial class MainWindow : Window
         };
         _plugins.ShowStatus = ShowNotice;
         _layout.PluginPanelsChanged += (_, _) => BuildPluginPanelItems();
-        _layout.LoadOrDefault(_settings);
+        if (mode == AppMode.Live)
+        {
+            SetUpLiveView();
+        }
+        else
+        {
+            _layout.LoadOrDefault(_settings);
+        }
 
         BuildPanelsMenu();
         BuildPluginPanelItems();
@@ -166,6 +197,7 @@ public partial class MainWindow : Window
 
     protected override void OnClosing(CancelEventArgs e)
     {
+        _fullScreen?.Exit(); // 仮想フルスクリーンの前の置き場所を覚えるため（覚えるのは、閉じる知らせ = base.OnClosing の中）
         base.OnClosing(e);
         if (e.Cancel)
         {
@@ -179,6 +211,7 @@ public partial class MainWindow : Window
         }
 
         _statusTimer.Stop();
+        _liveSettings?.Close(); // 設定画面に置いたパネル（キー操作）を外す
         _context.Playback.Pause();
         _context.RenderLoop.Stop();
         _output?.Close(); // 置き場所を覚えるため、設定を書く前に閉じる（描画先もエンジンより先に片付く）
@@ -193,6 +226,10 @@ public partial class MainWindow : Window
         _plugins.Manager.ShutdownAll(); // レイアウトを保存してから（プラグインのパネルの場所を残すため）。設定より先（止めるときに設定を書くプラグインのため）
         _settings.Gizmo = new GizmoPreferences { Style = _context.Gizmo.Style, Tool = _context.Gizmo.Tool, LocalSpace = _context.Gizmo.LocalSpace };
         _settings.Rendering = new RenderingPreferences { PreviewQuality = _context.PreviewQuality.Quality };
+        if (_live is not null)
+        {
+            _settings.LiveSections = [.. _live.ExpandedSections];
+        }
         UserSettingsStore.Save(_settings);
         AppLog.Info("レイアウトと画面の設定を保存しました");
 
@@ -209,12 +246,18 @@ public partial class MainWindow : Window
     protected override void OnPreviewKeyDown(KeyEventArgs e)
     {
         base.OnPreviewKeyDown(e);
+        Key key = e.Key == Key.System ? e.SystemKey : e.Key;
+        ModifierKeys modifiers = Keyboard.Modifiers;
+        if (!e.Handled && _fullScreen is not null && key == Key.F11 && modifiers == ModifierKeys.None)
+        {
+            _fullScreen.Toggle(); // 字を打っている間も効く
+            e.Handled = true;
+            return;
+        }
         if (e.Handled || IsTyping())
         {
             return;
         }
-        Key key = e.Key == Key.System ? e.SystemKey : e.Key;
-        ModifierKeys modifiers = Keyboard.Modifiers;
         bool inSceneTree = IsFocusWithin<ScenePanel>();
         bool edit = _mode == AppMode.Edit; // 再生・フレームの移動・キーの操作はエディットモードだけ
 
@@ -690,6 +733,7 @@ public partial class MainWindow : Window
 
     private void SetStatus(string text, bool isError)
     {
+        _live?.ShowError(isError ? text : null); // ライブは状態表示を出さず、エラーのときだけ左下に赤い字で出す（設計判断記録 78 章）
         StatusText.Text = text;
         StatusDot.Fill = isError ? Brushes.OrangeRed : new SolidColorBrush(Color.FromRgb(0x3F, 0xB9, 0x50));
     }
@@ -1319,10 +1363,80 @@ public partial class MainWindow : Window
 
     private void UpdateTitle()
     {
-        string app = _mode == AppMode.Live ? "3D Theater ライブ" : "3D Theater";
+        if (_mode == AppMode.Live)
+        {
+            // ライブの題名は「3D Theater」だけ。シーンの名前と保存していない印は、サイドバーの「シーン」に出す（設計判断記録 78 章）
+            Title = _safeMode ? "3D Theater（安全モード）" : "3D Theater";
+            TitleText.Text = Title;
+            _live?.SetSceneName($"今のシーン: {_project.DisplayName}{(_project.IsDirty ? " ＊（保存していない変更があります）" : string.Empty)}");
+            return;
+        }
+        string app = "3D Theater";
         string title = $"{_project.DisplayName}{(_project.IsDirty ? " ＊" : string.Empty)} - {app}{(_safeMode ? "（安全モード）" : string.Empty)}";
         TitleText.Text = title;
         Title = title;
+    }
+
+    /// <summary>
+    /// ライブモードの画面を組み立てる（設計判断記録 78 章）。ドッキングは使わず、プレビュー 1 枚の上にサイドバーと情報パネルを重ねる。
+    /// 作り直すまでの仮として、今のパネル（シーンの一覧・プロパティ・モーフ）はサイドバーの「今のパネル」に、
+    /// トラッキングのパネルは右上の「トラッキング情報」に置く。メニューにあった物は、設定画面から使う。
+    /// </summary>
+    private void SetUpLiveView()
+    {
+        _live = new Live.LiveShell();
+        LiveHost.Content = _live;
+        PreviewPanel preview = _layout.CreateLivePreview(_settings);
+        _live.SetPreview(preview);
+        Activate(preview, preview.FirstView); // テンキーの視点の切り替えなどを、このプレビューで受ける
+        _live.SetTrackingPanel(_layout.PanelContent(DockingLayout.TrackingId));
+        foreach (var (id, title) in new[] { (DockingLayout.SceneId, "シーンの一覧"), (DockingLayout.PropertiesId, "プロパティ"), (DockingLayout.MorphId, "モーフ") })
+        {
+            if (_layout.PanelContent(id) is { } content)
+            {
+                _live.AddPanel(title, content);
+            }
+        }
+        _live.ExpandedSections = _settings.LiveSections;
+        _live.NewRequested += (_, _) => _project.New();
+        _live.OpenRequested += async (_, _) => await _project.OpenWithDialogAsync();
+        _live.SaveRequested += (_, _) => _project.Save();
+        _live.SaveAsRequested += (_, _) => _project.SaveAs();
+        _live.SettingsRequested += (_, _) => OpenLiveSettings();
+    }
+
+    /// <summary>ライブモードの設定画面を開く（開いていれば前に出す）。</summary>
+    private void OpenLiveSettings()
+    {
+        if (_liveSettings is not null)
+        {
+            _liveSettings.Activate();
+            return;
+        }
+        _liveSettings = new Live.LiveSettingsWindow(LiveSettingsPages()) { Owner = this };
+        WindowMemory.Track(_liveSettings);
+        _liveSettings.Closed += (_, _) => _liveSettings = null;
+        _liveSettings.Show();
+    }
+
+    // 設定画面の項目: 作り直すまでの仮として、メニューの中身をそのまま並べる（表示のメニューは、ドッキングとプレビューの分け方なので出さない）。
+    // キー操作のパネルは、ライブのメニューの次に置く
+    private List<Live.LiveSettingsPage> LiveSettingsPages()
+    {
+        var pages = new List<Live.LiveSettingsPage>();
+        foreach (MenuItem menu in MainMenu.Items.OfType<MenuItem>())
+        {
+            if (menu.Visibility != Visibility.Visible || menu == ViewMenu)
+            {
+                continue;
+            }
+            pages.Add(new Live.LiveSettingsPage(MenuText.Clean(menu.Header as string), refresh => Live.MenuMirror.Build(menu, refresh)));
+            if (menu == LiveMenu && _layout.PanelContent(DockingLayout.HotkeysId) is { } hotkeys)
+            {
+                pages.Add(new Live.LiveSettingsPage("キー操作", _ => hotkeys, OwnScroll: true));
+            }
+        }
+        return pages;
     }
 
     // MMD のモデルは確認用の立方体よりずっと大きいので、全プレビューの区画をモデルに合わせる（カメラ視点は動かさない）

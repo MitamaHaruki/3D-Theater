@@ -196,4 +196,108 @@
     <Setter Property="FontSize" Value="11" />
     <Setter Property="TextWrapping" Value="Wrap" />
   </Style>
+
+  <!-- ===== ライブモードの、プレビューに重ねる部品（設計判断記録 78 章） ===== -->
+  <!-- 黒の 60% の半透明 -->
+  <SolidColorBrush x:Key="LiveOverlayBrush" Color="#99000000" />
+  <SolidColorBrush x:Key="LiveHeaderBrush" Color="#26FFFFFF" />
+  <SolidColorBrush x:Key="LiveHeaderHoverBrush" Color="#40FFFFFF" />
+  <SolidColorBrush x:Key="LiveErrorBrush" Color="#FFFF6B5A" />
+
+  <!-- サイドバー・情報パネルの入れ物 -->
+  <Style x:Key="LiveOverlayBoxStyle" TargetType="Border">
+    <Setter Property="Background" Value="{StaticResource LiveOverlayBrush}" />
+    <Setter Property="CornerRadius" Value="6" />
+    <Setter Property="Padding" Value="12" />
+    <Setter Property="TextElement.Foreground" Value="{StaticResource TextBrush}" />
+  </Style>
+
+  <!-- 情報パネルの見出し -->
+  <Style x:Key="LiveBoxTitleStyle" TargetType="TextBlock">
+    <Setter Property="FontSize" Value="14" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Margin" Value="2,0,0,8" />
+  </Style>
+
+  <!-- サイドバーの折り畳みの項目（見出しを押すと開く・閉じる） -->
+  <Style x:Key="LiveSectionStyle" TargetType="Expander">
+    <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+    <Setter Property="Margin" Value="0,0,0,6" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="Expander">
+          <StackPanel>
+            <ToggleButton x:Name="HeaderButton" Content="{TemplateBinding Header}" Cursor="Hand" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                          IsChecked="{Binding IsExpanded, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}"
+                          AutomationProperties.Name="{TemplateBinding Header}">
+              <ToggleButton.Template>
+                <ControlTemplate TargetType="ToggleButton">
+                  <Border x:Name="Back" Background="{StaticResource LiveHeaderBrush}" CornerRadius="4" Padding="12,9">
+                    <DockPanel>
+                      <TextBlock x:Name="Chevron" DockPanel.Dock="Right" VerticalAlignment="Center" FontFamily="{StaticResource IconFont}"
+                                 FontSize="12" Text="&#xE70D;" />
+                      <ContentPresenter VerticalAlignment="Center" TextElement.FontSize="14" TextElement.FontWeight="SemiBold" RecognizesAccessKey="False" />
+                    </DockPanel>
+                  </Border>
+                  <ControlTemplate.Triggers>
+                    <Trigger Property="IsMouseOver" Value="True">
+                      <Setter TargetName="Back" Property="Background" Value="{StaticResource LiveHeaderHoverBrush}" />
+                    </Trigger>
+                    <Trigger Property="IsChecked" Value="True">
+                      <Setter TargetName="Chevron" Property="Text" Value="&#xE70E;" />
+                    </Trigger>
+                    <Trigger Property="IsKeyboardFocused" Value="True">
+                      <Setter TargetName="Back" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                      <Setter TargetName="Back" Property="BorderThickness" Value="1" />
+                    </Trigger>
+                  </ControlTemplate.Triggers>
+                </ControlTemplate>
+              </ToggleButton.Template>
+            </ToggleButton>
+            <ContentPresenter x:Name="Body" Margin="4,10,4,8" Visibility="Collapsed" />
+          </StackPanel>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsExpanded" Value="True">
+              <Setter TargetName="Body" Property="Visibility" Value="Visible" />
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <!-- サイドバーの「設定」（押すと設定画面を開く。折り畳みの見出しと同じ見た目） -->
+  <Style x:Key="LiveSectionButtonStyle" TargetType="Button">
+    <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+    <Setter Property="Cursor" Value="Hand" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="Button">
+          <Border x:Name="Back" Background="{StaticResource LiveHeaderBrush}" CornerRadius="4" Padding="12,9">
+            <DockPanel>
+              <TextBlock DockPanel.Dock="Right" VerticalAlignment="Center" FontFamily="{StaticResource IconFont}" FontSize="12" Text="&#xE8A7;" />
+              <ContentPresenter VerticalAlignment="Center" TextElement.FontSize="14" TextElement.FontWeight="SemiBold" RecognizesAccessKey="False" />
+            </DockPanel>
+          </Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+              <Setter TargetName="Back" Property="Background" Value="{StaticResource LiveHeaderHoverBrush}" />
+            </Trigger>
+            <Trigger Property="IsKeyboardFocused" Value="True">
+              <Setter TargetName="Back" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+              <Setter TargetName="Back" Property="BorderThickness" Value="1" />
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <!-- プレビューの右下の切り替え（グリッド・ボーン） -->
+  <Style x:Key="LiveToggleStyle" TargetType="ToggleButton" BasedOn="{StaticResource IconToggleButtonStyle}">
+    <Setter Property="Width" Value="34" />
+    <Setter Property="Height" Value="30" />
+    <Setter Property="Margin" Value="6,0,0,0" />
+    <Setter Property="Background" Value="{StaticResource LiveOverlayBrush}" />
+  </Style>
 </ResourceDictionary>

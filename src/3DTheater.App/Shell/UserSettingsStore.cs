@@ -32,6 +32,9 @@ public sealed class UserSettings
     /// <summary>ライブモードのプレビューの分け方（レイアウトは <see cref="UserSettingsStore.LayoutFileFor"/> で別のファイル）。</summary>
     public Dictionary<string, PreviewSettings> LivePreviews { get; set; } = [];
 
+    /// <summary>ライブモードのサイドバーで、開いている項目（設計判断記録 78 章。次に起動したときも同じにする）。</summary>
+    public List<string> LiveSections { get; set; } = ["Scene", "Panels"];
+
     /// <summary>前回起動したモード（モードを選ぶ画面で、初めに選んでおく）。</summary>
     public Theater3D.Editor.AppMode? LastMode { get; set; }
 

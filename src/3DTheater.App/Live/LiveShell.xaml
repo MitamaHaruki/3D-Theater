@@ -1,0 +1,97 @@
+<UserControl x:Class="Theater3D.App.Live.LiveShell"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="{StaticResource BackgroundBrush}">
+  <!-- ライブモードの画面（設計判断記録 78 章）: プレビュー 1 枚の上に、サイドバー・情報パネル・切り替え・エラーを重ねる。
+       置き場所の数（50・600・400）は、Windows の拡大率に合わせた大きさ -->
+  <Grid>
+    <ContentControl x:Name="PreviewHost" Focusable="False" />
+
+    <!-- 自由視点のときだけ出す（カメラの動かし方を作るまでの仮。3 段目で作り直す） -->
+    <Border x:Name="ViewHint" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,12,0,0" Padding="12,5" CornerRadius="4"
+            Background="{StaticResource LiveOverlayBrush}" IsHitTestVisible="False" Visibility="Collapsed">
+      <TextBlock x:Name="ViewHintText" Foreground="{StaticResource TextBrush}" AutomationProperties.AutomationId="LiveViewHint" />
+    </Border>
+
+    <!-- サイドバー（左上から 50・50、幅 600、下は 50 空ける） -->
+    <Border x:Name="Sidebar" Style="{StaticResource LiveOverlayBoxStyle}" Width="600" Margin="50,50,0,50" Padding="10"
+            HorizontalAlignment="Left" VerticalAlignment="Stretch" AutomationProperties.Name="サイドバー">
+      <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Focusable="False">
+        <StackPanel>
+          <Expander x:Name="SceneSection" Header="シーン" Style="{StaticResource LiveSectionStyle}" Tag="Scene">
+            <StackPanel>
+              <WrapPanel>
+                <Button Margin="0,0,8,6" MinWidth="96" Content="新規" Click="OnNewClick" ToolTip="新しいシーンにします（保存していない変更があれば尋ねます。Ctrl+N）" />
+                <Button Margin="0,0,8,6" MinWidth="96" Content="開く..." Click="OnOpenClick" ToolTip="ライブのファイル（.3dtlive）を開きます（Ctrl+O）" />
+                <Button Margin="0,0,8,6" MinWidth="96" Content="保存" Click="OnSaveClick" ToolTip="今の状態を保存します（Ctrl+S）" />
+                <Button Margin="0,0,8,6" MinWidth="96" Content="名前を付けて保存..." Click="OnSaveAsClick" ToolTip="Ctrl+Shift+S" />
+              </WrapPanel>
+              <TextBlock x:Name="SceneNameText" Margin="0,4,0,0" Foreground="{StaticResource SubTextBrush}" TextWrapping="Wrap"
+                         AutomationProperties.AutomationId="LiveSceneName" />
+              <TextBlock Margin="0,8,0,0" Style="{StaticResource PlannedNoteStyle}"
+                         Text="（仮）保存したシーンを選んで切り替える形は、4 段目で作ります。今は、ファイルを開く・保存する形です。" />
+            </StackPanel>
+          </Expander>
+          <Expander x:Name="CameraSection" Header="カメラ" Style="{StaticResource LiveSectionStyle}" Tag="Camera">
+            <TextBlock Style="{StaticResource PlannedNoteStyle}"
+                       Text="「ライブカメラ」と、別の視点のカメラを足す・消す・名前を変える所は、3 段目で作ります。" />
+          </Expander>
+          <Expander x:Name="LightSection" Header="照明" Style="{StaticResource LiveSectionStyle}" Tag="Light">
+            <TextBlock Style="{StaticResource PlannedNoteStyle}"
+                       Text="照明を足す・消す・名前を変える・操作する所は、2 段目で作ります（今は、下の「今のパネル」で操作できます）。" />
+          </Expander>
+          <Expander x:Name="CharacterSection" Header="キャラクター" Style="{StaticResource LiveSectionStyle}" Tag="Character">
+            <TextBlock Style="{StaticResource PlannedNoteStyle}"
+                       Text="キャラクターを 1 体読み込む・消す・操作する所は、2 段目で作ります（今は、下の「今のパネル」で操作できます）。" />
+          </Expander>
+          <Expander x:Name="BackgroundSection" Header="背景" Style="{StaticResource LiveSectionStyle}" Tag="Background">
+            <TextBlock Style="{StaticResource PlannedNoteStyle}"
+                       Text="キャラクター以外のモデルを読み込む・消す・操作する所は、2 段目で作ります（今は、下の「今のパネル」で操作できます）。" />
+          </Expander>
+          <Expander x:Name="PanelsSection" Header="今のパネル（作り直すまでの仮）" Style="{StaticResource LiveSectionStyle}" Tag="Panels">
+            <TabControl x:Name="PanelTabs" Height="560" Background="Transparent" />
+          </Expander>
+          <Button x:Name="SettingsButton" Content="設定" Style="{StaticResource LiveSectionButtonStyle}" Click="OnSettingsClick"
+                  AutomationProperties.Name="設定" ToolTip="設定画面を開きます（レンダリング・配信・物理・ツール・プラグイン・ヘルプなど）" />
+        </StackPanel>
+      </ScrollViewer>
+    </Border>
+
+    <!-- 右上: トラッキング情報（右上から 50・50、400 × 400）と、その 50 下にカメラ情報 -->
+    <StackPanel Width="400" Margin="0,50,50,0" HorizontalAlignment="Right" VerticalAlignment="Top">
+      <Border x:Name="TrackingBox" Style="{StaticResource LiveOverlayBoxStyle}" Height="400" AutomationProperties.Name="トラッキング情報">
+        <DockPanel>
+          <TextBlock DockPanel.Dock="Top" Style="{StaticResource LiveBoxTitleStyle}" Text="トラッキング情報" />
+          <ContentControl x:Name="TrackingHost" Focusable="False" />
+        </DockPanel>
+      </Border>
+      <Border x:Name="CameraBox" Style="{StaticResource LiveOverlayBoxStyle}" Height="400" Margin="0,50,0,0" AutomationProperties.Name="カメラ情報">
+        <StackPanel>
+          <TextBlock Style="{StaticResource LiveBoxTitleStyle}" Text="カメラ情報" />
+          <TextBlock Margin="2,0,0,0" Style="{StaticResource PlannedNoteStyle}"
+                     Text="シーンのカメラの情報と、ほかのカメラへの切り替え・「配信用画面に適用」は、3 段目で作ります。" />
+        </StackPanel>
+      </Border>
+    </StackPanel>
+
+    <!-- 右下: グリッド・ボーン -->
+    <StackPanel Margin="0,0,50,10" HorizontalAlignment="Right" VerticalAlignment="Bottom" Orientation="Horizontal">
+      <ToggleButton x:Name="GridButton" Style="{StaticResource LiveToggleStyle}" Checked="OnGridClick" Unchecked="OnGridClick" AutomationProperties.Name="グリッド" ToolTip="グリッドを表示">
+        <Path Width="14" Height="14" Stretch="Fill" StrokeThickness="1.1"
+              Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ToggleButton}}"
+              Data="M0,4 H12 M0,8 H12 M4,0 V12 M8,0 V12" />
+      </ToggleButton>
+      <ToggleButton x:Name="BonesButton" Style="{StaticResource LiveToggleStyle}" Checked="OnBonesClick" Unchecked="OnBonesClick" AutomationProperties.Name="ボーン"
+                    ToolTip="選んだモデルのボーンを表示">
+        <Path Width="14" Height="14" Stretch="Fill" StrokeThickness="1.1"
+              Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ToggleButton}}"
+              Data="M2,11 L6,6 L10,2 M6,6 L11,8 M1,10 H3 V12 M5,5 H7 V7 H5 Z" />
+      </ToggleButton>
+    </StackPanel>
+
+    <!-- 左下: エラーのときだけ、赤い字で出す（サイドバーの下の 50 の空き） -->
+    <TextBlock x:Name="ErrorText" Margin="50,0,0,16" MaxWidth="1100" HorizontalAlignment="Left" VerticalAlignment="Bottom"
+               Foreground="{StaticResource LiveErrorBrush}" FontSize="13" TextTrimming="CharacterEllipsis" Visibility="Collapsed"
+               AutomationProperties.AutomationId="LiveErrorText" />
+  </Grid>
+</UserControl>

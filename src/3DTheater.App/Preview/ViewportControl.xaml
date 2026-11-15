@@ -16,7 +16,7 @@
       <local:AxisIndicator x:Name="Axes" Width="62" Height="62" Margin="4" HorizontalAlignment="Left" VerticalAlignment="Bottom" />
 
       <!-- 3D の上に重ねる見出し（方式 B なので WPF の部品をそのまま重ねられる） -->
-      <DockPanel Margin="6" VerticalAlignment="Top" LastChildFill="False">
+      <DockPanel x:Name="HeaderBar" Margin="6" VerticalAlignment="Top" LastChildFill="False">
         <Button x:Name="ViewMenuButton" DockPanel.Dock="Left" Style="{StaticResource ViewportHeaderButtonStyle}"
                 Click="OnViewMenuClick" ToolTip="視点を切り替える">
           <StackPanel Orientation="Horizontal">

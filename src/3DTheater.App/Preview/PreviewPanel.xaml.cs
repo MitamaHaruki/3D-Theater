@@ -104,6 +104,28 @@ public partial class PreviewPanel : UserControl, IDisposable
         }
     }
 
+    /// <summary>
+    /// ライブモードの見た目にする（設計判断記録 78 章）: 上のツールバー（分け方・グリッド・ボーン）と区画の見出しを隠し、
+    /// 1 画面のカメラ視点だけにする。グリッドとボーンの切り替えは、ライブの画面の右下に置く。
+    /// </summary>
+    public void UseLiveLook()
+    {
+        ToolbarBar.Visibility = Visibility.Collapsed;
+        ViewGrid.Margin = new Thickness(0);
+        _layout = PreviewLayout.Single;
+        _maximizedIndex = -1;
+        _views[0].Camera.SetKind(ViewKind.Camera);
+        foreach (ViewportControl view in _views)
+        {
+            view.UseLiveLook();
+        }
+        Arrange();
+        foreach (ViewportControl view in _views)
+        {
+            view.Margin = new Thickness(0);
+        }
+    }
+
     public PreviewSettings GetSettings() =>
         new(_layout, _quadPreset.Name, [.. _views.Select(v => v.Camera.Kind)], ShowGrid, ShowBones);
 

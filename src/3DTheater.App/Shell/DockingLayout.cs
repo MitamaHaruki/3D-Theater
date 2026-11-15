@@ -30,6 +30,9 @@ public sealed class DockingLayout
     private const string PreviewPrefix = "Preview.";
     private const string PluginPrefix = "Plugin/";
 
+    /// <summary>ライブモードのプレビューの名前（設定の <see cref="UserSettings.LivePreviews"/> に、グリッドとボーンの切り替えを覚える）。</summary>
+    public const string LivePreviewId = "Live.Preview";
+
     private readonly DockingManager _dock;
     private readonly EditorContext _context;
     private readonly AppMode _mode;
@@ -37,6 +40,7 @@ public sealed class DockingLayout
     private readonly List<PreviewPanel> _previews = [];
     private readonly Dictionary<string, PluginPanelSlot> _pluginPanels = [];
     private bool _layoutReady;
+    private bool _docklessLive;
 
     public DockingLayout(DockingManager dock, EditorContext context, AppMode mode = AppMode.Edit)
     {
@@ -254,6 +258,11 @@ public sealed class DockingLayout
     public void Save(UserSettings settings)
     {
         Dictionary<string, PreviewSettings> previews = _previews.ToDictionary(p => p.ContentId, p => p.GetSettings());
+        if (_docklessLive)
+        {
+            settings.LivePreviews = previews; // ライブの画面はドッキングを使わないので、レイアウトのファイルは書かない
+            return;
+        }
         if (_mode == AppMode.Live)
         {
             settings.LivePreviews = previews;
@@ -272,6 +281,22 @@ public sealed class DockingLayout
             AppLog.Warning("レイアウトを保存できませんでした", ex);
         }
     }
+
+    /// <summary>
+    /// ライブモードの画面（設計判断記録 78 章）: ドッキングを使わず、プレビューを 1 枚だけ作る（置くのはライブの画面）。
+    /// グリッドとボーンの切り替えは前回のものに戻し、視点はいつもカメラから始める。レイアウトのファイルは読み書きしない。
+    /// </summary>
+    public PreviewPanel CreateLivePreview(UserSettings settings)
+    {
+        _docklessLive = true;
+        PreviewSettings? saved = settings.LivePreviews.GetValueOrDefault(LivePreviewId);
+        var start = new PreviewSettings(PreviewLayout.Single, PreviewLayouts.DefaultQuadPreset.Name, [ViewKind.Camera],
+            saved?.ShowGrid ?? true, saved?.ShowBones ?? true);
+        return CreatePreview(LivePreviewId, start);
+    }
+
+    /// <summary>標準のパネルの中身（ライブの画面に置くため。このモードに無いパネルなら null）。</summary>
+    public FrameworkElement? PanelContent(string id) => _panels.TryGetValue(id, out var panel) ? panel.Content : null;
 
     public PreviewPanel AddPreview(PreviewSettings? settings = null)
     {

@@ -34,6 +34,7 @@ public partial class ViewportControl : UserControl, IDisposable
     private bool _showBones = true;
     private bool _isActiveView;
     private bool _isMaximized;
+    private bool _liveLook;
 
     public ViewportControl(EditorContext context, ViewKind kind)
     {
@@ -133,8 +134,23 @@ public partial class ViewportControl : UserControl, IDisposable
         set
         {
             _isActiveView = value;
-            Frame.BorderBrush = (System.Windows.Media.Brush)FindResource(value ? "AccentBrush" : "BorderBrush");
+            if (!_liveLook) // ライブは区画が 1 つなので、選んでいる印の枠は要らない
+            {
+                Frame.BorderBrush = (System.Windows.Media.Brush)FindResource(value ? "AccentBrush" : "BorderBrush");
+            }
         }
+    }
+
+    /// <summary>
+    /// ライブモードの見た目にする（設計判断記録 78 章）: 見出し（視点の切り替え・大きく表示）・軸の印・枠の線を出さない。
+    /// ライブの画面は、プレビューの上にサイドバーなどを重ねるので、その下に隠れる物を置かない。
+    /// </summary>
+    public void UseLiveLook()
+    {
+        _liveLook = true;
+        HeaderBar.Visibility = Visibility.Collapsed;
+        Axes.Visibility = Visibility.Collapsed;
+        Frame.BorderThickness = new Thickness(0);
     }
 
     public bool IsMaximized

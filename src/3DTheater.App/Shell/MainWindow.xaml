@@ -11,10 +11,8 @@
         FontFamily="Yu Gothic UI" FontSize="12"
         UseLayoutRounding="True"
         AllowDrop="True" PreviewDragOver="OnPreviewDragOver" PreviewDrop="OnPreviewDrop">
-  <!-- メニューをタイトルバーに入れるため、タイトルバーを自前で描く（指示書 2.2） -->
-  <WindowChrome.WindowChrome>
-    <WindowChrome CaptionHeight="34" ResizeBorderThickness="6" GlassFrameThickness="0" CornerRadius="0" UseAeroCaptionButtons="False" />
-  </WindowChrome.WindowChrome>
+  <!-- エディットモードは、メニューをタイトルバーに入れるため、タイトルバーを自前で描く（指示書 2.2。WindowChrome はコードで付ける）。
+       ライブモードは、標準のタイトルバーで、メニューは出さない（設計判断記録 78 章） -->
 
   <Window.Resources>
     <Style x:Key="PlannedItemStyle" TargetType="MenuItem" BasedOn="{StaticResource {x:Type MenuItem}}">
@@ -27,7 +25,7 @@
   <Border x:Name="RootBorder">
     <DockPanel>
       <!-- タイトルバー: アプリのアイコン・メニュー・（空き = ドラッグで移動）・最小化/最大化/閉じる -->
-      <Grid DockPanel.Dock="Top" Height="34" Background="{StaticResource TitleBarBrush}">
+      <Grid DockPanel.Dock="Top" Height="34" Background="{StaticResource TitleBarBrush}" shell:ModeOnly.Edit="True">
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="Auto" />
           <ColumnDefinition Width="Auto" />
@@ -213,7 +211,8 @@
       </Grid>
 
       <!-- ツールバー（タイトルバーのすぐ下の独立した 1 段） -->
-      <Border DockPanel.Dock="Top" Height="38" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,1">
+      <Border DockPanel.Dock="Top" Height="38" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,1"
+              shell:ModeOnly.Edit="True">
         <DockPanel Margin="6,0" LastChildFill="False">
           <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
             <Button Style="{StaticResource IconButtonStyle}" Content="&#xE8A5;" ToolTip="新規プロジェクト（Ctrl+N）" Click="OnNewProjectClick" />
@@ -274,7 +273,8 @@
       </Border>
 
       <!-- 状態表示 -->
-      <Border DockPanel.Dock="Bottom" Height="26" Background="{StaticResource TitleBarBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0" Padding="10,0">
+      <Border DockPanel.Dock="Bottom" Height="26" Background="{StaticResource TitleBarBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0" Padding="10,0"
+              shell:ModeOnly.Edit="True">
         <DockPanel LastChildFill="True">
           <TextBlock x:Name="VideoMemoryText" DockPanel.Dock="Right" Margin="18,0,0,0" VerticalAlignment="Center" Foreground="{StaticResource SubTextBrush}" />
           <TextBlock x:Name="FrameRateText" DockPanel.Dock="Right" Margin="18,0,0,0" VerticalAlignment="Center" Foreground="{StaticResource SubTextBrush}" />
@@ -291,7 +291,11 @@
         </DockPanel>
       </Border>
 
-      <ad:DockingManager x:Name="Dock" AllowMixedOrientation="True" />
+      <Grid>
+        <ad:DockingManager x:Name="Dock" AllowMixedOrientation="True" shell:ModeOnly.Edit="True" />
+        <!-- ライブモードの画面（Live.LiveShell をコードで置く） -->
+        <ContentControl x:Name="LiveHost" Focusable="False" shell:ModeOnly.Live="True" />
+      </Grid>
     </DockPanel>
   </Border>
 </Window>

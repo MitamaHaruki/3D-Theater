@@ -1,0 +1,163 @@
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Media;
+using Theater3D.App.Preview;
+using Theater3D.Editor;
+
+namespace Theater3D.App.Live;
+
+/// <summary>
+/// ライブモードの画面（設計判断記録 78 章）。プレビュー 1 枚の上に、サイドバー・トラッキング情報・カメラ情報・
+/// 右下の切り替え（グリッド・ボーン）・左下のエラーを重ねる。ドッキングは使わない。
+/// 中身の操作（開く・保存・設定画面）は、メインの窓に知らせて、メインの窓が行う。
+/// </summary>
+public partial class LiveShell : UserControl
+{
+    private PreviewPanel? _preview;
+
+    public LiveShell()
+    {
+        InitializeComponent();
+    }
+
+    /// <summary>「新規」が押された。</summary>
+    public event EventHandler? NewRequested;
+
+    /// <summary>「開く...」が押された。</summary>
+    public event EventHandler? OpenRequested;
+
+    /// <summary>「保存」が押された。</summary>
+    public event EventHandler? SaveRequested;
+
+    /// <summary>「名前を付けて保存...」が押された。</summary>
+    public event EventHandler? SaveAsRequested;
+
+    /// <summary>「設定」が押された（設定画面を開く）。</summary>
+    public event EventHandler? SettingsRequested;
+
+    /// <summary>サイドバーの折り畳みの項目（上から順）。</summary>
+    public IReadOnlyList<Expander> Sections => [SceneSection, CameraSection, LightSection, CharacterSection, BackgroundSection, PanelsSection];
+
+    /// <summary>開いている項目の名前（<see cref="FrameworkElement.Tag"/>。次に起動したときに同じにするため、設定に覚える）。</summary>
+    public IReadOnlyList<string> ExpandedSections
+    {
+        get => [.. Sections.Where(s => s.IsExpanded).Select(s => (string)s.Tag)];
+        set
+        {
+            foreach (Expander section in Sections)
+            {
+                section.IsExpanded = value.Contains((string)section.Tag);
+            }
+        }
+    }
+
+    /// <summary>プレビューを置く（ツールバーと区画の見出しを隠し、カメラ視点だけを映す形にする）。</summary>
+    public void SetPreview(PreviewPanel preview)
+    {
+        _preview = preview;
+        preview.UseLiveLook();
+        PreviewHost.Content = preview;
+        preview.FirstView.Camera.Changed += (_, _) => UpdateViewHint();
+        UpdateToggles();
+        UpdateViewHint();
+    }
+
+    /// <summary>トラッキングのパネルを、右上の「トラッキング情報」に置く（無ければ、その枠を出さない）。</summary>
+    public void SetTrackingPanel(FrameworkElement? panel)
+    {
+        if (panel is null)
+        {
+            TrackingBox.Visibility = Visibility.Collapsed;
+            return;
+        }
+        if (panel is Control control)
+        {
+            control.Background = Brushes.Transparent; // 半透明の黒が透けるように
+        }
+        TrackingHost.Content = panel;
+    }
+
+    /// <summary>作り直すまでの仮: 今のパネル（シーンの一覧・プロパティ・モーフ）を、サイドバーの「今のパネル」にタブで置く。</summary>
+    public void AddPanel(string title, FrameworkElement content)
+    {
+        if (content is Control control)
+        {
+            control.Background = Brushes.Transparent;
+        }
+        PanelTabs.Items.Add(new TabItem { Header = title, Content = content });
+        if (PanelTabs.Items.Count == 1)
+        {
+            PanelTabs.SelectedIndex = 0;
+        }
+    }
+
+    /// <summary>シーンの名前（題名には出さないので、サイドバーに出す。保存していなければ ＊ を付ける）。</summary>
+    public void SetSceneName(string text) => SceneNameText.Text = text;
+
+    /// <summary>左下に赤い字でエラーを出す（null か空なら消す）。</summary>
+    public void ShowError(string? text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            ErrorText.Visibility = Visibility.Collapsed;
+            ErrorText.Text = string.Empty;
+            ErrorText.ToolTip = null;
+            return;
+        }
+        ErrorText.Text = text;
+        ErrorText.ToolTip = text; // 長くて切れたときは、マウスを乗せると全部見える
+        ErrorText.Visibility = Visibility.Visible;
+    }
+
+    /// <summary>今出しているエラー（無ければ空）。</summary>
+    public string ErrorMessage => ErrorText.Text;
+
+    private void UpdateToggles()
+    {
+        if (_preview is null)
+        {
+            return;
+        }
+        GridButton.IsChecked = _preview.ShowGrid;
+        BonesButton.IsChecked = _preview.ShowBones;
+    }
+
+    // カメラの動かし方を作るまでの仮: マウスで回すと自由視点に移るので、戻し方を出しておく
+    private void UpdateViewHint()
+    {
+        if (_preview is null)
+        {
+            return;
+        }
+        ViewKind kind = _preview.FirstView.Camera.Kind;
+        bool free = kind != ViewKind.Camera;
+        ViewHint.Visibility = free ? Visibility.Visible : Visibility.Collapsed;
+        ViewHintText.Text = free ? $"{kind.DisplayName()}（テンキーの 0 で、カメラの視点に戻ります）" : string.Empty;
+    }
+
+    private void OnGridClick(object sender, RoutedEventArgs e)
+    {
+        if (_preview is not null)
+        {
+            _preview.ShowGrid = GridButton.IsChecked == true;
+        }
+    }
+
+    private void OnBonesClick(object sender, RoutedEventArgs e)
+    {
+        if (_preview is not null)
+        {
+            _preview.ShowBones = BonesButton.IsChecked == true;
+        }
+    }
+
+    private void OnNewClick(object sender, RoutedEventArgs e) => NewRequested?.Invoke(this, EventArgs.Empty);
+
+    private void OnOpenClick(object sender, RoutedEventArgs e) => OpenRequested?.Invoke(this, EventArgs.Empty);
+
+    private void OnSaveClick(object sender, RoutedEventArgs e) => SaveRequested?.Invoke(this, EventArgs.Empty);
+
+    private void OnSaveAsClick(object sender, RoutedEventArgs e) => SaveAsRequested?.Invoke(this, EventArgs.Empty);
+
+    private void OnSettingsClick(object sender, RoutedEventArgs e) => SettingsRequested?.Invoke(this, EventArgs.Empty);
+}

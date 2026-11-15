@@ -4,7 +4,7 @@
              Background="{StaticResource BackgroundBrush}">
   <DockPanel>
     <!-- このプレビューの分け方 -->
-    <Border DockPanel.Dock="Top" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1" Padding="4,2">
+    <Border x:Name="ToolbarBar" DockPanel.Dock="Top" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1" Padding="4,2">
       <StackPanel Orientation="Horizontal">
         <ToggleButton x:Name="SingleButton" Style="{StaticResource IconToggleButtonStyle}" Click="OnLayoutClick" Tag="Single" ToolTip="1 画面">
           <Rectangle Width="13" Height="11" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ToggleButton}}" StrokeThickness="1.2" />
