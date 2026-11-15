@@ -47,6 +47,7 @@ public partial class MainWindow : Window, Live.ILiveSceneActions, Live.ILiveScen
     private Live.LiveShell? _live;
     private Live.SceneSection? _sceneSection;
     private Live.CameraInfoPanel? _cameraInfo;
+    private Live.TrackingPanel? _trackingPanel;
     private readonly FullScreenSwitcher? _fullScreen;
     private Live.LiveSettingsWindow? _liveSettings;
 
@@ -231,6 +232,10 @@ public partial class MainWindow : Window, Live.ILiveSceneActions, Live.ILiveScen
         if (_live is not null)
         {
             _settings.LiveSections = [.. _live.ExpandedSections];
+        }
+        if (_trackingPanel is not null)
+        {
+            _settings.LiveTrackingVideo = _trackingPanel.ShowVideo;
         }
         UserSettingsStore.Save(_settings);
         AppLog.Info("レイアウトと画面の設定を保存しました");
@@ -1420,6 +1425,11 @@ public partial class MainWindow : Window, Live.ILiveSceneActions, Live.ILiveScen
         _live.SetPreview(preview);
         Activate(preview, preview.FirstView); // テンキーの視点の切り替えなどを、このプレビューで受ける
         _live.SetTrackingPanel(_layout.PanelContent(DockingLayout.TrackingId));
+        if (_layout.PanelContent(DockingLayout.TrackingId) is Live.TrackingPanel tracking)
+        {
+            _trackingPanel = tracking;
+            tracking.ShowVideo = _settings.LiveTrackingVideo;
+        }
         _live.SetCastSections(new Live.LightSection(_context, this), new Live.CharacterSection(_context, this), new Live.BackgroundSection(_context, this));
         _cameraInfo = new Live.CameraInfoPanel(_context);
         _live.SetCameraParts(new Live.CameraSection(_context), _cameraInfo);

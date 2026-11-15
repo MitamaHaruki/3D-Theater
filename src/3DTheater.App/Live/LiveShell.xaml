@@ -40,7 +40,8 @@
 
     <!-- 右上: トラッキング情報（右上から 50・50、400 × 400）と、その 50 下にカメラ情報 -->
     <StackPanel Width="400" Margin="0,50,50,0" HorizontalAlignment="Right" VerticalAlignment="Top">
-      <Border x:Name="TrackingBox" Style="{StaticResource LiveOverlayBoxStyle}" Height="400" AutomationProperties.Name="トラッキング情報">
+      <!-- 高さは 400 から、中身に合わせて少し伸びてよい（利用者と決めた） -->
+      <Border x:Name="TrackingBox" Style="{StaticResource LiveOverlayBoxStyle}" MinHeight="400" AutomationProperties.Name="トラッキング情報">
         <DockPanel>
           <TextBlock DockPanel.Dock="Top" Style="{StaticResource LiveBoxTitleStyle}" Text="トラッキング情報" />
           <ContentControl x:Name="TrackingHost" Focusable="False" />

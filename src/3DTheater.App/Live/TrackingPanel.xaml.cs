@@ -1,13 +1,10 @@
 using System.Globalization;
-using System.Net;
-using System.Net.NetworkInformation;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Theater3D.App.Logging;
-using Theater3D.Domain;
 using Theater3D.Editor;
 using Theater3D.Media;
 using Theater3D.Tracking;
@@ -15,9 +12,11 @@ using Theater3D.Tracking;
 namespace Theater3D.App.Live;
 
 /// <summary>
-/// ライブモードの「トラッキング情報」。映像（カメラ・確かめ用の動画のファイル・スマホ）を選んで顔のトラッキングを始め、
-/// 映像に顔の点を重ねた絵と、頭の向き・表情の値を出す。正面に合わせ直す。
-/// キャラクターへの当てはめ方は、サイドバーの「キャラクター」（<see cref="TrackingFitPanel"/>）で決める（設計判断記録 78 章の 2 段目）。
+/// ライブモードの右上の「トラッキング情報」（設計判断記録 78 章の 5 段目）。
+/// 映像（カメラ・確かめ用の動画のファイル・スマホ）を選んで顔のトラッキングを始め・止め、正面に合わせ直す。
+/// カメラの映像（顔の点つき）を出すかを選べる。出すときは短い様子を、出さないときは読んだ値（頭の向き・表情など）を出す。
+/// スマホを選ぶと、IP などを入れる窓（<see cref="PhoneConnectWindow"/>）を出し、「接続」で受け取り始める。
+/// キャラクターへの当てはめ方は、サイドバーの「キャラクター」（<see cref="TrackingFitPanel"/>）で決める。
 /// </summary>
 public partial class TrackingPanel : UserControl
 {
@@ -29,21 +28,23 @@ public partial class TrackingPanel : UserControl
         Request, // VTube Studio・MeowFace に頼む（スマホの IP を入れる）
         Push,    // iFacialMocap・FaceMotion3D・MeowFace から送ってもらう（PC の IP をスマホに入れる）
     }
+
     private readonly EditorContext _context;
     private readonly TrackingService _tracking;
     private readonly PhoneTrackingSettings _phone;
     private readonly DispatcherTimer _timer;
     private WriteableBitmap? _bitmap;
     private long _shownSequence = -1;
-    private bool _updating;
+    private bool _refreshingSources;
+    private bool _phoneChosen; // 一覧を開いている間に、スマホを選んだ
 
     internal TrackingPanel(EditorContext context)
     {
         InitializeComponent();
+        VideoCheck.IsChecked = true; // 初めは映像を出す（部品がそろってから入れる）
         _context = context;
         _tracking = context.Tracking!;
         _phone = context.LivePhone;
-        _phone.Changed += (_, _) => ShowPhoneSettings();
         _timer = new DispatcherTimer(TimeSpan.FromMilliseconds(33), DispatcherPriority.Render, (_, _) => Refresh(), Dispatcher);
         _tracking.StateChanged += (_, _) => Dispatcher.BeginInvoke(UpdateState);
         Loaded += (_, _) =>
@@ -52,10 +53,15 @@ public partial class TrackingPanel : UserControl
             {
                 RefreshSources();
             }
-            ShowPhoneSettings();
-            ShowPhonePanel();
             UpdateState();
         };
+    }
+
+    /// <summary>カメラの映像を出すか（利用者の設定に覚える）。</summary>
+    public bool ShowVideo
+    {
+        get => VideoCheck.IsChecked == true;
+        set => VideoCheck.IsChecked = value;
     }
 
     private void OnCalibrateClick(object sender, RoutedEventArgs e) => _context.TrackingDriver?.RequestCalibration();
@@ -65,25 +71,48 @@ public partial class TrackingPanel : UserControl
     private void RefreshSources()
     {
         object? selected = SourceCombo.SelectedItem;
-        SourceCombo.Items.Clear();
+        _refreshingSources = true;
         try
         {
-            foreach (CameraDevice camera in CameraCapture.ListCameras())
+            SourceCombo.Items.Clear();
+            try
             {
-                SourceCombo.Items.Add(new ComboBoxItem { Content = camera.Name, Tag = camera });
+                foreach (CameraDevice camera in CameraCapture.ListCameras())
+                {
+                    SourceCombo.Items.Add(new ComboBoxItem { Content = camera.Name, Tag = camera });
+                }
             }
+            catch (Exception ex) when (ex is VideoException or DllNotFoundException)
+            {
+                AppLog.Warning("カメラの一覧を読めませんでした", ex);
+            }
+            SourceCombo.Items.Add(new ComboBoxItem { Content = FileChoice });
+            SourceCombo.Items.Add(new ComboBoxItem { Content = "スマホ（VTube Studio・MeowFace。スマホの IP を入れる）", Tag = PhoneChoice.Request });
+            SourceCombo.Items.Add(new ComboBoxItem { Content = "スマホ（iFacialMocap・FaceMotion3D・MeowFace。PC の IP をスマホに入れる）", Tag = PhoneChoice.Push });
+            SourceCombo.SelectedIndex = selected is ComboBoxItem { Tag: CameraDevice old }
+                ? Math.Max(0, SourceCombo.Items.Cast<ComboBoxItem>().ToList().FindIndex(i => i.Tag is CameraDevice c && c.Id == old.Id))
+                : 0;
         }
-        catch (Exception ex) when (ex is VideoException or DllNotFoundException)
+        finally
         {
-            AppLog.Warning("カメラの一覧を読めませんでした", ex);
+            _refreshingSources = false;
         }
-        SourceCombo.Items.Add(new ComboBoxItem { Content = FileChoice });
-        SourceCombo.Items.Add(new ComboBoxItem { Content = "スマホ（VTube Studio・MeowFace。スマホの IP を入れる）", Tag = PhoneChoice.Request });
-        SourceCombo.Items.Add(new ComboBoxItem { Content = "スマホ（iFacialMocap・FaceMotion3D・MeowFace。PC の IP をスマホに入れる）", Tag = PhoneChoice.Push });
-        SourceCombo.SelectedIndex = selected is ComboBoxItem { Tag: CameraDevice old }
-            ? Math.Max(0, SourceCombo.Items.Cast<ComboBoxItem>().ToList().FindIndex(i => i.Tag is CameraDevice c && c.Id == old.Id))
-            : 0;
         AppLog.Info($"カメラの一覧: {SourceCombo.Items.Count - 3} 台");
+    }
+
+    // スマホを選んだら、一覧を閉じたときに IP などを入れる窓を出す（利用者と決めた）。キャンセルしたら選んだまま、「開始」でまた出す。
+    // 一覧を閉じたまま矢印のキーで選び直したときは出さない（通りすぎるたびに出ないように。「開始」で出す）
+    private void OnSourceChanged(object sender, SelectionChangedEventArgs e) =>
+        _phoneChosen = !_refreshingSources && SourceCombo.IsDropDownOpen && SourceCombo.SelectedItem is ComboBoxItem { Tag: PhoneChoice };
+
+    private void OnSourceDropDownClosed(object? sender, EventArgs e)
+    {
+        if (_phoneChosen && SourceCombo.SelectedItem is ComboBoxItem { Tag: PhoneChoice choice } && !_tracking.IsRunning)
+        {
+            _phoneChosen = false;
+            Dispatcher.BeginInvoke(() => StartPhone(choice), DispatcherPriority.Background); // 一覧が閉じきってから
+        }
+        _phoneChosen = false;
     }
 
     private void OnStartClick(object sender, RoutedEventArgs e)
@@ -98,14 +127,8 @@ public partial class TrackingPanel : UserControl
         }
         else if (item.Tag is PhoneChoice choice)
         {
-            IPAddress? phone = null;
-            if (choice == PhoneChoice.Request && !IPAddress.TryParse(_phone.Address, out phone))
-            {
-                StatusText.Text = "スマホの IP（スマホのアプリに出ている、例: 192.168.1.20）を入れてください";
-                PhoneAddressBox.Focus();
-                return;
-            }
-            _tracking.StartPhone(phone);
+            StartPhone(choice);
+            return;
         }
         else
         {
@@ -124,85 +147,37 @@ public partial class TrackingPanel : UserControl
         _timer.Start();
     }
 
+    // スマホの窓で IP などを確かめてから、受け取り始める
+    private void StartPhone(PhoneChoice choice)
+    {
+        if (_tracking.IsRunning)
+        {
+            return;
+        }
+        var window = new PhoneConnectWindow(_phone, choice == PhoneChoice.Request) { Owner = Window.GetWindow(this) };
+        if (window.ShowDialog() != true)
+        {
+            return;
+        }
+        _tracking.StartPhone(window.Phone);
+        _shownSequence = -1;
+        _timer.Start();
+    }
+
     private void OnStopClick(object sender, RoutedEventArgs e) => _tracking.Stop();
 
-    // ===== スマホ =====
-    private void OnSourceChanged(object sender, SelectionChangedEventArgs e) => ShowPhonePanel();
-
-    private void ShowPhonePanel()
+    private void OnVideoCheckChanged(object sender, RoutedEventArgs e)
     {
-        PhoneChoice? choice = (SourceCombo.SelectedItem as ComboBoxItem)?.Tag as PhoneChoice?;
-        PhonePanel.Visibility = choice is null ? Visibility.Collapsed : Visibility.Visible;
-        if (choice is not { } c)
+        bool show = ShowVideo;
+        VideoBorder.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        SummaryText.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        ValuesText.Visibility = show ? Visibility.Collapsed : Visibility.Visible;
+        if (!show)
         {
-            return;
+            Preview.Source = null; // 出さない間は映像を写さない（少し軽くなる）
+            _bitmap = null;
         }
-        PhoneAddressRow.Visibility = c == PhoneChoice.Request ? Visibility.Visible : Visibility.Collapsed;
-        string addresses = string.Join("・", LocalAddresses());
-        PhoneHelpText.Text = c == PhoneChoice.Request
-            ? "iPhone の VTube Studio は、設定の「3rd Party PC Clients」を入れ、アプリに出ている IP を上に入れて「開始」します。Android の MeowFace も、"
-              + $"アプリに出ている IP を入れます。この PC はポート {PhoneMessages.VTubeStudioReplyPort} で受け取ります（PC とスマホは同じ Wi-Fi に）。"
-            : $"スマホのアプリの送り先に、この PC の IP（{(addresses.Length > 0 ? addresses : "見つかりません")}）を入れて「開始」します。受け取るポートは "
-              + $"{PhoneMessages.IFacialMocapPort}（iFacialMocap・FaceMotion3D）と {PhoneMessages.MeowFacePort}（MeowFace）です（PC とスマホは同じ Wi-Fi に）。";
-    }
-
-    // この PC の IPv4 の住所（家の Wi-Fi・有線のもの）
-    private static IEnumerable<string> LocalAddresses()
-    {
-        try
-        {
-            return NetworkInterface.GetAllNetworkInterfaces()
-                .Where(n => n.OperationalStatus == OperationalStatus.Up && n.NetworkInterfaceType != NetworkInterfaceType.Loopback)
-                .SelectMany(n => n.GetIPProperties().UnicastAddresses)
-                .Where(a => a.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork && !IPAddress.IsLoopback(a.Address)
-                    && !a.Address.ToString().StartsWith("169.254.", StringComparison.Ordinal))
-                .Select(a => a.Address.ToString())
-                .Distinct()
-                .ToList();
-        }
-        catch (NetworkInformationException)
-        {
-            return [];
-        }
-    }
-
-    private void OnPhoneAddressChanged(object sender, TextChangedEventArgs e)
-    {
-        if (!_updating)
-        {
-            _phone.Address = PhoneAddressBox.Text;
-        }
-    }
-
-    private void OnPhoneOptionChanged(object sender, RoutedEventArgs e)
-    {
-        if (_updating)
-        {
-            return;
-        }
-        _phone.InvertYaw = PhoneInvertYawCheck.IsChecked == true;
-        _phone.InvertPitch = PhoneInvertPitchCheck.IsChecked == true;
-        _phone.InvertRoll = PhoneInvertRollCheck.IsChecked == true;
-    }
-
-    private void ShowPhoneSettings()
-    {
-        bool was = _updating;
-        _updating = true;
-        try
-        {
-            if (PhoneAddressBox.Text.Trim() != _phone.Address)
-            {
-                PhoneAddressBox.Text = _phone.Address;
-            }
-            PhoneInvertYawCheck.IsChecked = _phone.InvertYaw;
-            PhoneInvertPitchCheck.IsChecked = _phone.InvertPitch;
-            PhoneInvertRollCheck.IsChecked = _phone.InvertRoll;
-        }
-        finally
-        {
-            _updating = was;
-        }
+        _shownSequence = -1; // 次の回に出し直す
     }
 
     private void UpdateState()
@@ -214,39 +189,72 @@ public partial class TrackingPanel : UserControl
         StatusText.Text = running
             ? $"{(_tracking.SourceName?.StartsWith("スマホ", StringComparison.Ordinal) == true ? "受け取っています" : "読んでいます")}: {_tracking.SourceName}"
             : _tracking.Error is { } error ? $"止まりました: {error}" : "止まっています（映像を選んで「開始」）";
+        StatusText.ToolTip = StatusText.Text;
         _timer.Start(); // 止めたときも、キャラクターを正面に戻しきるまで様子を見る
     }
 
     private void Refresh()
     {
         TrackingSnapshot snapshot = _tracking.Latest;
-        if (!_tracking.IsRunning && _context.TrackingDriver?.IsActive != true)
+        if (!_tracking.IsRunning)
         {
-            _timer.Stop(); // 止めた後、キャラクターを正面に戻しきったら更新をやめる
+            if (_context.TrackingDriver?.IsActive != true)
+            {
+                _timer.Stop(); // 止めた後、キャラクターを正面に戻しきったら更新をやめる
+            }
+            // 止めたら、最後の映像と様子を消す（動いているように見えないように）
+            Preview.Source = null;
+            _bitmap = null;
+            PreviewNote.Visibility = Visibility.Collapsed;
+            SummaryText.Text = string.Empty;
+            ValuesText.Text = string.Empty;
+            _shownSequence = -1;
+            return;
         }
         if (snapshot.Sequence == _shownSequence)
         {
             return;
         }
         _shownSequence = snapshot.Sequence;
-        PreviewNote.Visibility = snapshot.Phone is null ? Visibility.Collapsed : Visibility.Visible;
-        if (snapshot.Phone is not null)
+        bool show = ShowVideo;
+        PreviewNote.Visibility = show && snapshot.Phone is not null ? Visibility.Visible : Visibility.Collapsed;
+        if (show && snapshot.Phone is null)
+        {
+            _tracking.ReadFrame((pixels, width, height) =>
+            {
+                if (_bitmap is null || _bitmap.PixelWidth != width || _bitmap.PixelHeight != height)
+                {
+                    _bitmap = new WriteableBitmap(width, height, 96, 96, PixelFormats.Bgr32, null);
+                    Preview.Source = _bitmap;
+                }
+                _bitmap.WritePixels(new Int32Rect(0, 0, width, height), pixels, width * 4, 0);
+            });
+        }
+        else if (snapshot.Phone is not null)
         {
             Preview.Source = null;
             _bitmap = null;
         }
-        _tracking.ReadFrame((pixels, width, height) =>
-        {
-            if (_bitmap is null || _bitmap.PixelWidth != width || _bitmap.PixelHeight != height)
-            {
-                _bitmap = new WriteableBitmap(width, height, 96, 96, PixelFormats.Bgr32, null);
-                Preview.Source = _bitmap;
-            }
-            _bitmap.WritePixels(new Int32Rect(0, 0, width, height), pixels, width * 4, 0);
-        });
+        SummaryText.Text = Summary(snapshot);
         ValuesText.Text = Describe(snapshot);
     }
 
+    // 映像を出しているときの、短い様子（1 行）
+    private static string Summary(TrackingSnapshot s)
+    {
+        CultureInfo c = CultureInfo.CurrentCulture;
+        if (s.Phone is { } p)
+        {
+            return string.Format(c, "スマホ: {0}・{1:F0} 回/秒（送り手 {2}）", p.FaceFound ? "顔あり" : "顔が見つかりません", s.FramesPerSecond, s.PhoneSender);
+        }
+        if (s.Result is not { } r)
+        {
+            return string.Empty;
+        }
+        return string.Format(c, "顔: {0}・処理 {1:F1} ms・{2:F0} 回/秒", r.Found ? "見つけた" : "見つかりません", r.Milliseconds, s.FramesPerSecond);
+    }
+
+    // 映像を出さないときの、読んだ値（全部）
     private static string Describe(TrackingSnapshot s)
     {
         CultureInfo c = CultureInfo.CurrentCulture;
