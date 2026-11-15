@@ -80,6 +80,8 @@ internal static class ModelMeshBuilder
             }
             return paths[index];
         }
+        // ファイルの中に入っている画像（VRM・GLB）か、見つかったファイルがあるか
+        bool Available(int index) => d.EmbeddedTextures.ContainsKey(index) || PathOf(index) is not null;
         bool Valid(int index) => (uint)index < (uint)d.Textures.Length;
 
         var materials = new MeshMaterial[d.Materials.Length];
@@ -92,7 +94,7 @@ internal static class ModelMeshBuilder
             uint requested = (uint)Math.Max(0, m.IndexCount - (m.IndexCount % 3));
             uint count = start >= indices.Length ? 0 : Math.Min(requested, (uint)indices.Length - start);
 
-            ToonReference toon = PmxToon.Resolve(m, d.Textures, index => PathOf(index) is not null);
+            ToonReference toon = PmxToon.Resolve(m, d.Textures, Available);
             SphereMode sphereMode = m.SphereMode switch
             {
                 PmxSphereMode.Multiply => SphereMode.Multiply,
@@ -153,13 +155,15 @@ internal static class ModelMeshBuilder
         var textures = new Dictionary<int, DecodedImage>();
         foreach (int index in materialTextures.SelectMany(t => new[] { t.Main, t.Toon, t.Sphere }).Where(k => k >= 0).Distinct())
         {
-            if (PathOf(index) is not { } path)
+            byte[]? embedded = d.EmbeddedTextures.GetValueOrDefault(index);
+            string? path = embedded is null ? PathOf(index) : null;
+            if (embedded is null && path is null)
             {
                 continue; // 見つからないことは、読み込みの点検ですでにレポートに載っている
             }
             try
             {
-                textures[index] = TextureLoader.Load(path);
+                textures[index] = embedded is not null ? TextureLoader.Decode(embedded, d.Textures[index]) : TextureLoader.Load(path!);
             }
             catch (Exception ex) when (ex is ModelFormatException or IOException or UnauthorizedAccessException or OutOfMemoryException)
             {

@@ -136,6 +136,10 @@ internal static partial class PmxValidator
         var missing = new List<string>();
         foreach (int index in used)
         {
+            if (d.EmbeddedTextures.ContainsKey(index))
+            {
+                continue; // ファイルの中に入っている画像（VRM・GLB）は、探さない
+            }
             string relative = d.Textures[index];
             string? fullPath = ResolvePath(baseDirectory, relative);
             if (fullPath is not null && File.Exists(fullPath))

@@ -67,7 +67,14 @@ public partial class BackgroundSection : UserControl
 
     private static string Label(ModelNode model)
     {
-        string kind = LiveCast.IsCharacterFile(model.FilePath) ? "PMX" : $"アクセサリ {Path.GetExtension(model.FilePath).TrimStart('.').ToLowerInvariant()}";
+        string extension = Path.GetExtension(model.FilePath).TrimStart('.').ToLowerInvariant();
+        string kind = extension switch
+        {
+            "pmx" => "PMX",
+            "vrm" => "VRM",
+            "glb" or "gltf" => "glTF",
+            _ => $"アクセサリ {extension}",
+        };
         return $"{model.Name}（{kind}）";
     }
 

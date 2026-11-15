@@ -1554,14 +1554,14 @@ public partial class MainWindow : Window, Live.ILiveSceneActions, Live.ILiveScen
 
     async Task Live.ILiveSceneActions.LoadCharacterAsync()
     {
-        var dialog = new Microsoft.Win32.OpenFileDialog { Title = "キャラクターを読み込む", Filter = "PMX モデル (*.pmx)|*.pmx|すべてのファイル (*.*)|*.*" };
+        var dialog = new Microsoft.Win32.OpenFileDialog { Title = "キャラクターを読み込む", Filter = ModelImporter.CharacterFilter };
         if (dialog.ShowDialog(this) != true)
         {
             return;
         }
         if (!LiveCast.IsCharacterFile(dialog.FileName))
         {
-            ShowNotice("キャラクターにできるのは、PMX のモデルです（アクセサリは「背景」で読み込みます）", isError: true);
+            ShowNotice("キャラクターにできるのは、PMX と VRM のモデルです（アクセサリと glTF は「背景」で読み込みます）", isError: true);
             return;
         }
         Domain.ModelNode? old = LiveCast.Character(_context.Scene, _context.LiveTracking);

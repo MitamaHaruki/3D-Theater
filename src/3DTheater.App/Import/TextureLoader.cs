@@ -13,10 +13,12 @@ namespace Theater3D.App.Import;
 /// </summary>
 internal static class TextureLoader
 {
-    public static DecodedImage Load(string path)
+    public static DecodedImage Load(string path) => Decode(File.ReadAllBytes(path), path);
+
+    /// <summary>画像の中身から読む（VRM・GLB の中に入っている画像など）。<paramref name="name"/> の拡張子が .tga なら TGA として読む。</summary>
+    public static DecodedImage Decode(byte[] data, string name)
     {
-        byte[] data = File.ReadAllBytes(path);
-        if (Path.GetExtension(path).Equals(".tga", StringComparison.OrdinalIgnoreCase))
+        if (Path.GetExtension(name).Equals(".tga", StringComparison.OrdinalIgnoreCase))
         {
             return TgaDecoder.Decode(data);
         }

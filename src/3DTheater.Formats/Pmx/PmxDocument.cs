@@ -324,6 +324,13 @@ public sealed class PmxDocument
     /// <summary>面の頂点番号（3 つで 1 枚の三角形）。</summary>
     public int[] Indices { get; init; } = [];
     public string[] Textures { get; init; } = [];
+
+    /// <summary>
+    /// ファイルの中に入っているテクスチャの画像（VRM・GLB。鍵は <see cref="Textures"/> の番号）。ここにある番号は、ファイルを探さずにこの中身を使う
+    /// （<see cref="Textures"/> の名前は表示とレポートのためだけ）。PMX と .x では空。
+    /// </summary>
+    public IReadOnlyDictionary<int, byte[]> EmbeddedTextures { get; init; } = new Dictionary<int, byte[]>();
+
     public PmxMaterial[] Materials { get; init; } = [];
     public PmxBone[] Bones { get; init; } = [];
     public PmxMorph[] Morphs { get; init; } = [];
