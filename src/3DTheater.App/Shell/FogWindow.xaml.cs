@@ -11,7 +11,7 @@ namespace Theater3D.App.Shell;
 /// 霧の設定（レンダリングのメニュー）。ON / OFF と、色・始まる距離・見通せる距離・地面の近くほど濃くするかを変える。
 /// 変えるたびに作品の描き方（<see cref="RenderSettings.Fog"/>）へ入れるので、すぐにプレビューへ反映し、プロジェクトは変更ありになる。
 /// </summary>
-public partial class FogWindow : Window
+public partial class FogWindow : Window, IShowsCurrentValues
 {
     private readonly RenderSettings? _settings;
     private bool _loading;
@@ -21,6 +21,15 @@ public partial class FogWindow : Window
         InitializeComponent();
         _settings = settings;
         ShowValues(settings.Fog);
+    }
+
+    /// <summary>設定の今の値を出し直す（ライブモードの設定画面で、ほかの所で変わったとき）。</summary>
+    public void ShowCurrentValues()
+    {
+        if (_settings is not null)
+        {
+            ShowValues(_settings.Fog);
+        }
     }
 
     private void ShowValues(SceneFog fog)

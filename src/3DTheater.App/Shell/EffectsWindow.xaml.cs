@@ -9,7 +9,7 @@ namespace Theater3D.App.Shell;
 /// 映像効果の設定（レンダリングのメニュー）。色調補正・ブルーム・周辺減光・環境光の遮り・画面の中の反射・被写界深度を ON / OFF し、値をつまみで変える。
 /// 変えるたびに作品の描き方（<see cref="RenderSettings.Effects"/>）へ入れるので、すぐにプレビューへ反映し、プロジェクトは変更ありになる。
 /// </summary>
-public partial class EffectsWindow : Window
+public partial class EffectsWindow : Window, IShowsCurrentValues
 {
     private readonly RenderSettings? _settings;
     private bool _loading;
@@ -22,6 +22,15 @@ public partial class EffectsWindow : Window
     }
 
     /// <summary>値を画面へ出す（出している間の変更は、設定へ入れ直さない）。</summary>
+    /// <summary>設定の今の値を出し直す（ライブモードの設定画面で、ほかの所で変わったとき）。</summary>
+    public void ShowCurrentValues()
+    {
+        if (_settings is not null)
+        {
+            ShowValues(_settings.Effects);
+        }
+    }
+
     private void ShowValues(VisualEffects effects)
     {
         _loading = true;

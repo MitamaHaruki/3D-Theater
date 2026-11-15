@@ -33,7 +33,7 @@ public sealed class UserSettings
     public Dictionary<string, PreviewSettings> LivePreviews { get; set; } = [];
 
     /// <summary>ライブモードのサイドバーで、開いている項目（設計判断記録 78 章。次に起動したときも同じにする）。</summary>
-    public List<string> LiveSections { get; set; } = ["Scene", "Panels"];
+    public List<string> LiveSections { get; set; } = ["Scene", "Character"];
 
     /// <summary>ライブモードのトラッキング情報で、カメラの映像を出すか（設計判断記録 78 章の 5 段目）。</summary>
     public bool LiveTrackingVideo { get; set; } = true;

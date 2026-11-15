@@ -27,7 +27,7 @@ public partial class LiveShell : UserControl
     public event EventHandler? SettingsRequested;
 
     /// <summary>サイドバーの折り畳みの項目（上から順）。</summary>
-    public IReadOnlyList<Expander> Sections => [SceneExpander, CameraExpander, LightExpander, CharacterExpander, BackgroundExpander, PanelsExpander];
+    public IReadOnlyList<Expander> Sections => [SceneExpander, CameraExpander, LightExpander, CharacterExpander, BackgroundExpander];
 
     /// <summary>開いている項目の名前（<see cref="FrameworkElement.Tag"/>。次に起動したときに同じにするため、設定に覚える）。</summary>
     public IReadOnlyList<string> ExpandedSections
@@ -93,20 +93,6 @@ public partial class LiveShell : UserControl
             control.Background = Brushes.Transparent; // 半透明の黒が透けるように
         }
         TrackingHost.Content = panel;
-    }
-
-    /// <summary>作り直すまでの仮: 今のパネル（シーンの一覧・プロパティ・モーフ）を、サイドバーの「今のパネル」にタブで置く。</summary>
-    public void AddPanel(string title, FrameworkElement content)
-    {
-        if (content is Control control)
-        {
-            control.Background = Brushes.Transparent;
-        }
-        PanelTabs.Items.Add(new TabItem { Header = title, Content = content });
-        if (PanelTabs.Items.Count == 1)
-        {
-            PanelTabs.SelectedIndex = 0;
-        }
     }
 
     /// <summary>左下に赤い字でエラーを出す（null か空なら消す）。</summary>

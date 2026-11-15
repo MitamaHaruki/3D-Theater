@@ -8,7 +8,7 @@ namespace Theater3D.App.Live;
 
 /// <summary>
 /// メニューの中身を、設定画面のボタンとチェックの並びにする（ライブモード。設計判断記録 78 章）。
-/// ライブモードはメニューバーを出さないので、作り直すまでの間、メニューにあった物を設定画面から使えるようにする。
+/// ライブモードはメニューバーを出さないので、メニューにあった物（配信・物理・ツール・プラグイン・ヘルプ）を設定画面から使えるようにする。
 /// 押すと、メニューの項目を押したのと同じ処理が動く（処理はメニューの 1 か所だけに置いたまま）。
 /// </summary>
 internal static class MenuMirror
@@ -17,18 +17,19 @@ internal static class MenuMirror
     /// <paramref name="menu"/> の中の項目を並べる。押した後は <paramref name="refresh"/> で並べ直す
     /// （チェックの状態などが変わるため）。隠れている項目（エディットだけの物など）は出さない。
     /// </summary>
-    public static FrameworkElement Build(MenuItem menu, Action refresh)
+    /// <param name="include">並べる項目（null なら全部。下の段のある項目は、見出しごと選ぶ）。</param>
+    public static FrameworkElement Build(MenuItem menu, Action refresh, Func<MenuItem, bool>? include = null)
     {
         Open(menu);
         var panel = new StackPanel();
-        AddItems(panel, menu, refresh);
+        AddItems(panel, menu, refresh, include);
         return panel;
     }
 
     // 開いたときに中身を作り直す・チェックを合わせるメニューがあるので、開いたことにしてから読む
     private static void Open(MenuItem menu) => menu.RaiseEvent(new RoutedEventArgs(MenuItem.SubmenuOpenedEvent, menu));
 
-    private static void AddItems(Panel panel, ItemsControl parent, Action refresh)
+    private static void AddItems(Panel panel, ItemsControl parent, Action refresh, Func<MenuItem, bool>? include = null)
     {
         bool gap = false;
         foreach (object child in parent.Items)
@@ -38,7 +39,7 @@ internal static class MenuMirror
                 gap = panel.Children.Count > 0;
                 continue;
             }
-            if (child is not MenuItem { Visibility: Visibility.Visible } item)
+            if (child is not MenuItem { Visibility: Visibility.Visible } item || (include is not null && !include(item)))
             {
                 continue;
             }

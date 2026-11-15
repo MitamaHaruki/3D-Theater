@@ -147,7 +147,7 @@
     </Grid>
 
     <TextBlock Margin="0,14,0,0" TextWrapping="Wrap" Foreground="{StaticResource SubTextBrush}" FontSize="11.5"
-               Text="変えるとすぐにプレビューへ反映し、書き出しにもかかります。線画は MMD の輪郭線（材質のエッジ）とは別に引きます。線画・塗り・影の色は背景にかかりません（紙の質感は背景にもかかります）。設定はプロジェクトに保存します（元に戻す・やり直しの対象ではありません）。" />
+               Text="変えるとすぐにプレビューへ反映し、書き出しにもかかります。線画は MMD の輪郭線（材質のエッジ）とは別に引きます。線画・塗り・影の色は背景にかかりません（紙の質感は背景にもかかります）。設定はプロジェクトに保存します（変えた分は、まとめて 1 回の「元に戻す」で戻せます）。" />
 
     <DockPanel Margin="0,16,0,0" LastChildFill="False">
       <Button DockPanel.Dock="Left" MinWidth="110" Content="初期値に戻す" Click="OnResetClick"

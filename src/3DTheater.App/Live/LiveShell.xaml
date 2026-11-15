@@ -29,11 +29,8 @@
           <Expander x:Name="LightExpander" Header="照明" Style="{StaticResource LiveSectionStyle}" Tag="Light" />
           <Expander x:Name="CharacterExpander" Header="キャラクター" Style="{StaticResource LiveSectionStyle}" Tag="Character" />
           <Expander x:Name="BackgroundExpander" Header="背景" Style="{StaticResource LiveSectionStyle}" Tag="Background" />
-          <Expander x:Name="PanelsExpander" Header="今のパネル（作り直すまでの仮）" Style="{StaticResource LiveSectionStyle}" Tag="Panels">
-            <TabControl x:Name="PanelTabs" Height="560" Background="Transparent" />
-          </Expander>
           <Button x:Name="SettingsButton" Content="設定" Style="{StaticResource LiveSectionButtonStyle}" Click="OnSettingsClick"
-                  AutomationProperties.Name="設定" ToolTip="設定画面を開きます（レンダリング・配信・物理・ツール・プラグイン・ヘルプなど）" />
+                  AutomationProperties.Name="設定" ToolTip="設定画面を開きます（配信・キー操作・描画・物理・操作・ツール・プラグイン・ヘルプ）" />
         </StackPanel>
       </ScrollViewer>
     </Border>

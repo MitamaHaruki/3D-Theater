@@ -174,7 +174,7 @@ public sealed class EditorContext
         EnvironmentImage = new EnvironmentImage(engine, Rendering);
         Rendering.Changed += (_, _) => RenderLoop.InvalidateAll();
         LiveCameras.Changed += (_, _) => RenderLoop.InvalidateAll(); // プレビュー・配信に映すカメラを切り替えた
-        NameLiveCamera();
+        PrepareLiveScene();
         PreviewQuality.Changed += (_, _) => RenderLoop.InvalidateAll();
 
         Scene.NodeChanged += (_, _) => RenderLoop.InvalidateAll();
@@ -244,14 +244,26 @@ public sealed class EditorContext
     public CameraNode? OnAirCamera => IsLive ? LiveCameras.OnAirCamera(Scene) : MainCamera;
 
     /// <summary>
-    /// ライブモードでは、決まった役目のカメラを「ライブカメラ」と呼ぶ（新しいシーン・前の版のファイルの「メインカメラ」）。
-    /// 開いている途中・新しくしたときに呼ぶので、保存していない変更にはしない（呼ぶ側で止める）。
+    /// ライブモードのシーンを整える（新しくしたとき・開いたとき。設計判断記録 78 章）。開いている途中・新しくしたときに呼ぶので、
+    /// 保存していない変更にはしない（呼ぶ側で止める）。
+    /// <list type="bullet">
+    /// <item>決まった役目のカメラを「ライブカメラ」と呼ぶ（新しいシーン・前の版のファイルの「メインカメラ」）。</item>
+    /// <item>確認用の立方体は出さない（開発の確かめ用。ライブのサイドバーには出さないので、出ていると消せない）。</item>
+    /// </list>
     /// </summary>
-    public void NameLiveCamera()
+    public void PrepareLiveScene()
     {
-        if (IsLive && Scene.MainCamera.Name != CameraPresenceAction.LiveCameraName)
+        if (!IsLive)
+        {
+            return;
+        }
+        if (Scene.MainCamera.Name != CameraPresenceAction.LiveCameraName)
         {
             Scene.MainCamera.Name = CameraPresenceAction.LiveCameraName;
+        }
+        if (Scene.FindFirst<TestObjectNode>() is { IsVisible: true } cube)
+        {
+            cube.IsVisible = false;
         }
     }
 
@@ -390,7 +402,7 @@ public sealed class EditorContext
         LiveHotkeys.Reset();
         LivePhone.Reset();
         LiveCameras.Reset();
-        NameLiveCamera();
+        PrepareLiveScene();
         Animation.NotifyStateChanged();
         Undo.Clear();
         RenderLoop.InvalidateAll();

@@ -12,7 +12,7 @@ namespace Theater3D.App.Shell;
 /// 変えるたびに作品の描き方（<see cref="RenderSettings.Illustration"/>）へ入れるので、すぐにプレビューへ反映し、プロジェクトは変更ありになる。
 /// 色は #RRGGBB で入れ、読めない間は前の色のままにする。
 /// </summary>
-public partial class IllustrationWindow : Window
+public partial class IllustrationWindow : Window, IShowsCurrentValues
 {
     private readonly RenderSettings? _settings;
     private bool _loading;
@@ -22,6 +22,15 @@ public partial class IllustrationWindow : Window
         InitializeComponent();
         _settings = settings;
         ShowValues(settings.Illustration);
+    }
+
+    /// <summary>設定の今の値を出し直す（ライブモードの設定画面で、ほかの所で変わったとき）。</summary>
+    public void ShowCurrentValues()
+    {
+        if (_settings is not null)
+        {
+            ShowValues(_settings.Illustration);
+        }
     }
 
     private void ShowValues(IllustrationStyle style)

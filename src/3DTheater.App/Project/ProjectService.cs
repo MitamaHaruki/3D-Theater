@@ -218,7 +218,7 @@ internal sealed class ProjectService
                 (project.Live?.Tracking ?? new TrackingEntry()).ApplyTo(_context.LiveTracking, FindModel);
                 ChooseCharacterForOldFile(project.Live?.Tracking, models.Select(m => m.Node).OfType<ModelNode>());
                 (project.Live ?? new LiveEntry()).ApplyTo(_context.LiveCameras, _context.Scene); // 足したカメラは ApplyScene で読み込み済み
-                _context.NameLiveCamera(); // 前の版のファイルの「メインカメラ」
+                _context.PrepareLiveScene(); // 前の版のファイルの「メインカメラ」・確認用の立方体
                 (project.Live?.Tracking ?? new TrackingEntry()).ApplyTo(_context.LivePhone);
                 (project.Live ?? new LiveEntry()).ApplyTo(_context.LiveHotkeys, FindModel); // キー操作
             }

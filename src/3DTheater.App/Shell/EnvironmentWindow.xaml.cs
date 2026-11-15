@@ -13,7 +13,7 @@ namespace Theater3D.App.Shell;
 /// 変えるたびに作品の描き方（<see cref="RenderSettings.Environment"/>）へ入れるので、すぐにプレビューへ反映し、プロジェクトは変更ありになる。
 /// ファイルを変えると、その場で読み込む（<see cref="EnvironmentImage"/>）。読めたかどうかは画面に出す。
 /// </summary>
-public partial class EnvironmentWindow : Window
+public partial class EnvironmentWindow : Window, IShowsCurrentValues
 {
     private readonly RenderSettings? _settings;
     private readonly EnvironmentImage? _image;
@@ -27,6 +27,15 @@ public partial class EnvironmentWindow : Window
         ShowValues(settings.Environment);
         image.Changed += OnImageChanged;
         Closed += (_, _) => image.Changed -= OnImageChanged;
+    }
+
+    /// <summary>設定の今の値を出し直す（ライブモードの設定画面で、ほかの所で変わったとき）。</summary>
+    public void ShowCurrentValues()
+    {
+        if (_settings is not null)
+        {
+            ShowValues(_settings.Environment);
+        }
     }
 
     private void ShowValues(SceneEnvironment environment)

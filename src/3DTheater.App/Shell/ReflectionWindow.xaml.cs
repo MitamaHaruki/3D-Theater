@@ -8,7 +8,7 @@ namespace Theater3D.App.Shell;
 /// 床の映り込みの設定（レンダリングのメニュー）。ON / OFF と、濃さ・消えるまでの距離・ぼかしを変える。
 /// 変えるたびに作品の描き方（<see cref="RenderSettings.Reflection"/>）へ入れるので、すぐにプレビューへ反映し、プロジェクトは変更ありになる。
 /// </summary>
-public partial class ReflectionWindow : Window
+public partial class ReflectionWindow : Window, IShowsCurrentValues
 {
     private readonly RenderSettings? _settings;
     private bool _loading;
@@ -18,6 +18,15 @@ public partial class ReflectionWindow : Window
         InitializeComponent();
         _settings = settings;
         ShowValues(settings.Reflection);
+    }
+
+    /// <summary>設定の今の値を出し直す（ライブモードの設定画面で、ほかの所で変わったとき）。</summary>
+    public void ShowCurrentValues()
+    {
+        if (_settings is not null)
+        {
+            ShowValues(_settings.Reflection);
+        }
     }
 
     private void ShowValues(FloorReflection value)

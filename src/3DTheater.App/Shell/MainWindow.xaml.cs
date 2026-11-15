@@ -48,6 +48,7 @@ public partial class MainWindow : Window, Live.ILiveSceneActions, Live.ILiveScen
     private Live.SceneSection? _sceneSection;
     private Live.CameraInfoPanel? _cameraInfo;
     private Live.TrackingPanel? _trackingPanel;
+    private List<Live.LiveSettingsPage>? _liveSettingsPages;
     private readonly FullScreenSwitcher? _fullScreen;
     private Live.LiveSettingsWindow? _liveSettings;
 
@@ -1434,13 +1435,6 @@ public partial class MainWindow : Window, Live.ILiveSceneActions, Live.ILiveScen
         _cameraInfo = new Live.CameraInfoPanel(_context);
         _live.SetCameraParts(new Live.CameraSection(_context), _cameraInfo);
         _context.LiveCameras.Changed += (_, _) => UpdateOnAirMark();
-        foreach (var (id, title) in new[] { (DockingLayout.SceneId, "シーンの一覧"), (DockingLayout.PropertiesId, "プロパティ"), (DockingLayout.MorphId, "モーフ") })
-        {
-            if (_layout.PanelContent(id) is { } content)
-            {
-                _live.AddPanel(title, content);
-            }
-        }
         _live.ExpandedSections = _settings.LiveSections;
         _sceneSection = new Live.SceneSection(this);
         _live.SetSceneSection(_sceneSection);
@@ -1627,31 +1621,161 @@ public partial class MainWindow : Window, Live.ILiveSceneActions, Live.ILiveScen
             _liveSettings.Activate();
             return;
         }
-        _liveSettings = new Live.LiveSettingsWindow(LiveSettingsPages()) { Owner = this };
+        _liveSettingsPages ??= LiveSettingsPages(); // 借りた中身（描画の設定）とキー操作のパネルは、開き直しても使い回す
+        _liveSettings = new Live.LiveSettingsWindow(_liveSettingsPages) { Owner = this };
         WindowMemory.Track(_liveSettings);
         _liveSettings.Closed += (_, _) => _liveSettings = null;
         _liveSettings.Show();
     }
 
-    // 設定画面の項目: 作り直すまでの仮として、メニューの中身をそのまま並べる（表示のメニューは、ドッキングとプレビューの分け方なので出さない）。
-    // キー操作のパネルは、ライブのメニューの次に置く
+    // 設定画面の項目（設計判断記録 78 章の 6 段目）。メニューバーにあった物のうち、サイドバー（シーン・カメラ・照明・キャラクター・背景）に
+    // 移さなかった物を置く。元に戻す・やり直しはキー（Ctrl+Z・Ctrl+Y）だけ、プレビューの分け方・ログのパネルはライブでは使わない（利用者と決めた）
     private List<Live.LiveSettingsPage> LiveSettingsPages()
     {
-        var pages = new List<Live.LiveSettingsPage>();
-        foreach (MenuItem menu in MainMenu.Items.OfType<MenuItem>())
+        MenuItem Menu(string name) => MainMenu.Items.OfType<MenuItem>().First(m => MenuText.Clean(m.Header as string) == name);
+        static string Header(MenuItem item) => item.Header as string ?? string.Empty;
+        var pages = new List<Live.LiveSettingsPage>
         {
-            if (menu.Visibility != Visibility.Visible || menu == ViewMenu)
-            {
-                continue;
-            }
-            pages.Add(new Live.LiveSettingsPage(MenuText.Clean(menu.Header as string), refresh => Live.MenuMirror.Build(menu, refresh)));
-            if (menu == LiveMenu && _layout.PanelContent(DockingLayout.HotkeysId) is { } hotkeys)
-            {
-                pages.Add(new Live.LiveSettingsPage("キー操作", _ => hotkeys, OwnScroll: true));
-            }
+            // 待機モーションは、キャラクター・背景のモデルごとに置いた
+            new("配信", refresh => Live.MenuMirror.Build(LiveMenu, refresh, item => !Header(item).Contains("待機モーション", StringComparison.Ordinal))),
+        };
+        if (_layout.PanelContent(DockingLayout.HotkeysId) is { } hotkeys)
+        {
+            pages.Add(new Live.LiveSettingsPage("キー操作", _ => hotkeys, OwnScroll: true));
         }
+        pages.Add(RenderingPage("影", () => new ShadowWindow(_context.Rendering), "影の設定の変更", ShadowSwitches));
+        pages.Add(RenderingPage("床の映り込み", () => new ReflectionWindow(_context.Rendering), "床の映り込みの変更"));
+        pages.Add(RenderingPage("環境の画像", () => new EnvironmentWindow(_context.Rendering, _context.EnvironmentImage), "環境の画像の変更"));
+        pages.Add(RenderingPage("霧", () => new FogWindow(_context.Rendering), "霧の変更"));
+        pages.Add(RenderingPage("映像効果", () => new EffectsWindow(_context.Rendering), "映像効果の変更"));
+        pages.Add(RenderingPage("イラスト風", () => new IllustrationWindow(_context.Rendering), "イラスト風の変更"));
+        pages.Add(RenderingPage("描画品質", () => new RenderQualityWindow(_context), undoName: null)); // 利用者ごとの設定（元に戻さない）
+        MenuItem model = Menu("モデル");
+        pages.Add(new Live.LiveSettingsPage("物理", refresh => Live.MenuMirror.Build(model, refresh,
+            item => item == PhysicsMenuItem || item == PhysicsFloorMenuItem || item == PhysicsBetweenModelsMenuItem || Header(item) == "物理をリセット")));
+        pages.Add(new Live.LiveSettingsPage("操作", _ => OperationPage()));
+        MenuItem tools = Menu("ツール");
+        MenuItem file = Menu("ファイル");
+        pages.Add(new Live.LiveSettingsPage("ツール", refresh =>
+        {
+            var stack = new StackPanel();
+            stack.Children.Add(Live.MenuMirror.Build(tools, refresh, item => item.InputGestureText != "予定"));
+            stack.Children.Add(Live.MenuMirror.Build(file, refresh, item => item == OtherModeMenuItem));
+            return stack;
+        }));
+        pages.Add(new Live.LiveSettingsPage("プラグイン", refresh =>
+        {
+            var stack = new StackPanel();
+            stack.Children.Add(Live.MenuMirror.Build(PluginsMenu, refresh));
+            // プラグインが足したファイルの形式の読み込み・書き出し（エディットモードはファイルのメニュー。足した形式が無ければ出ない）
+            stack.Children.Add(Live.MenuMirror.Build(file, refresh, item => item == PluginImportMenu || item == PluginExportMenu));
+            return stack;
+        }));
+        MenuItem help = Menu("ヘルプ");
+        pages.Add(new Live.LiveSettingsPage("ヘルプ", refresh => Live.MenuMirror.Build(help, refresh, item => Header(item) != "操作方法"))); // 操作方法は「操作」に書いた
         return pages;
     }
+
+    // 描画の設定の項目: エディットモードの設定の窓の中身を借りて出す。使っている間（設定画面を使っていて、その項目を選んでいる間）の変更を、
+    // 1 つの「元に戻す」にまとめる（エディットモードで窓を開いてから閉じるまでと同じ）。
+    // 中身は使い回すので、元に戻す・シーンの切り替えなど、ほかの所で変わったら出し直す（この項目で変えている間は、出している値のとおり）
+    private Live.LiveSettingsPage RenderingPage(string title, Func<Window> create, string? undoName, Func<FrameworkElement>? header = null)
+    {
+        var borrowed = new Live.BorrowedContent(create, header);
+        SettingsTransaction? edit = null;
+        _context.Rendering.Changed += (_, _) =>
+        {
+            if (edit is null)
+            {
+                borrowed.ShowCurrentValues();
+            }
+        };
+        return new Live.LiveSettingsPage(title, _ => borrowed.Content, Group: "描画",
+        Enter: undoName is null ? null : () =>
+        {
+            _context.Playback.Pause();
+            edit = _context.Edits.BeginSettings(undoName, _context.Rendering);
+        },
+        Leave: undoName is null ? null : () =>
+        {
+            edit?.Commit();
+            edit = null;
+        });
+    }
+
+    // 「影」の項目の上: セルフシャドウと地面の影を使うか（エディットモードはレンダリングのメニューで切り替える）。
+    // 一度だけ作り、ほかの所で変わったら印を合わせる
+    private FrameworkElement ShadowSwitches()
+    {
+        var panel = new StackPanel { Margin = new Thickness(18, 4, 18, 0) };
+        CheckBox Switch(string text, bool value, Action<bool> set)
+        {
+            var check = new CheckBox { Content = text, IsChecked = value, Margin = new Thickness(0, 0, 0, 8) };
+            System.Windows.Automation.AutomationProperties.SetName(check, text);
+            check.Checked += (_, _) => set(true);
+            check.Unchecked += (_, _) => set(false);
+            return check;
+        }
+        CheckBox self = Switch("セルフシャドウ（モデルに落ちる影）", _context.Rendering.SelfShadow, on => _context.Rendering.SelfShadow = on);
+        CheckBox ground = Switch("地面の影（床に落ちる影）", _context.Rendering.GroundShadow, on => _context.Rendering.GroundShadow = on);
+        panel.Children.Add(self);
+        panel.Children.Add(ground);
+        _context.Rendering.Changed += (_, _) =>
+        {
+            self.IsChecked = _context.Rendering.SelfShadow;
+            ground.IsChecked = _context.Rendering.GroundShadow;
+        };
+        return panel;
+    }
+
+    // 「操作」の項目: ギズモの方式と軸、ライブモードの操作のしかた（エディットモードはツールバーとヘルプの「操作方法」）
+    private FrameworkElement OperationPage()
+    {
+        var panel = new StackPanel { MaxWidth = 640, HorizontalAlignment = HorizontalAlignment.Left };
+        TextBlock Heading(string text) => new()
+        {
+            Text = text,
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, panel.Children.Count == 0 ? 0 : 18, 0, 8),
+        };
+        panel.Children.Add(Heading("ギズモ（選んだ物を動かす取っ手）"));
+        RadioButton Style(string text, GizmoStyle style)
+        {
+            var radio = new RadioButton { Content = text, GroupName = "LiveGizmoStyle", IsChecked = _context.Gizmo.Style == style, Margin = new Thickness(0, 0, 0, 6) };
+            System.Windows.Automation.AutomationProperties.SetName(radio, text);
+            radio.Checked += (_, _) => _context.Gizmo.Style = style;
+            return radio;
+        }
+        panel.Children.Add(Style("MMD 方式（移動の矢印と回転の輪を一緒に出す）", GizmoStyle.Mmd));
+        panel.Children.Add(Style("Blender 方式（選んだ道具の取っ手だけを出す。Q で選択・W で移動・E で回転）", GizmoStyle.Blender));
+        var local = new CheckBox { Content = "選んだ物の向きの軸で動かす（ローカル。外すとシーンの XYZ）", IsChecked = _context.Gizmo.LocalSpace, Margin = new Thickness(0, 6, 0, 0) };
+        System.Windows.Automation.AutomationProperties.SetName(local, "ギズモをローカルの軸にする");
+        local.Checked += (_, _) => _context.Gizmo.LocalSpace = true;
+        local.Unchecked += (_, _) => _context.Gizmo.LocalSpace = false;
+        panel.Children.Add(local);
+        panel.Children.Add(Heading("操作のしかた"));
+        panel.Children.Add(new TextBlock
+        {
+            TextWrapping = TextWrapping.Wrap,
+            LineHeight = 20,
+            Text = LiveShortcuts,
+        });
+        return panel;
+    }
+
+    private const string LiveShortcuts =
+        "プレビュー\n" +
+        "  右ボタンを押している間 … マウスで向き、W・A・S・D で前後左右、Q・E で下・上（Shift で速く）\n" +
+        "  ホイール … ズーム（視野角）　中ボタンでドラッグ … カメラを上下左右にずらす\n" +
+        "  左クリック … 選ぶ（Ctrl で足す・外す）　ギズモの取っ手をドラッグ … 選んだ物を動かす\n" +
+        "\nキー\n" +
+        "  Ctrl+Z … 元に戻す　Ctrl+Y … やり直し\n" +
+        "  Ctrl+S … シーンを保存　Ctrl+Shift+S … 名前を付けて保存　Ctrl+N … 新しいシーン　Ctrl+O … ほかのファイルを開く\n" +
+        "  Ctrl+I … モデルを読み込む　Delete … 選んだモデル・照明を外す\n" +
+        "  Ctrl+A … すべて選ぶ　Esc … 選択を解除\n" +
+        "  Q・W・E … ギズモの道具（選択・移動・回転。Blender 方式にする）\n" +
+        "  F11 … 仮想フルスクリーン（もう一度で戻す）\n" +
+        "  キー操作の項目で決めたキー … 表情・小物・トラッキングなど（ほかのアプリを使っている間も効く）";
 
     // MMD のモデルは確認用の立方体よりずっと大きいので、全プレビューの区画をモデルに合わせる（カメラ視点は動かさない）
     private void FocusViewsOnFirstModel()

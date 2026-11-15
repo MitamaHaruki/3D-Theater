@@ -7,9 +7,12 @@ namespace Theater3D.App.Live;
 
 /// <summary>
 /// 設定画面の 1 項目。<paramref name="Build"/> は、選ばれるたび・並べ直すたびに中身を作る（引数は、並べ直してほしいときに呼ぶ処理）。
-/// <paramref name="OwnScroll"/> なら、中身が自分で縦に動く（キー操作のパネルなど）。
+/// <paramref name="OwnScroll"/> なら、中身が自分で縦に動く（キー操作のパネルなど）。<paramref name="Group"/> があれば、一覧でその見出しの下に並べる。
+/// <paramref name="Enter"/>・<paramref name="Leave"/> は、項目を使い始めた・離れたとき（項目を選んだ・ほかを選んだ、設定画面に戻った・
+/// メインの窓に移った・閉じた）に呼ぶ（描画の設定の変更を、使っている間で 1 つの「元に戻す」にまとめるため）。
 /// </summary>
-public sealed record LiveSettingsPage(string Title, Func<Action, FrameworkElement> Build, bool OwnScroll = false);
+public sealed record LiveSettingsPage(string Title, Func<Action, FrameworkElement> Build, bool OwnScroll = false, string? Group = null,
+    Action? Enter = null, Action? Leave = null);
 
 /// <summary>
 /// ライブモードの設定画面（設計判断記録 78 章）。左の一覧で選んだ項目の中身を、右に出す。
@@ -22,6 +25,8 @@ public partial class LiveSettingsWindow : Window
 
     private readonly IReadOnlyList<LiveSettingsPage> _pages;
     private readonly DispatcherTimer _lateRefresh;
+    private LiveSettingsPage? _current;
+    private bool _entered;
 
     public LiveSettingsWindow(IReadOnlyList<LiveSettingsPage> pages, string? firstPage = null)
     {
@@ -37,41 +42,96 @@ public partial class LiveSettingsWindow : Window
             ShowPage(keepScroll: true);
         }, Dispatcher);
         _lateRefresh.Stop();
+        string? group = null;
         foreach (LiveSettingsPage page in pages)
         {
-            PageList.Items.Add(new ListBoxItem { Content = page.Title, Padding = new Thickness(10, 7, 10, 7) });
+            if (page.Group is { } g && g != group)
+            {
+                // まとまりの見出し（選べない）
+                PageList.Items.Add(new ListBoxItem
+                {
+                    Content = g,
+                    IsEnabled = false,
+                    Focusable = false,
+                    FontSize = 11,
+                    Padding = new Thickness(10, 10, 10, 2),
+                });
+            }
+            group = page.Group;
+            PageList.Items.Add(new ListBoxItem
+            {
+                Content = page.Title,
+                Tag = page,
+                Padding = new Thickness(page.Group is null ? 10 : 24, 7, 10, 7),
+            });
         }
-        int first = firstPage is null ? 0 : Math.Max(0, pages.ToList().FindIndex(p => p.Title == firstPage));
-        PageList.SelectedIndex = pages.Count > 0 ? first : -1;
+        SelectPage(firstPage ?? pages.FirstOrDefault()?.Title ?? string.Empty);
+        if (PageList.SelectedIndex < 0 && pages.Count > 0)
+        {
+            SelectPage(pages[0].Title);
+        }
+        Activated += (_, _) => EnterPage();
+        Deactivated += (_, _) => LeavePage(); // メインの窓で元に戻すなどをする前に、区切る
         Closed += (_, _) =>
         {
             _lateRefresh.Stop();
-            PageHost.Content = null; // パネル（キー操作）を外しておく（次に開いたときに、また置けるように）
+            LeavePage();
+            PageHost.Content = null; // パネル（キー操作など）を外しておく（次に開いたときに、また置けるように）
         };
     }
 
     /// <summary>今選んでいる項目の名前。</summary>
-    public string? CurrentPage => PageList.SelectedIndex >= 0 ? _pages[PageList.SelectedIndex].Title : null;
+    public string? CurrentPage => _current?.Title;
 
     /// <summary>項目を選ぶ（名前で）。</summary>
     public void SelectPage(string title)
     {
-        int index = _pages.ToList().FindIndex(p => p.Title == title);
+        int index = PageList.Items.Cast<ListBoxItem>().ToList().FindIndex(i => i.Tag is LiveSettingsPage p && p.Title == title);
         if (index >= 0)
         {
             PageList.SelectedIndex = index;
         }
     }
 
-    private void OnPageChanged(object sender, SelectionChangedEventArgs e) => ShowPage(keepScroll: false);
-
-    private void ShowPage(bool keepScroll)
+    private void OnPageChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (PageList.SelectedIndex < 0)
+        if ((PageList.SelectedItem as ListBoxItem)?.Tag is not LiveSettingsPage page)
         {
             return;
         }
-        LiveSettingsPage page = _pages[PageList.SelectedIndex];
+        LeavePage();
+        _current = page;
+        ShowPage(keepScroll: false);
+        if (IsActive)
+        {
+            EnterPage();
+        }
+    }
+
+    private void EnterPage()
+    {
+        if (!_entered && _current is { Enter: { } enter })
+        {
+            _entered = true;
+            enter();
+        }
+    }
+
+    private void LeavePage()
+    {
+        if (_entered && _current is { Leave: { } leave })
+        {
+            leave();
+        }
+        _entered = false;
+    }
+
+    private void ShowPage(bool keepScroll)
+    {
+        if (_current is not { } page)
+        {
+            return;
+        }
         double offset = keepScroll ? PageScroll.VerticalOffset : 0;
         PageHost.Content = null; // 前の中身を外してから作る（同じパネルを置き直すため）
         PageTitle.Text = page.Title;
