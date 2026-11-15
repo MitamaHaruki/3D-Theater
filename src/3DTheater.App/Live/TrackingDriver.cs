@@ -249,15 +249,20 @@ public sealed class FaceRig
     private readonly int _head;
     private readonly int _eyes;
     private readonly Dictionary<string, int> _morphs;
+    // 目線の表情（左・右・上・下）。両目のボーンが無く、目線を表情で動かすモデル（VRM）だけ使う
+    private readonly (int Left, int Right, int Up, int Down) _look;
 
-    private FaceRig(int upperBody, int neck, int head, int eyes, Dictionary<string, int> morphs)
+    private FaceRig(int upperBody, int neck, int head, int eyes, Dictionary<string, int> morphs, (int, int, int, int) look)
     {
         _upperBody = upperBody;
         _neck = neck;
         _head = head;
         _eyes = eyes;
         _morphs = morphs;
+        _look = eyes >= 0 ? (-1, -1, -1, -1) : look;
     }
+
+    private bool LooksByMorph => _look.Left >= 0 || _look.Right >= 0 || _look.Up >= 0 || _look.Down >= 0;
 
     public static FaceRig Create(ModelNode model, PmxDocument document)
     {
@@ -294,7 +299,9 @@ public sealed class FaceRig
             morphs.TryAdd(key, index);
         }
         return new FaceRig(FaceRigNames.Find(bones, FaceRigNames.UpperBody), FaceRigNames.Find(bones, FaceRigNames.Neck),
-            FaceRigNames.Find(bones, FaceRigNames.Head), FaceRigNames.Find(bones, FaceRigNames.Eyes), morphs);
+            FaceRigNames.Find(bones, FaceRigNames.Head), FaceRigNames.Find(bones, FaceRigNames.Eyes), morphs,
+            (FaceRigNames.Find(morphNames, FaceRigNames.LookLeft), FaceRigNames.Find(morphNames, FaceRigNames.LookRight),
+                FaceRigNames.Find(morphNames, FaceRigNames.LookUp), FaceRigNames.Find(morphNames, FaceRigNames.LookDown)));
     }
 
     // モーフが動かす頂点の、重みを付けた X の平均（グループのモーフは中のモーフをたどる）
@@ -339,6 +346,10 @@ public sealed class FaceRig
         Add(_neck, "首");
         Add(_head, "頭");
         Add(_eyes, "両目");
+        if (LooksByMorph)
+        {
+            parts.Add("目線（表情）");
+        }
         string[] missing = [.. FaceRetarget.MorphKeys.Where(k => !_morphs.ContainsKey(k))];
         return $"当てはめ: {modelName}（ボーン {string.Join("・", parts)}・モーフ {_morphs.Count} 個）" +
             (missing.Length > 0 ? $"。モデルに無いもの: {string.Join("・", missing)}" : string.Empty);
@@ -372,6 +383,18 @@ public sealed class FaceRig
             if (output.Morphs.TryGetValue(key, out float weight))
             {
                 (key is FaceRetarget.Blink or FaceRetarget.WinkLeft or FaceRetarget.WinkRight ? eyes : morphs).Add((index, weight));
+            }
+        }
+        if (LooksByMorph)
+        {
+            // 両目のボーンが無いモデル（目線を表情で動かす VRM）: 目の回転を、視線上・下・左・右の表情の強さにする
+            var (left, right, up, down) = FaceRetarget.LookWeights(output.Eyes);
+            foreach (var (index, weight) in new[] { (_look.Left, left), (_look.Right, right), (_look.Up, up), (_look.Down, down) })
+            {
+                if (index >= 0)
+                {
+                    morphs.Add((index, weight));
+                }
             }
         }
         return new FaceOverlay(bones, morphs, eyes);

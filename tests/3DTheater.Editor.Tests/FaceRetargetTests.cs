@@ -277,4 +277,27 @@ public sealed class FaceRetargetTests
         settings.Mirror = false;
         Assert.AreEqual(2, changes, "変わらなければ知らせない");
     }
+
+    [TestMethod]
+    public void GazeTurnsIntoLookExpressions()
+    {
+        // 両目のボーンが無いモデル（目線を表情で動かす VRM）: 目の回転を、モデルから見た向きの表情の強さにする
+        Assert.AreEqual((0f, 0f, 0f, 0f), FaceRetarget.LookWeights(Quaternion.Identity));
+        // 画面の右（モデルの +X ＝ モデルの左）を、いちばん大きく見る
+        var left = FaceRetarget.LookWeights(FaceRetarget.ModelRotation(FaceRetarget.GazeYawDegrees, 0, 0));
+        Assert.AreEqual(1f, left.Left, 1e-4f);
+        Assert.AreEqual(0f, left.Right);
+        var right = FaceRetarget.LookWeights(FaceRetarget.ModelRotation(-FaceRetarget.GazeYawDegrees / 2, 0, 0));
+        Assert.AreEqual(0.5f, right.Right, 1e-3f);
+        Assert.AreEqual(0f, right.Left);
+        var up = FaceRetarget.LookWeights(FaceRetarget.ModelRotation(0, FaceRetarget.GazePitchDegrees, 0));
+        Assert.AreEqual(1f, up.Up, 1e-4f);
+        Assert.AreEqual(0f, up.Down);
+        var down = FaceRetarget.LookWeights(FaceRetarget.ModelRotation(0, -FaceRetarget.GazePitchDegrees / 2, 0));
+        Assert.AreEqual(0.5f, down.Down, 1e-3f);
+        var far = FaceRetarget.LookWeights(FaceRetarget.ModelRotation(FaceRetarget.GazeYawDegrees * 3, 0, 0));
+        Assert.AreEqual(1f, far.Left, "1 より大きくしない");
+        CollectionAssert.AreEqual(new[] { "視線上" }, FaceRigNames.LookUp.ToArray());
+        CollectionAssert.AreEqual(new[] { "視線左" }, FaceRigNames.LookLeft.ToArray());
+    }
 }

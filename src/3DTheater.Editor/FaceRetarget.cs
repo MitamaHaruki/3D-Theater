@@ -287,6 +287,20 @@ public sealed class FaceRetarget
     /// 画面の上の向き（度）を、モデルのボーンの回転にする。左右は画面の右を向くと正（モデルの +X の側）、上下は上を向くと正、
     /// 傾きは画面の上で時計回りが正（頭の上が画面の右へ）。
     /// </summary>
+    /// <summary>
+    /// 目の回転（<see cref="FaceOutput.Eyes"/>）を、目線の表情の強さにする（両目のボーンが無く、目線を表情で動かすモデル。VRM の lookAt が expression のもの。
+    /// 設計判断記録 82 章の 3 段目）。左右はモデルから見て（左 = モデルの +X）。いちばん大きく動かす目線（<see cref="GazeYawDegrees"/>・
+    /// <see cref="GazePitchDegrees"/>）で 1。目を回したときの、正面（-Z）の向きから求めるので、両目のボーンを回したときと同じ向きを見る。
+    /// </summary>
+    public static (float Left, float Right, float Up, float Down) LookWeights(Quaternion eyes)
+    {
+        const float ToDegrees = 180f / MathF.PI;
+        Vector3 forward = Vector3.Transform(-Vector3.UnitZ, eyes);
+        float yaw = MathF.Atan2(forward.X, -forward.Z) * ToDegrees;              // モデルの左（+X）が正
+        float pitch = MathF.Asin(Math.Clamp(forward.Y, -1f, 1f)) * ToDegrees;   // 上が正
+        return (Clamp01(yaw / GazeYawDegrees), Clamp01(-yaw / GazeYawDegrees), Clamp01(pitch / GazePitchDegrees), Clamp01(-pitch / GazePitchDegrees));
+    }
+
     public static Quaternion ModelRotation(float screenYaw, float pitch, float screenRoll)
     {
         const float ToRadians = MathF.PI / 180f;
@@ -437,6 +451,15 @@ public static class FaceRigNames
     public static IReadOnlyList<string> Neck { get; } = ["首"];
     public static IReadOnlyList<string> Head { get; } = ["頭"];
     public static IReadOnlyList<string> Eyes { get; } = ["両目"];
+
+    /// <summary>目線を表情で動かすモデルの、目線の表情（VRM の lookUp など。モデルから見た向き）。両目のボーンが無いときだけ使う。</summary>
+    public static IReadOnlyList<string> LookUp { get; } = ["視線上"];
+
+    public static IReadOnlyList<string> LookDown { get; } = ["視線下"];
+
+    public static IReadOnlyList<string> LookLeft { get; } = ["視線左"];
+
+    public static IReadOnlyList<string> LookRight { get; } = ["視線右"];
 
     /// <summary>決まった名前ごとの、モデルのモーフの名前の候補（先にあるものを使う）。ウィンクの左右はモーフの頂点の位置で決める。</summary>
     public static IReadOnlyDictionary<string, string[]> Morphs { get; } = new Dictionary<string, string[]>

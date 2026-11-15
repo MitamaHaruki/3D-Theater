@@ -251,6 +251,143 @@ public sealed class GltfReaderTests
     }
 
     [TestMethod]
+    public void Vrm1ExpressionsBecomeMmdMorphs()
+    {
+        var expressions = new
+        {
+            preset = new Dictionary<string, object>
+            {
+                ["aa"] = new { morphTargetBinds = new[] { new { node = 0, index = 1, weight = 0.5f } } },
+                ["blink"] = new { morphTargetBinds = new[] { new { node = 0, index = 0, weight = 1f } } },
+                ["happy"] = new
+                {
+                    morphTargetBinds = new[] { new { node = 0, index = 0, weight = 1f } },
+                    textureTransformBinds = new[] { new { material = 0, offset = new[] { 0.25f, 0 }, scale = new[] { 1f, 1 } } },
+                    isBinary = true,
+                },
+                ["angry"] = new { materialColorBinds = new[] { new { material = 0, type = "color", targetValue = new[] { 1f, 0, 0, 1 } } } },
+                ["lookLeft"] = new { morphTargetBinds = new[] { new { node = 0, index = 1, weight = 1f } } },
+                ["neutral"] = new { },
+            },
+            custom = new Dictionary<string, object> { ["Wink2"] = new { morphTargetBinds = new[] { new { node = 0, index = 0, weight = 1f } } } },
+        };
+        var extensions = new Dictionary<string, object>
+        {
+            ["VRMC_vrm"] = new { specVersion = "1.0", meta = new { name = "Face" }, expressions, lookAt = new { type = "expression" } },
+        };
+        PmxLoadResult result = GltfReader.Read(FaceModel(extensions));
+        Assert.IsTrue(result.Succeeded);
+        PmxDocument d = result.Document!;
+
+        // 並び: 決まった表情（MMD の表情の欄の順）→ 自分で作った表情 → 部品 → 元の形の変化。中身の無い neutral は作らない
+        CollectionAssert.AreEqual(
+            new[] { "まばたき", "あ", "笑い", "怒り", "視線左", "Wink2", "笑い（形）", "笑い（UV）", "Fcl_Blink", "Fcl_A" },
+            d.Morphs.Select(m => m.Name).ToArray());
+        PmxMorph Morph(string name) => d.Morphs.Single(m => m.Name == name);
+        Assert.AreEqual(PmxMorphPanel.Eye, Morph("まばたき").Panel);
+        Assert.AreEqual(PmxMorphPanel.Mouth, Morph("あ").Panel);
+        Assert.AreEqual(PmxMorphPanel.Eyebrow, Morph("怒り").Panel);
+
+        // 形: 指した表情の元を強さで混ぜる
+        PmxMorph a = Morph("あ");
+        PmxMorph rawA = Morph("Fcl_A");
+        Assert.AreEqual(PmxMorphType.Vertex, a.Type);
+        Assert.HasCount(rawA.VertexOffsets.Count, a.VertexOffsets);
+        AssertNear(rawA.VertexOffsets[0].Translation * 0.5f, a.VertexOffsets.Single(o => o.Vertex == rawA.VertexOffsets[0].Vertex).Translation);
+
+        // 2 種類（形と UV）を持つ表情は、部品を混ぜるグループ
+        PmxMorph happy = Morph("笑い");
+        Assert.AreEqual(PmxMorphType.Group, happy.Type);
+        CollectionAssert.AreEqual(new[] { 6, 7 }, happy.GroupOffsets.Select(g => g.Morph).ToArray());
+        PmxMorph happyUv = Morph("笑い（UV）");
+        Assert.AreEqual(PmxMorphType.Uv, happyUv.Type);
+        Assert.HasCount(3, happyUv.UvOffsets, "材質 0 を使う頂点すべて");
+        Assert.AreEqual(new Vector4(0.25f, 0, 0, 0), happyUv.UvOffsets[0].Value);
+
+        // 材質の色: 目標の色との差を足す（拡散色は白なので、赤にするには緑と青を 1 引く）
+        PmxMorph angry = Morph("怒り");
+        Assert.AreEqual(PmxMorphType.Material, angry.Type);
+        PmxMaterialOffset color = angry.MaterialOffsets.Single();
+        Assert.AreEqual(PmxMaterialOperation.Add, color.Operation);
+        Assert.IsLessThan(1e-5f, Vector4.Distance(new Vector4(0, -1, -1, 0), color.Diffuse), $"実際 {color.Diffuse}");
+
+        Assert.IsTrue(result.Report.Issues.Any(i => i.Message.Contains("isBinary", StringComparison.Ordinal)));
+    }
+
+    [TestMethod]
+    public void Vrm0BlendShapesBecomeMmdMorphs()
+    {
+        var extensions = new Dictionary<string, object>
+        {
+            ["VRM"] = new
+            {
+                meta = new { title = "Face0" },
+                blendShapeMaster = new
+                {
+                    blendShapeGroups = new object[]
+                    {
+                        new { presetName = "a", name = "A", binds = new[] { new { mesh = 0, index = 1, weight = 100f } } },
+                        new { presetName = "blink_l", name = "Blink_L", binds = new[] { new { mesh = 0, index = 0, weight = 50f } } },
+                        new
+                        {
+                            presetName = "unknown",
+                            name = "Scroll",
+                            materialValues = new[] { new { materialName = "Face", propertyName = "_MainTex_ST", targetValue = new[] { 1f, 1, 0.5f, 0.1f } } },
+                        },
+                    },
+                },
+            },
+        };
+        PmxDocument d = GltfReader.Read(FaceModel(extensions)).Document!;
+        PmxMorph Morph(string name) => d.Morphs.Single(m => m.Name == name);
+        CollectionAssert.AreEqual(new[] { "ウィンク", "あ", "Scroll" }, d.Morphs.Take(3).Select(m => m.Name).ToArray());
+        // 0.x の強さは 0〜100
+        AssertNear(Morph("Fcl_A").VertexOffsets[0].Translation, Morph("あ").VertexOffsets[0].Translation);
+        AssertNear(Morph("Fcl_Blink").VertexOffsets[0].Translation * 0.5f, Morph("ウィンク").VertexOffsets[0].Translation);
+        // Unity の決まり（V が上向き）のずらす量を glTF へ: v のずらす量は 1 - 大きさ - ずらす量 = -0.1
+        PmxUvOffset scroll = Morph("Scroll").UvOffsets[0];
+        Assert.AreEqual(0.5f, scroll.Value.X, 1e-6f);
+        Assert.AreEqual(-0.1f, scroll.Value.Y, 1e-6f);
+    }
+
+    // 顔の形（三角形 1 枚・材質 Face）と、表情の元 2 つ（Fcl_Blink は頂点 2 を、Fcl_A は頂点 0 を動かす）
+    private static byte[] FaceModel(Dictionary<string, object> extensions)
+    {
+        var b = new GlbBuilder();
+        int position = b.Floats([0, 1, 0, 1, 1, 0, 0, 1.5f, 0], "VEC3");
+        int uv = b.Floats([0, 0, 1, 0, 0, 1], "VEC2");
+        int blink = b.Floats([0, 0, 0, 0, 0, 0, 0, -0.01f, 0], "VEC3");
+        int open = b.Floats([0, -0.02f, 0, 0, 0, 0, 0, 0, 0], "VEC3");
+        var json = new Dictionary<string, object>
+        {
+            ["asset"] = new { version = "2.0" },
+            ["scene"] = 0,
+            ["scenes"] = new[] { new { nodes = new[] { 0 } } },
+            ["nodes"] = new object[] { new { name = "Face", mesh = 0 } },
+            ["meshes"] = new[]
+            {
+                new
+                {
+                    extras = new { targetNames = new[] { "Fcl_Blink", "Fcl_A" } },
+                    primitives = new[]
+                    {
+                        new
+                        {
+                            attributes = new Dictionary<string, int> { ["POSITION"] = position, ["TEXCOORD_0"] = uv },
+                            material = 0,
+                            targets = new[] { new Dictionary<string, int> { ["POSITION"] = blink }, new Dictionary<string, int> { ["POSITION"] = open } },
+                        },
+                    },
+                },
+            },
+            ["materials"] = new[] { new { name = "Face" } },
+            ["extensionsUsed"] = extensions.Keys.ToArray(),
+            ["extensions"] = extensions,
+        };
+        return b.Build(json);
+    }
+
+    [TestMethod]
     public void Vrm0IsMirroredOnX()
     {
         var extensions = new Dictionary<string, object> { ["VRM"] = new { meta = new { title = "T0", author = "B" } } };
@@ -363,6 +500,16 @@ public sealed class GltfReaderTests
                 Assert.IsLessThan(i, d.Bones[i].ParentIndex, $"{name}: 親が先（{d.Bones[i].Name}）");
             }
             Assert.IsFalse(result.Report.Issues.Any(i => i.Severity == LoadSeverity.Warning), $"{name}: 注意は無い");
+
+            // 3 段目: 表情は MMD の名前で、表情の欄の初めに並ぶ。目線を表情で動かすモデル（Seed-san）は両目を作らず、視線の表情を持つ
+            foreach (string required in new[] { "まばたき", "ウィンク", "ウィンク右", "あ", "い", "う", "え", "お", "笑い", "怒り", "困る", "にっこり" })
+            {
+                CollectionAssert.Contains(d.Morphs.Select(m => m.Name).ToArray(), required, $"{name}: {required}");
+            }
+            Assert.AreEqual("まばたき", d.Morphs[0].Name, name);
+            bool lookByExpression = d.Morphs.Any(m => m.Name == "視線左");
+            Assert.AreEqual(name.StartsWith("Seed", StringComparison.Ordinal), lookByExpression, $"{name}: 目線を表情で動かすのは Seed-san だけ");
+            Assert.AreEqual(!lookByExpression, names.Contains("両目"), $"{name}: 目線を表情で動かすモデルは両目を作らない");
         }
     }
 

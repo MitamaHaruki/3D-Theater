@@ -149,6 +149,17 @@ internal static class GltfConverter
         private Matrix4x4[] _pose = [];               // ノードごとの、初めの姿勢へ足す動き（腕を A の字にする回転。ほかは何もしない）
         private int _posedArms;
         private bool _humanoidApplied;
+        private List<VrmExpression> _expressions = [];
+        private bool _lookAtByExpression;                                                  // 目線を表情で動かす VRM（両目のボーンを作らない）
+        private readonly Dictionary<(int Mesh, int Target), List<PmxVertexOffset>> _targetOffsets = []; // メッシュと番号ごとの表情の元
+        private readonly Dictionary<int, List<(int Vertex, Vector2 Uv)>> _materialVertices = [];      // glTF の材質 → それを使う頂点と UV
+        private readonly Dictionary<int, List<int>> _pmxMaterialsOf = [];                            // glTF の材質 → PMX の材質（形ごと）
+        private readonly List<PmxMorph> _expressionMorphs = [];
+        private readonly List<PmxMorph> _partMorphs = [];
+        private readonly HashSet<string> _expressionNames = new(StringComparer.Ordinal);
+        private int _binaryExpressions;
+        private int _overrideExpressions;
+        private int _unsupportedColorBinds;
         private readonly List<int> _order = []; // 階層の順（親が先）
         private readonly Dictionary<int, int> _boneOf = []; // ノード → ボーンの番号
         private readonly List<PmxBone> _bones = [];
@@ -176,6 +187,7 @@ internal static class GltfConverter
             ReadNodes();
             ComputeWorld();
             _human = VrmHumanoid.Read(file.Root, version, _nodes.Length);
+            (_expressions, _lookAtByExpression) = VrmExpressions.Read(file.Root, version, n => (uint)n < (uint)_nodes.Length ? _nodes[n].Mesh : -1, MaterialByName);
             ComputePose();
             BuildBones();
             foreach (int node in _order)
@@ -185,6 +197,7 @@ internal static class GltfConverter
                     AddMesh(node);
                 }
             }
+            BuildExpressions();
             if (GltfFile.TryGet(file.Root, "extensions", out JsonElement extensions) && extensions.ValueKind == JsonValueKind.Object)
             {
                 _springBones = GltfFile.TryGet(extensions, "VRMC_springBone", out _)
@@ -409,7 +422,10 @@ internal static class GltfConverter
 
             if (human)
             {
-                AddEyes(specOf);
+                if (!_lookAtByExpression)
+                {
+                    AddEyes(specOf); // 目線を表情で動かす VRM は、両目を作らない（トラッキングは「視線上」などの表情で目線を動かす）
+                }
                 AddLegIk(specOf, root);
                 _humanoidApplied = true;
             }
@@ -614,7 +630,7 @@ internal static class GltfConverter
             }
             foreach (JsonElement primitive in primitives.EnumerateArray())
             {
-                AddPrimitive(node, nodeIndex, primitive, meshName, meshTargetNames, jointNodes, skinMatrices);
+                AddPrimitive(node, nodeIndex, node.Mesh, primitive, meshName, meshTargetNames, jointNodes, skinMatrices);
             }
         }
 
@@ -623,7 +639,8 @@ internal static class GltfConverter
                 ? [.. GltfFile.Strings(extras, "targetNames")]
                 : [];
 
-        private void AddPrimitive(Node node, int nodeIndex, JsonElement primitive, string meshName, string[] meshTargetNames, int[] jointNodes, Matrix4x4[] skinMatrices)
+        private void AddPrimitive(Node node, int nodeIndex, int meshIndex, JsonElement primitive, string meshName, string[] meshTargetNames, int[] jointNodes,
+            Matrix4x4[] skinMatrices)
         {
             if (GltfFile.Int(primitive, "mode", 4) != 4)
             {
@@ -746,7 +763,24 @@ internal static class GltfConverter
                 _indices.Add(baseIndex + (int)i2);
                 _indices.Add(baseIndex + (int)i1);
             }
-            _materials.Add(Material(GltfFile.Int(primitive, "material", -1), faceCount * 3));
+            int gltfMaterial = GltfFile.Int(primitive, "material", -1);
+            _materials.Add(Material(gltfMaterial, faceCount * 3));
+            // 表情が材質を指すときのために、材質ごとの PMX の材質と、頂点と UV を覚える
+            if (!_pmxMaterialsOf.TryGetValue(gltfMaterial, out List<int>? pmxMaterials))
+            {
+                pmxMaterials = [];
+                _pmxMaterialsOf[gltfMaterial] = pmxMaterials;
+            }
+            pmxMaterials.Add(_materials.Count - 1);
+            if (!_materialVertices.TryGetValue(gltfMaterial, out List<(int Vertex, Vector2 Uv)>? materialVertices))
+            {
+                materialVertices = [];
+                _materialVertices[gltfMaterial] = materialVertices;
+            }
+            for (int i = 0; i < count; i++)
+            {
+                materialVertices.Add((baseIndex + i, _vertices[baseIndex + i].Uv));
+            }
 
             // 表情の元（モーフターゲット）: 位置の変化を、初めの姿勢の向き・大きさに合わせて頂点モーフにする
             if (GltfFile.TryGet(primitive, "targets", out JsonElement targets) && targets.ValueKind == JsonValueKind.Array)
@@ -771,6 +805,11 @@ internal static class GltfConverter
                         _morphs[morphName] = offsets;
                         _morphOrder.Add(morphName);
                     }
+                    if (!_targetOffsets.TryGetValue((meshIndex, k - 1), out List<PmxVertexOffset>? targetOffsets))
+                    {
+                        targetOffsets = [];
+                        _targetOffsets[(meshIndex, k - 1)] = targetOffsets;
+                    }
                     for (int i = 0; i < count && (i + 1) * 3 <= deltas.Length; i++)
                     {
                         var delta = new Vector3(deltas[i * 3], deltas[i * 3 + 1], deltas[i * 3 + 2]);
@@ -778,7 +817,9 @@ internal static class GltfConverter
                         {
                             continue;
                         }
-                        offsets.Add(new PmxVertexOffset(baseIndex + i, Direction(Vector3.TransformNormal(delta, vertexMatrices[i])) * MetersToMmd));
+                        var offset = new PmxVertexOffset(baseIndex + i, Direction(Vector3.TransformNormal(delta, vertexMatrices[i])) * MetersToMmd);
+                        offsets.Add(offset);
+                        targetOffsets.Add(offset);
                     }
                 }
             }
@@ -965,6 +1006,145 @@ internal static class GltfConverter
             return pmxIndex;
         }
 
+        // ---- 表情（3 段目） ----
+
+        // VRM の表情を、PMX の表情にする。形の変化は、指している表情の元（メッシュと番号ごと）を強さで混ぜた頂点モーフ、
+        // テクスチャの位置をずらすのは、その材質を使う頂点の UV モーフ（uv' = uv × 大きさ + ずらす量 の差）、
+        // 材質の色は、その材質の PMX の材質（形ごとに分かれている）への足す材質モーフ。2 種類以上あれば、それぞれを部品の表情にして、
+        // 決まった名前の表情は、それらを 1 倍ずつ混ぜるグループモーフにする。中身の無い表情（neutral など）は作らない
+        private void BuildExpressions()
+        {
+            var names = new HashSet<string>(StringComparer.Ordinal);
+            var specs = new List<(string Name, PmxMorphPanel Panel, List<PmxVertexOffset> Vertex, List<PmxUvOffset> Uv, List<PmxMaterialOffset> Material)>();
+            foreach (VrmExpression e in _expressions.OrderBy(x => VrmExpressions.Order(x.Key)))
+            {
+                var vertex = new Dictionary<int, Vector3>();
+                foreach (var (mesh, target, weight) in e.MorphBinds)
+                {
+                    if (_targetOffsets.TryGetValue((mesh, target), out List<PmxVertexOffset>? offsets))
+                    {
+                        foreach (PmxVertexOffset o in offsets)
+                        {
+                            vertex[o.Vertex] = vertex.GetValueOrDefault(o.Vertex) + o.Translation * weight;
+                        }
+                    }
+                }
+                var uv = new Dictionary<int, Vector2>();
+                foreach (var (material, scale, offset) in e.UvBinds)
+                {
+                    if (_materialVertices.TryGetValue(material, out List<(int Vertex, Vector2 Uv)>? list))
+                    {
+                        foreach (var (v, coordinate) in list)
+                        {
+                            uv[v] = uv.GetValueOrDefault(v) + coordinate * (scale - Vector2.One) + offset;
+                        }
+                    }
+                }
+                var colors = new List<PmxMaterialOffset>();
+                foreach (var (material, type, color) in e.ColorBinds)
+                {
+                    if (type != "color")
+                    {
+                        _unsupportedColorBinds++;
+                        continue;
+                    }
+                    if (!_pmxMaterialsOf.TryGetValue(material, out List<int>? pmxMaterials))
+                    {
+                        continue;
+                    }
+                    Vector4 target = e.ColorIsLinear ? new Vector4(LinearToSrgb(color.X), LinearToSrgb(color.Y), LinearToSrgb(color.Z), color.W) : color;
+                    foreach (int p in pmxMaterials)
+                    {
+                        Vector4 delta = target - _materials[p].Diffuse;
+                        colors.Add(new PmxMaterialOffset(p, PmxMaterialOperation.Add, delta, Vector3.Zero, 0f, new Vector3(delta.X, delta.Y, delta.Z) * AmbientShare,
+                            Vector4.Zero, 0f, Vector4.Zero, Vector4.Zero, Vector4.Zero));
+                    }
+                }
+                List<PmxVertexOffset> vertexOffsets = [.. vertex.Where(kv => kv.Value.LengthSquared() > 1e-12f).Select(kv => new PmxVertexOffset(kv.Key, kv.Value))];
+                List<PmxUvOffset> uvOffsets = [.. uv.Where(kv => kv.Value.LengthSquared() > 1e-12f).Select(kv => new PmxUvOffset(kv.Key, new Vector4(kv.Value, 0, 0)))];
+                if (vertexOffsets.Count == 0 && uvOffsets.Count == 0 && colors.Count == 0)
+                {
+                    continue;
+                }
+                var (name, panel) = VrmExpressions.MmdName(e.Key) ?? (e.Name, PmxMorphPanel.Other);
+                specs.Add((Unique(name, names), panel, vertexOffsets, uvOffsets, colors));
+                _binaryExpressions += e.IsBinary ? 1 : 0;
+                _overrideExpressions += e.Overrides ? 1 : 0;
+            }
+
+            int top = specs.Count;
+            foreach (var s in specs)
+            {
+                var parts = new List<PmxMorph>();
+                if (s.Vertex.Count > 0)
+                {
+                    parts.Add(new PmxMorph { Name = s.Name + "（形）", NameUniversal = s.Name, Panel = s.Panel, Type = PmxMorphType.Vertex, VertexOffsets = s.Vertex });
+                }
+                if (s.Uv.Count > 0)
+                {
+                    parts.Add(new PmxMorph { Name = s.Name + "（UV）", NameUniversal = s.Name, Panel = s.Panel, Type = PmxMorphType.Uv, UvOffsets = s.Uv });
+                }
+                if (s.Material.Count > 0)
+                {
+                    parts.Add(new PmxMorph { Name = s.Name + "（色）", NameUniversal = s.Name, Panel = s.Panel, Type = PmxMorphType.Material, MaterialOffsets = s.Material });
+                }
+                if (parts.Count == 1)
+                {
+                    PmxMorph only = parts[0];
+                    _expressionMorphs.Add(new PmxMorph
+                    {
+                        Name = s.Name,
+                        NameUniversal = s.Name,
+                        Panel = s.Panel,
+                        Type = only.Type,
+                        VertexOffsets = only.VertexOffsets,
+                        UvOffsets = only.UvOffsets,
+                        MaterialOffsets = only.MaterialOffsets,
+                    });
+                    continue;
+                }
+                var groups = new List<PmxGroupOffset>();
+                foreach (PmxMorph part in parts)
+                {
+                    groups.Add(new PmxGroupOffset(top + _partMorphs.Count, 1f));
+                    _partMorphs.Add(new PmxMorph
+                    {
+                        Name = Unique(part.Name, names),
+                        NameUniversal = part.NameUniversal,
+                        Panel = PmxMorphPanel.Other,
+                        Type = part.Type,
+                        VertexOffsets = part.VertexOffsets,
+                        UvOffsets = part.UvOffsets,
+                        MaterialOffsets = part.MaterialOffsets,
+                    });
+                }
+                _expressionMorphs.Add(new PmxMorph { Name = s.Name, NameUniversal = s.Name, Panel = s.Panel, Type = PmxMorphType.Group, GroupOffsets = groups });
+            }
+            _expressionNames.UnionWith(names);
+        }
+
+        private static string Unique(string name, HashSet<string> names)
+        {
+            string result = name;
+            for (int k = 2; !names.Add(result); k++)
+            {
+                result = $"{name}_{k}";
+            }
+            return result;
+        }
+
+        private int MaterialByName(string name)
+        {
+            for (int i = 0; i < file.Count("materials"); i++)
+            {
+                if (GltfFile.String(file.Item("materials", i), "name") == name)
+                {
+                    return i;
+                }
+            }
+            return -1;
+        }
+
         // ---- まとめ ----
 
         public void ReportUnsupported(VrmVersion version)
@@ -987,9 +1167,27 @@ internal static class GltfConverter
             {
                 report.Info(LoadIssueCategory.Note, "glTF には人型のボーンの決まりが無いため、ボーンの名前は元のままです（MMD のモーションは当てはまりません）");
             }
-            if (version != VrmVersion.None)
+            if (_expressionMorphs.Count > 0)
             {
-                report.Info(LoadIssueCategory.Unsupported, "VRM の表情（まばたき・あいうえお など）は、まだ MMD の表情に結び付けていません（元の形の変化として、名前のまま読みました）");
+                string sample = string.Join("・", _expressionMorphs.Take(8).Select(m => m.Name));
+                report.Info(LoadIssueCategory.Note,
+                    $"VRM の表情を、MMD の表情（{sample} など {_expressionMorphs.Count} 個）にしました。元の形の変化も、名前のまま残しています");
+            }
+            if (_lookAtByExpression && _humanoidApplied)
+            {
+                report.Info(LoadIssueCategory.Note, "目線を表情で動かす VRM なので、両目のボーンは作らず、顔のトラッキングの目線は「視線上・視線下・視線左・視線右」の表情で動かします");
+            }
+            if (_binaryExpressions > 0)
+            {
+                report.Info(LoadIssueCategory.Unsupported, $"「0 か 1 か」で切り替える表情（isBinary）が {_binaryExpressions} 個あります。途中の強さも、そのまま混ぜて使います");
+            }
+            if (_overrideExpressions > 0)
+            {
+                report.Info(LoadIssueCategory.Unsupported, $"表情が出ている間、まばたきなどを止める決まり（override）は、まだ使いません（{_overrideExpressions} 個）");
+            }
+            if (_unsupportedColorBinds > 0)
+            {
+                report.Info(LoadIssueCategory.Unsupported, $"表情の材質の変化のうち、色以外（影の色・発光など）は、まだ使いません（{_unsupportedColorBinds} か所）");
             }
             if (_springBones)
             {
@@ -1019,14 +1217,20 @@ internal static class GltfConverter
 
         public PmxDocument ToDocument(string name, string universalName, string comment)
         {
-            var morphs = _morphOrder.Select(n => new PmxMorph
-            {
-                Name = n,
-                NameUniversal = n,
-                Panel = PmxMorphPanel.Other,
-                Type = PmxMorphType.Vertex,
-                VertexOffsets = _morphs[n],
-            }).ToArray();
+            // 並び: MMD の名前の表情 → その部品 → 元の形の変化（名前のまま。MMD の名前と重なれば「_2」を足す）
+            PmxMorph[] morphs =
+            [
+                .. _expressionMorphs,
+                .. _partMorphs,
+                .. _morphOrder.Select(n => new PmxMorph
+                {
+                    Name = Unique(n, _expressionNames),
+                    NameUniversal = n,
+                    Panel = PmxMorphPanel.Other,
+                    Type = PmxMorphType.Vertex,
+                    VertexOffsets = _morphs[n],
+                }),
+            ];
             return new PmxDocument
             {
                 Version = 2.0f,
