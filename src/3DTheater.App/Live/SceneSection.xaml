@@ -1,0 +1,29 @@
+<UserControl x:Class="Theater3D.App.Live.SceneSection"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!-- サイドバーの「シーン」（設計判断記録 78 章の 4 段目）: 保存したシーンを選んで「適用」で切り替える・今の状態をすべて保存する -->
+  <StackPanel>
+    <TextBlock x:Name="CurrentText" FontSize="13" TextWrapping="Wrap" AutomationProperties.AutomationId="LiveSceneName" />
+    <DockPanel Margin="0,10,0,0">
+      <Button x:Name="ApplyButton" DockPanel.Dock="Right" Style="{StaticResource LiveActionButtonStyle}" Margin="8,0,0,0" Content="適用" Click="OnApplyClick"
+              AutomationProperties.Name="シーンを適用" ToolTip="選んだシーンに保存してあるモデル・照明・カメラなどに切り替えます（何か置いてあれば、先に確かめます）" />
+      <ComboBox x:Name="SceneCombo" MinHeight="0" Padding="6,3" FontSize="12" AutomationProperties.Name="シーン"
+                DropDownOpened="OnDropDownOpened" SelectionChanged="OnSceneChanged" ToolTip="保存してあるシーン（シーンのフォルダーの .3dtlive）" />
+    </DockPanel>
+    <TextBlock x:Name="EmptyNote" Margin="0,6,0,0" Style="{StaticResource PlannedNoteStyle}"
+               Text="保存したシーンは、まだありません。「保存」で、今の状態をシーンとして保存します（「自室」「カラオケルーム」など、使う場面ごとに）。" />
+    <WrapPanel Margin="0,10,0,0">
+      <Button Style="{StaticResource LiveActionButtonStyle}" Content="保存" Click="OnSaveClick" AutomationProperties.Name="シーンを保存"
+              ToolTip="今の状態（モデル・照明・カメラ・トラッキング・キー操作・配信用の画面など）を、今のシーンに保存します。無題なら名前を聞きます（Ctrl+S）" />
+      <Button Style="{StaticResource LiveActionButtonStyle}" Content="名前を付けて保存..." Click="OnSaveAsClick" AutomationProperties.Name="シーンに名前を付けて保存"
+              ToolTip="今の状態を、新しい名前のシーンとして保存します（Ctrl+Shift+S）" />
+      <Button Style="{StaticResource LiveActionButtonStyle}" Content="新規" Click="OnNewClick" AutomationProperties.Name="新しいシーン"
+              ToolTip="何も置いていないシーンにします（保存していない変更があれば尋ねます。Ctrl+N）" />
+      <Button Style="{StaticResource LiveActionButtonStyle}" Content="ほかのファイルを開く..." Click="OnOpenOtherClick" AutomationProperties.Name="ほかのファイルを開く"
+              ToolTip="シーンのフォルダーの外にある、ライブのファイル（.3dtlive）を開きます（Ctrl+O）" />
+      <Button Style="{StaticResource LiveActionButtonStyle}" Content="フォルダーを開く" Click="OnOpenFolderClick" AutomationProperties.Name="シーンのフォルダーを開く"
+              ToolTip="シーンを置いているフォルダーを、エクスプローラーで開きます（シーンの名前を変える・消すときなど）" />
+    </WrapPanel>
+    <TextBlock x:Name="FolderText" Margin="0,4,0,0" Style="{StaticResource PlannedNoteStyle}" TextWrapping="Wrap" />
+  </StackPanel>
+</UserControl>

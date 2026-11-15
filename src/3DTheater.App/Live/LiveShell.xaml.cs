@@ -23,18 +23,6 @@ public partial class LiveShell : UserControl
         InitializeComponent();
     }
 
-    /// <summary>「新規」が押された。</summary>
-    public event EventHandler? NewRequested;
-
-    /// <summary>「開く...」が押された。</summary>
-    public event EventHandler? OpenRequested;
-
-    /// <summary>「保存」が押された。</summary>
-    public event EventHandler? SaveRequested;
-
-    /// <summary>「名前を付けて保存...」が押された。</summary>
-    public event EventHandler? SaveAsRequested;
-
     /// <summary>「設定」が押された（設定画面を開く）。</summary>
     public event EventHandler? SettingsRequested;
 
@@ -81,6 +69,9 @@ public partial class LiveShell : UserControl
         }
     }
 
+    /// <summary>サイドバーの「シーン」の中身を置く（設計判断記録 78 章の 4 段目）。</summary>
+    public void SetSceneSection(FrameworkElement scene) => SceneExpander.Content = scene;
+
     /// <summary>サイドバーの「照明」「キャラクター」「背景」の中身を置く（設計判断記録 78 章の 2 段目）。</summary>
     public void SetCastSections(FrameworkElement light, FrameworkElement character, FrameworkElement background)
     {
@@ -117,9 +108,6 @@ public partial class LiveShell : UserControl
             PanelTabs.SelectedIndex = 0;
         }
     }
-
-    /// <summary>シーンの名前（題名には出さないので、サイドバーに出す。保存していなければ ＊ を付ける）。</summary>
-    public void SetSceneName(string text) => SceneNameText.Text = text;
 
     /// <summary>左下に赤い字でエラーを出す（null か空なら消す）。</summary>
     public void ShowError(string? text)
@@ -187,14 +175,6 @@ public partial class LiveShell : UserControl
             _preview.ShowBones = BonesButton.IsChecked == true;
         }
     }
-
-    private void OnNewClick(object sender, RoutedEventArgs e) => NewRequested?.Invoke(this, EventArgs.Empty);
-
-    private void OnOpenClick(object sender, RoutedEventArgs e) => OpenRequested?.Invoke(this, EventArgs.Empty);
-
-    private void OnSaveClick(object sender, RoutedEventArgs e) => SaveRequested?.Invoke(this, EventArgs.Empty);
-
-    private void OnSaveAsClick(object sender, RoutedEventArgs e) => SaveAsRequested?.Invoke(this, EventArgs.Empty);
 
     private void OnSettingsClick(object sender, RoutedEventArgs e) => SettingsRequested?.Invoke(this, EventArgs.Empty);
 }

@@ -36,4 +36,19 @@ public sealed class CheckOptionsTests
         }
         Assert.AreEqual(TimeSpan.FromSeconds(10), CheckOptions.Parse(["--exit-after=10"]).ExitAfter, "10 秒から");
     }
+
+    [TestMethod]
+    public void SceneFolderIsRead()
+    {
+        CheckOptions options = CheckOptions.Parse([@"--scene-folder=C:\確かめ\シーン"]);
+        Assert.AreEqual(@"C:\確かめ\シーン", options.SceneFolder);
+        Assert.IsFalse(options.IsEmpty);
+        Assert.AreEqual(@"D:\a b", CheckOptions.Parse([@"--scene-folder=""D:\a b"""]).SceneFolder, "空白の入った場所（引用符）");
+        foreach (string bad in new[] { "--scene-folder", "--scene-folder=", "--scene-folder=シーン", @"--scene-folder=.\シーン" })
+        {
+            CheckOptions read = CheckOptions.Parse([bad]);
+            Assert.IsNull(read.SceneFolder, bad);
+            Assert.HasCount(1, read.Problems, bad);
+        }
+    }
 }

@@ -1,0 +1,23 @@
+<Window x:Class="Theater3D.App.Live.SceneNameWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="シーンを保存"
+        Width="460" SizeToContent="Height" ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        Background="{StaticResource BackgroundBrush}"
+        Foreground="{StaticResource TextBrush}"
+        FontFamily="Yu Gothic UI" FontSize="12"
+        UseLayoutRounding="True">
+  <!-- シーンの名前を聞く（設計判断記録 78 章の 4 段目）。名前はシーンのフォルダーのファイルの名前になる -->
+  <StackPanel Margin="20,16,20,16">
+    <TextBlock Text="シーンの名前（例: 自室・カラオケルーム）" Margin="0,0,0,8" />
+    <TextBox x:Name="NameBox" MinHeight="0" Padding="6,4" AutomationProperties.Name="シーンの名前" TextChanged="OnNameChanged" />
+    <TextBlock x:Name="ProblemText" Margin="0,6,0,0" TextWrapping="Wrap" Foreground="{StaticResource LiveErrorBrush}"
+               AutomationProperties.AutomationId="SceneNameProblem" />
+    <TextBlock x:Name="FolderText" Margin="0,8,0,0" TextWrapping="Wrap" FontSize="11" Foreground="{StaticResource SubTextBrush}" />
+    <StackPanel Margin="0,16,0,0" Orientation="Horizontal" HorizontalAlignment="Right">
+      <Button x:Name="OkButton" MinWidth="88" Content="保存" IsDefault="True" Click="OnOkClick" AutomationProperties.Name="この名前で保存" />
+      <Button Margin="8,0,0,0" MinWidth="88" Content="キャンセル" IsCancel="True" AutomationProperties.Name="キャンセル" />
+    </StackPanel>
+  </StackPanel>
+</Window>

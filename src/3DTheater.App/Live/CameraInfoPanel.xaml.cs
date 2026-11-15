@@ -16,6 +16,7 @@ public partial class CameraInfoPanel : UserControl
     private readonly EditorContext _context;
     private readonly CameraValues _values;
     private bool _updating;
+    private bool _broadcasting;
 
     internal CameraInfoPanel(EditorContext context)
     {
@@ -57,8 +58,20 @@ public partial class CameraInfoPanel : UserControl
         bool same = ReferenceEquals(preview, onAir);
         OnAirText.Text = $"配信中: {onAir.Name}";
         ApplyButton.IsEnabled = !same;
-        OnAirNote.Visibility = same ? Visibility.Visible : Visibility.Collapsed;
+        OnAirNote.Visibility = same && _broadcasting ? Visibility.Visible : Visibility.Collapsed;
         _values.SetCamera(preview);
+    }
+
+    /// <summary>
+    /// 配信用の画面か仮想カメラを使っているか（使っているときだけ、見ているカメラが配信中なら赤い字で注意を出す。プレビューの赤い枠と同じ）。
+    /// </summary>
+    public void SetBroadcasting(bool broadcasting)
+    {
+        if (_broadcasting != broadcasting)
+        {
+            _broadcasting = broadcasting;
+            Update();
+        }
     }
 
     private void OnCameraChanged(object sender, SelectionChangedEventArgs e)

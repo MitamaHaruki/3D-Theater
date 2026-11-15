@@ -8,12 +8,15 @@ namespace Theater3D.Editor;
 /// <item>「--track-camera」: 起動したら、カメラで顔のトラッキングを始める（ライブモード。初めのカメラ）。
 /// 「--track-camera=名前の一部」なら、名前にそれを含むカメラ。</item>
 /// <item>「--exit-after=秒」: 起動してから、その秒数で閉じる（保存を尋ねない。閉じるときの速さのまとめは書く）。</item>
+/// <item>「--scene-folder=フォルダー」: ライブモードのシーンを置くフォルダーを、ドキュメントの代わりにする
+/// （確かめで、利用者のシーンに触れないため。設計判断記録 78 章の 4 段目）。</item>
 /// </list>
 /// </summary>
-public sealed record CheckOptions(bool TrackCamera, string? CameraName, TimeSpan? ExitAfter, IReadOnlyList<string> Problems)
+public sealed record CheckOptions(bool TrackCamera, string? CameraName, TimeSpan? ExitAfter, IReadOnlyList<string> Problems, string? SceneFolder = null)
 {
     public const string TrackCameraOption = "--track-camera";
     public const string ExitAfterOption = "--exit-after";
+    public const string SceneFolderOption = "--scene-folder";
 
     /// <summary>閉じるまでの秒数の範囲（10 秒〜1 日）。</summary>
     public const int MinimumExitSeconds = 10;
@@ -22,7 +25,7 @@ public sealed record CheckOptions(bool TrackCamera, string? CameraName, TimeSpan
 
     public static CheckOptions None { get; } = new(false, null, null, []);
 
-    public bool IsEmpty => !TrackCamera && ExitAfter is null;
+    public bool IsEmpty => !TrackCamera && ExitAfter is null && SceneFolder is null;
 
     /// <summary>起動の引数（「--」で始まるもの）から読む。読めない指定は <see cref="Problems"/> に入れる（起動は止めない）。</summary>
     public static CheckOptions Parse(IReadOnlyList<string> switches)
@@ -30,6 +33,7 @@ public sealed record CheckOptions(bool TrackCamera, string? CameraName, TimeSpan
         bool track = false;
         string? camera = null;
         TimeSpan? exitAfter = null;
+        string? sceneFolder = null;
         var problems = new List<string>();
         foreach (string option in switches)
         {
@@ -51,8 +55,20 @@ public sealed record CheckOptions(bool TrackCamera, string? CameraName, TimeSpan
                     problems.Add($"「{option}」は読めません（{ExitAfterOption}={MinimumExitSeconds}〜{MaximumExitSeconds} の秒数で渡してください）");
                 }
             }
+            else if (name.Equals(SceneFolderOption, StringComparison.OrdinalIgnoreCase))
+            {
+                string folder = (value ?? string.Empty).Trim().Trim('"');
+                if (folder.Length > 0 && Path.IsPathFullyQualified(folder))
+                {
+                    sceneFolder = folder;
+                }
+                else
+                {
+                    problems.Add($"「{option}」は読めません（{SceneFolderOption}=C:\\フォルダー のように、ドライブから書いてください）");
+                }
+            }
         }
-        return new CheckOptions(track, camera, exitAfter, problems);
+        return new CheckOptions(track, camera, exitAfter, problems, sceneFolder);
     }
 
     private static (string Name, string? Value) Split(string option)

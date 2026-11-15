@@ -141,7 +141,8 @@ internal sealed class ProjectService
     /// プロジェクトを開く。モデルのファイルが見つからないときは、そのモデルの設定を残したまま（保存し直しても消えない）知らせる。
     /// <paramref name="recoveredFrom"/> は自動保存から復旧するときの、その自動保存のファイル。
     /// </summary>
-    public async Task<bool> OpenAsync(string path, string? recoveredFrom = null)
+    /// <param name="confirm">保存していない変更があれば、保存するか尋ねる（呼ぶ側で尋ね終えたときは false。ライブモードのシーンの切り替え）。</param>
+    public async Task<bool> OpenAsync(string path, string? recoveredFrom = null, bool confirm = true)
     {
         if (IsBusy)
         {
@@ -152,7 +153,7 @@ internal sealed class ProjectService
             OfferOtherMode(path, fileMode);
             return false;
         }
-        if (!ConfirmDiscard("プロジェクトを開く"))
+        if (confirm && !ConfirmDiscard("プロジェクトを開く"))
         {
             return false;
         }
@@ -268,8 +269,21 @@ internal sealed class ProjectService
     /// <summary>保存する（まだ名前が無ければ、名前を付けて保存する）。保存できたら true。</summary>
     public bool Save() => CurrentPath is null ? SaveAs() : SaveTo(CurrentPath);
 
+    /// <summary>
+    /// 名前を付けて保存するときに、ファイルを選ぶ画面の代わりに呼ぶ処理（ライブモードは、シーンの名前を聞いてシーンのフォルダーに保存する。
+    /// 設計判断記録 78 章の 4 段目）。閉じる・新規・開くときの「保存しますか」から保存するときも、これを通る。
+    /// </summary>
+    public Func<bool>? SaveAsHandler { get; set; }
+
+    /// <summary>決めた場所に保存する（ライブモードのシーン）。</summary>
+    public bool SaveToPath(string path) => SaveTo(path);
+
     public bool SaveAs()
     {
+        if (SaveAsHandler is { } handler)
+        {
+            return handler();
+        }
         var dialog = new Microsoft.Win32.SaveFileDialog
         {
             Title = "名前を付けて保存",

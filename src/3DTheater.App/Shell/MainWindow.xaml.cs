@@ -20,7 +20,7 @@ using Theater3D.Engine.Interop;
 
 namespace Theater3D.App.Shell;
 
-public partial class MainWindow : Window, Live.ILiveSceneActions
+public partial class MainWindow : Window, Live.ILiveSceneActions, Live.ILiveSceneFiles
 {
     private readonly EditorContext _context;
     private readonly DockingLayout _layout;
@@ -45,6 +45,8 @@ public partial class MainWindow : Window, Live.ILiveSceneActions
 
     // ライブモードの画面（設計判断記録 78 章）
     private Live.LiveShell? _live;
+    private Live.SceneSection? _sceneSection;
+    private Live.CameraInfoPanel? _cameraInfo;
     private readonly FullScreenSwitcher? _fullScreen;
     private Live.LiveSettingsWindow? _liveSettings;
 
@@ -678,8 +680,16 @@ public partial class MainWindow : Window, Live.ILiveSceneActions
         FrameText.Text = $"フレーム {_context.Playback.CurrentFrame} / {_context.Playback.EndFrame}（{_context.Playback.FrameRate} fps）";
 
     // ライブ: 配信に映しているカメラで見ていて、配信用の画面か仮想カメラを使っているときは、プレビューに赤い枠と札を出す
-    private void UpdateOnAirMark() =>
-        _live?.SetOnAir(_context.LiveCameras.IsPreviewOnAir(_context.Scene) && (_output is not null || _context.VirtualCamera?.IsOn == true));
+    private void UpdateOnAirMark()
+    {
+        if (_live is null)
+        {
+            return;
+        }
+        bool broadcasting = _output is not null || _context.VirtualCamera?.IsOn == true;
+        _live.SetOnAir(broadcasting && _context.LiveCameras.IsPreviewOnAir(_context.Scene));
+        _cameraInfo?.SetBroadcasting(broadcasting);
+    }
 
     private void UpdateStatus()
     {
@@ -833,6 +843,12 @@ public partial class MainWindow : Window, Live.ILiveSceneActions
         foreach (string problem in check.Problems)
         {
             AppLog.Warning(problem);
+        }
+        if (check.SceneFolder is { } sceneFolder)
+        {
+            Live.SceneLibrary.Folder = sceneFolder;
+            AppLog.Info($"確かめのため、シーンのフォルダーを「{Live.SceneLibrary.Folder}」にします");
+            _sceneSection?.RefreshList();
         }
         if (check.TrackCamera)
         {
@@ -1382,7 +1398,7 @@ public partial class MainWindow : Window, Live.ILiveSceneActions
             // ライブの題名は「3D Theater」だけ。シーンの名前と保存していない印は、サイドバーの「シーン」に出す（設計判断記録 78 章）
             Title = _safeMode ? "3D Theater（安全モード）" : "3D Theater";
             TitleText.Text = Title;
-            _live?.SetSceneName($"今のシーン: {_project.DisplayName}{(_project.IsDirty ? " ＊（保存していない変更があります）" : string.Empty)}");
+            _sceneSection?.ShowCurrent(_project.DisplayName, _project.IsDirty, Live.SceneLibrary.NameOf(_project.CurrentPath));
             return;
         }
         string app = "3D Theater";
@@ -1405,7 +1421,8 @@ public partial class MainWindow : Window, Live.ILiveSceneActions
         Activate(preview, preview.FirstView); // テンキーの視点の切り替えなどを、このプレビューで受ける
         _live.SetTrackingPanel(_layout.PanelContent(DockingLayout.TrackingId));
         _live.SetCastSections(new Live.LightSection(_context, this), new Live.CharacterSection(_context, this), new Live.BackgroundSection(_context, this));
-        _live.SetCameraParts(new Live.CameraSection(_context), new Live.CameraInfoPanel(_context));
+        _cameraInfo = new Live.CameraInfoPanel(_context);
+        _live.SetCameraParts(new Live.CameraSection(_context), _cameraInfo);
         _context.LiveCameras.Changed += (_, _) => UpdateOnAirMark();
         foreach (var (id, title) in new[] { (DockingLayout.SceneId, "シーンの一覧"), (DockingLayout.PropertiesId, "プロパティ"), (DockingLayout.MorphId, "モーフ") })
         {
@@ -1415,11 +1432,86 @@ public partial class MainWindow : Window, Live.ILiveSceneActions
             }
         }
         _live.ExpandedSections = _settings.LiveSections;
-        _live.NewRequested += (_, _) => _project.New();
-        _live.OpenRequested += async (_, _) => await _project.OpenWithDialogAsync();
-        _live.SaveRequested += (_, _) => _project.Save();
-        _live.SaveAsRequested += (_, _) => _project.SaveAs();
+        _sceneSection = new Live.SceneSection(this);
+        _live.SetSceneSection(_sceneSection);
+        _project.SaveAsHandler = SaveSceneAs; // 名前を付けて保存は、シーンの名前を聞く（設計判断記録 78 章の 4 段目）
         _live.SettingsRequested += (_, _) => OpenLiveSettings();
+    }
+
+    // ===== サイドバーの「シーン」から呼ぶ操作（設計判断記録 78 章の 4 段目） =====
+
+    async Task Live.ILiveSceneFiles.ApplySceneAsync(string name)
+    {
+        string path = Live.SceneLibrary.PathFor(name);
+        if (!File.Exists(path))
+        {
+            ShowNotice($"シーン「{name}」が見つかりません（消した・名前を変えた可能性があります）", isError: true);
+            _sceneSection?.RefreshList();
+            return;
+        }
+        Domain.SceneDocument scene = _context.Scene;
+        bool placed = scene.ModelsGroup.Children.OfType<Domain.ModelNode>().Any() || scene.AddedLights.Any() || scene.AddedCameras.Any();
+        if (_project.IsDirty)
+        {
+            MessageBoxResult answer = MessageBox.Show(this,
+                $"シーン「{name}」に切り替えます。\n今のシーン「{_project.DisplayName}」に、保存していない変更があります。保存してから切り替えますか？\n\n［はい］保存してから切り替える　［いいえ］保存せずに切り替える　［キャンセル］やめる",
+                "シーンを切り替える", MessageBoxButton.YesNoCancel, MessageBoxImage.Question);
+            if (answer == MessageBoxResult.Cancel || answer == MessageBoxResult.None || (answer == MessageBoxResult.Yes && !_project.Save()))
+            {
+                return;
+            }
+        }
+        else if (placed && MessageBox.Show(this,
+                     $"シーン「{name}」に切り替えますか？\n今置いているモデル・照明・カメラは、このシーンの物に入れ替わります（今のシーン「{_project.DisplayName}」は保存してあります）。",
+                     "シーンを切り替える", MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK)
+        {
+            return;
+        }
+        AppLog.Info($"シーン「{name}」に切り替えます");
+        await _project.OpenAsync(path, confirm: false);
+    }
+
+    void Live.ILiveSceneFiles.SaveScene() => _project.Save();
+
+    void Live.ILiveSceneFiles.SaveSceneAs() => SaveSceneAs();
+
+    void Live.ILiveSceneFiles.NewScene() => _project.New();
+
+    async Task Live.ILiveSceneFiles.OpenOtherFileAsync() => await _project.OpenWithDialogAsync();
+
+    // 名前を聞いて、シーンのフォルダーに保存する（同じ名前のシーンがあれば、上書きしてよいか尋ねる）
+    private bool SaveSceneAs()
+    {
+        string initial = Live.SceneLibrary.NameOf(_project.CurrentPath) ?? (_project.CurrentPath is null ? string.Empty : _project.DisplayName);
+        var window = new Live.SceneNameWindow(initial) { Owner = this };
+        if (window.ShowDialog() != true || window.SceneName is not { } name)
+        {
+            return false;
+        }
+        string path = Live.SceneLibrary.PathFor(name);
+        bool same = _project.CurrentPath is { } current
+            && string.Equals(System.IO.Path.GetFullPath(current), System.IO.Path.GetFullPath(path), StringComparison.OrdinalIgnoreCase);
+        if (File.Exists(path) && !same && MessageBox.Show(this, $"シーン「{name}」は、もうあります。上書きしますか？", "シーンを保存",
+                MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+        {
+            return false;
+        }
+        try
+        {
+            Directory.CreateDirectory(Live.SceneLibrary.Folder);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            AppLog.Error($"シーンのフォルダーを作れませんでした: {Live.SceneLibrary.Folder}", ex);
+            MessageBox.Show(this, $"シーンのフォルダーを作れませんでした。\n\n{ex.Message}", "シーンを保存", MessageBoxButton.OK, MessageBoxImage.Error);
+            return false;
+        }
+        bool saved = _project.SaveToPath(path);
+        if (saved)
+        {
+            AppLog.Info($"シーン「{name}」に保存しました");
+        }
+        return saved;
     }
 
     // ===== サイドバーの「キャラクター」「背景」「照明」から呼ぶ操作（設計判断記録 78 章の 2 段目） =====

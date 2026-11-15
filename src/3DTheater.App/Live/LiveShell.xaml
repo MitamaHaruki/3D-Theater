@@ -21,20 +21,8 @@
       <ScrollViewer x:Name="SidebarScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Focusable="False"
                     PreviewMouseWheel="OnSidebarPreviewMouseWheel">
         <StackPanel>
-          <Expander x:Name="SceneExpander" Header="シーン" Style="{StaticResource LiveSectionStyle}" Tag="Scene">
-            <StackPanel>
-              <WrapPanel>
-                <Button Margin="0,0,8,6" MinWidth="96" Content="新規" Click="OnNewClick" ToolTip="新しいシーンにします（保存していない変更があれば尋ねます。Ctrl+N）" />
-                <Button Margin="0,0,8,6" MinWidth="96" Content="開く..." Click="OnOpenClick" ToolTip="ライブのファイル（.3dtlive）を開きます（Ctrl+O）" />
-                <Button Margin="0,0,8,6" MinWidth="96" Content="保存" Click="OnSaveClick" ToolTip="今の状態を保存します（Ctrl+S）" />
-                <Button Margin="0,0,8,6" MinWidth="96" Content="名前を付けて保存..." Click="OnSaveAsClick" ToolTip="Ctrl+Shift+S" />
-              </WrapPanel>
-              <TextBlock x:Name="SceneNameText" Margin="0,4,0,0" Foreground="{StaticResource SubTextBrush}" TextWrapping="Wrap"
-                         AutomationProperties.AutomationId="LiveSceneName" />
-              <TextBlock Margin="0,8,0,0" Style="{StaticResource PlannedNoteStyle}"
-                         Text="（仮）保存したシーンを選んで切り替える形は、4 段目で作ります。今は、ファイルを開く・保存する形です。" />
-            </StackPanel>
-          </Expander>
+          <!-- シーンの中身は、コードで置く（Live.SceneSection） -->
+          <Expander x:Name="SceneExpander" Header="シーン" Style="{StaticResource LiveSectionStyle}" Tag="Scene" />
           <!-- カメラの中身は、コードで置く（Live.CameraSection） -->
           <Expander x:Name="CameraExpander" Header="カメラ" Style="{StaticResource LiveSectionStyle}" Tag="Camera" />
           <!-- 照明・キャラクター・背景の中身は、コードで置く（Live.LightSection・CharacterSection・BackgroundSection） -->
