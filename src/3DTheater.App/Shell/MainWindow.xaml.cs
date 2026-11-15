@@ -174,6 +174,8 @@ public partial class MainWindow : Window, Live.ILiveSceneActions, Live.ILiveScen
         context.Gizmo.Style = _settings.Gizmo.Style;
         context.Gizmo.Tool = _settings.Gizmo.Tool;
         context.Gizmo.LocalSpace = _settings.Gizmo.LocalSpace;
+        context.CameraControls.Touchpad = _settings.LiveTouchpad;
+        context.CameraControls.ReverseTouchpad = _settings.LiveTouchpadReverse;
         context.Gizmo.Changed += (_, _) => UpdateGizmoControls();
         UpdateGizmoControls();
         context.Physics.Changed += (_, _) => UpdatePhysicsControls();
@@ -230,6 +232,8 @@ public partial class MainWindow : Window, Live.ILiveSceneActions, Live.ILiveScen
         _plugins.Manager.ShutdownAll(); // レイアウトを保存してから（プラグインのパネルの場所を残すため）。設定より先（止めるときに設定を書くプラグインのため）
         _settings.Gizmo = new GizmoPreferences { Style = _context.Gizmo.Style, Tool = _context.Gizmo.Tool, LocalSpace = _context.Gizmo.LocalSpace };
         _settings.Rendering = new RenderingPreferences { PreviewQuality = _context.PreviewQuality.Quality };
+        _settings.LiveTouchpad = _context.CameraControls.Touchpad;
+        _settings.LiveTouchpadReverse = _context.CameraControls.ReverseTouchpad;
         if (_live is not null)
         {
             _settings.LiveSections = [.. _live.ExpandedSections];
@@ -1753,6 +1757,39 @@ public partial class MainWindow : Window, Live.ILiveSceneActions, Live.ILiveScen
         local.Checked += (_, _) => _context.Gizmo.LocalSpace = true;
         local.Unchecked += (_, _) => _context.Gizmo.LocalSpace = false;
         panel.Children.Add(local);
+
+        // タッチパッド（設計判断記録 78 章の 7 段目。マウスの無いノートパソコンなど。利用者ごとの設定）
+        panel.Children.Add(Heading("タッチパッド（マウスの無いノートパソコンなど）"));
+        CheckBox Option(string text, string name, bool value, Action<bool> set)
+        {
+            var check = new CheckBox { Content = new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap }, IsChecked = value, Margin = new Thickness(0, 0, 0, 6) };
+            System.Windows.Automation.AutomationProperties.SetName(check, name);
+            check.Checked += (_, _) => set(true);
+            check.Unchecked += (_, _) => set(false);
+            return check;
+        }
+        CheckBox reverse = Option("2 本指でなでたときの向きを逆にする", "2 本指の向きを逆にする", _context.CameraControls.ReverseTouchpad,
+            on => _context.CameraControls.ReverseTouchpad = on);
+        CheckBox touchpad = Option("タッチパッドで操作する（2 本指でなでるとキャラクターの周りを回り、指を広げる・つまむと近づく・離れる。Shift を押しながらなでると上下左右にずらす）",
+            "タッチパッドで操作する", _context.CameraControls.Touchpad, on =>
+            {
+                _context.CameraControls.Touchpad = on;
+                reverse.IsEnabled = on;
+            });
+        reverse.IsEnabled = _context.CameraControls.Touchpad;
+        reverse.Margin = new Thickness(24, 0, 0, 6);
+        panel.Children.Add(touchpad);
+        panel.Children.Add(reverse);
+        panel.Children.Add(new TextBlock
+        {
+            Text = "入れると、ホイール（2 本指で上下になでる）で視野角を変えなくなります（視野角は、カメラ情報の数の欄で変えます）。"
+                + "マウスの右ボタン・中ボタンの操作は、入れても使えます。指を広げる・つまむ操作は、入れなくても使えます。",
+            TextWrapping = TextWrapping.Wrap,
+            FontSize = 12,
+            Margin = new Thickness(0, 2, 0, 0),
+            Foreground = (System.Windows.Media.Brush)FindResource("SubTextBrush"),
+        });
+
         panel.Children.Add(Heading("操作のしかた"));
         panel.Children.Add(new TextBlock
         {
@@ -1766,7 +1803,8 @@ public partial class MainWindow : Window, Live.ILiveSceneActions, Live.ILiveScen
     private const string LiveShortcuts =
         "プレビュー\n" +
         "  右ボタンを押している間 … マウスで向き、W・A・S・D で前後左右、Q・E で下・上（Shift で速く）\n" +
-        "  ホイール … ズーム（視野角）　中ボタンでドラッグ … カメラを上下左右にずらす\n" +
+        "  ホイール … ズーム（視野角）　Ctrl＋ホイール … キャラクターへ近づく・離れる　中ボタンでドラッグ … カメラを上下左右にずらす\n" +
+        "  タッチパッド（上で入れたとき）… 2 本指でなでるとキャラクターの周りを回る、指を広げる・つまむと近づく・離れる、Shift を押しながらなでると上下左右にずらす\n" +
         "  左クリック … 選ぶ（Ctrl で足す・外す）　ギズモの取っ手をドラッグ … 選んだ物を動かす\n" +
         "\nキー\n" +
         "  Ctrl+Z … 元に戻す　Ctrl+Y … やり直し\n" +
@@ -1775,7 +1813,7 @@ public partial class MainWindow : Window, Live.ILiveSceneActions, Live.ILiveScen
         "  Ctrl+A … すべて選ぶ　Esc … 選択を解除\n" +
         "  Q・W・E … ギズモの道具（選択・移動・回転。Blender 方式にする）\n" +
         "  F11 … 仮想フルスクリーン（もう一度で戻す）\n" +
-        "  キー操作の項目で決めたキー … 表情・小物・トラッキングなど（ほかのアプリを使っている間も効く）";
+        "  キー操作の項目で決めたキー … 表情・小物・カメラの切り替え・トラッキングなど（ほかのアプリを使っている間も効く）";
 
     // MMD のモデルは確認用の立方体よりずっと大きいので、全プレビューの区画をモデルに合わせる（カメラ視点は動かさない）
     private void FocusViewsOnFirstModel()

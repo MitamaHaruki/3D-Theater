@@ -94,7 +94,8 @@ public sealed class LiveEntry
         OutputHeight = output.Height,
         OutputBackground = ImageExport.FormatColor(output.Background),
         Tracking = tracking is null ? null : TrackingEntry.From(tracking, phone),
-        Hotkeys = hotkeys is null || hotkeys.Bindings.Count == 0 ? null : [.. hotkeys.Bindings.Select(HotkeyEntry.From)],
+        Hotkeys = hotkeys is null || hotkeys.Bindings.Count == 0 ? null
+            : [.. hotkeys.Bindings.Select(b => HotkeyEntry.From(b, scene is null ? null : id => HotkeyCameraNumber(scene, id)))],
         PreviewCamera = cameras is null || scene is null ? 0 : CameraNumber(scene, cameras.PreviewCamera(scene)),
         OnAirCamera = cameras is null || scene is null ? 0 : CameraNumber(scene, cameras.OnAirCamera(scene)),
     };
@@ -110,9 +111,27 @@ public sealed class LiveEntry
     private static int CameraNumber(SceneDocument scene, CameraNode camera) =>
         scene.AddedCameras.ToList().IndexOf(camera) + 1; // ライブカメラ（足したカメラに無い）は 0
 
-    /// <summary>キー操作を設定へ入れる（読めない項目は飛ばす）。<paramref name="findModel"/> は、モデルの目印から今のモデルの Id を探す。</summary>
-    public void ApplyTo(HotkeySettings settings, Func<string, Guid?> findModel) =>
-        settings.SetAll((Hotkeys ?? []).Select(h => h.ToBinding(findModel)).OfType<HotkeyBinding>());
+    // キー操作のカメラの番号（null の Id はライブカメラで 0。外したカメラなど、見つからなければ null）
+    private static int? HotkeyCameraNumber(SceneDocument scene, Guid? id)
+    {
+        if (id is null)
+        {
+            return 0;
+        }
+        int index = scene.AddedCameras.ToList().FindIndex(c => c.Id == id);
+        return index >= 0 ? index + 1 : null;
+    }
+
+    /// <summary>
+    /// キー操作を設定へ入れる（読めない項目は飛ばす）。<paramref name="findModel"/> は、モデルの目印から今のモデルの Id を探す。
+    /// カメラの切り替えのカメラは、<paramref name="scene"/> の足したカメラから探す（足したカメラを読み込んでから呼ぶ）。
+    /// </summary>
+    public void ApplyTo(HotkeySettings settings, Func<string, Guid?> findModel, SceneDocument? scene = null)
+    {
+        CameraNode[] added = scene is null ? [] : [.. scene.AddedCameras];
+        Guid? FindCamera(int number) => number >= 1 && number <= added.Length ? added[number - 1].Id : null;
+        settings.SetAll((Hotkeys ?? []).Select(h => h.ToBinding(findModel, FindCamera)).OfType<HotkeyBinding>());
+    }
 
     /// <summary>設定へ入れる（読めない色は初めの緑のまま）。</summary>
     public void ApplyTo(LiveOutputSettings output)
@@ -126,8 +145,9 @@ public sealed class LiveEntry
 }
 
 /// <summary>
-/// キー 1 つ。キーは「Ctrl+Shift+1」の形、動かすものは expression・visibility・morph・trackingToggle・trackingCalibrate・virtualCamera、
+/// キー 1 つ。キーは「Ctrl+Shift+1」の形、動かすものは expression・visibility・morph・trackingToggle・trackingCalibrate・virtualCamera・camera、
 /// 押し方は toggle・hold。モデルは、モデルの目印（<see cref="ModelEntry.Id"/>）で書く。名前は表情のプリセットかモーフの名前。
+/// カメラ（camera）は番号で書く（<see cref="Camera"/>）。
 /// </summary>
 public sealed class HotkeyEntry
 {
@@ -139,6 +159,7 @@ public sealed class HotkeyEntry
         (HotkeyAction.TrackingToggle, "trackingToggle"),
         (HotkeyAction.TrackingCalibrate, "trackingCalibrate"),
         (HotkeyAction.VirtualCameraToggle, "virtualCamera"),
+        (HotkeyAction.CameraSwitch, "camera"),
     ];
 
     public string? Key { get; set; }
@@ -151,27 +172,51 @@ public sealed class HotkeyEntry
 
     public string? Name { get; set; }
 
-    public static HotkeyEntry From(HotkeyBinding binding) => new()
-    {
-        Key = binding.Gesture?.ToString(),
-        Action = Array.Find(ActionNames, p => p.Action == binding.Action).Name,
-        Mode = binding.Mode == HotkeyMode.Hold ? "hold" : "toggle",
-        Model = binding.Model?.ToString("N"),
-        Name = binding.Name,
-    };
+    /// <summary>
+    /// カメラの切り替えのカメラ（0 = ライブカメラ、n = 足したカメラの n 番目。<see cref="ProjectFile.Cameras"/> の並び）。
+    /// 外したカメラなど、見つからないものは書かない（読むと「決めていない」）。
+    /// </summary>
+    public int? Camera { get; set; }
 
-    /// <summary>キー操作にする。動かすものが分からなければ null（新しい版で足したものなど）。見つからないモデルは「決めていない」にする。</summary>
-    public HotkeyBinding? ToBinding(Func<string, Guid?> findModel)
+    /// <param name="cameraNumber">カメラの Id（null ならライブカメラ）から番号を出す（見つからなければ null）。カメラの切り替えだけで使う。</param>
+    public static HotkeyEntry From(HotkeyBinding binding, Func<Guid?, int?>? cameraNumber = null)
+    {
+        bool camera = HotkeyActions.UsesCamera(binding.Action);
+        return new()
+        {
+            Key = binding.Gesture?.ToString(),
+            Action = Array.Find(ActionNames, p => p.Action == binding.Action).Name,
+            Mode = binding.Mode == HotkeyMode.Hold ? "hold" : "toggle",
+            Model = camera ? null : binding.Model?.ToString("N"),
+            Name = binding.Name,
+            Camera = camera ? (cameraNumber is null ? (binding.Model is null ? 0 : null) : cameraNumber(binding.Model)) : null,
+        };
+    }
+
+    /// <summary>
+    /// キー操作にする。動かすものが分からなければ null（新しい版で足したものなど）。見つからないモデルは「決めていない」にする。
+    /// <paramref name="findCamera"/> は、カメラの番号（1 から）から足したカメラの Id を探す（無ければ null）。
+    /// 見つからないカメラは、どのカメラでもない Id（<see cref="Guid.Empty"/>。キー操作のパネルで「カメラを選んでください」）にする。
+    /// </summary>
+    public HotkeyBinding? ToBinding(Func<string, Guid?> findModel, Func<int, Guid?>? findCamera = null)
     {
         int index = Array.FindIndex(ActionNames, p => string.Equals(p.Name, Action, StringComparison.OrdinalIgnoreCase));
         if (index < 0)
         {
             return null;
         }
+        HotkeyAction action = ActionNames[index].Action;
         HotkeyMode mode = string.Equals(Mode, "hold", StringComparison.OrdinalIgnoreCase) ? HotkeyMode.Hold : HotkeyMode.Toggle;
-        Guid? model = string.IsNullOrEmpty(Model) ? null : findModel(Model);
+        Guid? model = HotkeyActions.UsesCamera(action)
+            ? Camera switch
+            {
+                0 => null,
+                > 0 when findCamera?.Invoke(Camera.Value) is { } found => found,
+                _ => Guid.Empty,
+            }
+            : string.IsNullOrEmpty(Model) ? null : findModel(Model);
         string? name = string.IsNullOrWhiteSpace(Name) ? null : Name;
-        return new HotkeyBinding(Guid.NewGuid(), HotkeyGesture.Parse(Key), ActionNames[index].Action, mode, model, name);
+        return new HotkeyBinding(Guid.NewGuid(), HotkeyGesture.Parse(Key), action, mode, model, name);
     }
 }
 

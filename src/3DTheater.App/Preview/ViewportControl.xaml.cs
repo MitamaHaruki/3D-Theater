@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media;
 using Theater3D.App.Rendering;
 using Theater3D.Domain;
@@ -44,6 +45,12 @@ public partial class ViewportControl : UserControl, IDisposable
     private Point _flyAnchor;  // 向きを変えた後にマウスを戻す所（画面の端で止まらないように）
     private long _flyLastTick;
 
+    // ライブモードの 2 本指・つまむ操作（タッチパッド。設計判断記録 78 章の 7 段目）
+    private HwndSource? _wheelSource;
+    private GestureKind _gesture;
+    private long _gestureTick;
+    private Vector3 _gesturePivot;   // 1 回のなでる・つまむの間は、同じ中心で回る
+
     public ViewportControl(EditorContext context, ViewKind kind)
     {
         InitializeComponent();
@@ -73,6 +80,8 @@ public partial class ViewportControl : UserControl, IDisposable
         _surface.MouseMove += OnSurfaceMouseMove;
         _surface.MouseUp += OnSurfaceMouseUp;
         _surface.MouseWheel += OnSurfaceMouseWheel;
+        Loaded += (_, _) => AttachWheelHook();
+        Unloaded += (_, _) => DetachWheelHook();
         _surface.LostMouseCapture += (_, _) =>
         {
             if (_drag == DragMode.Fly)
@@ -176,6 +185,7 @@ public partial class ViewportControl : UserControl, IDisposable
         HeaderBar.Visibility = Visibility.Collapsed;
         Axes.Visibility = Visibility.Collapsed;
         Frame.BorderThickness = new Thickness(0);
+        AttachWheelHook();
     }
 
     public bool IsMaximized
@@ -778,6 +788,168 @@ public partial class ViewportControl : UserControl, IDisposable
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool SetCursorPos(int x, int y);
 
+    // ===== ライブモードの 2 本指・つまむ操作（タッチパッド。設計判断記録 78 章の 7 段目） =====
+    // 2 本指でなでる: キャラクターの周りを回る（Shift で上下左右にずらす）。指を広げる・つまむ: キャラクターへ近づく・離れる。
+    // Windows は、2 本指を上下・左右のホイールとして、つまむ操作を Ctrl＋ホイールとして送る
+
+    private const int WmMouseWheel = 0x020A;
+    private const int WmMouseHWheel = 0x020E;
+    private const int MkShift = 0x0004;
+    private const int MkControl = 0x0008;
+
+    /// <summary>続けて届くホイールを 1 回のなでる・つまむとみなす間（秒）。</summary>
+    private const double GestureGapSeconds = 0.5;
+
+    private enum GestureKind
+    {
+        None,
+        Orbit,
+        Dolly,
+        Pan,
+    }
+
+    private void AttachWheelHook()
+    {
+        if (!_liveLook || !IsLoaded || _wheelSource is not null)
+        {
+            return;
+        }
+        _wheelSource = PresentationSource.FromVisual(this) as HwndSource;
+        _wheelSource?.AddHook(OnWindowMessage);
+    }
+
+    private void DetachWheelHook()
+    {
+        _wheelSource?.RemoveHook(OnWindowMessage);
+        _wheelSource = null;
+    }
+
+    // ホイールの知らせを、窓の入口で受け取る（左右のホイールは WPF のイベントに無いため。押していたキーも、知らせに書かれたものを使う）。
+    // 知らせに書かれた位置が、プレビューの上（サイドバー・パネルの上ではない）のときだけ。マウスをつかんでいる物があれば、WPF に任せる
+    private IntPtr OnWindowMessage(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        if (msg is not (WmMouseWheel or WmMouseHWheel) || !DrivesLiveCamera || Mouse.Captured is not null || !IsOverSurface(lParam))
+        {
+            return IntPtr.Zero;
+        }
+        int delta = (short)(((long)wParam >> 16) & 0xFFFF);
+        int keys = (int)((long)wParam & 0xFFFF);
+        bool control = (keys & MkControl) != 0 || Keyboard.Modifiers.HasFlag(ModifierKeys.Control);
+        bool shift = (keys & MkShift) != 0 || Keyboard.Modifiers.HasFlag(ModifierKeys.Shift);
+        if (msg == WmMouseHWheel)
+        {
+            if (!_context.CameraControls.Touchpad)
+            {
+                return IntPtr.Zero; // マウスの横のホイールは使わない
+            }
+            Activated?.Invoke(this, EventArgs.Empty);
+            TouchpadSwipe(delta, 0, shift); // 2 本指で左右になでる
+        }
+        else
+        {
+            Activated?.Invoke(this, EventArgs.Empty);
+            LiveWheel(delta, control, shift);
+        }
+        handled = true;
+        return IntPtr.Zero;
+    }
+
+    // 画面の位置（ホイールの知らせの lParam）が、プレビューの上か（重ねたサイドバー・パネルの上なら、そちらのもの）
+    private bool IsOverSurface(IntPtr lParam)
+    {
+        if (_wheelSource?.RootVisual is not UIElement root || !_surface.IsVisible)
+        {
+            return false;
+        }
+        long value = (long)lParam;
+        var screen = new Point((short)(value & 0xFFFF), (short)((value >> 16) & 0xFFFF));
+        return root.InputHitTest(root.PointFromScreen(screen)) is Visual hit && (ReferenceEquals(hit, _surface) || _surface.IsAncestorOf(hit));
+    }
+
+    // ライブのホイール（上下）: Ctrl（指を広げる・つまむ）なら近づく・離れる。タッチパッドなら回る（Shift でずらす）。マウスなら視野角を変える
+    private void LiveWheel(int delta, bool control, bool shift)
+    {
+        if (control)
+        {
+            Dolly(delta);
+        }
+        else if (_context.CameraControls.Touchpad)
+        {
+            TouchpadSwipe(0, delta, shift); // 2 本指で上下になでる
+        }
+        else if (_context.ViewCamera is { Orthographic: false, CanEdit: true } zoomed)
+        {
+            // 見ているカメラの視角を変える（本当のズーム。続けて回した分は 1 つの「元に戻す」）
+            _context.Edits.Change($"{zoomed.Name}のズーム", [zoomed], () => zoomed.FieldOfView = CameraFly.Zoom(zoomed.FieldOfView, delta),
+                mergeKey: $"zoom:{zoomed.Id}");
+        }
+    }
+
+    // 2 本指でなでた（ホイールの量。左右・上下）: キャラクターの周りを回る。Shift を押していれば、上下左右にずらす
+    private void TouchpadSwipe(int horizontal, int vertical, bool shift)
+    {
+        if (_drag != DragMode.None || _context.ViewCamera is not { CanEdit: true } camera)
+        {
+            return;
+        }
+        Vector2 finger = CameraOrbit.FingerMotion(horizontal, vertical, _context.CameraControls.ReverseTouchpad);
+        if (shift)
+        {
+            Vector3 pivot = BeginGesture(GestureKind.Pan, camera);
+            float height = (float)Math.Max(1, _surface.ActualHeight);
+            float unitsPerPixel = camera.Orthographic
+                ? camera.OrthographicHeight / height
+                : 2f * Math.Max(Vector3.Distance(camera.Position, pivot), 1f) * MathF.Tan(camera.FieldOfView * MathF.PI / 360f) / height;
+            EditLiveCamera(c => c.Position = CameraFly.Pan(c.Position, c.Rotation, CameraOrbit.Pixels(finger.X), CameraOrbit.Pixels(finger.Y), unitsPerPixel));
+            return;
+        }
+        Vector3 center = BeginGesture(GestureKind.Orbit, camera);
+        EditLiveCamera(c => (c.Position, c.Rotation) = CameraOrbit.Orbit(c.Position, c.Rotation, center, CameraOrbit.Degrees(finger.X), CameraOrbit.Degrees(finger.Y)));
+    }
+
+    // 指を広げる・つまむ（Ctrl＋ホイール）: キャラクターへ近づく・離れる。平行投影のカメラは、写る大きさを変える
+    private void Dolly(int delta)
+    {
+        if (_drag != DragMode.None || _context.ViewCamera is not { CanEdit: true } camera)
+        {
+            return;
+        }
+        float factor = CameraOrbit.DollyFactor(delta);
+        Vector3 pivot = BeginGesture(GestureKind.Dolly, camera);
+        if (camera.Orthographic)
+        {
+            EditLiveCamera(c => c.TargetDistance = (c.TargetDistance < 0f ? -1f : 1f) * Math.Clamp(MathF.Abs(c.TargetDistance) * factor, CameraOrbit.MinDistance, CameraOrbit.MaxDistance));
+            return;
+        }
+        EditLiveCamera(c => c.Position = CameraOrbit.Dolly(c.Position, pivot, factor));
+    }
+
+    // 続けて届いた分を 1 回の操作にまとめる（1 つの「元に戻す」。中心は初めに決めたまま）
+    private Vector3 BeginGesture(GestureKind kind, CameraNode camera)
+    {
+        long now = Stopwatch.GetTimestamp();
+        if (kind != _gesture || Stopwatch.GetElapsedTime(_gestureTick, now).TotalSeconds > GestureGapSeconds)
+        {
+            _gesture = kind;
+            _flySession++;
+            _gesturePivot = GesturePivot(camera);
+        }
+        _gestureTick = now;
+        return _gesturePivot;
+    }
+
+    // 回る中心: キャラクターの縦の軸の、カメラが見ている高さ（キャラクターがいない・隠しているときは、カメラの注視点）
+    private Vector3 GesturePivot(CameraNode camera)
+    {
+        if (LiveCast.Character(_context.Scene, _context.LiveTracking) is { IsVisible: true } character && _context.GetLoaded(character) is { } loaded)
+        {
+            Vector3 a = Vector3.Transform(loaded.DisplayBoundsMin, character.WorldMatrix);
+            Vector3 b = Vector3.Transform(loaded.DisplayBoundsMax, character.WorldMatrix);
+            return CameraOrbit.Pivot(camera.Position, camera.Rotation, (a + b) * 0.5f, Math.Min(a.Y, b.Y), Math.Max(a.Y, b.Y));
+        }
+        return CameraOrbit.PivotAhead(camera.Position, camera.Rotation, camera.TargetDistance);
+    }
+
     // プラグインの道具に押したことを渡し、受け取ったらドラッグを始める
     private bool TryBeginToolDrag(Shell.IViewportTool tool, Point point)
     {
@@ -844,12 +1016,8 @@ public partial class ViewportControl : UserControl, IDisposable
         Activated?.Invoke(this, EventArgs.Empty);
         if (DrivesLiveCamera)
         {
-            // ライブ: 見ているカメラの視角を変える（本当のズーム。続けて回した分は 1 つの「元に戻す」）
-            if (_context.ViewCamera is { Orthographic: false, CanEdit: true } zoomed)
-            {
-                _context.Edits.Change($"{zoomed.Name}のズーム", [zoomed], () => zoomed.FieldOfView = CameraFly.Zoom(zoomed.FieldOfView, e.Delta),
-                    mergeKey: $"zoom:{zoomed.Id}");
-            }
+            // ふつうは窓の入口（OnWindowMessage）で受け取る。ここに来るのは、右ボタンでカメラを動かしている最中など、マウスをつかんでいるとき
+            LiveWheel(e.Delta, Keyboard.Modifiers.HasFlag(ModifierKeys.Control), Keyboard.Modifiers.HasFlag(ModifierKeys.Shift));
             e.Handled = true;
             return;
         }

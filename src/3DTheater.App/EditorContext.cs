@@ -299,6 +299,9 @@ public sealed class EditorContext
     /// <summary>プレビューの品質（なめらかさ・影の細かさ。利用者ごとの設定で、プロジェクトには入れない）。</summary>
     public PreviewQualitySettings PreviewQuality { get; } = new();
 
+    /// <summary>ライブモードのプレビューの操作（タッチパッドで操作するか。利用者ごとの設定で、プロジェクトには入れない）。</summary>
+    public CameraControlSettings CameraControls { get; } = new();
+
     /// <summary>表情のプリセット（利用者ごと。変わるたびに保存する）。</summary>
     public MorphPresetLibrary MorphPresets { get; }
 

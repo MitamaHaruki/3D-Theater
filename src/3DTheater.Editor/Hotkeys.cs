@@ -144,6 +144,9 @@ public enum HotkeyAction
 
     /// <summary>仮想カメラを入れる・切る。</summary>
     VirtualCameraToggle,
+
+    /// <summary>カメラを切り替える（プレビューと、配信用の画面・仮想カメラの両方に映す。設計判断記録 78 章の 7 段目）。</summary>
+    CameraSwitch,
 }
 
 /// <summary>キーの押し方。</summary>
@@ -169,6 +172,7 @@ public static class HotkeyActions
         HotkeyAction.TrackingToggle => "トラッキングの開始・停止",
         HotkeyAction.TrackingCalibrate => "トラッキングの「正面にする」",
         HotkeyAction.VirtualCameraToggle => "仮想カメラの入・切",
+        HotkeyAction.CameraSwitch => "カメラの切り替え",
         _ => action.ToString(),
     };
 
@@ -181,12 +185,15 @@ public static class HotkeyActions
     /// <summary>名前（表情のプリセット・モーフ）を選ぶか。</summary>
     public static bool UsesName(HotkeyAction action) => action is HotkeyAction.Expression or HotkeyAction.Morph;
 
+    /// <summary>カメラを選ぶか（<see cref="HotkeyBinding.Model"/> にカメラの Id を持つ。null ならライブカメラ）。</summary>
+    public static bool UsesCamera(HotkeyAction action) => action is HotkeyAction.CameraSwitch;
+
     public static string DisplayName(HotkeyMode mode) => mode == HotkeyMode.Hold ? "押している間だけ" : "押すたびに入・切";
 }
 
 /// <summary>
-/// キー 1 つの決まり。<see cref="Model"/> はシーンのモデルの Id（表情は null ならトラッキングのキャラクター）、
-/// <see cref="Name"/> は表情のプリセットかモーフの名前。
+/// キー 1 つの決まり。<see cref="Model"/> はシーンのモデルの Id（表情は null ならトラッキングのキャラクター。
+/// カメラの切り替えはカメラの Id で、null ならライブカメラ）、<see cref="Name"/> は表情のプリセットかモーフの名前。
 /// </summary>
 public sealed record HotkeyBinding(Guid Id, HotkeyGesture? Gesture, HotkeyAction Action, HotkeyMode Mode, Guid? Model, string? Name)
 {

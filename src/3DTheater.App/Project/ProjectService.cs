@@ -220,7 +220,7 @@ internal sealed class ProjectService
                 (project.Live ?? new LiveEntry()).ApplyTo(_context.LiveCameras, _context.Scene); // 足したカメラは ApplyScene で読み込み済み
                 _context.PrepareLiveScene(); // 前の版のファイルの「メインカメラ」・確認用の立方体
                 (project.Live?.Tracking ?? new TrackingEntry()).ApplyTo(_context.LivePhone);
-                (project.Live ?? new LiveEntry()).ApplyTo(_context.LiveHotkeys, FindModel); // キー操作
+                (project.Live ?? new LiveEntry()).ApplyTo(_context.LiveHotkeys, FindModel, _context.Scene); // キー操作（足したカメラは読み込み済み）
             }
             if (project.Audio is { } audio)
             {

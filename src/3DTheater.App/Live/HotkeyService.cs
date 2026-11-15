@@ -26,6 +26,8 @@ public sealed record ExpressionOverlay(IReadOnlyList<(int Morph, float Value, fl
 ///   表情は同じキャラクターでは 1 つだけを入れたままにする。目を閉じる表情の間は、トラッキングのまばたき・ウィンクを止める。
 /// - 小物の表示: 場面の「表示」は書き換えず、その場だけ入れ替える（保存しない。元に戻すの履歴にも入れない）。
 /// - トラッキングの開始・停止（前に使った映像で）・「正面にする」・仮想カメラの入・切: 押したときに 1 回動かす。
+/// - カメラの切り替え: 押したときに、プレビューと配信（配信用の画面・仮想カメラ）の両方を、決めたカメラにする
+///   （キーは配信の最中にわざわざ押すものなので、カメラ情報の「配信用画面に適用」を待たない。設計判断記録 78 章の 7 段目）。
 /// </summary>
 public sealed class HotkeyService : IDisposable
 {
@@ -54,9 +56,9 @@ public sealed class HotkeyService : IDisposable
         context.MorphPresets.Changed += (_, _) => Refresh();
         context.Scene.NodeChanged += (_, e) =>
         {
-            if (e.Node == context.Scene.ModelsGroup && e.PropertyName == nameof(SceneNode.Children))
+            if ((e.Node == context.Scene.ModelsGroup || e.Node == context.Scene.CamerasGroup) && e.PropertyName == nameof(SceneNode.Children))
             {
-                Refresh(); // モデルを足した・外した
+                Refresh(); // モデル・カメラを足した・外した
             }
         };
         context.RenderLoop.Ticking += (_, step) => OnTick(step);
@@ -209,6 +211,8 @@ public sealed class HotkeyService : IDisposable
                     return "モーフを選んでください";
                 }
                 return model.Morphs.Any(m => m.Name == binding.Name) ? null : $"モーフ「{binding.Name}」がありません";
+            case HotkeyAction.CameraSwitch:
+                return ResolveCamera(binding) is null ? "カメラを選んでください" : null;
             default:
                 return null;
         }
@@ -278,6 +282,9 @@ public sealed class HotkeyService : IDisposable
             case HotkeyAction.VirtualCameraToggle:
                 _ = ToggleVirtualCameraAsync();
                 break;
+            case HotkeyAction.CameraSwitch:
+                SwitchCamera(binding, key);
+                break;
         }
         _dirty = true;
         StateChanged?.Invoke(this, EventArgs.Empty);
@@ -346,6 +353,25 @@ public sealed class HotkeyService : IDisposable
         }
         StateChanged?.Invoke(this, EventArgs.Empty);
     }
+
+    // プレビューと配信の両方を、決めたカメラにする
+    private void SwitchCamera(HotkeyBinding binding, string key)
+    {
+        if (ResolveCamera(binding) is not { } camera)
+        {
+            Notice?.Invoke(this, ("切り替えるカメラが見つかりません（設定画面の「キー操作」で、カメラを選び直してください）", true));
+            return;
+        }
+        Guid? id = ReferenceEquals(camera, _context.Scene.MainCamera) ? null : camera.Id;
+        _context.LiveCameras.Preview = id;
+        _context.LiveCameras.OnAir = id;
+        AppLog.Info($"キー {key}: カメラを「{camera.Name}」に切り替えました（プレビューと配信）");
+        Notice?.Invoke(this, ($"カメラを「{camera.Name}」に切り替えました", false));
+    }
+
+    // カメラの切り替えのカメラ（null ならライブカメラ。外したカメラなら null）
+    private CameraNode? ResolveCamera(HotkeyBinding binding) =>
+        binding.Model is { } id ? _context.Scene.AddedCameras.FirstOrDefault(c => c.Id == id) : _context.Scene.MainCamera;
 
     private string Describe(HotkeyBinding binding)
     {

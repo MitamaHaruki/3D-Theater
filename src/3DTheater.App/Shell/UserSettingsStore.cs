@@ -38,6 +38,12 @@ public sealed class UserSettings
     /// <summary>ライブモードのトラッキング情報で、カメラの映像を出すか（設計判断記録 78 章の 5 段目）。</summary>
     public bool LiveTrackingVideo { get; set; } = true;
 
+    /// <summary>ライブモードのプレビューを、タッチパッドで操作するか（設計判断記録 78 章の 7 段目）。</summary>
+    public bool LiveTouchpad { get; set; }
+
+    /// <summary>タッチパッドの 2 本指でなでたときの向きを逆にするか。</summary>
+    public bool LiveTouchpadReverse { get; set; }
+
     /// <summary>前回起動したモード（モードを選ぶ画面で、初めに選んでおく）。</summary>
     public Theater3D.Editor.AppMode? LastMode { get; set; }
 

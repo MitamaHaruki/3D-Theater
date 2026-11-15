@@ -78,7 +78,7 @@
               Click="OnResetClick" AutomationProperties.Name="カメラを初めの位置に戻す" ToolTip="MMD の初めのカメラの位置・向き・視野角に戻します（Ctrl+Z で戻せます）" />
     </Grid>
 
-    <TextBlock Margin="0,14,0,0" Style="{StaticResource PlannedNoteStyle}" FontSize="11.5" Foreground="{StaticResource SubTextBrush}"
-               Text="プレビューで右ボタンを押している間: マウスで向き、W・A・S・D で前後左右、Q・E で下・上（Shift で速く）。ホイールでズーム、中ボタンのドラッグで上下左右にずらします。" />
+    <TextBlock x:Name="HowToText" Margin="0,14,0,0" Style="{StaticResource PlannedNoteStyle}" FontSize="11.5" Foreground="{StaticResource SubTextBrush}"
+               AutomationProperties.AutomationId="CameraHowTo" />
   </StackPanel>
 </UserControl>

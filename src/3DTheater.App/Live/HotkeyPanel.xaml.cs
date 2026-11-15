@@ -33,6 +33,14 @@ public partial class HotkeyPanel : UserControl
         _service = context.Hotkeys!;
         _settings.Changed += (_, _) => Sync();
         _service.StateChanged += (_, _) => UpdateStatuses();
+        context.Scene.NodeChanged += (_, e) =>
+        {
+            if ((e.Node == context.Scene.CamerasGroup && e.PropertyName == nameof(SceneNode.Children))
+                || (e.Node is CameraNode && e.PropertyName == nameof(SceneNode.Name)))
+            {
+                Sync(); // カメラの切り替えの候補
+            }
+        };
         context.MorphPresets.Changed += (_, _) => Sync();
         Loaded += (_, _) => Sync();
     }
@@ -120,7 +128,9 @@ public partial class HotkeyPanel : UserControl
         row.ActionCombo.SelectionChanged += (_, _) => Change(row, b =>
         {
             HotkeyAction action = HotkeyActions.All[Math.Max(0, row.ActionCombo.SelectedIndex)];
-            return action == b.Action ? b : b with { Action = action, Model = HotkeyActions.UsesModel(action) ? b.Model : null, Name = null };
+            // モデルとカメラは同じ欄に持つので、モデルを使うものどうしの間だけ選んだモデルを残す（カメラはライブカメラから）
+            bool keepModel = HotkeyActions.UsesModel(action) && HotkeyActions.UsesModel(b.Action);
+            return action == b.Action ? b : b with { Action = action, Model = keepModel ? b.Model : null, Name = null };
         });
         row.ModelCombo.DropDownOpened += (_, _) => FillModels(row, Binding(row));
         row.ModelCombo.SelectionChanged += (_, _) => Change(row, b => b with { Model = (row.ModelCombo.SelectedItem as ComboBoxItem)?.Tag as Guid? });
@@ -182,7 +192,7 @@ public partial class HotkeyPanel : UserControl
             }
             AutomationProperties.SetName(row.KeyButton, $"キー {number}");
             AutomationProperties.SetName(row.ActionCombo, $"動かすもの {number}");
-            AutomationProperties.SetName(row.ModelCombo, $"モデル {number}");
+            AutomationProperties.SetName(row.ModelCombo, HotkeyActions.UsesCamera(binding.Action) ? $"カメラ {number}" : $"モデル {number}");
             AutomationProperties.SetName(row.NameCombo, $"名前 {number}");
             AutomationProperties.SetName(row.ModeCombo, $"押し方 {number}");
             AutomationProperties.SetName(row.TryButton, $"試す {number}");
@@ -191,7 +201,7 @@ public partial class HotkeyPanel : UserControl
             row.KeyButton.ToolTip = "押してから、決めたいキー（Ctrl・Alt・Shift と一緒に）を押します。Esc でやめます";
 
             row.ActionCombo.SelectedIndex = (int)binding.Action;
-            row.ModelCombo.Visibility = HotkeyActions.UsesModel(binding.Action) ? Visibility.Visible : Visibility.Collapsed;
+            row.ModelCombo.Visibility = HotkeyActions.UsesModel(binding.Action) || HotkeyActions.UsesCamera(binding.Action) ? Visibility.Visible : Visibility.Collapsed;
             row.NameCombo.Visibility = HotkeyActions.UsesName(binding.Action) ? Visibility.Visible : Visibility.Collapsed;
             Grid.SetColumnSpan(row.ModelCombo, HotkeyActions.UsesName(binding.Action) ? 1 : 2);
             row.ModeCombo.SelectedIndex = (int)binding.EffectiveMode;
@@ -205,7 +215,7 @@ public partial class HotkeyPanel : UserControl
         }
     }
 
-    // モデルの候補（表情は「トラッキングのキャラクター」も）
+    // モデルの候補（表情は「トラッキングのキャラクター」も）。カメラの切り替えは、カメラの候補
     private void FillModels(Row row, HotkeyBinding? binding)
     {
         if (binding is null)
@@ -217,6 +227,17 @@ public partial class HotkeyPanel : UserControl
         try
         {
             row.ModelCombo.Items.Clear();
+            if (HotkeyActions.UsesCamera(binding.Action))
+            {
+                row.ModelCombo.Items.Add(new ComboBoxItem { Content = _context.Scene.MainCamera.Name, Tag = null });
+                foreach (CameraNode camera in _context.Scene.AddedCameras)
+                {
+                    row.ModelCombo.Items.Add(new ComboBoxItem { Content = camera.Name, Tag = camera.Id });
+                }
+                row.ModelCombo.SelectedIndex = row.ModelCombo.Items.Cast<ComboBoxItem>().ToList()
+                    .FindIndex(i => (i.Tag as Guid?) == binding.Model);
+                return;
+            }
             if (binding.Action == HotkeyAction.Expression)
             {
                 row.ModelCombo.Items.Add(new ComboBoxItem { Content = AutoModel, Tag = null });

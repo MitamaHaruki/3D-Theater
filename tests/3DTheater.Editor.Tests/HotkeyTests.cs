@@ -1,3 +1,4 @@
+using Theater3D.Domain;
 using Theater3D.Formats;
 
 namespace Theater3D.Editor.Tests;
@@ -137,5 +138,52 @@ public sealed class HotkeyTests
 
         Assert.DoesNotContain("hotkeys", ProjectSerializer.Serialize(new ProjectFile { Mode = AppModes.LiveName, Live = LiveEntry.From(new LiveOutputSettings()) }),
             "キー操作が無ければ書かない");
+    }
+
+    [TestMethod]
+    public void CameraSwitchKeysAreSavedWithTheCameraNumber()
+    {
+        // ライブカメラと、足したカメラ 2 つ（設計判断記録 78 章の 7 段目）
+        SceneDocument scene = SceneDocument.CreateDefault();
+        var undo = new UndoService();
+        CameraNode second = CameraPresenceAction.Create(scene, scene.MainCamera);
+        CameraPresenceAction.Add(scene, undo, second);
+        CameraNode third = CameraPresenceAction.Create(scene, scene.MainCamera);
+        CameraPresenceAction.Add(scene, undo, third);
+        CameraNode gone = CameraPresenceAction.Create(scene, scene.MainCamera); // 外したカメラ（シーンに無い）
+
+        var settings = new HotkeySettings();
+        settings.Add(HotkeyBinding.Create(HotkeyAction.CameraSwitch) with { Gesture = HotkeyGesture.Parse("Ctrl+Alt+1") });
+        settings.Add(HotkeyBinding.Create(HotkeyAction.CameraSwitch) with { Gesture = HotkeyGesture.Parse("Ctrl+Alt+3"), Model = third.Id });
+        settings.Add(HotkeyBinding.Create(HotkeyAction.CameraSwitch) with { Model = gone.Id });
+        Assert.IsFalse(HotkeyActions.HasMode(HotkeyAction.CameraSwitch), "押したときに 1 回切り替えるだけ");
+        Assert.IsTrue(HotkeyActions.UsesCamera(HotkeyAction.CameraSwitch));
+        Assert.IsFalse(HotkeyActions.UsesModel(HotkeyAction.CameraSwitch));
+
+        string json = ProjectSerializer.Serialize(new ProjectFile
+        {
+            Mode = AppModes.LiveName,
+            Live = LiveEntry.From(new LiveOutputSettings(), null, settings, null, new LiveCameraSettings(), scene),
+        });
+        StringAssert.Contains(json, "\"action\":\"camera\"");
+        StringAssert.Contains(json, "\"camera\":2", "足したカメラの 2 番目");
+
+        // 読み込み直すと、カメラの Id は新しくなる（番号でつなぐ）
+        SceneDocument reopened = SceneDocument.CreateDefault();
+        CameraNode reopenedSecond = CameraPresenceAction.Create(reopened, reopened.MainCamera);
+        CameraPresenceAction.Add(reopened, new UndoService(), reopenedSecond);
+        CameraNode reopenedThird = CameraPresenceAction.Create(reopened, reopened.MainCamera);
+        CameraPresenceAction.Add(reopened, new UndoService(), reopenedThird);
+        var read = new HotkeySettings();
+        ProjectSerializer.Deserialize(json, new LoadReport())!.Live!.ApplyTo(read, _ => null, reopened);
+        Assert.HasCount(3, read.Bindings);
+        Assert.IsNull(read.Bindings[0].Model, "ライブカメラ");
+        Assert.AreEqual(reopenedThird.Id, read.Bindings[1].Model, "番号で、読み込み直したカメラにつながる");
+        Assert.AreEqual(Guid.Empty, read.Bindings[2].Model, "見つからなかったカメラは、どのカメラでもない（選び直してもらう）");
+
+        // 足したカメラが無いファイルでは、番号のカメラも見つからない
+        var missing = new HotkeySettings();
+        ProjectSerializer.Deserialize(json, new LoadReport())!.Live!.ApplyTo(missing, _ => null, SceneDocument.CreateDefault());
+        Assert.AreEqual(Guid.Empty, missing.Bindings[1].Model);
     }
 }

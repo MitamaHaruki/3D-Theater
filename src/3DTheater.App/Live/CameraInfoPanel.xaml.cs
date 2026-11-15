@@ -25,6 +25,8 @@ public partial class CameraInfoPanel : UserControl
         _values = new CameraValues(context);
         DataContext = _values;
         context.LiveCameras.Changed += (_, _) => Update();
+        context.CameraControls.Changed += (_, _) => UpdateHowTo();
+        UpdateHowTo();
         context.Scene.NodeChanged += (_, e) =>
         {
             if ((e.Node == context.Scene.CamerasGroup && e.PropertyName == nameof(SceneNode.Children))
@@ -35,6 +37,13 @@ public partial class CameraInfoPanel : UserControl
         };
         Update();
     }
+
+    // 動かし方の説明（タッチパッドで操作するかで変える。設計判断記録 78 章の 7 段目）
+    private void UpdateHowTo() => HowToText.Text = _context.CameraControls.Touchpad
+        ? "タッチパッド: 2 本指でなでるとキャラクターの周りを回り、指を広げる・つまむと近づく・離れます。Shift を押しながらなでると、上下左右にずらします。"
+          + "マウスの右ボタンを押している間の操作（マウスで向き、W・A・S・D・Q・E で移動）も使えます。"
+        : "プレビューで右ボタンを押している間: マウスで向き、W・A・S・D で前後左右、Q・E で下・上（Shift で速く）。ホイールでズーム、Ctrl＋ホイールでキャラクターへ近づく・離れる、"
+          + "中ボタンのドラッグで上下左右にずらします。タッチパッドなら、設定画面の「操作」で「タッチパッドで操作する」を入れます。";
 
     private void Update()
     {
