@@ -247,8 +247,32 @@ public sealed class TrackingStats
     }
 }
 
-/// <summary>描画の、ある間の速さ。</summary>
-public sealed record RenderPeriod(TimeSpan Duration, long Ticks, long Frames, long Hitches, long Pauses, double LongestStep, TimeSummary Frame, TimeSummary Gpu)
+/// <summary>1 回の描画の、段ごとの GPU の時間（ミリ秒。描く順。描画エンジンの TT_GPU_STAGE_*）。描く区画が複数なら、その和。</summary>
+public readonly record struct GpuStageTimes(double Shadows, double Scene, double Effects, double Overlays, double Resolve)
+{
+    /// <summary>描画エンジンの値（段の順の配列）から作る。数が足りなければ null。</summary>
+    public static GpuStageTimes? From(IReadOnlyList<float>? stages) =>
+        stages is { Count: >= 5 } s ? new GpuStageTimes(s[0], s[1], s[2], s[3], s[4]) : null;
+
+    public static GpuStageTimes operator +(GpuStageTimes a, GpuStageTimes b) =>
+        new(a.Shadows + b.Shadows, a.Scene + b.Scene, a.Effects + b.Effects, a.Overlays + b.Overlays, a.Resolve + b.Resolve);
+
+    public GpuStageTimes Scale(double factor) =>
+        new(Shadows * factor, Scene * factor, Effects * factor, Overlays * factor, Resolve * factor);
+}
+
+/// <summary>描く大きさ（画素）と、なめらかさ（MSAA の 1 画素あたりの点の数）。</summary>
+public readonly record struct RenderSize(int Width, int Height, int Samples)
+{
+    /// <summary>GPU が 1 回に色を決める点の数（大きさ × なめらかさ）。どの区画がいちばん重いかを比べるため。</summary>
+    public long Points => (long)Math.Max(0, Width) * Math.Max(0, Height) * Math.Max(1, Samples);
+}
+
+/// <summary>描画の、ある間の速さ。<paramref name="GpuStages"/> は段ごとの GPU の時間の平均（測れた回だけ）、
+/// <paramref name="Size"/> はその間にいちばん多くの回で描いた大きさ（1 回に区画が複数なら、そのうちいちばん大きい区画。
+/// 窓の大きさを途中で変えても、長く使った大きさを書く）。</summary>
+public sealed record RenderPeriod(TimeSpan Duration, long Ticks, long Frames, long Hitches, long Pauses, double LongestStep, TimeSummary Frame, TimeSummary Gpu,
+    GpuStageTimes? GpuStages = null, RenderSize? Size = null)
 {
     public double FramesPerSecond => Duration > TimeSpan.Zero ? Frames / Duration.TotalSeconds : 0;
 }
@@ -282,11 +306,11 @@ public sealed class RenderStats
         _total.AddTick(stepMilliseconds);
     }
 
-    /// <summary>1 回描いた（UI スレッドの時間・GPU が描くのに掛けた時間（測れたときだけ））。</summary>
-    public void AddFrame(double milliseconds, double? gpuMilliseconds)
+    /// <summary>1 回描いた（UI スレッドの時間・GPU が描くのに掛けた時間と段ごとの時間（測れたときだけ）・この回にいちばん大きく描いた区画の大きさ）。</summary>
+    public void AddFrame(double milliseconds, double? gpuMilliseconds, GpuStageTimes? stages = null, RenderSize? size = null)
     {
-        _interval.AddFrame(milliseconds, gpuMilliseconds);
-        _total.AddFrame(milliseconds, gpuMilliseconds);
+        _interval.AddFrame(milliseconds, gpuMilliseconds, stages, size);
+        _total.AddFrame(milliseconds, gpuMilliseconds, stages, size);
     }
 
     /// <summary>前に読んでから今までの分を返し、数え直す。</summary>
@@ -309,6 +333,9 @@ public sealed class RenderStats
         private long _hitches;
         private long _pauses;
         private double _longest;
+        private GpuStageTimes _stageSum;
+        private long _stageCount;
+        private readonly Dictionary<RenderSize, long> _sizes = []; // 大きさごとの回数（大きさが変わるのは窓を変えたときだけなので、数は少ない）
 
         public void AddTick(double stepMilliseconds)
         {
@@ -325,17 +352,29 @@ public sealed class RenderStats
             _longest = Math.Max(_longest, stepMilliseconds);
         }
 
-        public void AddFrame(double milliseconds, double? gpuMilliseconds)
+        public void AddFrame(double milliseconds, double? gpuMilliseconds, GpuStageTimes? stages, RenderSize? size)
         {
             _frame.Add(milliseconds);
             if (gpuMilliseconds is double gpu)
             {
                 _gpu.Add(gpu);
             }
+            if (stages is { } s)
+            {
+                _stageSum += s;
+                _stageCount++;
+            }
+            if (size is { } z)
+            {
+                _sizes[z] = _sizes.GetValueOrDefault(z) + 1;
+            }
         }
 
+        private RenderSize? MostUsedSize() => _sizes.Count == 0 ? null : _sizes.MaxBy(pair => pair.Value).Key;
+
         public RenderPeriod ToPeriod(TimeProvider time, long now) =>
-            new(time.GetElapsedTime(start, now), _ticks, _frame.Count, _hitches, _pauses, _longest, _frame.Summarize(), _gpu.Summarize());
+            new(time.GetElapsedTime(start, now), _ticks, _frame.Count, _hitches, _pauses, _longest, _frame.Summarize(), _gpu.Summarize(),
+                _stageCount > 0 ? _stageSum.Scale(1.0 / _stageCount) : null, MostUsedSize());
     }
 }
 
@@ -540,14 +579,22 @@ public static class PerformanceText
 
     public static string Render(RenderPeriod p)
     {
-        var parts = new List<string>(4);
+        var parts = new List<string>(5);
+        if (p.Size is { } size)
+        {
+            parts.Add(size.Samples > 1
+                ? string.Format(C, "描く大きさ {0} × {1}（なめらかさ {2} 倍）", size.Width, size.Height, size.Samples)
+                : string.Format(C, "描く大きさ {0} × {1}（なめらかさ なし）", size.Width, size.Height));
+        }
         if (p.Frame.Count > 0)
         {
             parts.Add(string.Format(C, "1 回 平均 {0:F1} ms・95% {1:F1} ms", p.Frame.Mean, p.Frame.P95));
         }
         if (p.Gpu.Count > 0)
         {
-            parts.Add(string.Format(C, "GPU {0:F1} ms", p.Gpu.Mean));
+            parts.Add(p.GpuStages is { } stages
+                ? string.Format(C, "GPU {0:F1} ms（{1}）", p.Gpu.Mean, GpuStages(stages))
+                : string.Format(C, "GPU {0:F1} ms", p.Gpu.Mean));
         }
         parts.Add(p.Hitches > 0
             ? string.Format(C, "つかえ {0} 回（いちばん長い間 {1:F0} ms）", p.Hitches, p.LongestStep)
@@ -557,6 +604,23 @@ public static class PerformanceText
             parts.Add(string.Format(C, "止まった {0} 回", p.Pauses));
         }
         return string.Format(C, "描画 {0:F1} 回/秒（{1}）", p.FramesPerSecond, string.Join("・", parts));
+    }
+
+    /// <summary>段ごとの GPU の時間（「影 0.4・場面 18.2・重ね 0.1・まとめ 3.1」。映像効果は使ったときだけ書く）。</summary>
+    public static string GpuStages(GpuStageTimes s)
+    {
+        var parts = new List<string>(5)
+        {
+            string.Format(C, "影 {0:F1}", s.Shadows),
+            string.Format(C, "場面 {0:F1}", s.Scene),
+        };
+        if (s.Effects >= 0.05)
+        {
+            parts.Add(string.Format(C, "効果 {0:F1}", s.Effects));
+        }
+        parts.Add(string.Format(C, "重ね {0:F1}", s.Overlays));
+        parts.Add(string.Format(C, "まとめ {0:F1}", s.Resolve));
+        return string.Join("・", parts);
     }
 
     /// <summary>トラッキングの速さ。<paramref name="within"/> を渡すと、その一部の間だけ動かしていたときに、動かしていた時間を書く。</summary>

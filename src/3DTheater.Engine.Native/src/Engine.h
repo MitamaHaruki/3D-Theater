@@ -91,6 +91,16 @@ public:
         Overlays, // 場面の上に重ねる物（格子・座標軸・選択の枠・重ね描きの線）。消さずに、場面の奥行きを使って描く
     };
 
+    // GPU の時刻の区切り（段 i の終わりの記録が queries[i]。marked[i] は、この回に記録を頼んだか）
+    struct GpuMarks {
+        ID3D11Query* queries[TT_GPU_STAGE_COUNT - 1] = {};
+        bool marked[TT_GPU_STAGE_COUNT - 1] = {};
+    };
+    // ビューが描く間だけ渡す（null で外す）。DrawScene が、影の下準備の後と場面の後に記録を頼む
+    void SetGpuMarks(GpuMarks* marks) noexcept { gpuMarks_ = marks; }
+    // 段 stage（TT_GPU_STAGE_*）の終わりの時刻の記録を頼む（区切りを渡されていなければ何もしない）
+    void MarkGpu(int stage) noexcept;
+
     // 1 つのビューの場面を描く（GPU へ頼むだけで完了は待たない）。描き終えたら描画先の割り当てを外す。
     // params.items の中身は呼び出し側（C API の入口）で確かめ済みであること。
     // multisampled は描画先が MSAA（1 画素に複数の点）か。線を、点の数に合わせてなめらかに描く。
@@ -249,6 +259,7 @@ private:
     ComPtr<IDXGIAdapter1> adapter_;
     ComPtr<ID3D11Device> device_;
     ComPtr<ID3D11DeviceContext> context_;
+    GpuMarks* gpuMarks_ = nullptr; // 描いているビューの、GPU の時刻の区切り（測らないときは null）
 
     ComPtr<IDirect3D9Ex> d3d9_;
     ComPtr<IDirect3DDevice9Ex> d3d9Device_;

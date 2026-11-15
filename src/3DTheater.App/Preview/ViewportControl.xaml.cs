@@ -36,6 +36,7 @@ public partial class ViewportControl : UserControl, IDisposable
     private Point _lastMouse;
     private bool _showGrid = true;
     private bool _showBones = true;
+    private bool _showExportFrame = true;
     private bool _isActiveView;
     private bool _isMaximized;
     private bool _liveLook;
@@ -159,6 +160,17 @@ public partial class ViewportControl : UserControl, IDisposable
         {
             _showBones = value;
             Redraw();
+        }
+    }
+
+    /// <summary>カメラ視点で、書き出し・配信の枠（枠の外側を暗くする）を出すか（ライブモードの画面で切り替える）。</summary>
+    public bool ShowExportFrame
+    {
+        get => _showExportFrame;
+        set
+        {
+            _showExportFrame = value;
+            UpdateExportFrame();
         }
     }
 
@@ -485,7 +497,7 @@ public partial class ViewportControl : UserControl, IDisposable
     {
         double width = SurfaceHost.ActualWidth;
         double height = SurfaceHost.ActualHeight;
-        bool show = Camera.Kind == ViewKind.Camera && width > 0 && height > 0;
+        bool show = _showExportFrame && Camera.Kind == ViewKind.Camera && width > 0 && height > 0;
         ExportFrameShade.Visibility = ExportFrameLine.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
         if (!show)
         {

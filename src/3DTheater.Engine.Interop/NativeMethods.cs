@@ -293,4 +293,8 @@ internal static unsafe partial class NativeMethods
     [LibraryImport(Library, EntryPoint = "tt_view_get_gpu_time")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial int ViewGetGpuTime(nint view, float* milliseconds);
+
+    [LibraryImport(Library, EntryPoint = "tt_view_get_gpu_breakdown")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial int ViewGetGpuBreakdown(nint view, float* milliseconds, uint count);
 }

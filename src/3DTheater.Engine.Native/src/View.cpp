@@ -391,7 +391,9 @@ bool View::Render(const TtFrameParams& params)
     }
     // GPU の時刻を、描画の始めと終わりで記録する（途中で失敗しても、終わりの記録は必ず頼む）
     GpuTiming* timing = BeginGpuTiming();
+    engine_.SetGpuMarks(timing ? &timing->marks : nullptr); // 段の区切り（影の下準備・場面は DrawScene が記録する）
     ScopeExit endTiming{[this, timing]() noexcept {
+        engine_.SetGpuMarks(nullptr);
         if (timing) {
             EndGpuTiming(*timing);
         }
@@ -410,6 +412,7 @@ bool View::Render(const TtFrameParams& params)
     }
     if (!Engine::UsesPostEffects(params)) {
         engine_.DrawScene(target, dsv_.Get(), width_, height_, params, multisampled, Engine::ScenePart::All, reflection);
+        engine_.MarkGpu(TT_GPU_STAGE_OVERLAYS);
     } else {
         // 場面を背景なしで描き（MSAA ならまとめてから）、映像効果をかけて描画先へ書き、その上に格子や選択の枠を重ねる。
         // MSAA の描画先へ書いた効果の結果は、どの点も同じ色なので、重ね描きの線だけがなめらかに混ざる
@@ -455,7 +458,9 @@ bool View::Render(const TtFrameParams& params)
         inputs.surface = surface;
         inputs.ssr = ssr ? &ssr_ : nullptr;
         engine_.ApplyPostEffects(params, inputs, target, width_, height_);
+        engine_.MarkGpu(TT_GPU_STAGE_EFFECTS);
         engine_.DrawScene(target, dsv_.Get(), width_, height_, params, multisampled, Engine::ScenePart::Overlays);
+        engine_.MarkGpu(TT_GPU_STAGE_OVERLAYS);
     }
     if (multisampled) {
         // 1 画素の点を平均して、表示・読み出しに使う面へまとめる
@@ -522,11 +527,19 @@ View::GpuTiming* View::BeginGpuTiming() noexcept
         D3D11_QUERY_DESC disjoint{D3D11_QUERY_TIMESTAMP_DISJOINT, 0};
         D3D11_QUERY_DESC stamp{D3D11_QUERY_TIMESTAMP, 0};
         ID3D11Device* device = engine_.Device();
-        if (FAILED(device->CreateQuery(&disjoint, &timing.disjoint)) || FAILED(device->CreateQuery(&stamp, &timing.start))
-            || FAILED(device->CreateQuery(&stamp, &timing.end))) {
+        bool created = SUCCEEDED(device->CreateQuery(&disjoint, &timing.disjoint)) && SUCCEEDED(device->CreateQuery(&stamp, &timing.start))
+            && SUCCEEDED(device->CreateQuery(&stamp, &timing.end));
+        for (int s = 0; created && s < TT_GPU_STAGE_COUNT - 1; ++s) {
+            created = SUCCEEDED(device->CreateQuery(&stamp, &timing.markQueries[s]));
+            timing.marks.queries[s] = timing.markQueries[s].Get();
+        }
+        if (!created) {
             timing = GpuTiming{};
             return nullptr; // 時刻を記録できない GPU（測らずに描く）
         }
+    }
+    for (bool& marked : timing.marks.marked) {
+        marked = false; // 使う段だけ、描く間に記録を頼む
     }
     ctx->Begin(timing.disjoint.Get());
     ctx->End(timing.start.Get());
@@ -560,14 +573,32 @@ void View::CollectGpuTimings() noexcept
         D3D11_QUERY_DATA_TIMESTAMP_DISJOINT disjoint{};
         UINT64 start = 0;
         UINT64 end = 0;
-        if (ctx->GetData(timing.disjoint.Get(), &disjoint, sizeof(disjoint), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK
-            || ctx->GetData(timing.start.Get(), &start, sizeof(start), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK
-            || ctx->GetData(timing.end.Get(), &end, sizeof(end), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK) {
+        UINT64 marks[TT_GPU_STAGE_COUNT - 1] = {};
+        bool ready = ctx->GetData(timing.disjoint.Get(), &disjoint, sizeof(disjoint), D3D11_ASYNC_GETDATA_DONOTFLUSH) == S_OK
+            && ctx->GetData(timing.start.Get(), &start, sizeof(start), D3D11_ASYNC_GETDATA_DONOTFLUSH) == S_OK
+            && ctx->GetData(timing.end.Get(), &end, sizeof(end), D3D11_ASYNC_GETDATA_DONOTFLUSH) == S_OK;
+        for (int s = 0; ready && s < TT_GPU_STAGE_COUNT - 1; ++s) {
+            ready = !timing.marks.marked[s]
+                || ctx->GetData(timing.markQueries[s].Get(), &marks[s], sizeof(marks[s]), D3D11_ASYNC_GETDATA_DONOTFLUSH) == S_OK;
+        }
+        if (!ready) {
             break;
         }
         timing.pending = false;
         if (!disjoint.Disjoint && disjoint.Frequency > 0 && end >= start) {
-            gpuMilliseconds_ = static_cast<float>(static_cast<double>(end - start) * 1000.0 / static_cast<double>(disjoint.Frequency));
+            const double toMilliseconds = 1000.0 / static_cast<double>(disjoint.Frequency);
+            gpuMilliseconds_ = static_cast<float>(static_cast<double>(end - start) * toMilliseconds);
+            // 段の時間は、前の区切りからの差（使わなかった段は 0。区切りの時刻が前後していれば、その段は 0 にして続ける）
+            UINT64 previous = start;
+            for (int s = 0; s < TT_GPU_STAGE_COUNT - 1; ++s) {
+                gpuStages_[s] = 0.0f;
+                if (timing.marks.marked[s] && marks[s] >= previous && marks[s] <= end) {
+                    gpuStages_[s] = static_cast<float>(static_cast<double>(marks[s] - previous) * toMilliseconds);
+                    previous = marks[s];
+                }
+            }
+            gpuStages_[TT_GPU_STAGE_COUNT - 1] = static_cast<float>(static_cast<double>(end - previous) * toMilliseconds);
+            gpuStagesReady_ = true;
         }
     }
 }
@@ -576,6 +607,18 @@ float View::GpuMilliseconds() noexcept
 {
     CollectGpuTimings();
     return gpuMilliseconds_;
+}
+
+bool View::GpuBreakdown(float* out, uint32_t count) noexcept
+{
+    CollectGpuTimings();
+    if (!gpuStagesReady_) {
+        return false;
+    }
+    for (uint32_t s = 0; s < count && s < static_cast<uint32_t>(TT_GPU_STAGE_COUNT); ++s) {
+        out[s] = gpuStages_[s];
+    }
+    return true;
 }
 
 void View::Publish()

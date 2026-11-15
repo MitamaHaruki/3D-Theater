@@ -32,6 +32,15 @@ public sealed class UserSettings
     /// <summary>ライブモードのプレビューの分け方（レイアウトは <see cref="UserSettingsStore.LayoutFileFor"/> で別のファイル）。</summary>
     public Dictionary<string, PreviewSettings> LivePreviews { get; set; } = [];
 
+    /// <summary>
+    /// <see cref="LivePreviews"/> の切り替えを、どの決まりで覚えたか。<see cref="CurrentLivePreviewsVersion"/> より古ければ、覚えたグリッド・ボーンは
+    /// 読まずに初めの値（出さない）にする。前の版では初めから出していて、その値を閉じるときに覚えていたため（利用者が選んだ値ではない）。
+    /// </summary>
+    public int LivePreviewsVersion { get; set; }
+
+    /// <summary>グリッド・ボーン・配信の枠を、初めは出さないことにした版（設計判断記録 81 章）。</summary>
+    public const int CurrentLivePreviewsVersion = 1;
+
     /// <summary>ライブモードのサイドバーで、開いている項目（設計判断記録 78 章。次に起動したときも同じにする）。</summary>
     public List<string> LiveSections { get; set; } = ["Scene", "Character"];
 

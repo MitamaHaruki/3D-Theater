@@ -42,6 +42,8 @@ public partial class MainWindow : Window, Live.ILiveSceneActions, Live.ILiveScen
     private readonly Project.ProjectService _project;
     private readonly AppMode _mode;
     private bool _closeWithoutAsking;
+    private PreviewQuality? _checkKeptQuality;                             // 確かめで品質を変えた回の、元の品質（設定にはこちらを書く）
+    private (string Key, SavedWindowPlacement? Placement)? _checkKeptPlacement; // 確かめで窓の大きさを変えた回の、元の覚え
 
     // ライブモードの画面（設計判断記録 78 章）
     private Live.LiveShell? _live;
@@ -226,12 +228,16 @@ public partial class MainWindow : Window, Live.ILiveSceneActions, Live.ILiveScen
         _context.VirtualCamera?.Dispose(); // 仮想カメラをしまう（描画先もエンジンより先に片付く）
         _context.Hotkeys?.Dispose(); // キー操作を Windows から外す
 
+        if (_checkKeptPlacement is { } kept)
+        {
+            WindowMemory.Restore(kept.Key, kept.Placement); // 確かめで変えた窓の大きさは覚えない
+        }
         WindowMemory.SaveTo(_settings); // メインのウィンドウの置き場所は、閉じる知らせ（base.OnClosing）で覚えてある
         _settings.Window = null;
         _layout.Save(_settings);
         _plugins.Manager.ShutdownAll(); // レイアウトを保存してから（プラグインのパネルの場所を残すため）。設定より先（止めるときに設定を書くプラグインのため）
         _settings.Gizmo = new GizmoPreferences { Style = _context.Gizmo.Style, Tool = _context.Gizmo.Tool, LocalSpace = _context.Gizmo.LocalSpace };
-        _settings.Rendering = new RenderingPreferences { PreviewQuality = _context.PreviewQuality.Quality };
+        _settings.Rendering = new RenderingPreferences { PreviewQuality = _checkKeptQuality ?? _context.PreviewQuality.Quality };
         _settings.LiveTouchpad = _context.CameraControls.Touchpad;
         _settings.LiveTouchpadReverse = _context.CameraControls.ReverseTouchpad;
         if (_live is not null)
@@ -846,7 +852,7 @@ public partial class MainWindow : Window, Live.ILiveSceneActions, Live.ILiveScen
     }
 
     /// <summary>
-    /// 確かめのための起動の指定（「--track-camera」「--exit-after」）を行う。コマンドだけで確かめを進めるため（設計判断記録 77 章）。
+    /// 確かめのための起動の指定（「--track-camera」「--exit-after」「--preview-quality」「--window」など）を行う。コマンドだけで確かめを進めるため（設計判断記録 77 章）。
     /// </summary>
     public void RunChecks(CheckOptions check)
     {
@@ -859,6 +865,28 @@ public partial class MainWindow : Window, Live.ILiveSceneActions, Live.ILiveScen
             Live.SceneLibrary.Folder = sceneFolder;
             AppLog.Info($"確かめのため、シーンのフォルダーを「{Live.SceneLibrary.Folder}」にします");
             _sceneSection?.RefreshList();
+        }
+        if (check.Quality is { } quality)
+        {
+            _checkKeptQuality ??= _context.PreviewQuality.Quality;
+            _context.PreviewQuality.Quality = quality;
+            AppLog.Info($"確かめのため、プレビューの品質を「{RenderQuality.Name(quality)}」にします（設定には残しません）");
+        }
+        if (check.Window is { } size)
+        {
+            string key = _context.IsLive ? WindowMemory.LiveWindowKey : WindowMemory.MainWindowKey;
+            _checkKeptPlacement ??= (key, WindowMemory.Get(key));
+            if (size.Maximized)
+            {
+                WindowState = WindowState.Maximized;
+            }
+            else
+            {
+                WindowState = WindowState.Normal;
+                Width = size.Width;
+                Height = size.Height;
+            }
+            AppLog.Info($"確かめのため、窓を{(size.Maximized ? "最大化" : $"幅 {size.Width}・高さ {size.Height}（拡大率 100% のときの大きさ）")}にします（覚えている窓の置き場所は変えません）");
         }
         if (check.TrackCamera)
         {

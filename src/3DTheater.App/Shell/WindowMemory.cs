@@ -47,6 +47,19 @@ internal static partial class WindowMemory
     /// <summary>置き場所を覚える（前の版の設定から移すときなど）。</summary>
     public static void Set(string key, SavedWindowPlacement placement) => _placements[key] = placement;
 
+    /// <summary>前に控えた置き場所に戻す（null なら、覚えていないことに戻す）。確かめで窓の大きさを変えた回に、覚えを変えないため。</summary>
+    public static void Restore(string key, SavedWindowPlacement? placement)
+    {
+        if (placement is null)
+        {
+            _placements.Remove(key);
+        }
+        else
+        {
+            _placements[key] = placement;
+        }
+    }
+
     /// <summary>
     /// 前の版の形式（WPF の座標。画面の左上が原点、拡大率 100% で 1 画素）を、置き場所の形式に直す。
     /// 拡大率はシステムの値で、原点は主モニターの作業領域の左上で直す。

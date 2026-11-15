@@ -27,7 +27,7 @@ extern "C" {
 
 // 上位 16 ビットが大きな版、下位 16 ビットが小さな版。大きな版が違う DLL とは組み合わせない。
 #define TT_API_VERSION_MAJOR 0
-#define TT_API_VERSION_MINOR 31
+#define TT_API_VERSION_MINOR 32
 #define TT_API_VERSION ((TT_API_VERSION_MAJOR << 16) | TT_API_VERSION_MINOR)
 
 // 0 以上は成功、負の値は失敗。
@@ -489,6 +489,20 @@ TT_API TtResult TT_CALL tt_view_publish(TtView* view);
 // GPU の時刻を描画の始めと終わりで記録し、結果が出たものを待たずに読むので、数回前の描画の値になる。まだ測れていなければ
 // out_milliseconds を 0 にして TT_S_NOT_READY。GPU が描くのに 4 回分より遅れている間は、その回は測らない
 TT_API TtResult TT_CALL tt_view_get_gpu_time(TtView* view, float* out_milliseconds);
+
+// API 0.32: 1 回の描画の中の段（tt_view_get_gpu_breakdown の並び。描く順）
+enum {
+    TT_GPU_STAGE_SHADOWS = 0,  // 影の奥行きの画像・床の映り込みの下準備（場面を描き始める前）
+    TT_GPU_STAGE_SCENE = 1,    // 背景・格子・床・地面の影・モデル・輪郭線
+    TT_GPU_STAGE_EFFECTS = 2,  // 映像効果（使うときだけ。場面の MSAA のまとめを含む）
+    TT_GPU_STAGE_OVERLAYS = 3, // 場面の後に重ねる物（ボーンなどの線・選択の枠。映像効果を使うときは格子も）
+    TT_GPU_STAGE_RESOLVE = 4,  // 最後に MSAA の点を 1 画素にまとめる（なめらかにしないときは、ほぼ 0）
+    TT_GPU_STAGE_COUNT = 5,
+};
+
+// API 0.32: tt_view_get_gpu_time と同じ回の描画の、段ごとの GPU の時間（ミリ秒）を out_milliseconds[TT_GPU_STAGE_*] に入れる
+// （count が TT_GPU_STAGE_COUNT より少なければ、その数まで。使わなかった段は 0）。まだ測れていなければ 0 にして TT_S_NOT_READY
+TT_API TtResult TT_CALL tt_view_get_gpu_breakdown(TtView* view, float* out_milliseconds, uint32_t count);
 
 #ifdef __cplusplus
 }

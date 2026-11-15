@@ -387,4 +387,17 @@ TT_API TtResult TT_CALL tt_view_get_gpu_time(TtView* view, float* out_millisecon
     return (result == TT_OK && !ready) ? TT_S_NOT_READY : result;
 }
 
+TT_API TtResult TT_CALL tt_view_get_gpu_breakdown(TtView* view, float* out_milliseconds, uint32_t count)
+{
+    bool ready = false;
+    const TtResult result = Guard([&] {
+        Require(out_milliseconds != nullptr || count == 0, L"out_milliseconds が NULL です");
+        for (uint32_t s = 0; s < count; ++s) {
+            out_milliseconds[s] = 0.0f;
+        }
+        ready = ToView(view).GpuBreakdown(out_milliseconds, count);
+    });
+    return (result == TT_OK && !ready) ? TT_S_NOT_READY : result;
+}
+
 } // extern "C"

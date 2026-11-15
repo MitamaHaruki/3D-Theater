@@ -64,6 +64,10 @@ internal sealed class VirtualCameraTarget : IRenderTarget, IDisposable
 
     public double? GpuMilliseconds => _view is { IsDisposed: false } view ? view.GpuMilliseconds : null;
 
+    public GpuStageTimes? GpuStages => _view is { IsDisposed: false } view ? GpuStageTimes.From(view.GpuBreakdown) : null;
+
+    public RenderSize? Size => _view is { IsDisposed: false } ? new RenderSize(_width, _height, _sampleCount) : null;
+
     public bool Submit()
     {
         if (!_frames.TryGetWanted(out int width, out int height))

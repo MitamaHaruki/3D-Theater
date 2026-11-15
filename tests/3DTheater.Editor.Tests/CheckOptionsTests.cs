@@ -51,4 +51,30 @@ public sealed class CheckOptionsTests
             Assert.HasCount(1, read.Problems, bad);
         }
     }
+
+    [TestMethod]
+    public void PreviewQualityAndWindowAreRead()
+    {
+        CheckOptions options = CheckOptions.Parse(["--preview-quality=light", "--window=maximized"]);
+        Assert.AreEqual(PreviewQuality.Light, options.Quality);
+        Assert.AreEqual(new CheckWindow(true), options.Window);
+        Assert.IsFalse(options.IsEmpty);
+        Assert.IsEmpty(options.Problems);
+
+        Assert.AreEqual(PreviewQuality.High, CheckOptions.Parse(["--PREVIEW-QUALITY=High"]).Quality, "大文字でもよい");
+        Assert.AreEqual(PreviewQuality.Standard, CheckOptions.Parse(["--preview-quality=ふつう"]).Quality, "日本語の名前でもよい");
+        Assert.AreEqual(new CheckWindow(false, 1280, 800), CheckOptions.Parse(["--window=1280x800"]).Window);
+        Assert.AreEqual(new CheckWindow(false, 1920, 1080), CheckOptions.Parse(["--window=1920×1080"]).Window, "× でもよい");
+        Assert.IsFalse(CheckOptions.Parse(["--window=640x480"]).Window!.Maximized, "いちばん小さい大きさ");
+
+        foreach (string bad in new[] { "--preview-quality", "--preview-quality=best", "--window", "--window=big", "--window=1280", "--window=320x200",
+            "--window=1280x-800", "--window=99999x800" })
+        {
+            CheckOptions read = CheckOptions.Parse([bad]);
+            Assert.IsNull(read.Quality, bad);
+            Assert.IsNull(read.Window, bad);
+            Assert.HasCount(1, read.Problems, bad);
+            StringAssert.Contains(read.Problems[0], bad);
+        }
+    }
 }

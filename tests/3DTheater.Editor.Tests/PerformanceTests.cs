@@ -213,6 +213,44 @@ public sealed class PerformanceTests
     }
 
     [TestMethod]
+    public void GpuStagesAndTheMostUsedSizeAreKept()
+    {
+        var time = new ManualTime();
+        var stats = new RenderStats(time);
+        stats.AddFrame(5, 4, new GpuStageTimes(1, 2, 0, 0.5, 0.5), new RenderSize(2880, 1800, 4)); // 起動した直後の大きさ
+        stats.AddFrame(5, 8, new GpuStageTimes(2, 4, 0, 1, 1), new RenderSize(1920, 1200, 1));
+        stats.AddFrame(5, null, null, new RenderSize(1920, 1200, 1));
+        time.Advance(TimeSpan.FromSeconds(1));
+
+        RenderPeriod period = stats.TakeInterval();
+        Assert.AreEqual(new GpuStageTimes(1.5, 3, 0, 0.75, 0.75), period.GpuStages, "段ごとの時間は、測れた回の平均");
+        Assert.AreEqual(new RenderSize(1920, 1200, 1), period.Size, "いちばん多くの回で描いた大きさ（途中で変えたら、長く使った方）");
+        Assert.AreEqual(2880L * 1800 * 4, new RenderSize(2880, 1800, 4).Points);
+
+        stats.AddFrame(5, null);
+        RenderPeriod next = stats.TakeInterval();
+        Assert.IsNull(next.GpuStages, "測れていなければ書かない");
+        Assert.IsNull(next.Size);
+
+        Assert.AreEqual(new GpuStageTimes(1, 2, 3, 4, 5), GpuStageTimes.From([1f, 2f, 3f, 4f, 5f]));
+        Assert.IsNull(GpuStageTimes.From([1f, 2f]), "段の数が足りない");
+        Assert.IsNull(GpuStageTimes.From(null));
+    }
+
+    [TestMethod]
+    public void GpuStagesAreWrittenInTheSpeedLine()
+    {
+        var render = new RenderPeriod(TimeSpan.FromMinutes(1), 3600, 1200, 0, 0, 20, new TimeSummary(1200, 24.1, 30.5, 40), new TimeSummary(1200, 21.9, 25, 30),
+            new GpuStageTimes(0.42, 17.03, 0, 0.11, 4.34), new RenderSize(1920, 1200, 4));
+        Assert.AreEqual(
+            "描画 20.0 回/秒（描く大きさ 1920 × 1200（なめらかさ 4 倍）・1 回 平均 24.1 ms・95% 30.5 ms"
+            + "・GPU 21.9 ms（影 0.4・場面 17.0・重ね 0.1・まとめ 4.3）・つかえ 0 回）",
+            PerformanceText.Render(render));
+        StringAssert.Contains(PerformanceText.GpuStages(new GpuStageTimes(0, 1, 2.5, 0, 0)), "場面 1.0・効果 2.5・重ね 0.0", "映像効果は使ったときだけ");
+        StringAssert.Contains(PerformanceText.Render(render with { Size = new RenderSize(640, 480, 1) }), "描く大きさ 640 × 480（なめらかさ なし）");
+    }
+
+    [TestMethod]
     public void LogLinesHaveTheNumbers()
     {
         var render = new RenderPeriod(TimeSpan.FromMinutes(1), 3600, 1800, 2, 0, 75, new TimeSummary(1800, 2.14, 3.0, 9), new TimeSummary(1800, 3.4, 4, 6));

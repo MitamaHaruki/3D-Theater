@@ -55,8 +55,14 @@
       </Border>
     </StackPanel>
 
-    <!-- 右下: グリッド・ボーン -->
+    <!-- 右下: 配信の枠・グリッド・ボーン（どれも初めは出さない。利用者の頼み） -->
     <StackPanel Margin="0,0,50,10" HorizontalAlignment="Right" VerticalAlignment="Bottom" Orientation="Horizontal">
+      <ToggleButton x:Name="FrameButton" Style="{StaticResource LiveToggleStyle}" Checked="OnFrameClick" Unchecked="OnFrameClick"
+                    AutomationProperties.Name="配信の枠" ToolTip="配信に映る範囲の枠を表示（枠の外側を暗くします）">
+        <Path Width="14" Height="14" Stretch="Fill" StrokeThickness="1.1"
+              Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ToggleButton}}"
+              Data="M0,1 H14 V13 H0 Z M3,4 H11 V10 H3 Z" />
+      </ToggleButton>
       <ToggleButton x:Name="GridButton" Style="{StaticResource LiveToggleStyle}" Checked="OnGridClick" Unchecked="OnGridClick" AutomationProperties.Name="グリッド" ToolTip="グリッドを表示">
         <Path Width="14" Height="14" Stretch="Fill" StrokeThickness="1.1"
               Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ToggleButton}}"

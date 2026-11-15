@@ -190,6 +190,26 @@ public sealed unsafe class NativeView : IDisposable
     }
 
     /// <summary>
+    /// <see cref="GpuMilliseconds"/> と同じ回の、段ごとの GPU の時間（ミリ秒。影の下準備・場面・映像効果・重ね描き・MSAA のまとめ の順の
+    /// <see cref="GpuStageCount"/> 個。使わなかった段は 0）。まだ測れていなければ null。
+    /// </summary>
+    public float[]? GpuBreakdown
+    {
+        get
+        {
+            float* stages = stackalloc float[GpuStageCount];
+            if (NativeError.Check(NativeMethods.ViewGetGpuBreakdown(Handle, stages, GpuStageCount)) != NativeResult.Ok)
+            {
+                return null;
+            }
+            return new ReadOnlySpan<float>(stages, GpuStageCount).ToArray();
+        }
+    }
+
+    /// <summary>GPU の時間の段の数（描画エンジンの TT_GPU_STAGE_COUNT）。</summary>
+    public const int GpuStageCount = 5;
+
+    /// <summary>
     /// 画面外ビューの内容を BGRA 8 ビットで読み出す。テスト・保存用と、共有できない環境での表示用。
     /// 見える面を分けたビューでは、最後に <see cref="Publish"/> した絵を読む。
     /// </summary>

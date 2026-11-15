@@ -119,6 +119,7 @@ public partial class LiveShell : UserControl
         {
             return;
         }
+        FrameButton.IsChecked = _preview.ShowFrame;
         GridButton.IsChecked = _preview.ShowGrid;
         BonesButton.IsChecked = _preview.ShowBones;
     }
@@ -145,6 +146,14 @@ public partial class LiveShell : UserControl
 
     private static DependencyObject? ParentOf(DependencyObject d) =>
         d is Visual or Visual3D ? VisualTreeHelper.GetParent(d) : LogicalTreeHelper.GetParent(d);
+
+    private void OnFrameClick(object sender, RoutedEventArgs e)
+    {
+        if (_preview is not null)
+        {
+            _preview.ShowFrame = FrameButton.IsChecked == true;
+        }
+    }
 
     private void OnGridClick(object sender, RoutedEventArgs e)
     {

@@ -442,6 +442,25 @@ public sealed class NativeEngineTests
         }
         Assert.IsNotNull(measured, "描いて GPU が終えれば、時間が読める");
         Assert.IsGreaterThanOrEqualTo(0f, measured.Value);
+
+        // 同じ回の、段ごとの時間（影の下準備・場面・映像効果・重ね描き・まとめ）。足すと全体になる
+        float[]? stages = view.GpuBreakdown;
+        Assert.IsNotNull(stages, "全体が測れれば、段ごとの時間も読める");
+        Assert.HasCount(NativeView.GpuStageCount, stages);
+        foreach (float stage in stages)
+        {
+            Assert.IsGreaterThanOrEqualTo(0f, stage);
+        }
+        Assert.AreEqual(measured.Value, stages.Sum(), 0.01 + measured.Value * 0.01, "段の時間を足すと、全体の時間");
+        Assert.AreEqual(0f, stages[2], "映像効果を使わなければ、効果の段は 0");
+    }
+
+    [TestMethod]
+    public void GpuBreakdownIsNotReadyBeforeRendering()
+    {
+        using var engine = NativeEngine.Create(NativeEngineOptions.UseWarp);
+        using var view = engine.CreateOffscreenView(16, 16);
+        Assert.IsNull(view.GpuBreakdown, "まだ描いていなければ測れていない");
     }
 
     [TestMethod]

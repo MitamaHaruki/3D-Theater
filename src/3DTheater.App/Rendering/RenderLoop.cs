@@ -42,6 +42,12 @@ public interface IRenderTarget
 
     /// <summary>1 回の描画に GPU が掛けた時間（ミリ秒。数回前の描画の値）。まだ測れていなければ null。</summary>
     double? GpuMilliseconds { get; }
+
+    /// <summary><see cref="GpuMilliseconds"/> と同じ回の、段ごとの GPU の時間。測れなければ null。</summary>
+    GpuStageTimes? GpuStages => null;
+
+    /// <summary>描く大きさ（画素）と、なめらかさの点の数。分からなければ null。</summary>
+    RenderSize? Size => null;
 }
 
 /// <summary>
@@ -78,6 +84,8 @@ public sealed class RenderLoop(NativeEngine? engine, PlaybackService playback)
     private readonly FrameTimer _presentTimer = new();
     private readonly FrameTimer _gpuTimer = new();
     private double? _lastGpuMilliseconds;
+    private GpuStageTimes? _lastGpuStages;
+    private RenderSize? _lastSize;
 
     public event EventHandler<RenderFailedEventArgs>? RenderFailed;
 
@@ -185,6 +193,8 @@ public sealed class RenderLoop(NativeEngine? engine, PlaybackService playback)
         _lastTimestamp = now;
         Statistics.AddTick(step.TotalMilliseconds);
         _lastGpuMilliseconds = null;
+        _lastGpuStages = null;
+        _lastSize = null;
         playback.Advance(step > MaxStep ? MaxStep : step); // 再生位置が進むと、各区画は Invalidate される
         Ticking?.Invoke(this, step > MaxStep ? MaxStep : step);
 
@@ -195,7 +205,7 @@ public sealed class RenderLoop(NativeEngine? engine, PlaybackService playback)
         {
             TimeSpan frame = Stopwatch.GetElapsedTime(now);
             _frameTimer.Add(frame);
-            Statistics.AddFrame(frame.TotalMilliseconds, _lastGpuMilliseconds);
+            Statistics.AddFrame(frame.TotalMilliseconds, _lastGpuMilliseconds, _lastGpuStages, _lastSize);
             _framesInSample++;
         }
         UpdateFrameRate(now);
@@ -370,11 +380,13 @@ public sealed class RenderLoop(NativeEngine? engine, PlaybackService playback)
         return lost;
     }
 
-    /// <summary>描いた区画の、GPU が描くのに掛けた時間（測れた分）を足して記録する。</summary>
+    /// <summary>描いた区画の、GPU が描くのに掛けた時間（測れた分。段ごとの時間も）を足して記録する。いちばん大きく描いた区画の大きさも覚える。</summary>
     private void RecordGpuTime()
     {
         double sum = 0;
         bool any = false;
+        GpuStageTimes stages = default;
+        bool anyStages = false;
         foreach (IRenderTarget target in _submitted)
         {
             try
@@ -383,6 +395,15 @@ public sealed class RenderLoop(NativeEngine? engine, PlaybackService playback)
                 {
                     sum += milliseconds;
                     any = true;
+                    if (target.GpuStages is { } s)
+                    {
+                        stages += s;
+                        anyStages = true;
+                    }
+                }
+                if (target.Size is { } size && (_lastSize is not { } largest || size.Points > largest.Points))
+                {
+                    _lastSize = size;
                 }
             }
             catch (NativeEngineException)
@@ -394,6 +415,7 @@ public sealed class RenderLoop(NativeEngine? engine, PlaybackService playback)
         {
             _gpuTimer.Add(TimeSpan.FromMilliseconds(sum));
             _lastGpuMilliseconds = sum;
+            _lastGpuStages = anyStages ? stages : null;
         }
     }
 

@@ -32,6 +32,8 @@ public:
     void Publish();
     // 測れた中でいちばん新しい、1 回の描画に GPU が掛けた時間（ミリ秒）。まだ測れていなければ負（待たずに結果を読む）
     float GpuMilliseconds() noexcept;
+    // GpuMilliseconds と同じ回の、段ごとの時間（TT_GPU_STAGE_* の順に count 個まで）。まだ測れていなければ false
+    bool GpuBreakdown(float* out, uint32_t count) noexcept;
 
     // GPU の作り直し。D3DImage 用の面は別の物になるので、呼び出し側は面を取り直すこと
     void ReleaseDeviceResources() noexcept override;
@@ -54,11 +56,13 @@ private:
     void EnsurePostResources(bool bloom, bool depth, bool dof, bool ao, bool fog, bool ssr);
     void ReleaseSwapChain() noexcept;
 
-    // GPU の時刻の記録 1 回分（描画の始めと終わり。disjoint は、間で時計の速さが変わらなかったか）
+    // GPU の時刻の記録 1 回分（描画の始めと終わりと、段の区切り。disjoint は、間で時計の速さが変わらなかったか）
     struct GpuTiming {
         ComPtr<ID3D11Query> disjoint;
         ComPtr<ID3D11Query> start;
         ComPtr<ID3D11Query> end;
+        ComPtr<ID3D11Query> markQueries[TT_GPU_STAGE_COUNT - 1]; // 段の終わり（最後の段の終わりは end）
+        Engine::GpuMarks marks;                                   // 描く間エンジンへ渡す区切り（markQueries を指す）
         bool pending = false; // 記録を頼んで、まだ結果を読んでいない
     };
     static constexpr int kGpuTimings = 4;
@@ -111,6 +115,8 @@ private:
     GpuTiming gpuTimings_[kGpuTimings];
     int nextGpuTiming_ = 0;
     float gpuMilliseconds_ = -1.0f; // まだ測れていなければ負
+    float gpuStages_[TT_GPU_STAGE_COUNT] = {}; // gpuMilliseconds_ と同じ回の、段ごとの時間
+    bool gpuStagesReady_ = false;
 };
 
 } // namespace tt

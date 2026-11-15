@@ -261,6 +261,7 @@ public sealed class DockingLayout
         if (_docklessLive)
         {
             settings.LivePreviews = previews; // ライブの画面はドッキングを使わないので、レイアウトのファイルは書かない
+            settings.LivePreviewsVersion = UserSettings.CurrentLivePreviewsVersion;
             return;
         }
         if (_mode == AppMode.Live)
@@ -284,14 +285,18 @@ public sealed class DockingLayout
 
     /// <summary>
     /// ライブモードの画面（設計判断記録 78 章）: ドッキングを使わず、プレビューを 1 枚だけ作る（置くのはライブの画面）。
-    /// グリッドとボーンの切り替えは前回のものに戻し、視点はいつもカメラから始める。レイアウトのファイルは読み書きしない。
+    /// グリッド・ボーン・配信の枠の切り替えは前回のものに戻し（初めて使うときは、どれも出さない。利用者の頼み）、
+    /// 視点はいつもカメラから始める。レイアウトのファイルは読み書きしない。
     /// </summary>
     public PreviewPanel CreateLivePreview(UserSettings settings)
     {
         _docklessLive = true;
-        PreviewSettings? saved = settings.LivePreviews.GetValueOrDefault(LivePreviewId);
+        // 前の版で覚えた切り替えは、利用者が選んだものではない（初めから出していた）ので、1 回だけ読まずに初めの値にする
+        PreviewSettings? saved = settings.LivePreviewsVersion >= UserSettings.CurrentLivePreviewsVersion
+            ? settings.LivePreviews.GetValueOrDefault(LivePreviewId)
+            : null;
         var start = new PreviewSettings(PreviewLayout.Single, PreviewLayouts.DefaultQuadPreset.Name, [ViewKind.Camera],
-            saved?.ShowGrid ?? true, saved?.ShowBones ?? true);
+            saved?.ShowGrid ?? false, saved?.ShowBones ?? false, saved?.ShowFrame ?? false);
         return CreatePreview(LivePreviewId, start);
     }
 

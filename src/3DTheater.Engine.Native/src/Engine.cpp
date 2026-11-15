@@ -645,6 +645,14 @@ uint32_t Engine::SupportedSampleCount(uint32_t requested) const
     return 1;
 }
 
+void Engine::MarkGpu(int stage) noexcept
+{
+    if (gpuMarks_ && stage >= 0 && stage < TT_GPU_STAGE_COUNT - 1 && gpuMarks_->queries[stage]) {
+        context_->End(gpuMarks_->queries[stage]);
+        gpuMarks_->marked[stage] = true;
+    }
+}
+
 void Engine::DrawScene(ID3D11RenderTargetView* rtv, ID3D11DepthStencilView* dsv, int width, int height, const TtFrameParams& params,
     bool multisampled, ScenePart part, ReflectionTargets* reflection, const SurfaceTargets* surface)
 {
@@ -724,6 +732,9 @@ void Engine::DrawScene(ID3D11RenderTargetView* rtv, ID3D11DepthStencilView* dsv,
     const bool blurReflection = floorReflection && reflection && ReflectionBlurOf(params) > 0.0f
         && reflection->width == static_cast<UINT>(width) && reflection->height == static_cast<UINT>(height);
     const bool reflectionReady = blurReflection && RenderBlurredFloorReflections(params, frame, *reflection);
+    if (drawScene) {
+        MarkGpu(TT_GPU_STAGE_SHADOWS); // ここまでが影の下準備（GPU の時間の内訳）
+    }
 
     ctx->OMSetRenderTargets(1, &rtv, dsv);
     const D3D11_VIEWPORT viewport{0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height), 0.0f, 1.0f};
@@ -821,6 +832,9 @@ void Engine::DrawScene(ID3D11RenderTargetView* rtv, ID3D11DepthStencilView* dsv,
     if (writeSurface) {
         ctx->OMSetRenderTargets(1, &rtv, dsv);
         frame.ssrParams.x = 0.0f;
+    }
+    if (drawScene) {
+        MarkGpu(TT_GPU_STAGE_SCENE); // ここまでが場面（GPU の時間の内訳）
     }
 
     // 重ね描き（映像効果の後）: 格子と座標軸、選択の枠。奥行きは場面のものを使う

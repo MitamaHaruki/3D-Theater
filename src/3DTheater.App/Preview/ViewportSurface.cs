@@ -78,6 +78,10 @@ public sealed class ViewportSurface : FrameworkElement, IRenderTarget, IDisposab
 
     public double? GpuMilliseconds => _view is { IsDisposed: false } view ? view.GpuMilliseconds : null;
 
+    public GpuStageTimes? GpuStages => _view is { IsDisposed: false } view ? GpuStageTimes.From(view.GpuBreakdown) : null;
+
+    public RenderSize? Size => _view is { IsDisposed: false } ? new RenderSize(_pixelWidth, _pixelHeight, _sampleCount) : null;
+
     // 読み出す方式（共有できない環境）は、描いたらすぐ読み出す。見える面を作り直した直後は、出しておける前の絵が無い
     public bool PresentImmediately => _useReadback || _backBufferDirty;
 

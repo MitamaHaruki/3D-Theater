@@ -5,8 +5,10 @@ using Theater3D.Editor;
 
 namespace Theater3D.App.Preview;
 
-/// <summary>プレビュー 1 枚の設定。レイアウトと一緒に保存する。</summary>
-public sealed record PreviewSettings(PreviewLayout Layout, string QuadPresetName, ViewKind[] Views, bool ShowGrid, bool ShowBones = true)
+/// <summary>プレビュー 1 枚の設定。レイアウトと一緒に保存する。<paramref name="ShowFrame"/> はカメラ視点の書き出し・配信の枠
+/// （切り替えはライブモードの画面だけ。エディットモードはいつも出す）。</summary>
+public sealed record PreviewSettings(PreviewLayout Layout, string QuadPresetName, ViewKind[] Views, bool ShowGrid, bool ShowBones = true,
+    bool ShowFrame = true)
 {
     public static PreviewSettings Default(PreviewLayout layout = PreviewLayout.Quad) =>
         new(layout, PreviewLayouts.DefaultQuadPreset.Name, [.. PreviewLayouts.DefaultViews(layout)], true);
@@ -104,6 +106,19 @@ public partial class PreviewPanel : UserControl, IDisposable
         }
     }
 
+    /// <summary>カメラ視点で、書き出し・配信の枠（外側を暗くする）を出すか。</summary>
+    public bool ShowFrame
+    {
+        get => _views[0].ShowExportFrame;
+        set
+        {
+            foreach (ViewportControl view in _views)
+            {
+                view.ShowExportFrame = value;
+            }
+        }
+    }
+
     /// <summary>
     /// ライブモードの見た目にする（設計判断記録 78 章）: 上のツールバー（分け方・グリッド・ボーン）と区画の見出しを隠し、
     /// 1 画面のカメラ視点だけにする。グリッドとボーンの切り替えは、ライブの画面の右下に置く。
@@ -127,7 +142,7 @@ public partial class PreviewPanel : UserControl, IDisposable
     }
 
     public PreviewSettings GetSettings() =>
-        new(_layout, _quadPreset.Name, [.. _views.Select(v => v.Camera.Kind)], ShowGrid, ShowBones);
+        new(_layout, _quadPreset.Name, [.. _views.Select(v => v.Camera.Kind)], ShowGrid, ShowBones, ShowFrame);
 
     public void Dispose()
     {
@@ -147,6 +162,7 @@ public partial class PreviewPanel : UserControl, IDisposable
             _views[i].Camera.SetKind(kind);
             _views[i].ShowGrid = settings.ShowGrid;
             _views[i].ShowBones = settings.ShowBones;
+            _views[i].ShowExportFrame = settings.ShowFrame;
         }
         Arrange();
     }
