@@ -140,13 +140,11 @@ public sealed class TrackingDriver
         _context.RenderLoop.InvalidateAll();
     }
 
-    // 当てはめるモデル（決めたモデルか、頭のボーンを持つ最初のモデル）。変わったら前のモデルの重ねを外す
+    // 当てはめるモデル（サイドバーの「キャラクター」だけ。背景のモデルは自動では選ばない。設計判断記録 78 章の 2 段目）。
+    // 変わったら前のモデルの重ねを外す
     private ModelNode? ResolveTarget()
     {
-        ModelNode[] models = [.. _context.Scene.ModelsGroup.Children.OfType<ModelNode>()];
-        Guid? id = _retarget.Settings.TargetModelId;
-        ModelNode? target = (id is { } wanted ? models.FirstOrDefault(m => m.Id == wanted) : null)
-            ?? models.FirstOrDefault(m => FaceRigNames.Find([.. m.Bones.Select(b => b.Name)], FaceRigNames.Head) >= 0);
+        ModelNode? target = LiveCast.Character(_context.Scene, _retarget.Settings);
         if (!ReferenceEquals(target, _target) || _rig is null)
         {
             if (_target is not null && !ReferenceEquals(target, _target) && _context.GetLoaded(_target) is { } previous)
@@ -162,7 +160,7 @@ public sealed class TrackingDriver
             }
             else if (target is null)
             {
-                Status = "当てはめるモデルがありません（頭のボーンを持つモデルを読み込んでください）";
+                Status = "キャラクターがいません（サイドバーの「キャラクター」で、PMX のモデルを読み込んでください）";
             }
         }
         return target;

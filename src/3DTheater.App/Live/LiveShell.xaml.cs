@@ -1,6 +1,9 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Media3D;
 using Theater3D.App.Preview;
 using Theater3D.Editor;
 
@@ -36,7 +39,7 @@ public partial class LiveShell : UserControl
     public event EventHandler? SettingsRequested;
 
     /// <summary>サイドバーの折り畳みの項目（上から順）。</summary>
-    public IReadOnlyList<Expander> Sections => [SceneSection, CameraSection, LightSection, CharacterSection, BackgroundSection, PanelsSection];
+    public IReadOnlyList<Expander> Sections => [SceneExpander, CameraExpander, LightExpander, CharacterExpander, BackgroundExpander, PanelsExpander];
 
     /// <summary>開いている項目の名前（<see cref="FrameworkElement.Tag"/>。次に起動したときに同じにするため、設定に覚える）。</summary>
     public IReadOnlyList<string> ExpandedSections
@@ -60,6 +63,14 @@ public partial class LiveShell : UserControl
         preview.FirstView.Camera.Changed += (_, _) => UpdateViewHint();
         UpdateToggles();
         UpdateViewHint();
+    }
+
+    /// <summary>サイドバーの「照明」「キャラクター」「背景」の中身を置く（設計判断記録 78 章の 2 段目）。</summary>
+    public void SetCastSections(FrameworkElement light, FrameworkElement character, FrameworkElement background)
+    {
+        LightExpander.Content = light;
+        CharacterExpander.Content = character;
+        BackgroundExpander.Content = background;
     }
 
     /// <summary>トラッキングのパネルを、右上の「トラッキング情報」に置く（無ければ、その枠を出さない）。</summary>
@@ -134,6 +145,29 @@ public partial class LiveShell : UserControl
         ViewHint.Visibility = free ? Visibility.Visible : Visibility.Collapsed;
         ViewHintText.Text = free ? $"{kind.DisplayName()}（テンキーの 0 で、カメラの視点に戻ります）" : string.Empty;
     }
+
+    // サイドバーの中に、自分で上下に動く欄（一覧・表情・プロパティ）がある。ホイールは、その欄がまだ動けるならその欄に、
+    // 動けなければ（端まで来た・動く必要が無い）サイドバーに渡す。字を打っている欄・開いている選択肢は、その欄に任せる
+    private void OnSidebarPreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        for (DependencyObject? d = e.OriginalSource as DependencyObject; d is not null && !ReferenceEquals(d, SidebarScroll); d = ParentOf(d))
+        {
+            if (d is TextBoxBase { IsKeyboardFocusWithin: true } or ComboBox { IsDropDownOpen: true })
+            {
+                return;
+            }
+            if (d is ScrollViewer { ScrollableHeight: > 0 } inner
+                && (e.Delta > 0 ? inner.VerticalOffset > 0 : inner.VerticalOffset < inner.ScrollableHeight))
+            {
+                return;
+            }
+        }
+        SidebarScroll.ScrollToVerticalOffset(SidebarScroll.VerticalOffset - e.Delta);
+        e.Handled = true;
+    }
+
+    private static DependencyObject? ParentOf(DependencyObject d) =>
+        d is Visual or Visual3D ? VisualTreeHelper.GetParent(d) : LogicalTreeHelper.GetParent(d);
 
     private void OnGridClick(object sender, RoutedEventArgs e)
     {

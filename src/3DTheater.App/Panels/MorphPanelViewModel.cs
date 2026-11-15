@@ -142,9 +142,13 @@ public sealed class MorphPanelViewModel : ObservableObject
     private string _filter = string.Empty;
     private string _presetName = string.Empty;
 
-    public MorphPanelViewModel(EditorContext context)
+    private readonly Func<ModelNode?>? _pinned;
+
+    /// <param name="pinned">選んでいるモデルの代わりに出すモデル（ライブモードの「キャラクター」。設計判断記録 78 章の 2 段目）。</param>
+    public MorphPanelViewModel(EditorContext context, Func<ModelNode?>? pinned = null)
     {
         _context = context;
+        _pinned = pinned;
         context.Selection.Changed += (_, _) => OnSelectionChanged();
         context.Scene.NodeChanged += (_, e) =>
         {
@@ -378,16 +382,30 @@ public sealed class MorphPanelViewModel : ObservableObject
         }
     }
 
+    /// <summary>出すモデルを見直す（決めたモデルが変わったとき）。</summary>
+    public void RefreshTarget() => OnSelectionChanged();
+
     private void OnSelectionChanged()
     {
-        ModelNode? active = _context.ActiveModel;
-        if (active is not null && !ReferenceEquals(active, _model))
+        if (_pinned is not null)
         {
-            SetModel(active);
+            ModelNode? pinned = _pinned();
+            if (!ReferenceEquals(pinned, _model))
+            {
+                SetModel(pinned);
+            }
         }
-        else if (_model is not null && _model.Parent is null)
+        else
         {
-            SetModel(null); // シーンから外れたモデル
+            ModelNode? active = _context.ActiveModel;
+            if (active is not null && !ReferenceEquals(active, _model))
+            {
+                SetModel(active);
+            }
+            else if (_model is not null && _model.Parent is null)
+            {
+                SetModel(null); // シーンから外れたモデル
+            }
         }
         foreach (MorphRow row in _allRows)
         {

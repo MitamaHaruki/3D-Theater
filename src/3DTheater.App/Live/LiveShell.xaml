@@ -16,9 +16,10 @@
     <!-- サイドバー（左上から 50・50、幅 600、下は 50 空ける） -->
     <Border x:Name="Sidebar" Style="{StaticResource LiveOverlayBoxStyle}" Width="600" Margin="50,50,0,50" Padding="10"
             HorizontalAlignment="Left" VerticalAlignment="Stretch" AutomationProperties.Name="サイドバー">
-      <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Focusable="False">
+      <ScrollViewer x:Name="SidebarScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Focusable="False"
+                    PreviewMouseWheel="OnSidebarPreviewMouseWheel">
         <StackPanel>
-          <Expander x:Name="SceneSection" Header="シーン" Style="{StaticResource LiveSectionStyle}" Tag="Scene">
+          <Expander x:Name="SceneExpander" Header="シーン" Style="{StaticResource LiveSectionStyle}" Tag="Scene">
             <StackPanel>
               <WrapPanel>
                 <Button Margin="0,0,8,6" MinWidth="96" Content="新規" Click="OnNewClick" ToolTip="新しいシーンにします（保存していない変更があれば尋ねます。Ctrl+N）" />
@@ -32,23 +33,15 @@
                          Text="（仮）保存したシーンを選んで切り替える形は、4 段目で作ります。今は、ファイルを開く・保存する形です。" />
             </StackPanel>
           </Expander>
-          <Expander x:Name="CameraSection" Header="カメラ" Style="{StaticResource LiveSectionStyle}" Tag="Camera">
+          <Expander x:Name="CameraExpander" Header="カメラ" Style="{StaticResource LiveSectionStyle}" Tag="Camera">
             <TextBlock Style="{StaticResource PlannedNoteStyle}"
                        Text="「ライブカメラ」と、別の視点のカメラを足す・消す・名前を変える所は、3 段目で作ります。" />
           </Expander>
-          <Expander x:Name="LightSection" Header="照明" Style="{StaticResource LiveSectionStyle}" Tag="Light">
-            <TextBlock Style="{StaticResource PlannedNoteStyle}"
-                       Text="照明を足す・消す・名前を変える・操作する所は、2 段目で作ります（今は、下の「今のパネル」で操作できます）。" />
-          </Expander>
-          <Expander x:Name="CharacterSection" Header="キャラクター" Style="{StaticResource LiveSectionStyle}" Tag="Character">
-            <TextBlock Style="{StaticResource PlannedNoteStyle}"
-                       Text="キャラクターを 1 体読み込む・消す・操作する所は、2 段目で作ります（今は、下の「今のパネル」で操作できます）。" />
-          </Expander>
-          <Expander x:Name="BackgroundSection" Header="背景" Style="{StaticResource LiveSectionStyle}" Tag="Background">
-            <TextBlock Style="{StaticResource PlannedNoteStyle}"
-                       Text="キャラクター以外のモデルを読み込む・消す・操作する所は、2 段目で作ります（今は、下の「今のパネル」で操作できます）。" />
-          </Expander>
-          <Expander x:Name="PanelsSection" Header="今のパネル（作り直すまでの仮）" Style="{StaticResource LiveSectionStyle}" Tag="Panels">
+          <!-- 照明・キャラクター・背景の中身は、コードで置く（Live.LightSection・CharacterSection・BackgroundSection） -->
+          <Expander x:Name="LightExpander" Header="照明" Style="{StaticResource LiveSectionStyle}" Tag="Light" />
+          <Expander x:Name="CharacterExpander" Header="キャラクター" Style="{StaticResource LiveSectionStyle}" Tag="Character" />
+          <Expander x:Name="BackgroundExpander" Header="背景" Style="{StaticResource LiveSectionStyle}" Tag="Background" />
+          <Expander x:Name="PanelsExpander" Header="今のパネル（作り直すまでの仮）" Style="{StaticResource LiveSectionStyle}" Tag="Panels">
             <TabControl x:Name="PanelTabs" Height="560" Background="Transparent" />
           </Expander>
           <Button x:Name="SettingsButton" Content="設定" Style="{StaticResource LiveSectionButtonStyle}" Click="OnSettingsClick"

@@ -156,7 +156,14 @@ public sealed class HotkeyEntry
 /// <summary>顔のトラッキングの当てはめ方。当てはめるモデルは、モデルの目印（<see cref="ModelEntry.Id"/>）で書く。</summary>
 public sealed class TrackingEntry
 {
+    /// <summary>当てはめ先のモデル（ライブモードの「キャラクター」。設計判断記録 78 章）。</summary>
     public string? Target { get; set; }
+
+    /// <summary>
+    /// キャラクターを決めて保存した版か（78 章の 2 段目から書く）。無い前の版のファイルで、当てはめ先が「自動」なら、
+    /// 開くときにキャラクターを選ぶ（<see cref="LiveCast.ChooseCharacter"/>）。書いてあれば、当てはめ先が無いときは「キャラクターがいない」。
+    /// </summary>
+    public bool ExplicitCharacter { get; set; }
 
     public bool Mirror { get; set; }
 
@@ -180,6 +187,7 @@ public sealed class TrackingEntry
     public static TrackingEntry From(FaceRetargetSettings s, PhoneTrackingSettings? phone = null) => new()
     {
         Target = s.TargetModelId?.ToString("N"),
+        ExplicitCharacter = true,
         Mirror = s.Mirror,
         Gaze = s.Gaze,
         UpperBody = s.UpperBody,

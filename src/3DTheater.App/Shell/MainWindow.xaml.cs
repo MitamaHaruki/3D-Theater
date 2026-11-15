@@ -20,7 +20,7 @@ using Theater3D.Engine.Interop;
 
 namespace Theater3D.App.Shell;
 
-public partial class MainWindow : Window
+public partial class MainWindow : Window, Live.ILiveSceneActions
 {
     private readonly EditorContext _context;
     private readonly DockingLayout _layout;
@@ -1294,10 +1294,14 @@ public partial class MainWindow : Window
     /// <summary>選んだモデル（ボーン・モーフを選んでいればその持ち主）か音声を、シーンから外す（Ctrl+Z で戻せる）。</summary>
     private void OnAddLightClick(object sender, RoutedEventArgs e)
     {
-        if (sender is not MenuItem { Tag: string tag } || !Enum.TryParse(tag, out Domain.LightType type))
+        if (sender is MenuItem { Tag: string tag } && Enum.TryParse(tag, out Domain.LightType type))
         {
-            return;
+            AddLight(type);
         }
+    }
+
+    private void AddLight(Domain.LightType type)
+    {
         // 最初のモデルの真ん中あたり（無ければ人の大きさのモデルの胸の高さ）を照らすように置く
         Vector3 target = new(0f, 10f, 0f);
         if (_context.Scene.ModelsGroup.Children.OfType<Domain.ModelNode>().FirstOrDefault() is { } model)
@@ -1390,6 +1394,7 @@ public partial class MainWindow : Window
         _live.SetPreview(preview);
         Activate(preview, preview.FirstView); // テンキーの視点の切り替えなどを、このプレビューで受ける
         _live.SetTrackingPanel(_layout.PanelContent(DockingLayout.TrackingId));
+        _live.SetCastSections(new Live.LightSection(_context, this), new Live.CharacterSection(_context, this), new Live.BackgroundSection(_context, this));
         foreach (var (id, title) in new[] { (DockingLayout.SceneId, "シーンの一覧"), (DockingLayout.PropertiesId, "プロパティ"), (DockingLayout.MorphId, "モーフ") })
         {
             if (_layout.PanelContent(id) is { } content)
@@ -1403,6 +1408,101 @@ public partial class MainWindow : Window
         _live.SaveRequested += (_, _) => _project.Save();
         _live.SaveAsRequested += (_, _) => _project.SaveAs();
         _live.SettingsRequested += (_, _) => OpenLiveSettings();
+    }
+
+    // ===== サイドバーの「キャラクター」「背景」「照明」から呼ぶ操作（設計判断記録 78 章の 2 段目） =====
+
+    async Task Live.ILiveSceneActions.LoadCharacterAsync()
+    {
+        var dialog = new Microsoft.Win32.OpenFileDialog { Title = "キャラクターを読み込む", Filter = "PMX モデル (*.pmx)|*.pmx|すべてのファイル (*.*)|*.*" };
+        if (dialog.ShowDialog(this) != true)
+        {
+            return;
+        }
+        if (!LiveCast.IsCharacterFile(dialog.FileName))
+        {
+            ShowNotice("キャラクターにできるのは、PMX のモデルです（アクセサリは「背景」で読み込みます）", isError: true);
+            return;
+        }
+        Domain.ModelNode? old = LiveCast.Character(_context.Scene, _context.LiveTracking);
+        if (old is not null && MessageBox.Show(this,
+                $"キャラクター「{old.Name}」を、「{System.IO.Path.GetFileNameWithoutExtension(dialog.FileName)}」に入れ替えますか？\n今のキャラクターはシーンから外します（Ctrl+Z で戻せます）。",
+                "キャラクターを入れ替える", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
+        {
+            return;
+        }
+        // 読み込めてから入れ替える（読み込めなければ、今のキャラクターのまま）
+        if ((await ImportModelsAsync([dialog.FileName], LiveImportRole.Character)).FirstOrDefault() is not { } model)
+        {
+            return;
+        }
+        _context.LiveTracking.TargetModelId = model.Id;
+        if (old is not null)
+        {
+            ModelPresenceAction.Remove(_context, old);
+        }
+        _context.Selection.Select(model, SelectMode.Replace, null);
+        AppLog.Info($"キャラクターを「{model.Name}」にしました{(old is null ? string.Empty : $"（「{old.Name}」を外しました）")}");
+    }
+
+    void Live.ILiveSceneActions.MakeCharacter(Domain.ModelNode model)
+    {
+        if (!LiveCast.IsCharacterFile(model.FilePath))
+        {
+            return;
+        }
+        string? old = LiveCast.Character(_context.Scene, _context.LiveTracking)?.Name;
+        _context.LiveTracking.TargetModelId = model.Id;
+        AppLog.Info($"「{model.Name}」をキャラクターにしました{(old is null ? string.Empty : $"（「{old}」は背景になりました）")}");
+    }
+
+    async Task Live.ILiveSceneActions.LoadBackgroundAsync()
+    {
+        var dialog = new Microsoft.Win32.OpenFileDialog { Title = "背景のモデル・アクセサリを読み込む", Filter = ModelImporter.FileFilter, Multiselect = true };
+        if (dialog.ShowDialog(this) == true)
+        {
+            await ImportModelsAsync(dialog.FileNames.Where(ModelImporter.IsModelFile), LiveImportRole.Background);
+        }
+    }
+
+    void Live.ILiveSceneActions.RemoveModel(Domain.ModelNode model)
+    {
+        if (ModelPresenceAction.Remove(_context, model))
+        {
+            SetStatus($"「{model.Name}」を外しました（Ctrl+Z で戻せます）", isError: false);
+        }
+    }
+
+    async Task Live.ILiveSceneActions.LoadIdleMotionAsync(Domain.ModelNode model)
+    {
+        _context.Selection.Select(model, SelectMode.Replace, null); // 待機モーションは、選んだモデルに当てはめる
+        var dialog = new Microsoft.Win32.OpenFileDialog { Title = $"「{model.Name}」の待機モーション・ポーズを読み込む", Filter = MotionImporter.FileFilter };
+        if (dialog.ShowDialog(this) == true)
+        {
+            await ImportFilesAsync(dialog.FileNames);
+        }
+    }
+
+    void Live.ILiveSceneActions.RemoveIdleMotion(Domain.ModelNode model)
+    {
+        _context.Selection.Select(model, SelectMode.Replace, null);
+        OnRemoveIdleMotionClick(this, new RoutedEventArgs());
+    }
+
+    void Live.ILiveSceneActions.OpenMaterials(Domain.ModelNode model)
+    {
+        _context.Selection.Select(model, SelectMode.Replace, null);
+        OpenMaterials(this, _context);
+    }
+
+    void Live.ILiveSceneActions.ResetPhysics() => OnResetPhysicsClick(this, new RoutedEventArgs());
+
+    void Live.ILiveSceneActions.AddLight(Domain.LightType type) => AddLight(type);
+
+    void Live.ILiveSceneActions.RemoveLight(Domain.LightNode light)
+    {
+        _context.Selection.Select(light, SelectMode.Replace, null);
+        RemoveSelectedLights(reportNone: true);
     }
 
     /// <summary>ライブモードの設定画面を開く（開いていれば前に出す）。</summary>
@@ -1690,8 +1790,22 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task ImportModelsAsync(IEnumerable<string> paths)
+    // ライブモードで読み込んだモデルの役目（設計判断記録 78 章の 2 段目）
+    private enum LiveImportRole
     {
+        /// <summary>ドラッグ・起動の引数・設定画面の「ファイル」から: キャラクターがいなければ、PMX をキャラクターにする。</summary>
+        Auto,
+
+        /// <summary>サイドバーの「キャラクター」から（キャラクターにするのは呼ぶ側）。</summary>
+        Character,
+
+        /// <summary>サイドバーの「背景」から: いつも背景（PMX はトラッキングしないサブキャラクター）。</summary>
+        Background,
+    }
+
+    private async Task<List<Domain.ModelNode>> ImportModelsAsync(IEnumerable<string> paths, LiveImportRole role = LiveImportRole.Auto)
+    {
+        var imported = new List<Domain.ModelNode>();
         foreach (string path in paths)
         {
             SetStatus($"読み込み中: {System.IO.Path.GetFileName(path)}", isError: false);
@@ -1702,6 +1816,16 @@ public partial class MainWindow : Window
                 Domain.ModelNode? node = ModelImporter.IsVacFile(path)
                     ? await ModelImporter.ImportVacAsync(_context, path, this)
                     : await ModelImporter.ImportAsync(_context, path, this);
+                if (node is not null)
+                {
+                    imported.Add(node);
+                    if (_mode == AppMode.Live && role == LiveImportRole.Auto && LiveCast.Character(_context.Scene, _context.LiveTracking) is null
+                        && LiveCast.IsCharacterFile(node.FilePath))
+                    {
+                        _context.LiveTracking.TargetModelId = node.Id;
+                        AppLog.Info($"「{node.Name}」をキャラクターにしました（キャラクターがいなかったため）");
+                    }
+                }
                 if (first && node is not null)
                 {
                     FocusViewsOnFirstModel();
@@ -1713,6 +1837,7 @@ public partial class MainWindow : Window
                 UpdateStatus();
             }
         }
+        return imported;
     }
 
     private void OnExitClick(object sender, RoutedEventArgs e) => Close();

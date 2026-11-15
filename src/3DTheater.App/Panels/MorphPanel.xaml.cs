@@ -13,11 +13,20 @@ public partial class MorphPanel : UserControl
     private readonly MorphPanelViewModel _viewModel;
 
     public MorphPanel(EditorContext context)
+        : this(context, null)
+    {
+    }
+
+    /// <param name="pinned">選んでいるモデルの代わりに出すモデル（ライブモードの「キャラクター」。変わったら <see cref="RefreshTarget"/>）。</param>
+    public MorphPanel(EditorContext context, Func<Domain.ModelNode?>? pinned)
     {
         InitializeComponent();
-        _viewModel = new MorphPanelViewModel(context);
+        _viewModel = new MorphPanelViewModel(context, pinned);
         DataContext = _viewModel;
     }
+
+    /// <summary>出すモデルを見直す。</summary>
+    public void RefreshTarget() => _viewModel.RefreshTarget();
 
     private void OnResetAllClick(object sender, RoutedEventArgs e) => _viewModel.ResetAll();
 

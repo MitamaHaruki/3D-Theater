@@ -20,11 +20,17 @@ public sealed record AttachChoice(string Name, ModelNode? Model)
 public sealed class PropertiesViewModel : ObservableObject
 {
     private readonly EditorContext _context;
+    private readonly Func<SceneNode?>? _pinned;
     private SceneNode? _node;
 
-    public PropertiesViewModel(EditorContext context)
+    /// <param name="pinned">
+    /// 選んでいる項目の代わりに出す項目（ライブモードのサイドバーの「キャラクター」「背景」「照明」。設計判断記録 78 章の 2 段目）。
+    /// 変わったときは <see cref="Refresh"/> を呼ぶ。null なら、選んでいる項目を出す。
+    /// </param>
+    public PropertiesViewModel(EditorContext context, Func<SceneNode?>? pinned = null)
     {
         _context = context;
+        _pinned = pinned;
         context.Selection.Changed += (_, _) => Refresh();
         context.Rendering.Changed += (_, _) =>
         {
@@ -36,11 +42,11 @@ public sealed class PropertiesViewModel : ObservableObject
         Refresh();
     }
 
-    public bool HasSelection => _context.Selection.Items.Count > 0;
+    public bool HasSelection => _pinned is null ? _context.Selection.Items.Count > 0 : _node is not null;
 
-    public bool IsSingle => _context.Selection.Items.Count == 1;
+    public bool IsSingle => _pinned is null ? _context.Selection.Items.Count == 1 : _node is not null;
 
-    public bool IsMultiple => _context.Selection.Items.Count > 1;
+    public bool IsMultiple => _pinned is null && _context.Selection.Items.Count > 1;
 
     public string SelectionSummary => $"{_context.Selection.Items.Count} 個を選択中です。まとめての編集は今後対応します。";
 
@@ -513,9 +519,10 @@ public sealed class PropertiesViewModel : ObservableObject
         _context.Edits.Change($"{node.Name}の{what}", [node], () => apply(node), mergeKey: $"{node.Id}:{what}");
     }
 
-    private void Refresh()
+    /// <summary>出す項目を見直す（選んだ項目・決めた項目が変わったとき）。</summary>
+    public void Refresh()
     {
-        SceneNode? next = IsSingle ? _context.Selection.Primary : null;
+        SceneNode? next = _pinned is not null ? _pinned() : _context.Selection.Items.Count == 1 ? _context.Selection.Primary : null;
         if (!ReferenceEquals(next, _node))
         {
             if (_node is not null)

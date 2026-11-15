@@ -1,0 +1,33 @@
+<UserControl x:Class="Theater3D.App.Live.BackgroundSection"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!-- サイドバーの「背景」（設計判断記録 78 章の 2 段目）: キャラクター以外のモデル・アクセサリを読み込む・外す・操作する -->
+  <StackPanel>
+    <DockPanel>
+      <Button DockPanel.Dock="Right" Style="{StaticResource LiveActionButtonStyle}" Margin="8,0,0,0" Content="読み込む..." Click="OnLoadClick"
+              AutomationProperties.Name="背景を読み込む" ToolTip="部屋・小物などのモデル（PMX）とアクセサリ（.x・.vac）を読み込みます。PMX のキャラクターは、トラッキングしないサブキャラクターになります" />
+      <TextBlock VerticalAlignment="Center" TextWrapping="Wrap" Foreground="{StaticResource SubTextBrush}"
+                 Text="キャラクター以外のモデルとアクセサリ（PMX のキャラクターは、トラッキングしないサブキャラクター）" />
+    </DockPanel>
+    <ListBox x:Name="ItemList" Margin="0,8,0,0" MaxHeight="220" Background="Transparent" AutomationProperties.Name="背景の一覧"
+             SelectionChanged="OnListSelectionChanged" />
+    <TextBlock x:Name="EmptyNote" Margin="0,8,0,0" Style="{StaticResource PlannedNoteStyle}" Text="背景のモデルはありません。" />
+    <StackPanel x:Name="Body" Margin="0,10,0,0">
+      <WrapPanel>
+        <Button Style="{StaticResource LiveActionButtonStyle}" Content="外す" Click="OnRemoveClick" AutomationProperties.Name="背景を外す"
+                ToolTip="選んだモデルをシーンから外します（モデルのファイルは消しません。Ctrl+Z で戻せます）" />
+        <Button x:Name="MakeCharacterButton" Style="{StaticResource LiveActionButtonStyle}" Content="キャラクターにする" Click="OnMakeCharacterClick"
+                ToolTip="選んだ PMX のモデルをキャラクターにします（今のキャラクターは背景になります）" />
+        <Button Style="{StaticResource LiveActionButtonStyle}" Content="待機モーション・ポーズを読み込む..." Click="OnIdleMotionClick"
+                ToolTip="選んだモデルに、待機モーション（VMD）かポーズ（VPD）を当てはめます。モーションは、その長さで繰り返します" />
+        <Button Style="{StaticResource LiveActionButtonStyle}" Content="待機モーションを外す" Click="OnRemoveIdleMotionClick"
+                ToolTip="待機モーションのキーを消し、姿勢を初めの形に戻します（Ctrl+Z で戻せます）" />
+        <Button Style="{StaticResource LiveActionButtonStyle}" Content="材質の設定..." Click="OnMaterialsClick"
+                ToolTip="PBR（金属らしさ・粗さ）や発光で、材質を上書きします（PMX の材質は書き換えません）" />
+      </WrapPanel>
+      <Expander Header="位置・向き・表示・付ける先など" Style="{StaticResource LiveSubSectionStyle}" IsExpanded="True">
+        <ContentControl x:Name="PropertiesHost" Focusable="False" />
+      </Expander>
+    </StackPanel>
+  </StackPanel>
+</UserControl>

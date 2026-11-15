@@ -10,12 +10,21 @@ public partial class PropertiesPanel : UserControl
     private readonly PropertiesViewModel _viewModel;
 
     public PropertiesPanel(EditorContext context)
+        : this(context, null)
+    {
+    }
+
+    /// <param name="pinned">選んでいる項目の代わりに出す項目（ライブモードのサイドバー。変わったら <see cref="RefreshTarget"/>）。</param>
+    public PropertiesPanel(EditorContext context, Func<Domain.SceneNode?>? pinned)
     {
         InitializeComponent();
         _context = context;
-        _viewModel = new PropertiesViewModel(context);
+        _viewModel = new PropertiesViewModel(context, pinned);
         DataContext = _viewModel;
     }
+
+    /// <summary>出す項目を見直す。</summary>
+    public void RefreshTarget() => _viewModel.Refresh();
 
     private void OnResetBoneClick(object sender, RoutedEventArgs e) => _viewModel.ResetBone();
 

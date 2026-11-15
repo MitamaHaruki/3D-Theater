@@ -27,6 +27,8 @@
       <StackPanel Margin="0,8,0,0" Orientation="Horizontal">
         <Button x:Name="StartButton" MinWidth="88" Content="開始" AutomationProperties.Name="トラッキングを開始" Click="OnStartClick" />
         <Button x:Name="StopButton" Margin="8,0,0,0" MinWidth="88" Content="停止" AutomationProperties.Name="トラッキングを停止" Click="OnStopClick" />
+        <Button Margin="8,0,0,0" MinWidth="96" Content="正面にする" AutomationProperties.Name="正面にする" Click="OnCalibrateClick"
+                ToolTip="今の顔（カメラの方をまっすぐ見た顔）を正面として覚え直します。始めたときも、初めの 0.5 秒ほどで覚えます" />
       </StackPanel>
       <TextBlock x:Name="StatusText" Margin="0,8,0,0" TextWrapping="Wrap" AutomationProperties.AutomationId="TrackingStatus" />
 
@@ -39,31 +41,8 @@
       </Border>
       <TextBlock x:Name="ValuesText" Margin="0,8,0,0" TextWrapping="Wrap" AutomationProperties.AutomationId="TrackingValues" />
 
-      <TextBlock Text="キャラクターへの当てはめ" Style="{StaticResource SectionHeaderStyle}" Margin="0,14,0,6" />
-      <DockPanel>
-        <TextBlock DockPanel.Dock="Left" Width="72" VerticalAlignment="Center" Text="モデル" Foreground="{StaticResource SubTextBrush}" />
-        <ComboBox x:Name="TargetCombo" MinHeight="0" Padding="6,2" FontSize="12" AutomationProperties.Name="トラッキングを当てはめるモデル"
-                  DropDownOpened="OnTargetDropDownOpened" SelectionChanged="OnTargetChanged" />
-      </DockPanel>
-      <Button Margin="0,8,0,0" HorizontalAlignment="Left" MinWidth="120" Content="正面にする" AutomationProperties.Name="正面にする" Click="OnCalibrateClick"
-              ToolTip="今の顔（カメラの方をまっすぐ見た顔）を正面として覚え直します。始めたときも、初めの 0.5 秒ほどで覚えます" />
-      <CheckBox x:Name="MirrorCheck" Margin="0,10,0,0" Content="鏡のように動かす" AutomationProperties.Name="鏡のように動かす" Checked="OnOptionClick" Unchecked="OnOptionClick"
-                ToolTip="入れると、鏡に映った自分のように動きます（あなたが右を向くと、画面でも右へ。映像とは左右が逆になります）。外すと、映像と同じ向きに動きます（あなたが右を向くと、キャラクターも自分の右へ）" />
-      <CheckBox x:Name="GazeCheck" Margin="0,6,0,0" Content="目線を動かす（両目のボーン）" AutomationProperties.Name="目線を動かす" Checked="OnOptionClick" Unchecked="OnOptionClick" />
-      <CheckBox x:Name="UpperBodyCheck" Margin="0,6,0,0" Content="上半身も少し動かす" AutomationProperties.Name="上半身も少し動かす" Checked="OnOptionClick" Unchecked="OnOptionClick"
-                ToolTip="首の動きの 15% を上半身に分けます" />
-      <CheckBox x:Name="BodySwayCheck" Margin="0,6,0,0" Content="頭の位置で体をずらす" AutomationProperties.Name="頭の位置で体をずらす" Checked="OnOptionClick" Unchecked="OnOptionClick"
-                ToolTip="画面の中で顔が左右に動いた分だけ上半身を傾け、カメラに近づいた分だけ前へ傾けます" />
-      <DockPanel Margin="0,10,0,0">
-        <TextBlock DockPanel.Dock="Left" Width="72" VerticalAlignment="Center" Text="なめらかさ" Foreground="{StaticResource SubTextBrush}" />
-        <Slider x:Name="SmoothingSlider" Minimum="0" Maximum="1" SmallChange="0.05" LargeChange="0.1" VerticalAlignment="Center"
-                AutomationProperties.Name="なめらかさ" ValueChanged="OnSmoothingChanged"
-                ToolTip="右へ寄せるほど、なめらかになります（そのぶん少し遅れます）" />
-      </DockPanel>
-      <TextBlock x:Name="RigText" Margin="0,8,0,0" TextWrapping="Wrap" AutomationProperties.AutomationId="TrackingRig" />
-      <TextBlock x:Name="AppliedText" Margin="0,4,0,0" TextWrapping="Wrap" Foreground="{StaticResource SubTextBrush}" AutomationProperties.AutomationId="TrackingApplied" />
       <TextBlock Margin="0,8,0,0" Style="{StaticResource PlannedNoteStyle}"
-                 Text="カメラが無いときは「動画のファイル...」で、顔を撮った動画を読ませて確かめられます。スマホは、顔のアプリ（VTube Studio・MeowFace・iFacialMocap）から受け取るか、カメラにして使えます（Android は Windows の「モバイル デバイス」、iPhone は DroidCam などのアプリ）。スマホの顔のアプリのほうが、表情を細かく読めます。当てはめ方はライブのファイルに保存します。" />
+                 Text="カメラが無いときは「動画のファイル...」で、顔を撮った動画を読ませて確かめられます。スマホは、顔のアプリ（VTube Studio・MeowFace・iFacialMocap）から受け取るか、カメラにして使えます（Android は Windows の「モバイル デバイス」、iPhone は DroidCam などのアプリ）。スマホの顔のアプリのほうが、表情を細かく読めます。トラッキングはサイドバーの「キャラクター」にだけ当てはめ、当てはめ方もそこで決めます。" />
     </StackPanel>
   </ScrollViewer>
 </UserControl>

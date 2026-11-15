@@ -83,6 +83,18 @@ internal sealed class ProjectService
     /// <summary>どちらかのモードのプロジェクトファイル（ドラッグで開く。もう一方のモードなら、そのモードで開くか尋ねる）。</summary>
     public static bool IsProjectFile(string path) => AppModes.ModeOfFile(path) is not null;
 
+    // 前の版のライブのファイル（キャラクターを決めていない。当てはめ先が「自動」）は、前の版の「自動」と同じ選び方で
+    // キャラクターを決める（設計判断記録 78 章の 2 段目）。開いている途中なので、保存していない変更にはしない
+    private void ChooseCharacterForOldFile(TrackingEntry? entry, IEnumerable<ModelNode> models)
+    {
+        if (entry?.ExplicitCharacter == true || _context.LiveTracking.TargetModelId is not null || LiveCast.ChooseCharacter(models) is not { } chosen)
+        {
+            return;
+        }
+        _context.LiveTracking.TargetModelId = chosen.Id;
+        AppLog.Info($"前の版のファイルなので、「{chosen.Name}」をキャラクター（トラッキングの当てはめ先）にしました");
+    }
+
     public void MarkDirty()
     {
         if (_suppressDirty > 0 || IsDirty)
@@ -202,6 +214,7 @@ internal sealed class ProjectService
                 // 顔のトラッキングの当てはめ方（当てはめるモデルは、保存したときの目印から今のモデルを探す）
                 Guid? FindModel(string id) => models.FirstOrDefault(m => string.Equals(m.Entry.Id, id, StringComparison.OrdinalIgnoreCase)).Node?.Id;
                 (project.Live?.Tracking ?? new TrackingEntry()).ApplyTo(_context.LiveTracking, FindModel);
+                ChooseCharacterForOldFile(project.Live?.Tracking, models.Select(m => m.Node).OfType<ModelNode>());
                 (project.Live?.Tracking ?? new TrackingEntry()).ApplyTo(_context.LivePhone);
                 (project.Live ?? new LiveEntry()).ApplyTo(_context.LiveHotkeys, FindModel); // キー操作
             }

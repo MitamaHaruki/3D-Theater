@@ -1,0 +1,39 @@
+<UserControl x:Class="Theater3D.App.Live.CharacterSection"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!-- サイドバーの「キャラクター」（設計判断記録 78 章の 2 段目）: 1 体だけ読み込む・外す・操作する。トラッキングはキャラクターにだけ当てはめる -->
+  <StackPanel>
+    <DockPanel>
+      <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+        <Button x:Name="LoadButton" Style="{StaticResource LiveActionButtonStyle}" Margin="8,0,0,0" Content="読み込む..." Click="OnLoadClick"
+                AutomationProperties.Name="キャラクターを読み込む" ToolTip="PMX のモデルを、キャラクターとして読み込みます（いれば、確かめてから入れ替えます）" />
+        <Button x:Name="RemoveButton" Style="{StaticResource LiveActionButtonStyle}" Margin="8,0,0,0" Content="外す" Click="OnRemoveClick"
+                AutomationProperties.Name="キャラクターを外す" ToolTip="キャラクターをシーンから外します（モデルのファイルは消しません。Ctrl+Z で戻せます）" />
+      </StackPanel>
+      <TextBlock x:Name="NameText" VerticalAlignment="Center" FontSize="13" TextTrimming="CharacterEllipsis" AutomationProperties.AutomationId="LiveCharacterName" />
+    </DockPanel>
+    <TextBlock x:Name="EmptyNote" Margin="0,8,0,0" Style="{StaticResource PlannedNoteStyle}"
+               Text="「読み込む...」で PMX のモデルを読み込むと、キャラクターになります。カメラ・スマホの顔のトラッキングは、キャラクターにだけ当てはめます。" />
+    <StackPanel x:Name="Body" Margin="0,10,0,0">
+      <WrapPanel>
+        <Button Style="{StaticResource LiveActionButtonStyle}" Content="待機モーション・ポーズを読み込む..." Click="OnIdleMotionClick"
+                ToolTip="キャラクターに、待機モーション（VMD）かポーズ（VPD）を当てはめます。モーションは、その長さで繰り返します" />
+        <Button Style="{StaticResource LiveActionButtonStyle}" Content="待機モーションを外す" Click="OnRemoveIdleMotionClick"
+                ToolTip="待機モーションのキーを消し、姿勢を初めの形に戻します（Ctrl+Z で戻せます）" />
+        <Button Style="{StaticResource LiveActionButtonStyle}" Content="材質の設定..." Click="OnMaterialsClick"
+                ToolTip="PBR（金属らしさ・粗さ）や発光で、材質を上書きします（PMX の材質は書き換えません）" />
+        <Button Style="{StaticResource LiveActionButtonStyle}" Content="物理をリセット" Click="OnResetPhysicsClick"
+                ToolTip="剛体を今の姿勢に置き直して、落ち着かせます（髪やスカートの揺れが暴れたときなど。全部のモデル）" />
+      </WrapPanel>
+      <Expander Header="トラッキングの当てはめ方" Style="{StaticResource LiveSubSectionStyle}" IsExpanded="True">
+        <ContentControl x:Name="FitHost" Focusable="False" />
+      </Expander>
+      <Expander Header="表情（モーフ）" Style="{StaticResource LiveSubSectionStyle}">
+        <ContentControl x:Name="MorphHost" Height="440" Focusable="False" />
+      </Expander>
+      <Expander Header="位置・向き・表示など" Style="{StaticResource LiveSubSectionStyle}">
+        <ContentControl x:Name="PropertiesHost" Focusable="False" />
+      </Expander>
+    </StackPanel>
+  </StackPanel>
+</UserControl>

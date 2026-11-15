@@ -15,8 +15,9 @@ using Theater3D.Tracking;
 namespace Theater3D.App.Live;
 
 /// <summary>
-/// ライブモードの「トラッキング」パネル。映像（カメラ・確かめ用の動画のファイル）を選んで顔のトラッキングを始め、
-/// 映像に顔の点を重ねた絵と、頭の向き・表情の値を出す。キャラクターへの当てはめ方（モデル・正面合わせ・左右・動かす所・なめらかさ）も決める。
+/// ライブモードの「トラッキング情報」。映像（カメラ・確かめ用の動画のファイル・スマホ）を選んで顔のトラッキングを始め、
+/// 映像に顔の点を重ねた絵と、頭の向き・表情の値を出す。正面に合わせ直す。
+/// キャラクターへの当てはめ方は、サイドバーの「キャラクター」（<see cref="TrackingFitPanel"/>）で決める（設計判断記録 78 章の 2 段目）。
 /// </summary>
 public partial class TrackingPanel : UserControl
 {
@@ -28,10 +29,8 @@ public partial class TrackingPanel : UserControl
         Request, // VTube Studio・MeowFace に頼む（スマホの IP を入れる）
         Push,    // iFacialMocap・FaceMotion3D・MeowFace から送ってもらう（PC の IP をスマホに入れる）
     }
-    private const string AutoTarget = "（頭のあるモデルを自動で選ぶ）";
     private readonly EditorContext _context;
     private readonly TrackingService _tracking;
-    private readonly FaceRetargetSettings _settings;
     private readonly PhoneTrackingSettings _phone;
     private readonly DispatcherTimer _timer;
     private WriteableBitmap? _bitmap;
@@ -43,98 +42,23 @@ public partial class TrackingPanel : UserControl
         InitializeComponent();
         _context = context;
         _tracking = context.Tracking!;
-        _settings = context.LiveTracking;
         _phone = context.LivePhone;
         _phone.Changed += (_, _) => ShowPhoneSettings();
         _timer = new DispatcherTimer(TimeSpan.FromMilliseconds(33), DispatcherPriority.Render, (_, _) => Refresh(), Dispatcher);
         _tracking.StateChanged += (_, _) => Dispatcher.BeginInvoke(UpdateState);
-        _settings.Changed += (_, _) => ShowSettings();
         Loaded += (_, _) =>
         {
             if (SourceCombo.Items.Count == 0)
             {
                 RefreshSources();
             }
-            RefreshTargets();
-            ShowSettings();
             ShowPhoneSettings();
             ShowPhonePanel();
             UpdateState();
         };
     }
 
-    // ===== 当てはめ方 =====
-    private void ShowSettings()
-    {
-        _updating = true;
-        try
-        {
-            MirrorCheck.IsChecked = _settings.Mirror;
-            GazeCheck.IsChecked = _settings.Gaze;
-            UpperBodyCheck.IsChecked = _settings.UpperBody;
-            BodySwayCheck.IsChecked = _settings.BodySway;
-            SmoothingSlider.Value = _settings.Smoothing;
-            RefreshTargets();
-        }
-        finally
-        {
-            _updating = false;
-        }
-    }
-
-    private void RefreshTargets()
-    {
-        bool wasUpdating = _updating;
-        _updating = true;
-        try
-        {
-            TargetCombo.Items.Clear();
-            TargetCombo.Items.Add(new ComboBoxItem { Content = AutoTarget });
-            foreach (ModelNode model in _context.Scene.ModelsGroup.Children.OfType<ModelNode>())
-            {
-                TargetCombo.Items.Add(new ComboBoxItem { Content = model.Name, Tag = model.Id });
-            }
-            int selected = TargetCombo.Items.Cast<ComboBoxItem>().ToList().FindIndex(i => i.Tag is Guid id && id == _settings.TargetModelId);
-            TargetCombo.SelectedIndex = Math.Max(0, selected);
-        }
-        finally
-        {
-            _updating = wasUpdating;
-        }
-    }
-
-    private void OnTargetDropDownOpened(object? sender, EventArgs e) => RefreshTargets();
-
-    private void OnTargetChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (_updating || TargetCombo.SelectedItem is not ComboBoxItem item)
-        {
-            return;
-        }
-        _settings.TargetModelId = item.Tag is Guid id ? id : null;
-    }
-
     private void OnCalibrateClick(object sender, RoutedEventArgs e) => _context.TrackingDriver?.RequestCalibration();
-
-    private void OnOptionClick(object sender, RoutedEventArgs e)
-    {
-        if (_updating)
-        {
-            return;
-        }
-        _settings.Mirror = MirrorCheck.IsChecked == true;
-        _settings.Gaze = GazeCheck.IsChecked == true;
-        _settings.UpperBody = UpperBodyCheck.IsChecked == true;
-        _settings.BodySway = BodySwayCheck.IsChecked == true;
-    }
-
-    private void OnSmoothingChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
-    {
-        if (!_updating)
-        {
-            _settings.Smoothing = (float)e.NewValue;
-        }
-    }
 
     private void OnRefreshClick(object sender, RoutedEventArgs e) => RefreshSources();
 
@@ -290,14 +214,12 @@ public partial class TrackingPanel : UserControl
         StatusText.Text = running
             ? $"{(_tracking.SourceName?.StartsWith("スマホ", StringComparison.Ordinal) == true ? "受け取っています" : "読んでいます")}: {_tracking.SourceName}"
             : _tracking.Error is { } error ? $"止まりました: {error}" : "止まっています（映像を選んで「開始」）";
-        ShowDriver();
-        _timer.Start(); // 止めたときも、キャラクターを正面に戻しきるまで様子を出す
+        _timer.Start(); // 止めたときも、キャラクターを正面に戻しきるまで様子を見る
     }
 
     private void Refresh()
     {
         TrackingSnapshot snapshot = _tracking.Latest;
-        ShowDriver();
         if (!_tracking.IsRunning && _context.TrackingDriver?.IsActive != true)
         {
             _timer.Stop(); // 止めた後、キャラクターを正面に戻しきったら更新をやめる
@@ -323,12 +245,6 @@ public partial class TrackingPanel : UserControl
             _bitmap.WritePixels(new Int32Rect(0, 0, width, height), pixels, width * 4, 0);
         });
         ValuesText.Text = Describe(snapshot);
-    }
-
-    private void ShowDriver()
-    {
-        RigText.Text = _context.TrackingDriver?.Status ?? string.Empty;
-        AppliedText.Text = _context.TrackingDriver?.Applied ?? string.Empty;
     }
 
     private static string Describe(TrackingSnapshot s)

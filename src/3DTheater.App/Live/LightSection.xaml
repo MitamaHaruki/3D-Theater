@@ -1,0 +1,29 @@
+<UserControl x:Class="Theater3D.App.Live.LightSection"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!-- サイドバーの「照明」（設計判断記録 78 章の 2 段目）: 照明を足す・外す・名前を変える・操作する -->
+  <StackPanel>
+    <WrapPanel>
+      <TextBlock Margin="0,0,10,6" VerticalAlignment="Center" Foreground="{StaticResource SubTextBrush}" Text="足す:" />
+      <Button Style="{StaticResource LiveActionButtonStyle}" Content="点光源" Tag="Point" Click="OnAddClick" AutomationProperties.Name="点光源を足す"
+              ToolTip="電球のように全方向を照らす照明を足します（届く距離で 0 になります）" />
+      <Button Style="{StaticResource LiveActionButtonStyle}" Content="スポットライト" Tag="Spot" Click="OnAddClick" AutomationProperties.Name="スポットライトを足す"
+              ToolTip="向きへ円すいの形に照らす照明を足します" />
+      <Button Style="{StaticResource LiveActionButtonStyle}" Content="平行光" Tag="Directional" Click="OnAddClick" AutomationProperties.Name="平行光を足す"
+              ToolTip="太陽のように、どこでも同じ向きから照らす照明を足します（縁を明るくする光などに）" />
+    </WrapPanel>
+    <ListBox x:Name="ItemList" Margin="0,2,0,0" MaxHeight="200" Background="Transparent" AutomationProperties.Name="照明の一覧"
+             SelectionChanged="OnListSelectionChanged" />
+    <StackPanel x:Name="Body" Margin="0,10,0,0">
+      <WrapPanel>
+        <Button x:Name="RemoveButton" Style="{StaticResource LiveActionButtonStyle}" Content="外す" Click="OnRemoveClick" AutomationProperties.Name="照明を外す"
+                ToolTip="選んだ照明をシーンから外します（Ctrl+Z で戻せます）" />
+        <TextBlock x:Name="RemoveNote" Margin="0,0,0,6" VerticalAlignment="Center" Style="{StaticResource PlannedNoteStyle}"
+                   Text="MMD の照明（初めからある平行光）は外せません。名前と色・向きは変えられます。" />
+      </WrapPanel>
+      <Expander Header="名前・色・明るさ・位置・向きなど" Style="{StaticResource LiveSubSectionStyle}" IsExpanded="True">
+        <ContentControl x:Name="PropertiesHost" Focusable="False" />
+      </Expander>
+    </StackPanel>
+  </StackPanel>
+</UserControl>

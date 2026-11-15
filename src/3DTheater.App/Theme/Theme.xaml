@@ -266,6 +266,56 @@
     </Setter>
   </Style>
 
+  <!-- サイドバーの項目の中の小見出し（押すと開く・閉じる。見出しより控えめ） -->
+  <Style x:Key="LiveSubSectionStyle" TargetType="Expander">
+    <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+    <Setter Property="Margin" Value="0,10,0,0" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="Expander">
+          <StackPanel>
+            <ToggleButton Content="{TemplateBinding Header}" Cursor="Hand" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                          IsChecked="{Binding IsExpanded, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}"
+                          AutomationProperties.Name="{TemplateBinding Header}">
+              <ToggleButton.Template>
+                <ControlTemplate TargetType="ToggleButton">
+                  <Border x:Name="Back" Background="Transparent" BorderBrush="{StaticResource LiveHeaderBrush}" BorderThickness="0,0,0,1" Padding="2,6">
+                    <DockPanel>
+                      <TextBlock x:Name="Chevron" DockPanel.Dock="Left" Margin="0,0,8,0" VerticalAlignment="Center" FontFamily="{StaticResource IconFont}"
+                                 FontSize="10" Text="&#xE76C;" />
+                      <ContentPresenter VerticalAlignment="Center" TextElement.FontWeight="SemiBold" RecognizesAccessKey="False" />
+                    </DockPanel>
+                  </Border>
+                  <ControlTemplate.Triggers>
+                    <Trigger Property="IsMouseOver" Value="True">
+                      <Setter TargetName="Back" Property="Background" Value="{StaticResource LiveHeaderBrush}" />
+                    </Trigger>
+                    <Trigger Property="IsChecked" Value="True">
+                      <Setter TargetName="Chevron" Property="Text" Value="&#xE70D;" />
+                    </Trigger>
+                  </ControlTemplate.Triggers>
+                </ControlTemplate>
+              </ToggleButton.Template>
+            </ToggleButton>
+            <ContentPresenter x:Name="Body" Margin="0,8,0,0" Visibility="Collapsed" />
+          </StackPanel>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsExpanded" Value="True">
+              <Setter TargetName="Body" Property="Visibility" Value="Visible" />
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <!-- サイドバーの項目の中の、小さなボタン -->
+  <Style x:Key="LiveActionButtonStyle" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+    <Setter Property="Margin" Value="0,0,8,6" />
+    <Setter Property="MinWidth" Value="88" />
+    <Setter Property="Padding" Value="10,4" />
+  </Style>
+
   <!-- サイドバーの「設定」（押すと設定画面を開く。折り畳みの見出しと同じ見た目） -->
   <Style x:Key="LiveSectionButtonStyle" TargetType="Button">
     <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
