@@ -347,6 +347,12 @@ public static class PoseEvaluator
         }
     }
 
+    /// <summary>
+    /// ボーン 1 本の置き方を、今の親の置き方とそのボーンの回転・移動から求め直す（物理の結果で置いたボーンも、求め直した置き方に戻る）。
+    /// 揺れ物（VRM のスプリングボーン）で、親を揺らした後の子の位置を知るために使う。
+    /// </summary>
+    public static void RefreshGlobal(ModelRig rig, PoseState state, int index) => UpdateGlobal(rig, state, index);
+
     private static void UpdateGlobal(ModelRig rig, PoseState state, int index)
     {
         RigBone bone = rig.Bones[index];

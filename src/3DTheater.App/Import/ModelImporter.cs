@@ -124,7 +124,8 @@ internal static class ModelImporter
             $"ボーン {summary.Bones:N0}・モーフ {summary.Morphs:N0}、注意 {result.Report.WarningCount} 件）");
         if (physics is not null)
         {
-            AppLog.Info($"物理演算: 剛体 {physics.BodyCount:N0} 個（物理で動くもの {physics.DynamicBodyCount:N0} 個）・ジョイント {physics.JointCount:N0} 個");
+            AppLog.Info($"物理演算: 剛体 {physics.BodyCount:N0} 個（物理で動くもの {physics.DynamicBodyCount:N0} 個）・ジョイント {physics.JointCount:N0} 個" +
+                (physics.SpringJointCount > 0 ? $"・VRM の揺れるボーン {physics.SpringJointCount:N0} 本" : string.Empty));
         }
 
         if (interactive && result.Report.Issues.Any(i => i.Severity >= LoadSeverity.Warning))

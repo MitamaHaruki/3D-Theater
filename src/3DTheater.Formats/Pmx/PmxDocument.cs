@@ -338,6 +338,9 @@ public sealed class PmxDocument
     public PmxRigidBody[] RigidBodies { get; init; } = [];
     public PmxJoint[] Joints { get; init; } = [];
 
+    /// <summary>VRM の揺れ物（スプリングボーン）。PMX と .x では null（揺れ物は剛体とジョイントで作る）。</summary>
+    public SpringBoneSet? SpringBones { get; init; }
+
     /// <summary>PMX 2.1 のソフトボディの数。中身はまだ読まない（未対応）。</summary>
     public int SoftBodyCount { get; init; }
 

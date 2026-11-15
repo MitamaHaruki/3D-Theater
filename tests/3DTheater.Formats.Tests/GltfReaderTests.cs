@@ -388,6 +388,137 @@ public sealed class GltfReaderTests
     }
 
     [TestMethod]
+    public void Vrm1SpringBonesAreRead()
+    {
+        var extensions = new Dictionary<string, object>
+        {
+            ["VRMC_vrm"] = new { specVersion = "1.0", meta = new { name = "Hair" } },
+            ["VRMC_springBone"] = new
+            {
+                specVersion = "1.0",
+                colliders = new[] { new { node = 1, shape = new { sphere = new { offset = new[] { 0f, 0, 0.05f }, radius = 0.1f } } } },
+                colliderGroups = new[] { new { colliders = new[] { 0 } } },
+                springs = new[]
+                {
+                    new
+                    {
+                        name = "Hair",
+                        colliderGroups = new[] { 0 },
+                        joints = new object[]
+                        {
+                            new { node = 2, stiffness = 1.5f, gravityPower = 0.5f, gravityDir = new[] { 0f, -1, 0 }, dragForce = 0.4f, hitRadius = 0.02f },
+                            new { node = 3, stiffness = 1f, gravityPower = 0f, gravityDir = new[] { 0f, -1, 0 }, dragForce = 0.3f, hitRadius = 0.01f },
+                            new { node = 4 },
+                        },
+                    },
+                },
+            },
+        };
+        PmxLoadResult result = GltfReader.Read(SpringModel(extensions));
+        Assert.IsTrue(result.Succeeded);
+        PmxDocument d = result.Document!;
+        SpringBoneSet springs = d.SpringBones!;
+        Assert.AreEqual(Scale, springs.LengthScale);
+        // 1.0 は、最後のジョイント（先端だけ）の手前まで揺れる
+        Assert.HasCount(2, springs.Joints);
+        SpringBoneJoint first = springs.Joints[0];
+        Assert.AreEqual("Hair1", d.Bones[first.Bone].Name);
+        // 先端は次のジョイント（Hair2 は頭から後ろ 0.1・下 0.1。1.0 は Z を裏返す）
+        AssertNear(new Vector3(0, 1.4f, -0.1f) * Scale, first.Tail, "先端は次のジョイント");
+        Assert.AreEqual(1.5f, first.Stiffness);
+        Assert.AreEqual(0.5f, first.GravityPower);
+        AssertNear(-Vector3.UnitY, first.GravityDirection);
+        Assert.AreEqual(0.4f, first.DragForce, 1e-6f);
+        Assert.AreEqual(0.02f * Scale, first.HitRadius, 1e-5f);
+        Assert.AreEqual("Hair", first.Chain);
+        CollectionAssert.AreEqual(new[] { 0 }, first.Colliders.ToArray());
+        AssertNear(new Vector3(0, 1.3f, -0.1f) * Scale, springs.Joints[1].Tail);
+        // 当たる物: 頭のボーンに付いた球（中心は頭から前へ 0.05。Z を裏返す）
+        SpringBoneCollider ball = springs.Colliders.Single();
+        Assert.AreEqual("Head", d.Bones[ball.Bone].Name);
+        AssertNear(new Vector3(0, 1.5f, -0.05f) * Scale, ball.Center);
+        Assert.AreEqual(0.1f * Scale, ball.Radius, 1e-5f);
+        Assert.IsNull(ball.Tail);
+        Assert.IsTrue(result.Report.Issues.Any(i => i.Message.Contains("スプリングボーン 1 組", StringComparison.Ordinal)));
+    }
+
+    [TestMethod]
+    public void Vrm0SpringBonesAreRead()
+    {
+        var extensions = new Dictionary<string, object>
+        {
+            ["VRM"] = new
+            {
+                meta = new { title = "Hair0" },
+                secondaryAnimation = new
+                {
+                    boneGroups = new[]
+                    {
+                        new
+                        {
+                            comment = "hair",
+                            stiffiness = 2f, // 0.x の綴り
+                            gravityPower = 0f,
+                            gravityDir = new { x = 0f, y = -1f, z = 0f },
+                            dragForce = 0.7f,
+                            hitRadius = 0.02f,
+                            bones = new[] { 2 },
+                            colliderGroups = new[] { 0 },
+                        },
+                    },
+                    colliderGroups = new[] { new { node = 1, colliders = new[] { new { offset = new { x = 0f, y = 0f, z = 0.05f }, radius = 0.1f } } } },
+                },
+            },
+        };
+        PmxDocument d = GltfReader.Read(SpringModel(extensions)).Document!;
+        SpringBoneSet springs = d.SpringBones!;
+        // 0.x は、書かれたボーンから先のすべてのボーンが揺れる。子の無い末端（HairEnd）は、骨の向きに 7 cm 先が先端
+        CollectionAssert.AreEqual(new[] { "Hair1", "Hair2", "HairEnd" }, springs.Joints.Select(j => d.Bones[j.Bone].Name).ToArray());
+        Assert.AreEqual(2f, springs.Joints[0].Stiffness);
+        Assert.AreEqual(0.7f, springs.Joints[0].DragForce, 1e-6f);
+        // VRM 0.x は X を裏返す（Z はそのまま）
+        AssertNear(new Vector3(0, 1.4f, 0.1f) * Scale, springs.Joints[0].Tail);
+        AssertNear(new Vector3(0, 1.3f - 0.07f, 0.1f) * Scale, springs.Joints[2].Tail, "末端は 7 cm 先");
+        AssertNear(new Vector3(0, 1.5f, 0.05f) * Scale, springs.Colliders.Single().Center);
+    }
+
+    // 頭（ボーン）に、後ろへ出て下へ垂れる髪の節（Hair1 → Hair2 → HairEnd）。形は頭と髪に付く
+    private static byte[] SpringModel(Dictionary<string, object> extensions)
+    {
+        var b = new GlbBuilder();
+        int position = b.Floats([0, 1.5f, 0, 0.1f, 1.5f, 0, 0, 1.4f, 0.1f], "VEC3");
+        int joints = b.UShorts([0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0], "VEC4");
+        int weights = b.Floats([1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0], "VEC4");
+        int ibm = b.Floats(
+        [
+            1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, -1.5f, 0, 1,
+            1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, -1.5f, -0.1f, 1,
+        ], "MAT4");
+        var json = new Dictionary<string, object>
+        {
+            ["asset"] = new { version = "2.0" },
+            ["scene"] = 0,
+            ["scenes"] = new[] { new { nodes = new[] { 0, 1 } } },
+            ["nodes"] = new object[]
+            {
+                new { name = "Body", mesh = 0, skin = 0 },
+                new { name = "Head", translation = new[] { 0f, 1.5f, 0 }, children = new[] { 2 } },
+                new { name = "Hair1", translation = new[] { 0f, 0, 0.1f }, children = new[] { 3 } },
+                new { name = "Hair2", translation = new[] { 0f, -0.1f, 0 }, children = new[] { 4 } },
+                new { name = "HairEnd", translation = new[] { 0f, -0.1f, 0 } },
+            },
+            ["skins"] = new[] { new { joints = new[] { 1, 2 }, inverseBindMatrices = ibm } },
+            ["meshes"] = new[]
+            {
+                new { primitives = new[] { new { attributes = new Dictionary<string, int> { ["POSITION"] = position, ["JOINTS_0"] = joints, ["WEIGHTS_0"] = weights } } } },
+            },
+            ["extensionsUsed"] = extensions.Keys.ToArray(),
+            ["extensions"] = extensions,
+        };
+        return b.Build(json);
+    }
+
+    [TestMethod]
     public void Vrm0IsMirroredOnX()
     {
         var extensions = new Dictionary<string, object> { ["VRM"] = new { meta = new { title = "T0", author = "B" } } };
@@ -510,6 +641,27 @@ public sealed class GltfReaderTests
             bool lookByExpression = d.Morphs.Any(m => m.Name == "視線左");
             Assert.AreEqual(name.StartsWith("Seed", StringComparison.Ordinal), lookByExpression, $"{name}: 目線を表情で動かすのは Seed-san だけ");
             Assert.AreEqual(!lookByExpression, names.Contains("両目"), $"{name}: 目線を表情で動かすモデルは両目を作らない");
+
+            // 4 段目: 揺れ物（1.0 は、揺れ物ごとに最後のジョイントの手前まで）
+            SpringBoneSet springs = d.SpringBones!;
+            int expectedJoints = name switch
+            {
+                "Seed-san.vrm" => 28 - 9,
+                "VRM1_Constraint_Twist_Sample.vrm" => 79 - 22,
+                _ => -1,
+            };
+            if (expectedJoints >= 0)
+            {
+                Assert.HasCount(expectedJoints, springs.Joints, name);
+            }
+            else
+            {
+                Assert.IsGreaterThan(20, springs.Joints.Count, name);
+            }
+            Assert.IsNotEmpty(springs.Colliders, name);
+            Assert.IsTrue(springs.Joints.All(j => (uint)j.Bone < (uint)d.Bones.Length && j.Colliders.All(c => (uint)c < (uint)springs.Colliders.Count)), name);
+            // 先端が根元と重なる節（Seed-san の前髪 F・G の 2 本。元のモデルの作り）は、向きが決まらないので計算で飛ばす
+            Assert.IsLessThanOrEqualTo(2, springs.Joints.Count(j => Vector3.Distance(j.Tail, d.Bones[j.Bone].Position) < 1e-4f), $"{name}: 先端が根元と重なる節"); 
         }
     }
 
@@ -594,7 +746,9 @@ public sealed class GltfReaderTests
         return b.Build(json);
     }
 
-    private static void AssertNear(Vector3 expected, Vector3 actual, string? message = null)
+    private static void AssertNear(Vector3 expected, Vector3 actual, string? message = null) => AssertNearCore(expected, actual, message);
+
+    private static void AssertNearCore(Vector3 expected, Vector3 actual, string? message)
     {
         Assert.IsLessThan(1e-3f, Vector3.Distance(expected, actual), $"期待 {expected}・実際 {actual} {message}");
     }

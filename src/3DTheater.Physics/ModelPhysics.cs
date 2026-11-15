@@ -33,11 +33,13 @@ public sealed class ModelPhysics : IDisposable
     private readonly PhysicsImpulse[] _impulses;
     private readonly PhysicsBodyDesc[] _descs;
     private readonly int[] _followBodies;
+    private readonly SpringBoneSolver? _springs; // VRM の揺れ物（剛体の計算の後に計算する。設計判断記録 82 章の 4 段目）
     private PhysicsTransform[] _obstacleTargets = [];
 
-    private ModelPhysics(PhysicsWorld world, ModelRig rig, Body[] bodies, int joints, PhysicsBodyDesc[] descs)
+    private ModelPhysics(PhysicsWorld world, ModelRig rig, Body[] bodies, int joints, PhysicsBodyDesc[] descs, SpringBoneSolver? springs)
     {
         _world = world;
+        _springs = springs;
         _rig = rig;
         _bodies = bodies;
         _descs = descs;
@@ -52,6 +54,15 @@ public sealed class ModelPhysics : IDisposable
 
     public int BodyCount => _bodies.Length;
 
+    /// <summary>VRM の揺れ物の、揺れるボーンの数。</summary>
+    public int SpringJointCount => _springs?.JointCount ?? 0;
+
+    /// <summary>
+    /// 焼き込みで覚える置き方の数（剛体の数 ＋ 揺れるボーンの数）。<see cref="CopyTransforms"/> と <see cref="ApplyTransforms"/> は、
+    /// 剛体の置き方の後ろに、揺れるボーンの置き方を並べる。
+    /// </summary>
+    public int TransformCount => _bodies.Length + SpringJointCount;
+
     /// <summary>剛体を押すインパルスモーフ（PMX 2.1）があるか。</summary>
     public bool HasImpulseMorphs => _impulseMorphs.Length > 0;
 
@@ -64,11 +75,12 @@ public sealed class ModelPhysics : IDisposable
     public bool NeedsReset { get; set; } = true;
 
     /// <summary>
-    /// PMX の剛体とジョイントから作る。剛体が無ければ null。使えないジョイントの種類などは <paramref name="report"/> で知らせる。
+    /// PMX の剛体とジョイント（と VRM の揺れ物）から作る。どちらも無ければ null。使えないジョイントの種類などは <paramref name="report"/> で知らせる。
     /// </summary>
     public static ModelPhysics? Create(PmxDocument document, ModelRig rig, LoadReport? report = null)
     {
-        if (document.RigidBodies.Length == 0)
+        SpringBoneSolver? springBones = SpringBoneSolver.Create(document.SpringBones, rig);
+        if (document.RigidBodies.Length == 0 && springBones is null)
         {
             return null;
         }
@@ -150,7 +162,7 @@ public sealed class ModelPhysics : IDisposable
             world.Dispose();
             throw;
         }
-        return new ModelPhysics(world, rig, bodies, joints.Count, descs);
+        return new ModelPhysics(world, rig, bodies, joints.Count, descs, springBones);
     }
 
     /// <summary>重力（モデルの座標で）。モデルを傾けて置いたときは、傾きに合わせて回したものを渡す。</summary>
@@ -228,12 +240,13 @@ public sealed class ModelPhysics : IDisposable
             _world.SetObstacleTargets(_obstacleTargets, snap: true);
         }
         _world.Reset(_buffer);
-        if (warmupSeconds > 0)
+        if (warmupSeconds > 0 && _bodies.Length > 0)
         {
             _world.Step(_buffer, warmupSeconds, Substeps(warmupSeconds));
         }
         NeedsReset = false;
-        Apply(state);
+        ApplyBodies(state);
+        _springs?.Reset(state, warmupSeconds);
     }
 
     /// <summary>
@@ -259,9 +272,13 @@ public sealed class ModelPhysics : IDisposable
             {
                 _world.SetObstacleTargets(_obstacleTargets, snap: false);
             }
-            _world.Step(_buffer, seconds, Substeps(seconds));
+            if (_bodies.Length > 0)
+            {
+                _world.Step(_buffer, seconds, Substeps(seconds));
+            }
         }
-        Apply(state);
+        ApplyBodies(state);
+        _springs?.Step(state, seconds);
     }
 
     /// <summary>
@@ -333,7 +350,7 @@ public sealed class ModelPhysics : IDisposable
         _world.ApplyImpulses(_impulses.AsSpan(0, count));
     }
 
-    /// <summary>今の剛体の置き方で、物理演算のボーンを置く（計算は進めない）。</summary>
+    /// <summary>今の剛体の置き方（と揺れ物の先端の位置）で、物理演算のボーンを置く（計算は進めない）。</summary>
     public void Apply(PoseState state)
     {
         if (NeedsReset)
@@ -341,12 +358,26 @@ public sealed class ModelPhysics : IDisposable
             Reset(state);
             return;
         }
-        _world.GetTransforms(_buffer);
-        ApplyTransforms(state, _buffer);
+        ApplyBodies(state);
+        _springs?.Apply(state);
     }
 
-    /// <summary>今の全剛体の置き方を写す（焼き込みで覚えておくため）。<paramref name="destination"/> は剛体の数だけ要る。</summary>
-    public void CopyTransforms(Span<PhysicsTransform> destination) => _world.GetTransforms(destination);
+    // 今の剛体の置き方で、剛体のボーンを置く
+    private void ApplyBodies(PoseState state)
+    {
+        _world.GetTransforms(_buffer);
+        ApplyBodyTransforms(state, _buffer);
+        PoseEvaluator.RefreshPhysicsChildren(_rig, state);
+    }
+
+    /// <summary>
+    /// 今の全剛体の置き方と、揺れるボーンの置き方を写す（焼き込みで覚えておくため）。<paramref name="destination"/> は <see cref="TransformCount"/> だけ要る。
+    /// </summary>
+    public void CopyTransforms(Span<PhysicsTransform> destination)
+    {
+        _world.GetTransforms(destination[.._bodies.Length]);
+        _springs?.CopyTransforms(destination[_bodies.Length..]);
+    }
 
     /// <summary>
     /// 与えた全剛体の置き方（焼き込みで覚えたものなど）で、物理演算のボーンを置く。
@@ -354,10 +385,17 @@ public sealed class ModelPhysics : IDisposable
     /// </summary>
     public void ApplyTransforms(PoseState state, ReadOnlySpan<PhysicsTransform> transforms)
     {
-        if (transforms.Length != _bodies.Length)
+        if (transforms.Length != TransformCount)
         {
-            throw new ArgumentException($"置き方の数（{transforms.Length}）が剛体の数（{_bodies.Length}）と違います", nameof(transforms));
+            throw new ArgumentException($"置き方の数（{transforms.Length}）が剛体と揺れるボーンの数（{TransformCount}）と違います", nameof(transforms));
         }
+        ApplyBodyTransforms(state, transforms[.._bodies.Length]);
+        _springs?.ApplyTransforms(state, transforms[_bodies.Length..]);
+        PoseEvaluator.RefreshPhysicsChildren(_rig, state);
+    }
+
+    private void ApplyBodyTransforms(PoseState state, ReadOnlySpan<PhysicsTransform> transforms)
+    {
         for (int i = 0; i < _bodies.Length; i++)
         {
             Body body = _bodies[i];
@@ -372,7 +410,6 @@ public sealed class ModelPhysics : IDisposable
             }
             state.SetPhysicsResult(body.Bone, global);
         }
-        PoseEvaluator.RefreshPhysicsChildren(_rig, state);
     }
 
     public void Dispose() => _world.Dispose();

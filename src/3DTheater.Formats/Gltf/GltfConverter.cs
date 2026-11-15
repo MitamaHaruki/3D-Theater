@@ -160,6 +160,10 @@ internal static class GltfConverter
         private int _binaryExpressions;
         private int _overrideExpressions;
         private int _unsupportedColorBinds;
+        private readonly List<SpringSpec> _springSpecs = [];
+        private readonly List<ColliderSpec?> _colliderSpecs = [];
+        private SpringBoneSet? _springBoneSet;
+        private int _springChains;
         private readonly List<int> _order = []; // 階層の順（親が先）
         private readonly Dictionary<int, int> _boneOf = []; // ノード → ボーンの番号
         private readonly List<PmxBone> _bones = [];
@@ -189,7 +193,9 @@ internal static class GltfConverter
             _human = VrmHumanoid.Read(file.Root, version, _nodes.Length);
             (_expressions, _lookAtByExpression) = VrmExpressions.Read(file.Root, version, n => (uint)n < (uint)_nodes.Length ? _nodes[n].Mesh : -1, MaterialByName);
             ComputePose();
+            ReadSprings();
             BuildBones();
+            _springBoneSet = BuildSpringBones();
             foreach (int node in _order)
             {
                 if (_nodes[node].Mesh >= 0)
@@ -344,6 +350,8 @@ internal static class GltfConverter
                 used.Add(i); // 骨で変形しない形は、置いてあるノードに付ける
             }
             used.UnionWith(_human.Values); // 人型のボーンは、形が付いていなくても作る（目など）
+            used.UnionWith(_springSpecs.Select(s => s.Node)); // 揺れるボーンと、当たる物が付くノードも
+            used.UnionWith(_colliderSpecs.OfType<ColliderSpec>().Select(c => c.Node));
             foreach (int i in used.ToArray())
             {
                 for (int p = _nodes[i].Parent; p >= 0 && used.Add(p); p = _nodes[p].Parent)
@@ -1006,6 +1014,192 @@ internal static class GltfConverter
             return pmxIndex;
         }
 
+        // ---- 揺れ物（4 段目） ----
+
+        // 揺れるボーン（ノードの番号のまま）。先端は次のノードか、末端なら骨の向きに 7 cm 先（glTF の座標・腕を A の字にした後）
+        private sealed record SpringSpec(int Node, int TailNode, Vector3? VirtualTail, float Stiffness, float GravityPower, Vector3 GravityDirection,
+            float DragForce, float HitRadius, int[] Colliders, string Chain);
+
+        // 当たる物（ノードの番号・ノードの中での位置と半径。Tail があればカプセル）
+        private sealed record ColliderSpec(int Node, Vector3 Offset, float Radius, Vector3? Tail);
+
+        private const float VirtualTailLength = 0.07f; // 末端のボーンの先（VRM 0.x と同じ 7 cm）
+
+        // ノードの初めの姿勢（腕を A の字にした後）での位置（glTF の座標）
+        private Vector3 PosedGltf(int node) => Vector3.Transform(_nodes[node].World.Translation, _pose[node]);
+
+        private float ScaleOf(int node) => Vector3.TransformNormal(Vector3.UnitX, _nodes[node].World).Length();
+
+        // VRM の揺れ物の設定を読む（1.0 の VRMC_springBone・0.x の secondaryAnimation）
+        private void ReadSprings()
+        {
+            if (!GltfFile.TryGet(file.Root, "extensions", out JsonElement extensions))
+            {
+                return;
+            }
+            if (version == VrmVersion.Vrm1 && GltfFile.TryGet(extensions, "VRMC_springBone", out JsonElement spring))
+            {
+                foreach (JsonElement c in Items(spring, "colliders"))
+                {
+                    int node = GltfFile.Int(c, "node", -1);
+                    if ((uint)node >= (uint)_nodes.Length || !GltfFile.TryGet(c, "shape", out JsonElement shape))
+                    {
+                        _colliderSpecs.Add(null);
+                        continue;
+                    }
+                    if (GltfFile.TryGet(shape, "capsule", out JsonElement capsule))
+                    {
+                        _colliderSpecs.Add(new ColliderSpec(node, Vector(capsule, "offset"), GltfFile.Float(capsule, "radius", 0f), Vector(capsule, "tail")));
+                    }
+                    else if (GltfFile.TryGet(shape, "sphere", out JsonElement sphere))
+                    {
+                        _colliderSpecs.Add(new ColliderSpec(node, Vector(sphere, "offset"), GltfFile.Float(sphere, "radius", 0f), null));
+                    }
+                    else
+                    {
+                        _colliderSpecs.Add(null);
+                    }
+                }
+                List<int[]> groups = [.. Items(spring, "colliderGroups").Select(g => GltfFile.Ints(g, "colliders").ToArray())];
+                int index = 0;
+                foreach (JsonElement s in Items(spring, "springs"))
+                {
+                    string chain = GltfFile.String(s, "name") is { Length: > 0 } n ? n : $"揺れ物{index + 1}";
+                    index++;
+                    int[] colliders = ColliderUnion(groups, GltfFile.Ints(s, "colliderGroups"));
+                    JsonElement[] joints = [.. Items(s, "joints")];
+                    // 1.0: 揺れるのは最後の 1 つの手前まで（最後のジョイントは先端だけ）
+                    for (int i = 0; i + 1 < joints.Length; i++)
+                    {
+                        int node = GltfFile.Int(joints[i], "node", -1);
+                        int tail = GltfFile.Int(joints[i + 1], "node", -1);
+                        if ((uint)node >= (uint)_nodes.Length || (uint)tail >= (uint)_nodes.Length)
+                        {
+                            continue;
+                        }
+                        JsonElement j = joints[i];
+                        float[] direction = GltfFile.Floats(j, "gravityDir", 3) ?? [0, -1, 0];
+                        _springSpecs.Add(new SpringSpec(node, tail, null, GltfFile.Float(j, "stiffness", 1f), GltfFile.Float(j, "gravityPower", 0f),
+                            new Vector3(direction[0], direction[1], direction[2]), GltfFile.Float(j, "dragForce", 0.5f), GltfFile.Float(j, "hitRadius", 0f),
+                            colliders, chain));
+                    }
+                }
+            }
+            else if (version == VrmVersion.Vrm0 && GltfFile.TryGet(extensions, "VRM", out JsonElement vrm0)
+                && GltfFile.TryGet(vrm0, "secondaryAnimation", out JsonElement secondary))
+            {
+                var groups = new List<int[]>();
+                foreach (JsonElement g in Items(secondary, "colliderGroups"))
+                {
+                    int node = GltfFile.Int(g, "node", -1);
+                    var members = new List<int>();
+                    foreach (JsonElement c in Items(g, "colliders"))
+                    {
+                        if ((uint)node < (uint)_nodes.Length)
+                        {
+                            members.Add(_colliderSpecs.Count);
+                            _colliderSpecs.Add(new ColliderSpec(node, Vector0(c, "offset"), GltfFile.Float(c, "radius", 0f), null));
+                        }
+                    }
+                    groups.Add([.. members]);
+                }
+                var seen = new HashSet<int>();
+                int index = 0;
+                foreach (JsonElement g in Items(secondary, "boneGroups"))
+                {
+                    string chain = GltfFile.String(g, "comment") is { Length: > 0 } n ? n : $"揺れ物{index + 1}";
+                    index++;
+                    int[] colliders = ColliderUnion(groups, GltfFile.Ints(g, "colliderGroups"));
+                    Vector3 direction = GltfFile.TryGet(g, "gravityDir", out _) ? Vector0(g, "gravityDir") : new Vector3(0, -1, 0);
+                    float stiffness = GltfFile.Float(g, "stiffiness", GltfFile.Float(g, "stiffness", 1f)); // 0.x の名前は綴りが違う（stiffiness）
+                    float gravity = GltfFile.Float(g, "gravityPower", 0f);
+                    float drag = GltfFile.Float(g, "dragForce", 0.4f);
+                    float hit = GltfFile.Float(g, "hitRadius", 0.02f);
+                    // 0.x: 書かれたボーンから先の、すべてのボーンが揺れる。先端は初めの子、子が無ければ骨の向きに 7 cm 先
+                    var stack = new Stack<int>(GltfFile.Ints(g, "bones").Where(n => (uint)n < (uint)_nodes.Length).Reverse());
+                    while (stack.Count > 0)
+                    {
+                        int node = stack.Pop();
+                        if (!seen.Add(node))
+                        {
+                            continue;
+                        }
+                        int[] children = [.. _nodes[node].Children.Where(c => (uint)c < (uint)_nodes.Length && _nodes[c].Parent == node)];
+                        Vector3? virtualTail = null;
+                        int tail = -1;
+                        if (children.Length > 0)
+                        {
+                            tail = children[0];
+                        }
+                        else
+                        {
+                            Vector3 head = PosedGltf(node);
+                            Vector3 from = _nodes[node].Parent >= 0 ? PosedGltf(_nodes[node].Parent) : head - Vector3.UnitY;
+                            Vector3 along = head - from;
+                            virtualTail = head + (along.LengthSquared() > 1e-12f ? Vector3.Normalize(along) : -Vector3.UnitY) * VirtualTailLength * ScaleOf(node);
+                        }
+                        _springSpecs.Add(new SpringSpec(node, tail, virtualTail, stiffness, gravity, direction, drag, hit, colliders, chain));
+                        for (int c = children.Length - 1; c >= 0; c--)
+                        {
+                            stack.Push(children[c]);
+                        }
+                    }
+                }
+            }
+        }
+
+        private static IEnumerable<JsonElement> Items(JsonElement owner, string name) =>
+            GltfFile.TryGet(owner, name, out JsonElement array) && array.ValueKind == JsonValueKind.Array ? array.EnumerateArray() : [];
+
+        private static int[] ColliderUnion(List<int[]> groups, IEnumerable<int> chosen) =>
+            [.. chosen.Where(g => (uint)g < (uint)groups.Count).SelectMany(g => groups[g]).Distinct()];
+
+        private static Vector3 Vector(JsonElement owner, string name) =>
+            GltfFile.Floats(owner, name, 3) is { } v ? new Vector3(v[0], v[1], v[2]) : Vector3.Zero;
+
+        // VRM 0.x の {x, y, z} の形
+        private static Vector3 Vector0(JsonElement owner, string name) =>
+            GltfFile.TryGet(owner, name, out JsonElement v)
+                ? new Vector3(GltfFile.Float(v, "x", 0f), GltfFile.Float(v, "y", 0f), GltfFile.Float(v, "z", 0f))
+                : Vector3.Zero;
+
+        // ボーンの番号と、MMD の座標にする（揺れるボーン・当たる物が付くノードは、ボーンになっている）
+        private SpringBoneSet? BuildSpringBones()
+        {
+            if (_springSpecs.Count == 0)
+            {
+                return null;
+            }
+            var colliders = new List<SpringBoneCollider>();
+            var colliderIndex = new Dictionary<int, int>();
+            for (int i = 0; i < _colliderSpecs.Count; i++)
+            {
+                if (_colliderSpecs[i] is not { } c || !_boneOf.TryGetValue(c.Node, out int bone))
+                {
+                    continue;
+                }
+                Matrix4x4 placement = _nodes[c.Node].World * _pose[c.Node];
+                colliderIndex[i] = colliders.Count;
+                colliders.Add(new SpringBoneCollider(bone, Point(Vector3.Transform(c.Offset, placement)), c.Radius * ScaleOf(c.Node) * MetersToMmd,
+                    c.Tail is { } tail ? Point(Vector3.Transform(tail, placement)) : null));
+            }
+            var joints = new List<SpringBoneJoint>();
+            foreach (SpringSpec s in _springSpecs)
+            {
+                if (!_boneOf.TryGetValue(s.Node, out int bone))
+                {
+                    continue;
+                }
+                Vector3 tail = s.VirtualTail is { } v ? Point(v) : PosedPoint(s.TailNode);
+                Vector3 gravity = Direction(s.GravityDirection);
+                joints.Add(new SpringBoneJoint(bone, tail, s.Stiffness, s.GravityPower,
+                    gravity.LengthSquared() > 1e-12f ? Vector3.Normalize(gravity) : -Vector3.UnitY, Math.Clamp(s.DragForce, 0f, 1f),
+                    s.HitRadius * ScaleOf(s.Node) * MetersToMmd, [.. s.Colliders.Where(colliderIndex.ContainsKey).Select(c => colliderIndex[c])], s.Chain));
+            }
+            _springChains = joints.Select(j => j.Chain).Distinct().Count();
+            return joints.Count == 0 ? null : new SpringBoneSet(joints, colliders, MetersToMmd);
+        }
+
         // ---- 表情（3 段目） ----
 
         // VRM の表情を、PMX の表情にする。形の変化は、指している表情の元（メッシュと番号ごと）を強さで混ぜた頂点モーフ、
@@ -1189,9 +1383,15 @@ internal static class GltfConverter
             {
                 report.Info(LoadIssueCategory.Unsupported, $"表情の材質の変化のうち、色以外（影の色・発光など）は、まだ使いません（{_unsupportedColorBinds} か所）");
             }
-            if (_springBones)
+            if (_springBoneSet is { } springs)
             {
-                report.Info(LoadIssueCategory.Unsupported, "髪などの揺れ（VRM のスプリングボーン）は、まだ使いません");
+                report.Info(LoadIssueCategory.Note,
+                    $"髪などの揺れ（VRM のスプリングボーン {_springChains} 組・揺れるボーン {springs.Joints.Count} 本・当たる物 {springs.Colliders.Count} 個）を、" +
+                    "物理演算の中で VRM と同じ決まりで揺らします");
+            }
+            else if (_springBones)
+            {
+                report.Info(LoadIssueCategory.Unsupported, "髪などの揺れ（VRM のスプリングボーン）の設定を読めませんでした（揺らしません）");
             }
             if (_mtoon)
             {
@@ -1247,6 +1447,7 @@ internal static class GltfConverter
                 Materials = [.. _materials],
                 Bones = [.. _bones],
                 Morphs = morphs,
+                SpringBones = _springBoneSet,
                 DisplayFrames =
                 [
                     new PmxDisplayFrame { Name = "Root", NameUniversal = "Root", IsSpecial = true, Elements = [new PmxDisplayElement(PmxDisplayTarget.Bone, 0)] },

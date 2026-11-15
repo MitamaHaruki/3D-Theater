@@ -88,7 +88,7 @@ public sealed class PhysicsBake : IDisposable
         {
             _physics.Step(_state, 1f / FrameRate, impulseFrames: 1);
         }
-        var transforms = new PhysicsTransform[_physics.BodyCount];
+        var transforms = new PhysicsTransform[_physics.TransformCount];
         _physics.CopyTransforms(transforms);
         _frames.Add(transforms);
     }
