@@ -285,7 +285,7 @@ public sealed class DockingLayout
 
     /// <summary>
     /// ライブモードの画面（設計判断記録 78 章）: ドッキングを使わず、プレビューを 1 枚だけ作る（置くのはライブの画面）。
-    /// グリッド・ボーン・配信の枠の切り替えは前回のものに戻し（初めて使うときは、どれも出さない。利用者の頼み）、
+    /// グリッド・ボーン・配信の枠・選んだ物の枠とギズモの切り替えは前回のものに戻し（初めて使うときは、どれも出さない。利用者の頼み）、
     /// 視点はいつもカメラから始める。レイアウトのファイルは読み書きしない。
     /// </summary>
     public PreviewPanel CreateLivePreview(UserSettings settings)
@@ -296,7 +296,7 @@ public sealed class DockingLayout
             ? settings.LivePreviews.GetValueOrDefault(LivePreviewId)
             : null;
         var start = new PreviewSettings(PreviewLayout.Single, PreviewLayouts.DefaultQuadPreset.Name, [ViewKind.Camera],
-            saved?.ShowGrid ?? false, saved?.ShowBones ?? false, saved?.ShowFrame ?? false);
+            saved?.ShowGrid ?? false, saved?.ShowBones ?? false, saved?.ShowFrame ?? false, saved?.ShowSelection ?? false);
         return CreatePreview(LivePreviewId, start);
     }
 

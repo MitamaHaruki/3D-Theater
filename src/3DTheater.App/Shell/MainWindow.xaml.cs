@@ -1771,6 +1771,13 @@ public partial class MainWindow : Window, Live.ILiveSceneActions, Live.ILiveScen
             Margin = new Thickness(0, panel.Children.Count == 0 ? 0 : 18, 0, 8),
         };
         panel.Children.Add(Heading("ギズモ（選んだ物を動かす取っ手）"));
+        panel.Children.Add(new TextBlock
+        {
+            Text = "プレビューの右下の「選んだ物の枠とギズモ」を入れている間だけ出ます（初めは出しません）。",
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 8),
+            Opacity = 0.75,
+        });
         RadioButton Style(string text, GizmoStyle style)
         {
             var radio = new RadioButton { Content = text, GroupName = "LiveGizmoStyle", IsChecked = _context.Gizmo.Style == style, Margin = new Thickness(0, 0, 0, 6) };
@@ -1833,7 +1840,7 @@ public partial class MainWindow : Window, Live.ILiveSceneActions, Live.ILiveScen
         "  右ボタンを押している間 … マウスで向き、W・A・S・D で前後左右、Q・E で下・上（Shift で速く）\n" +
         "  ホイール … ズーム（視野角）　Ctrl＋ホイール … キャラクターへ近づく・離れる　中ボタンでドラッグ … カメラを上下左右にずらす\n" +
         "  タッチパッド（上で入れたとき）… 2 本指でなでるとキャラクターの周りを回る、指を広げる・つまむと近づく・離れる、Shift を押しながらなでると上下左右にずらす\n" +
-        "  左クリック … 選ぶ（Ctrl で足す・外す）　ギズモの取っ手をドラッグ … 選んだ物を動かす\n" +
+        "  左クリック … 選ぶ（Ctrl で足す・外す）　ギズモの取っ手をドラッグ … 選んだ物を動かす（右下の「選んだ物の枠とギズモ」を入れているとき）\n" +
         "\nキー\n" +
         "  Ctrl+Z … 元に戻す　Ctrl+Y … やり直し\n" +
         "  Ctrl+S … シーンを保存　Ctrl+Shift+S … 名前を付けて保存　Ctrl+N … 新しいシーン　Ctrl+O … ほかのファイルを開く\n" +

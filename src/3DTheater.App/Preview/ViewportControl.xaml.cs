@@ -37,6 +37,7 @@ public partial class ViewportControl : UserControl, IDisposable
     private bool _showGrid = true;
     private bool _showBones = true;
     private bool _showExportFrame = true;
+    private bool _showSelection = true;
     private bool _isActiveView;
     private bool _isMaximized;
     private bool _liveLook;
@@ -171,6 +172,20 @@ public partial class ViewportControl : UserControl, IDisposable
         {
             _showExportFrame = value;
             UpdateExportFrame();
+        }
+    }
+
+    /// <summary>
+    /// 選んでいる物の印（モデルを囲む枠）とギズモ（動かすための取っ手）を出すか。出さない間は、ギズモをつかむこともできない
+    /// （見えない取っ手で動かしてしまわないように）。選ぶこと自体はできる。ライブモードの画面で切り替える（設計判断記録 81 章）。
+    /// </summary>
+    public bool ShowSelection
+    {
+        get => _showSelection;
+        set
+        {
+            _showSelection = value;
+            Redraw();
         }
     }
 
@@ -400,7 +415,7 @@ public partial class ViewportControl : UserControl, IDisposable
         _drawItems.Clear();
         foreach (var (node, model) in _context.VisibleModels)
         {
-            DrawFlags drawFlags = _context.Selection.Contains(node) ? DrawFlags.Selected : DrawFlags.None;
+            DrawFlags drawFlags = _showSelection && _context.Selection.Contains(node) ? DrawFlags.Selected : DrawFlags.None;
             _drawItems.Add(new DrawItem(model.Mesh!, node.WorldMatrix, drawFlags));
         }
         // 重ね描き: ボーンの線、その上にギズモ（どちらも書き出しには映らない）
@@ -462,10 +477,11 @@ public partial class ViewportControl : UserControl, IDisposable
     }
 
     /// <summary>
-    /// この区画でギズモを出すか。カメラ視点の区画では、見ているカメラ自身のギズモは出さない（透視投影では目の位置にあって写らず、
-    /// 平行投影では画面の真ん中に出て、写したい物に重なるため）。
+    /// この区画でギズモを出すか。選んだ物の印を出さない間は出さない。カメラ視点の区画では、見ているカメラ自身のギズモは出さない
+    /// （透視投影では目の位置にあって写らず、平行投影では画面の真ん中に出て、写したい物に重なるため）。
     /// </summary>
-    private bool GizmoAllowed => !(Camera.Kind == ViewKind.Camera && ReferenceEquals(_context.Selection.Primary, _context.ViewCamera));
+    private bool GizmoAllowed =>
+        _showSelection && !(Camera.Kind == ViewKind.Camera && ReferenceEquals(_context.Selection.Primary, _context.ViewCamera));
 
     private float DpiScale() => (float)System.Windows.Media.VisualTreeHelper.GetDpi(this).DpiScaleX;
 

@@ -122,6 +122,7 @@ public partial class LiveShell : UserControl
         FrameButton.IsChecked = _preview.ShowFrame;
         GridButton.IsChecked = _preview.ShowGrid;
         BonesButton.IsChecked = _preview.ShowBones;
+        SelectionButton.IsChecked = _preview.ShowSelection;
     }
 
     // サイドバーの中に、自分で上下に動く欄（一覧・表情・プロパティ）がある。ホイールは、その欄がまだ動けるならその欄に、
@@ -168,6 +169,14 @@ public partial class LiveShell : UserControl
         if (_preview is not null)
         {
             _preview.ShowBones = BonesButton.IsChecked == true;
+        }
+    }
+
+    private void OnSelectionClick(object sender, RoutedEventArgs e)
+    {
+        if (_preview is not null)
+        {
+            _preview.ShowSelection = SelectionButton.IsChecked == true;
         }
     }
 

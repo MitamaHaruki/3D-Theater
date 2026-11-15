@@ -5,10 +5,11 @@ using Theater3D.Editor;
 
 namespace Theater3D.App.Preview;
 
-/// <summary>プレビュー 1 枚の設定。レイアウトと一緒に保存する。<paramref name="ShowFrame"/> はカメラ視点の書き出し・配信の枠
-/// （切り替えはライブモードの画面だけ。エディットモードはいつも出す）。</summary>
+/// <summary>プレビュー 1 枚の設定。レイアウトと一緒に保存する。<paramref name="ShowFrame"/> はカメラ視点の書き出し・配信の枠、
+/// <paramref name="ShowSelection"/> は選んだ物の枠とギズモ（null は覚えていない。前の版の設定）。この 2 つの切り替えはライブモードの画面だけで、
+/// エディットモードはいつも出す。</summary>
 public sealed record PreviewSettings(PreviewLayout Layout, string QuadPresetName, ViewKind[] Views, bool ShowGrid, bool ShowBones = true,
-    bool ShowFrame = true)
+    bool ShowFrame = true, bool? ShowSelection = null)
 {
     public static PreviewSettings Default(PreviewLayout layout = PreviewLayout.Quad) =>
         new(layout, PreviewLayouts.DefaultQuadPreset.Name, [.. PreviewLayouts.DefaultViews(layout)], true);
@@ -119,6 +120,19 @@ public partial class PreviewPanel : UserControl, IDisposable
         }
     }
 
+    /// <summary>選んだ物の枠とギズモを出すか（出さない間は、ギズモをつかめない）。</summary>
+    public bool ShowSelection
+    {
+        get => _views[0].ShowSelection;
+        set
+        {
+            foreach (ViewportControl view in _views)
+            {
+                view.ShowSelection = value;
+            }
+        }
+    }
+
     /// <summary>
     /// ライブモードの見た目にする（設計判断記録 78 章）: 上のツールバー（分け方・グリッド・ボーン）と区画の見出しを隠し、
     /// 1 画面のカメラ視点だけにする。グリッドとボーンの切り替えは、ライブの画面の右下に置く。
@@ -142,7 +156,7 @@ public partial class PreviewPanel : UserControl, IDisposable
     }
 
     public PreviewSettings GetSettings() =>
-        new(_layout, _quadPreset.Name, [.. _views.Select(v => v.Camera.Kind)], ShowGrid, ShowBones, ShowFrame);
+        new(_layout, _quadPreset.Name, [.. _views.Select(v => v.Camera.Kind)], ShowGrid, ShowBones, ShowFrame, ShowSelection);
 
     public void Dispose()
     {
@@ -163,6 +177,7 @@ public partial class PreviewPanel : UserControl, IDisposable
             _views[i].ShowGrid = settings.ShowGrid;
             _views[i].ShowBones = settings.ShowBones;
             _views[i].ShowExportFrame = settings.ShowFrame;
+            _views[i].ShowSelection = settings.ShowSelection ?? true;
         }
         Arrange();
     }

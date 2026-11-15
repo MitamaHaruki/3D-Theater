@@ -55,7 +55,7 @@
       </Border>
     </StackPanel>
 
-    <!-- 右下: 配信の枠・グリッド・ボーン（どれも初めは出さない。利用者の頼み） -->
+    <!-- 右下: 配信の枠・グリッド・ボーン・選んだ物の枠とギズモ（どれも初めは出さない。利用者の頼み） -->
     <StackPanel Margin="0,0,50,10" HorizontalAlignment="Right" VerticalAlignment="Bottom" Orientation="Horizontal">
       <ToggleButton x:Name="FrameButton" Style="{StaticResource LiveToggleStyle}" Checked="OnFrameClick" Unchecked="OnFrameClick"
                     AutomationProperties.Name="配信の枠" ToolTip="配信に映る範囲の枠を表示（枠の外側を暗くします）">
@@ -73,6 +73,13 @@
         <Path Width="14" Height="14" Stretch="Fill" StrokeThickness="1.1"
               Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ToggleButton}}"
               Data="M2,11 L6,6 L10,2 M6,6 L11,8 M1,10 H3 V12 M5,5 H7 V7 H5 Z" />
+      </ToggleButton>
+      <ToggleButton x:Name="SelectionButton" Style="{StaticResource LiveToggleStyle}" Checked="OnSelectionClick" Unchecked="OnSelectionClick"
+                    AutomationProperties.Name="選んだ物の枠とギズモ"
+                    ToolTip="選んでいる物を囲む枠と、動かすための取っ手（ギズモ）を表示（プレビューの上で物を動かすときに入れます）">
+        <Path Width="14" Height="14" Stretch="Fill" StrokeThickness="1.1"
+              Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ToggleButton}}"
+              Data="M2,2 H12 V12 H2 Z M7,0 V14 M0,7 H14" />
       </ToggleButton>
     </StackPanel>
 
