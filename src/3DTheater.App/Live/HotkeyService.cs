@@ -344,7 +344,7 @@ public sealed class HotkeyService : IDisposable
             else
             {
                 // 登録には管理者の確認が要るので、配信の途中で窓を出さない
-                Notice?.Invoke(this, ("仮想カメラは、ライブのメニューから一度入れてください（初めは管理者の確認が要ります）", true));
+                Notice?.Invoke(this, ("仮想カメラは、設定画面の「配信」の「仮想カメラを使う」で一度入れてください（初めは管理者の確認が要ります）", true));
             }
         }
         catch (Exception ex) when (ex is System.IO.IOException or Media.VideoException or InvalidOperationException)
