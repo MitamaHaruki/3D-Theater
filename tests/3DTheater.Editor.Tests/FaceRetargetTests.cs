@@ -264,6 +264,94 @@ public sealed class FaceRetargetTests
         Assert.AreEqual(-1, FaceRigNames.Find(morphs, ["あ"]));
     }
 
+    // パーフェクトシンクの値を求めて、落ち着かせる
+    private static FaceOutput SettlePerfectSync(FaceRetarget retarget, FaceSignal face)
+    {
+        FaceOutput output = FaceOutput.Neutral;
+        for (int i = 0; i <= 90; i++)
+        {
+            output = retarget.Compute(face, i / 30.0, perfectSync: true);
+        }
+        return output;
+    }
+
+    [TestMethod]
+    public void PerfectSyncPassesTheValuesFromTheNeutralFace()
+    {
+        Assert.HasCount(52, FaceRetarget.PerfectSyncNames);
+        Assert.HasCount(52, FaceRetarget.PerfectSyncNames.Distinct());
+        FaceSignal face = Face(blend: [("jawOpen", 0.5f), ("mouthSmileLeft", 0.8f), ("browInnerUp", 0.3f), ("eyeLookOutLeft", 0.4f),
+            ("eyeBlinkLeft", 0.9f), ("tongueOut", 0.6f)]);
+
+        // 映像と同じ向き: 本人の左 → キャラクターの左。値は正面のときからの違い
+        FaceOutput o = SettlePerfectSync(Calibrated(), face);
+        Assert.HasCount(52, o.PerfectSync);
+        Assert.AreEqual(0.5f, o.PerfectSync["jawOpen"], 0.01f);
+        Assert.AreEqual(0.8f, o.PerfectSync["mouthSmileLeft"], 0.01f);
+        Assert.AreEqual(0f, o.PerfectSync["mouthSmileRight"], 0.01f);
+        Assert.AreEqual(0.4f, o.PerfectSync["eyeLookOutLeft"], 0.01f);
+        Assert.AreEqual(0.6f, o.PerfectSync["tongueOut"], 0.01f, "スマホは舌も出す");
+        // 目を閉じるのは、まばたきと同じく広げて左右をそろえる（片目だけ大きく閉じればウィンク）
+        Assert.AreEqual(1f, o.PerfectSync["eyeBlinkLeft"], 0.01f);
+        Assert.AreEqual(0f, o.PerfectSync["eyeBlinkRight"], 0.01f);
+        Assert.AreEqual(o.Morphs[FaceRetarget.WinkLeft], o.PerfectSync["eyeBlinkLeft"] - o.Morphs[FaceRetarget.Blink], 0.01f);
+
+        // 鏡のように: 左右を入れ替える
+        FaceOutput mirrored = SettlePerfectSync(Calibrated(s => s.Mirror = true), face);
+        Assert.AreEqual(0.8f, mirrored.PerfectSync["mouthSmileRight"], 0.01f);
+        Assert.AreEqual(0f, mirrored.PerfectSync["mouthSmileLeft"], 0.01f);
+        Assert.AreEqual(0.4f, mirrored.PerfectSync["eyeLookOutRight"], 0.01f);
+        Assert.AreEqual(1f, mirrored.PerfectSync["eyeBlinkRight"], 0.01f);
+        Assert.AreEqual("jawOpen", FaceRetarget.MirrorSide("jawOpen"));
+
+        // 目線を動かさないときは、目線の表情の元も 0
+        Assert.AreEqual(0f, SettlePerfectSync(Calibrated(s => s.Gaze = false), face).PerfectSync["eyeLookOutLeft"]);
+
+        // 正面のときに少し口が開いていれば、その分を引く
+        var retarget = new FaceRetarget(new FaceRetargetSettings());
+        retarget.Calibrate(Face(blend: [("jawOpen", 0.2f)]));
+        Assert.AreEqual(0.5f, SettlePerfectSync(retarget, Face(blend: [("jawOpen", 0.6f)])).PerfectSync["jawOpen"], 0.01f);
+
+        // 頼まなければ求めない
+        Assert.IsEmpty(Calibrated().Compute(face, 0).PerfectSync);
+    }
+
+    [TestMethod]
+    public void PerfectSyncNamesAreFoundInModels()
+    {
+        string?[] names = ["まばたき", "eyeBlinkLeft", "Face.EyeBlink_R", "blendShape1.jawOpen", "mouthSmile_L", "MOUTH_SMILE_RIGHT", "ｔｏｎｇｕｅＯｕｔ",
+            "eyeBlinkLeft", null, "jawOpen_2", "Fcl_MTH_A"];
+        Dictionary<string, int> found = FaceRigNames.FindPerfectSync(names);
+        Assert.HasCount(6, found);
+        Assert.AreEqual(1, found["eyeBlinkLeft"], "同じ名前は先のもの");
+        Assert.AreEqual(2, found["eyeBlinkRight"], "「.」より前と、_R");
+        Assert.AreEqual(3, found["jawOpen"]);
+        Assert.AreEqual(4, found["mouthSmileLeft"]);
+        Assert.AreEqual(5, found["mouthSmileRight"], "大文字・記号は問わない");
+        Assert.AreEqual(6, found["tongueOut"], "全角も");
+        Assert.IsGreaterThan(26, FaceRigNames.PerfectSyncMinimum, "少ししか無いモデルは、ふつうの当てはめ方");
+    }
+
+    [TestMethod]
+    public void PerfectSyncIsOnByDefaultAndSaved()
+    {
+        var settings = new FaceRetargetSettings();
+        Assert.IsTrue(settings.PerfectSync, "持っているモデルなら使う");
+        settings.PerfectSync = false;
+        var project = new ProjectFile { Live = LiveEntry.From(new LiveOutputSettings(), settings) };
+        var report = new Theater3D.Formats.LoadReport();
+        ProjectFile read = ProjectSerializer.Deserialize(ProjectSerializer.Serialize(project), report)!;
+        Assert.IsFalse(read.Live!.Tracking!.PerfectSync, "保存して読み戻しても残る");
+        var restored = new FaceRetargetSettings();
+        read.Live.Tracking.ApplyTo(restored, _ => null);
+        Assert.IsFalse(restored.PerfectSync);
+        ProjectFile old = ProjectSerializer.Deserialize(
+            """{"format":"3DTheater.Project","version":1,"mode":"live","live":{"tracking":{"mirror":true}}}""", report)!;
+        Assert.IsTrue(old.Live!.Tracking!.PerfectSync, "前の版のファイルは使う");
+        settings.Reset();
+        Assert.IsTrue(settings.PerfectSync);
+    }
+
     [TestMethod]
     public void SettingsClampAndNotify()
     {

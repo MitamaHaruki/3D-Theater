@@ -111,7 +111,7 @@ public sealed class TrackingDriver
                 }
                 _retarget.Calibrate(FaceRetarget.Average(_calibration));
                 _calibrating = false;
-                Status = _rig.Describe(target.Name);
+                Status = _rig.Describe(target.Name, _retarget.Settings.PerfectSync);
                 AppLog.Info($"顔のトラッキングの正面を覚えました（{CalibrationFrames} 枚の平均）。{Status}");
             }
             if (!_retarget.IsCalibrated)
@@ -124,9 +124,10 @@ public sealed class TrackingDriver
             _stoppedAt = Stopwatch.GetTimestamp(); // 止めた: 正面へなめらかに戻す
         }
 
-        FaceOutput output = _retarget.Compute(signal, now);
-        loaded.FaceOverlay = _rig.Build(output);
-        Applied = Describe(output);
+        bool perfectSync = _retarget.Settings.PerfectSync && _rig.HasPerfectSync;
+        FaceOutput output = _retarget.Compute(signal, now, perfectSync);
+        loaded.FaceOverlay = _rig.Build(output, perfectSync);
+        Applied = perfectSync ? DescribePerfectSync(output) : Describe(output);
         if (!running && Stopwatch.GetElapsedTime(_stoppedAt) > EaseOutTime)
         {
             loaded.FaceOverlay = null; // 戻しきったので外す
@@ -156,7 +157,7 @@ public sealed class TrackingDriver
             _rig = target is not null && _context.GetLoaded(target) is { } loaded ? FaceRig.Create(target, loaded.Document) : null;
             if (_rig is not null && !_calibrating)
             {
-                Status = _rig.Describe(target!.Name);
+                Status = _rig.Describe(target!.Name, _retarget.Settings.PerfectSync);
             }
             else if (target is null)
             {
@@ -175,6 +176,16 @@ public sealed class TrackingDriver
             Angle(o.UpperBody * o.Neck * o.Head), M(FaceRetarget.Blink), M(FaceRetarget.WinkLeft), M(FaceRetarget.WinkRight),
             M(FaceRetarget.A), M(FaceRetarget.I), M(FaceRetarget.U), M(FaceRetarget.E), M(FaceRetarget.O), M(FaceRetarget.Smile),
             M(FaceRetarget.BrowUp), M(FaceRetarget.BrowAngry));
+    }
+
+    private static string DescribePerfectSync(FaceOutput o)
+    {
+        static float Angle(Quaternion q) => 2 * MathF.Acos(Math.Clamp(MathF.Abs(q.W), 0f, 1f)) * 180f / MathF.PI;
+        float P(string key) => o.PerfectSync.TryGetValue(key, out float v) ? v : 0f;
+        return string.Format(System.Globalization.CultureInfo.CurrentCulture,
+            "キャラクター（パーフェクトシンク）: 頭 {0:F0}°・目を閉じる 左 {1:F2} 右 {2:F2}・口を開ける {3:F2}・すぼめる {4:F2}・笑顔 左 {5:F2} 右 {6:F2}・眉 上 {7:F2}（キャラクターの左右）",
+            Angle(o.UpperBody * o.Neck * o.Head), P("eyeBlinkLeft"), P("eyeBlinkRight"), P("jawOpen"), P("mouthPucker"), P("mouthSmileLeft"),
+            P("mouthSmileRight"), P("browInnerUp"));
     }
 
     // スマホの値: 頭の向きをカメラと同じ決まりにし（逆にする設定も）、まばたきは広い幅で 0〜1 にする
@@ -251,8 +262,11 @@ public sealed class FaceRig
     private readonly Dictionary<string, int> _morphs;
     // 目線の表情（左・右・上・下）。両目のボーンが無く、目線を表情で動かすモデル（VRM）だけ使う
     private readonly (int Left, int Right, int Up, int Down) _look;
+    // パーフェクトシンクの表情の元（iPhone の顔の動きの名前 → モーフ。設計判断記録 84 章）。少ししか無ければ空
+    private readonly Dictionary<string, int> _perfectSync;
+    private readonly int _perfectSyncFound;
 
-    private FaceRig(int upperBody, int neck, int head, int eyes, Dictionary<string, int> morphs, (int, int, int, int) look)
+    private FaceRig(int upperBody, int neck, int head, int eyes, Dictionary<string, int> morphs, (int, int, int, int) look, Dictionary<string, int> perfectSync)
     {
         _upperBody = upperBody;
         _neck = neck;
@@ -260,7 +274,12 @@ public sealed class FaceRig
         _eyes = eyes;
         _morphs = morphs;
         _look = eyes >= 0 ? (-1, -1, -1, -1) : look;
+        _perfectSyncFound = perfectSync.Count;
+        _perfectSync = perfectSync.Count >= FaceRigNames.PerfectSyncMinimum ? perfectSync : [];
     }
+
+    /// <summary>パーフェクトシンクの表情の元を持つか（52 個のうち <see cref="FaceRigNames.PerfectSyncMinimum"/> 個以上）。</summary>
+    public bool HasPerfectSync => _perfectSync.Count > 0;
 
     private bool LooksByMorph => _look.Left >= 0 || _look.Right >= 0 || _look.Up >= 0 || _look.Down >= 0;
 
@@ -301,7 +320,8 @@ public sealed class FaceRig
         return new FaceRig(FaceRigNames.Find(bones, FaceRigNames.UpperBody), FaceRigNames.Find(bones, FaceRigNames.Neck),
             FaceRigNames.Find(bones, FaceRigNames.Head), FaceRigNames.Find(bones, FaceRigNames.Eyes), morphs,
             (FaceRigNames.Find(morphNames, FaceRigNames.LookLeft), FaceRigNames.Find(morphNames, FaceRigNames.LookRight),
-                FaceRigNames.Find(morphNames, FaceRigNames.LookUp), FaceRigNames.Find(morphNames, FaceRigNames.LookDown)));
+                FaceRigNames.Find(morphNames, FaceRigNames.LookUp), FaceRigNames.Find(morphNames, FaceRigNames.LookDown)),
+            FaceRigNames.FindPerfectSync(morphNames));
     }
 
     // モーフが動かす頂点の、重みを付けた X の平均（グループのモーフは中のモーフをたどる）
@@ -332,8 +352,20 @@ public sealed class FaceRig
     }
 
     /// <summary>当てはめた先の説明（パネルに出す）。</summary>
-    public string Describe(string modelName)
+    public string Describe(string modelName, bool perfectSyncEnabled)
     {
+        if (HasPerfectSync && perfectSyncEnabled)
+        {
+            var bones = new List<string>();
+            foreach (var (index, name) in new[] { (_upperBody, "上半身"), (_neck, "首"), (_head, "頭"), (_eyes, "両目") })
+            {
+                if (index >= 0)
+                {
+                    bones.Add(name);
+                }
+            }
+            return $"当てはめ: {modelName}（ボーン {string.Join("・", bones)}・パーフェクトシンクの表情の元 {_perfectSync.Count} 個。まばたき・あいうえお などの表情は動かしません）";
+        }
         var parts = new List<string>();
         void Add(int index, string name)
         {
@@ -351,12 +383,24 @@ public sealed class FaceRig
             parts.Add("目線（表情）");
         }
         string[] missing = [.. FaceRetarget.MorphKeys.Where(k => !_morphs.ContainsKey(k))];
+        string perfectSync = HasPerfectSync ? $"。パーフェクトシンクの表情の元（{_perfectSync.Count} 個）は、使わない設定です"
+            : _perfectSyncFound > 0 ? $"。パーフェクトシンクの表情の元は {_perfectSyncFound} 個だけなので使いません（{FaceRigNames.PerfectSyncMinimum} 個から）"
+            : string.Empty;
         return $"当てはめ: {modelName}（ボーン {string.Join("・", parts)}・モーフ {_morphs.Count} 個）" +
-            (missing.Length > 0 ? $"。モデルに無いもの: {string.Join("・", missing)}" : string.Empty);
+            (missing.Length > 0 ? $"。モデルに無いもの: {string.Join("・", missing)}" : string.Empty) + perfectSync;
     }
 
-    public FaceOverlay Build(FaceOutput output)
+    /// <summary>
+    /// 重ねる分を作る。<paramref name="perfectSync"/> なら、パーフェクトシンクの表情の元をトラッキングの値のまま動かし、
+    /// まばたき・あいうえお などの決まった表情は動かさない（二重に動かさないため）。目線の表情の元（eyeLook〜）は、
+    /// 両目のボーンがあればボーンで動かすので使わない。
+    /// </summary>
+    public FaceOverlay Build(FaceOutput output, bool perfectSync = false)
     {
+        if (perfectSync && HasPerfectSync)
+        {
+            return BuildPerfectSync(output);
+        }
         var bones = new List<(int, Quaternion)>(4);
         bool hasNeck = _neck >= 0;
         if (_upperBody >= 0)
@@ -399,4 +443,28 @@ public sealed class FaceRig
         }
         return new FaceOverlay(bones, morphs, eyes);
     }
+
+    private FaceOverlay BuildPerfectSync(FaceOutput output)
+    {
+        // ボーン（と、目線を表情で動かすモデルの視線上・下・左・右）は、ふつうの当てはめ方と同じ。決まった表情は渡さない
+        FaceOverlay basic = Build(output with { Morphs = new Dictionary<string, float>() }, perfectSync: false);
+        List<(int, float)> morphs = HasLookShapes ? [] : [.. basic.Morphs];
+        var eyes = new List<(int, float)>(2);
+        foreach (var (name, index) in _perfectSync)
+        {
+            if (!output.PerfectSync.TryGetValue(name, out float weight))
+            {
+                continue;
+            }
+            if (name.StartsWith("eyeLook", StringComparison.Ordinal) && _eyes >= 0)
+            {
+                continue; // 目線は両目のボーンで動かす
+            }
+            (name is "eyeBlinkLeft" or "eyeBlinkRight" ? eyes : morphs).Add((index, weight));
+        }
+        return new FaceOverlay(basic.Bones, morphs, eyes);
+    }
+
+    // 目線の表情の元（eyeLook〜）を 1 つでも持つか（持てば、視線上・下・左・右の表情は使わない）
+    private bool HasLookShapes => _perfectSync.Keys.Any(k => k.StartsWith("eyeLook", StringComparison.Ordinal));
 }

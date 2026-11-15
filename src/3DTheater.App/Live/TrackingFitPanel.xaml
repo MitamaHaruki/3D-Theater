@@ -6,6 +6,9 @@
     <CheckBox x:Name="MirrorCheck" Content="鏡のように動かす" AutomationProperties.Name="鏡のように動かす" Checked="OnOptionClick" Unchecked="OnOptionClick"
               ToolTip="入れると、鏡に映った自分のように動きます（あなたが右を向くと、画面でも右へ。映像とは左右が逆になります）。外すと、映像と同じ向きに動きます（あなたが右を向くと、キャラクターも自分の右へ）" />
     <CheckBox x:Name="GazeCheck" Margin="0,6,0,0" Content="目線を動かす（両目のボーン）" AutomationProperties.Name="目線を動かす" Checked="OnOptionClick" Unchecked="OnOptionClick" />
+    <CheckBox x:Name="PerfectSyncCheck" Margin="0,6,0,0" Content="パーフェクトシンク（持っているモデルだけ）" AutomationProperties.Name="パーフェクトシンク"
+              Checked="OnOptionClick" Unchecked="OnOptionClick"
+              ToolTip="キャラクターが iPhone の顔の動きと同じ名前の表情の元（eyeBlinkLeft・jawOpen など 52 個。パーフェクトシンク）を持っていれば、トラッキングの値をそのまま動かして、細かい表情にします。そのときは、まばたき・あいうえお などの表情は動かしません" />
     <CheckBox x:Name="UpperBodyCheck" Margin="0,6,0,0" Content="上半身も少し動かす" AutomationProperties.Name="上半身も少し動かす" Checked="OnOptionClick" Unchecked="OnOptionClick"
               ToolTip="首の動きの 15% を上半身に分けます" />
     <CheckBox x:Name="BodySwayCheck" Margin="0,6,0,0" Content="頭の位置で体をずらす" AutomationProperties.Name="頭の位置で体をずらす" Checked="OnOptionClick" Unchecked="OnOptionClick"

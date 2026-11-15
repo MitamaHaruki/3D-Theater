@@ -6,7 +6,7 @@ using Theater3D.Editor;
 namespace Theater3D.App.Live;
 
 /// <summary>
-/// キャラクターへの当てはめ方（鏡のように・目線・上半身・体をずらす・なめらかさ）と、当てはめ先のボーン・モーフ、今当てはめている値を出す。
+/// キャラクターへの当てはめ方（鏡のように・目線・パーフェクトシンク・上半身・体をずらす・なめらかさ）と、当てはめ先のボーン・モーフ、今当てはめている値を出す。
 /// ライブモードのサイドバーの「キャラクター」に置く（設計判断記録 78 章の 2 段目。前はトラッキングのパネルの中にあった）。
 /// </summary>
 public partial class TrackingFitPanel : UserControl
@@ -49,6 +49,7 @@ public partial class TrackingFitPanel : UserControl
         {
             MirrorCheck.IsChecked = _settings.Mirror;
             GazeCheck.IsChecked = _settings.Gaze;
+            PerfectSyncCheck.IsChecked = _settings.PerfectSync;
             UpperBodyCheck.IsChecked = _settings.UpperBody;
             BodySwayCheck.IsChecked = _settings.BodySway;
             SmoothingSlider.Value = _settings.Smoothing;
@@ -73,6 +74,7 @@ public partial class TrackingFitPanel : UserControl
         }
         _settings.Mirror = MirrorCheck.IsChecked == true;
         _settings.Gaze = GazeCheck.IsChecked == true;
+        _settings.PerfectSync = PerfectSyncCheck.IsChecked == true;
         _settings.UpperBody = UpperBodyCheck.IsChecked == true;
         _settings.BodySway = BodySwayCheck.IsChecked == true;
     }

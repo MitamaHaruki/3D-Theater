@@ -240,6 +240,9 @@ public sealed class TrackingEntry
 
     public bool BodySway { get; set; } = true;
 
+    /// <summary>パーフェクトシンク（設計判断記録 84 章。前の版のファイルには無いので、既定は使う）。</summary>
+    public bool PerfectSync { get; set; } = true;
+
     public float Smoothing { get; set; } = 0.5f;
 
     /// <summary>スマホの IP（VTube Studio・MeowFace に頼むとき。空なら書かない）。</summary>
@@ -259,6 +262,7 @@ public sealed class TrackingEntry
         Gaze = s.Gaze,
         UpperBody = s.UpperBody,
         BodySway = s.BodySway,
+        PerfectSync = s.PerfectSync,
         Smoothing = s.Smoothing,
         PhoneAddress = string.IsNullOrEmpty(phone?.Address) ? null : phone.Address,
         PhoneInvertYaw = phone?.InvertYaw ?? false,
@@ -282,6 +286,7 @@ public sealed class TrackingEntry
         s.Gaze = Gaze;
         s.UpperBody = UpperBody;
         s.BodySway = BodySway;
+        s.PerfectSync = PerfectSync;
         s.Smoothing = Smoothing;
         s.TargetModelId = Target is { } id ? findModel(id) : null;
     }

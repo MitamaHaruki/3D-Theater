@@ -26,6 +26,7 @@ public sealed class FaceRetargetSettings
     private bool _gaze = true;
     private bool _upperBody = true;
     private bool _bodySway = true;
+    private bool _perfectSync = true;
     private float _smoothing = 0.5f;
     private Guid? _target;
 
@@ -45,6 +46,12 @@ public sealed class FaceRetargetSettings
 
     /// <summary>画面の中で顔が動いた分だけ、上半身を傾ける（左右・前後）。</summary>
     public bool BodySway { get => _bodySway; set => Set(ref _bodySway, value); }
+
+    /// <summary>
+    /// パーフェクトシンク: キャラクターが iPhone の顔の動きと同じ名前の表情の元（eyeBlinkLeft・jawOpen など 52 個）を持っていれば、
+    /// トラッキングの値をそのまま動かす（まばたき・あいうえお などの MMD の表情は動かさない。設計判断記録 84 章）。
+    /// </summary>
+    public bool PerfectSync { get => _perfectSync; set => Set(ref _perfectSync, value); }
 
     /// <summary>なめらかさ（0 = すばやいがぶれる、1 = なめらかだが遅れる）。</summary>
     public float Smoothing { get => _smoothing; set => Set(ref _smoothing, Math.Clamp(float.IsFinite(value) ? value : 0.5f, 0f, 1f)); }
@@ -68,6 +75,7 @@ public sealed class FaceRetargetSettings
         _gaze = true;
         _upperBody = true;
         _bodySway = true;
+        _perfectSync = true;
         _smoothing = 0.5f;
         _target = null;
         Changed?.Invoke(this, EventArgs.Empty);
@@ -114,11 +122,16 @@ public sealed class PhoneTrackingSettings
     }
 }
 
-/// <summary>当てはめの結果。回転はボーンの初期の向きに掛ける分（モデルの座標。モデルは -Z を向く）。モーフは決まった名前ごとの重み 0〜1。</summary>
+/// <summary>
+/// 当てはめの結果。回転はボーンの初期の向きに掛ける分（モデルの座標。モデルは -Z を向く）。モーフは決まった名前ごとの重み 0〜1。
+/// <see cref="PerfectSync"/> は、パーフェクトシンクのときの、iPhone の顔の動きの名前ごとの重み 0〜1（Left・Right はキャラクターの左右）。
+/// </summary>
 public sealed record FaceOutput(Quaternion UpperBody, Quaternion Neck, Quaternion Head, Quaternion Eyes, IReadOnlyDictionary<string, float> Morphs)
 {
     public static FaceOutput Neutral { get; } = new(Quaternion.Identity, Quaternion.Identity, Quaternion.Identity, Quaternion.Identity,
         FaceRetarget.MorphKeys.ToDictionary(k => k, _ => 0f));
+
+    public IReadOnlyDictionary<string, float> PerfectSync { get; init; } = new Dictionary<string, float>();
 }
 
 /// <summary>
@@ -144,6 +157,21 @@ public sealed class FaceRetarget
     public const string BrowAngry = "眉を寄せる";
 
     public static IReadOnlyList<string> MorphKeys { get; } = [Blink, WinkLeft, WinkRight, A, I, U, E, O, Smile, BrowUp, BrowAngry];
+
+    /// <summary>
+    /// パーフェクトシンクの表情の元の名前（iPhone の顔の動き・ARKit の 52 個。Left・Right は本人から見た左右）。カメラ（MediaPipe）は
+    /// tongueOut を出さないので、その表情の元は動かない（スマホは出す）。
+    /// </summary>
+    public static IReadOnlyList<string> PerfectSyncNames { get; } =
+    [
+        "browDownLeft", "browDownRight", "browInnerUp", "browOuterUpLeft", "browOuterUpRight", "cheekPuff", "cheekSquintLeft", "cheekSquintRight",
+        "eyeBlinkLeft", "eyeBlinkRight", "eyeLookDownLeft", "eyeLookDownRight", "eyeLookInLeft", "eyeLookInRight", "eyeLookOutLeft", "eyeLookOutRight",
+        "eyeLookUpLeft", "eyeLookUpRight", "eyeSquintLeft", "eyeSquintRight", "eyeWideLeft", "eyeWideRight", "jawForward", "jawLeft", "jawOpen",
+        "jawRight", "mouthClose", "mouthDimpleLeft", "mouthDimpleRight", "mouthFrownLeft", "mouthFrownRight", "mouthFunnel", "mouthLeft",
+        "mouthLowerDownLeft", "mouthLowerDownRight", "mouthPressLeft", "mouthPressRight", "mouthPucker", "mouthRight", "mouthRollLower",
+        "mouthRollUpper", "mouthShrugLower", "mouthShrugUpper", "mouthSmileLeft", "mouthSmileRight", "mouthStretchLeft", "mouthStretchRight",
+        "mouthUpperUpLeft", "mouthUpperUpRight", "noseSneerLeft", "noseSneerRight", "tongueOut",
+    ];
 
     /// <summary>首の回転の分け方（上半身を使うとき・使わないとき）。</summary>
     public const float UpperBodyShare = 0.15f;
@@ -202,9 +230,9 @@ public sealed class FaceRetarget
 
     /// <summary>
     /// 1 枚分を当てはめる（<paramref name="time"/> は秒。なめらかにするのに使う）。<paramref name="signal"/> が null（顔を見失った）なら、
-    /// 正面に向かってなめらかに戻す。
+    /// 正面に向かってなめらかに戻す。<paramref name="perfectSync"/> なら、パーフェクトシンクの値（<see cref="FaceOutput.PerfectSync"/>）も求める。
     /// </summary>
-    public FaceOutput Compute(FaceSignal? signal, double time)
+    public FaceOutput Compute(FaceSignal? signal, double time, bool perfectSync = false)
     {
         FaceSignal neutral = _neutral ?? new FaceSignal(0, 0, 0, signal?.FaceCenter ?? Vector2.Zero, signal?.FaceSize ?? 1, new Dictionary<string, float>());
         FaceSignal s = signal ?? neutral;
@@ -280,8 +308,45 @@ public sealed class FaceRetarget
         morphs[BrowAngry] = Filter("browAngry", Clamp01(1.2f * (Expression(s, neutral, "browDownLeft") + Expression(s, neutral, "browDownRight")) * 0.5f),
             time, smooth);
 
-        return new FaceOutput(upperBody, neck, headOnly, eyes, morphs);
+        var output = new FaceOutput(upperBody, neck, headOnly, eyes, morphs);
+        return perfectSync ? output with { PerfectSync = ComputePerfectSync(s, neutral, modelLeft, modelRight, time) } : output;
     }
+
+    /// <summary>
+    /// パーフェクトシンクの値（設計判断記録 84 章）。表情の値を、正面のときの値から 1 までを 0〜1 にしてそのまま渡す（目を閉じるのは、
+    /// まばたきと同じく広げ、左右のそろえ方もまばたきと同じ）。鏡のように動かすときは、左右の名前を入れ替える。目線を動かさないときは、
+    /// 目線の表情の元（eyeLook〜）を 0 にする。
+    /// </summary>
+    private Dictionary<string, float> ComputePerfectSync(FaceSignal s, FaceSignal neutral, float modelLeftBlink, float modelRightBlink, double time)
+    {
+        bool mirror = Settings.Mirror;
+        float smooth = Settings.Smoothing;
+        var result = new Dictionary<string, float>(PerfectSyncNames.Count);
+        foreach (string name in PerfectSyncNames)
+        {
+            if (name == "eyeBlinkLeft" || name == "eyeBlinkRight")
+            {
+                result[name] = name == "eyeBlinkLeft" ? modelLeftBlink : modelRightBlink; // まばたきと同じ値（左右はキャラクターの左右）
+                continue;
+            }
+            if (name.StartsWith("eyeLook", StringComparison.Ordinal) && !Settings.Gaze)
+            {
+                result[name] = 0f;
+                continue;
+            }
+            string source = mirror ? MirrorSide(name) : name;
+            bool fast = name.StartsWith("eye", StringComparison.Ordinal) || name.StartsWith("mouth", StringComparison.Ordinal)
+                || name.StartsWith("jaw", StringComparison.Ordinal) || name.StartsWith("tongue", StringComparison.Ordinal);
+            result[name] = Filter("ps:" + name, Expression(s, neutral, source), time, fast ? smooth * 0.4f : smooth);
+        }
+        return result;
+    }
+
+    /// <summary>名前の終わりの Left と Right を入れ替える（eyeBlinkLeft → eyeBlinkRight）。</summary>
+    public static string MirrorSide(string name) =>
+        name.EndsWith("Left", StringComparison.Ordinal) ? name[..^4] + "Right"
+        : name.EndsWith("Right", StringComparison.Ordinal) ? name[..^5] + "Left"
+        : name;
 
     /// <summary>
     /// 画面の上の向き（度）を、モデルのボーンの回転にする。左右は画面の右を向くと正（モデルの +X の側）、上下は上を向くと正、
@@ -477,6 +542,56 @@ public static class FaceRigNames
 
     /// <summary>片目を閉じるモーフの候補（どちらの目かは頂点の位置で決める。先にあるものを使う。ｳｨﾝｸ２右 なども同じ名前とみなす）。</summary>
     public static IReadOnlyList<string> Winks { get; } = ["ウィンク", "ウィンク右", "ウィンク左", "ウィンク2", "ウィンク2右", "ウィンク2左"];
+
+    /// <summary>モデルがパーフェクトシンクに対応しているとみなす、表情の元の数（52 個のうち）。少ししか無いモデルは、ふつうの当てはめ方にする。</summary>
+    public const int PerfectSyncMinimum = 40;
+
+    /// <summary>
+    /// パーフェクトシンクの表情の元（<see cref="FaceRetarget.PerfectSyncNames"/>）→ モデルのモーフの番号。名前は、最後の「.」より前
+    /// （Maya の「blendShape1.」・VRoid の「Face_Blendshape.」）を除き、大文字小文字・記号を問わずに比べる。
+    /// 終わりの「_L」「_R」も Left・Right とみなす（eyeBlink_L）。同じ名前が幾つかあれば、先のものを使う。
+    /// </summary>
+    public static Dictionary<string, int> FindPerfectSync(IReadOnlyList<string?> morphNames)
+    {
+        var wanted = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (string name in FaceRetarget.PerfectSyncNames)
+        {
+            string key = PerfectSyncKey(name);
+            wanted[key] = name;
+            if (key.EndsWith("left", StringComparison.Ordinal))
+            {
+                wanted[key[..^4] + "l"] = name;
+            }
+            else if (key.EndsWith("right", StringComparison.Ordinal))
+            {
+                wanted[key[..^5] + "r"] = name;
+            }
+        }
+        var result = new Dictionary<string, int>(StringComparer.Ordinal);
+        for (int i = 0; i < morphNames.Count; i++)
+        {
+            if (morphNames[i] is { } morph && wanted.TryGetValue(PerfectSyncKey(morph), out string? name))
+            {
+                result.TryAdd(name, i);
+            }
+        }
+        return result;
+    }
+
+    private static string PerfectSyncKey(string name)
+    {
+        int dot = name.LastIndexOf('.');
+        string tail = dot >= 0 && dot < name.Length - 1 ? name[(dot + 1)..] : name;
+        var key = new StringBuilder(tail.Length);
+        foreach (char c in tail.Normalize(NormalizationForm.FormKC))
+        {
+            if (char.IsAsciiLetterOrDigit(c))
+            {
+                key.Append(char.ToLowerInvariant(c));
+            }
+        }
+        return key.ToString();
+    }
 
     /// <summary>名前を比べる形にそろえる（ｳｨﾝｸ → ウィンク）。</summary>
     public static string Normalize(string name) => name.Normalize(NormalizationForm.FormKC).Trim().ToLower(CultureInfo.InvariantCulture);
