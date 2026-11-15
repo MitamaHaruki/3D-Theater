@@ -50,6 +50,7 @@ internal sealed class ProjectService
         context.LiveTracking.Changed += (_, _) => MarkDirty(); // 顔のトラッキングの当てはめ方
         context.LiveHotkeys.Changed += (_, _) => MarkDirty(); // キー操作
         context.LivePhone.Changed += (_, _) => MarkDirty(); // スマホから受け取るときの設定
+        context.LiveCameras.Changed += (_, _) => MarkDirty(); // プレビュー・配信に映すカメラ
         context.Rendering.Changed += (_, _) => OnPlaybackSettingsChanged();
         context.Playback.StateChanged += (_, _) => OnPlaybackSettingsChanged();
         _autosaveTimer = new DispatcherTimer(AutosaveInterval, DispatcherPriority.Background, (_, _) => Autosave(), owner.Dispatcher);
@@ -215,6 +216,8 @@ internal sealed class ProjectService
                 Guid? FindModel(string id) => models.FirstOrDefault(m => string.Equals(m.Entry.Id, id, StringComparison.OrdinalIgnoreCase)).Node?.Id;
                 (project.Live?.Tracking ?? new TrackingEntry()).ApplyTo(_context.LiveTracking, FindModel);
                 ChooseCharacterForOldFile(project.Live?.Tracking, models.Select(m => m.Node).OfType<ModelNode>());
+                (project.Live ?? new LiveEntry()).ApplyTo(_context.LiveCameras, _context.Scene); // 足したカメラは ApplyScene で読み込み済み
+                _context.NameLiveCamera(); // 前の版のファイルの「メインカメラ」
                 (project.Live?.Tracking ?? new TrackingEntry()).ApplyTo(_context.LivePhone);
                 (project.Live ?? new LiveEntry()).ApplyTo(_context.LiveHotkeys, FindModel); // キー操作
             }
@@ -452,7 +455,9 @@ internal sealed class ProjectService
     private string? ModeName => _mode == AppMode.Live ? AppModes.LiveName : null;
 
     // ファイルに書くライブの設定（ライブだけ）
-    private LiveEntry? LiveSettings => _mode == AppMode.Live ? LiveEntry.From(_context.LiveOutput, _context.LiveTracking, _context.LiveHotkeys, _context.LivePhone) : null;
+    private LiveEntry? LiveSettings => _mode == AppMode.Live
+        ? LiveEntry.From(_context.LiveOutput, _context.LiveTracking, _context.LiveHotkeys, _context.LivePhone, _context.LiveCameras, _context.Scene)
+        : null;
 
     // 自動保存は、同じモードのものだけを探す（拡張子で分かれている）
     private string? FindOrphanAutosave()

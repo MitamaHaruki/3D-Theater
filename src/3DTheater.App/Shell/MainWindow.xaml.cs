@@ -254,6 +254,11 @@ public partial class MainWindow : Window, Live.ILiveSceneActions
             e.Handled = true;
             return;
         }
+        if (_activeView is { IsFlying: true } && key is Key.W or Key.A or Key.S or Key.D or Key.Q or Key.E)
+        {
+            e.Handled = true; // 右ボタンでカメラを動かしている間の移動のキー（ギズモの道具は切り替えない。設計判断記録 78 章の 3 段目）
+            return;
+        }
         if (e.Handled || IsTyping())
         {
             return;
@@ -672,8 +677,13 @@ public partial class MainWindow : Window, Live.ILiveSceneActions
     private void UpdateFrameText() =>
         FrameText.Text = $"フレーム {_context.Playback.CurrentFrame} / {_context.Playback.EndFrame}（{_context.Playback.FrameRate} fps）";
 
+    // ライブ: 配信に映しているカメラで見ていて、配信用の画面か仮想カメラを使っているときは、プレビューに赤い枠と札を出す
+    private void UpdateOnAirMark() =>
+        _live?.SetOnAir(_context.LiveCameras.IsPreviewOnAir(_context.Scene) && (_output is not null || _context.VirtualCamera?.IsOn == true));
+
     private void UpdateStatus()
     {
+        UpdateOnAirMark();
         UpdateFrameText();
         PhysicsText.Text = _context.Physics.Enabled && _context.Physics.BakeProgress is { } bake && bake.Done < bake.Total
             ? $"物理を計算中 {bake.Done} / {bake.Total}"
@@ -1395,6 +1405,8 @@ public partial class MainWindow : Window, Live.ILiveSceneActions
         Activate(preview, preview.FirstView); // テンキーの視点の切り替えなどを、このプレビューで受ける
         _live.SetTrackingPanel(_layout.PanelContent(DockingLayout.TrackingId));
         _live.SetCastSections(new Live.LightSection(_context, this), new Live.CharacterSection(_context, this), new Live.BackgroundSection(_context, this));
+        _live.SetCameraParts(new Live.CameraSection(_context), new Live.CameraInfoPanel(_context));
+        _context.LiveCameras.Changed += (_, _) => UpdateOnAirMark();
         foreach (var (id, title) in new[] { (DockingLayout.SceneId, "シーンの一覧"), (DockingLayout.PropertiesId, "プロパティ"), (DockingLayout.MorphId, "モーフ") })
         {
             if (_layout.PanelContent(id) is { } content)

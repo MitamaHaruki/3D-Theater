@@ -1,7 +1,10 @@
+using System.Diagnostics;
 using System.Numerics;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 using Theater3D.App.Rendering;
 using Theater3D.Domain;
 using Theater3D.Editor;
@@ -36,6 +39,11 @@ public partial class ViewportControl : UserControl, IDisposable
     private bool _isMaximized;
     private bool _liveLook;
 
+    // ライブモードのカメラの動かし方（右ボタンの間。設計判断記録 78 章の 3 段目）
+    private int _flySession;   // 右ボタンを押してから離すまでを、1 つの「元に戻す」にまとめる
+    private Point _flyAnchor;  // 向きを変えた後にマウスを戻す所（画面の端で止まらないように）
+    private long _flyLastTick;
+
     public ViewportControl(EditorContext context, ViewKind kind)
     {
         InitializeComponent();
@@ -67,6 +75,11 @@ public partial class ViewportControl : UserControl, IDisposable
         _surface.MouseWheel += OnSurfaceMouseWheel;
         _surface.LostMouseCapture += (_, _) =>
         {
+            if (_drag == DragMode.Fly)
+            {
+                EndFly(); // ほかの窓に移ったなど
+                return;
+            }
             // ほかの窓に移るなどでマウスを離したときは、そこまでの動きを 1 つの操作として残す
             if (_drag == DragMode.Gizmo)
             {
@@ -98,7 +111,19 @@ public partial class ViewportControl : UserControl, IDisposable
 
         /// <summary>プラグインの編集の道具のドラッグ。</summary>
         Tool,
+
+        /// <summary>ライブモード: 右ボタンを押している間（マウスで向き・キーで移動）。</summary>
+        Fly,
+
+        /// <summary>ライブモード: 中ボタンのドラッグで、カメラを上下左右にずらす。</summary>
+        CameraPan,
     }
+
+    /// <summary>ライブモードで、右ボタンを押してカメラを動かしている最中（W・A・S・D・Q・E をギズモの切り替えに使わない）。</summary>
+    public bool IsFlying => _drag == DragMode.Fly;
+
+    // ライブモードのカメラ視点（マウスで、見ているカメラそのものを動かす）
+    private bool DrivesLiveCamera => _liveLook && Camera.Kind == ViewKind.Camera && _context.ViewCamera is not null;
 
     /// <summary>区画をクリックなどで操作した。ショートカットの対象にする。</summary>
     public event EventHandler? Activated;
@@ -169,6 +194,10 @@ public partial class ViewportControl : UserControl, IDisposable
     /// <summary>ウィンドウ全体のショートカットのうち、視点に関わるものを処理する。</summary>
     public bool HandleKey(Key key, ModifierKeys modifiers)
     {
+        if (_liveLook && _drag is not (DragMode.Tool or DragMode.Gizmo))
+        {
+            return false; // ライブはいつもカメラの視点（テンキーで視点を切り替えない）
+        }
         bool ctrl = modifiers.HasFlag(ModifierKeys.Control);
         if (key == Key.Escape && _drag == DragMode.Tool)
         {
@@ -213,9 +242,13 @@ public partial class ViewportControl : UserControl, IDisposable
 
     public void FocusSelection()
     {
+        if (_liveLook)
+        {
+            return; // ライブはカメラの視点のまま（合わせると自由視点に移ってしまう）
+        }
         if (_context.Selection.Primary is { } node && Bounds(node) is { } bounds)
         {
-            Camera.Focus(bounds.Center, bounds.Radius, _context.MainCamera); // カメラ視点なら、自由視点に移ってから合わせる
+            Camera.Focus(bounds.Center, bounds.Radius, _context.ViewCamera); // カメラ視点なら、自由視点に移ってから合わせる
         }
     }
 
@@ -235,7 +268,7 @@ public partial class ViewportControl : UserControl, IDisposable
         }
         else
         {
-            Camera.Focus(bounds.Center, bounds.Radius, _context.MainCamera);
+            Camera.Focus(bounds.Center, bounds.Radius, _context.ViewCamera);
         }
     }
 
@@ -298,7 +331,7 @@ public partial class ViewportControl : UserControl, IDisposable
 
     private FrameParameters BuildFrame(int pixelWidth, int pixelHeight)
     {
-        ViewMatrices matrices = Camera.GetMatrices(pixelWidth / (float)pixelHeight, _context.MainCamera, _context.ExportAspect);
+        ViewMatrices matrices = Camera.GetMatrices(pixelWidth / (float)pixelHeight, _context.ViewCamera, _context.ExportAspect);
         Axes.SetBasis(matrices.Basis);
         // 輪郭線の太さ・映像効果の大きさは、書き出しと同じ見え方になるよう、カメラ視点では書き出しの枠の高さで決める
         int effectHeight = Camera.Kind == ViewKind.Camera
@@ -387,7 +420,7 @@ public partial class ViewportControl : UserControl, IDisposable
         }
         return new FrameParameters(flags, matrices.View, matrices.Projection, gridWorld, testWorld, _drawItems, _lines.Memory,
             lightDirection, lightColor, SceneLighting.EdgePixelScale(effectHeight), _context.Rendering.ShadowStyle.GroundColor,
-            ShadowMapSize: _context.PreviewQuality.Profile.ShadowMapSize, Effects: _context.Rendering.ToNative(effectHeight, Camera.Kind == ViewKind.Camera ? _context.MainCamera : null),
+            ShadowMapSize: _context.PreviewQuality.Profile.ShadowMapSize, Effects: _context.Rendering.ToNative(effectHeight, Camera.Kind == ViewKind.Camera ? _context.ViewCamera : null),
             Lights: EffectsMapping.LightsOf(_context.Scene), ReflectionStrength: reflection.Strength, ReflectionFade: reflection.Fade,
             ShadowSoftness: _context.Rendering.ShadowStyle.SoftnessTangent, Environment: environmentImage,
             EnvironmentIntensity: environment.Intensity, EnvironmentRotation: environment.RotationRadians, ReflectionBlur: reflection.Blur,
@@ -402,7 +435,7 @@ public partial class ViewportControl : UserControl, IDisposable
     private GizmoController.ViewInfo CurrentView()
     {
         var size = new Vector2((float)Math.Max(1, _surface.ActualWidth), (float)Math.Max(1, _surface.ActualHeight));
-        ViewMatrices matrices = Camera.GetMatrices(size.X / size.Y, _context.MainCamera, _context.ExportAspect);
+        ViewMatrices matrices = Camera.GetMatrices(size.X / size.Y, _context.ViewCamera, _context.ExportAspect);
         return new GizmoController.ViewInfo(matrices.View, matrices.Projection, size);
     }
 
@@ -410,7 +443,7 @@ public partial class ViewportControl : UserControl, IDisposable
     /// この区画でギズモを出すか。カメラ視点の区画では、見ているカメラ自身のギズモは出さない（透視投影では目の位置にあって写らず、
     /// 平行投影では画面の真ん中に出て、写したい物に重なるため）。
     /// </summary>
-    private bool GizmoAllowed => !(Camera.Kind == ViewKind.Camera && ReferenceEquals(_context.Selection.Primary, _context.MainCamera));
+    private bool GizmoAllowed => !(Camera.Kind == ViewKind.Camera && ReferenceEquals(_context.Selection.Primary, _context.ViewCamera));
 
     private float DpiScale() => (float)System.Windows.Media.VisualTreeHelper.GetDpi(this).DpiScaleX;
 
@@ -474,7 +507,7 @@ public partial class ViewportControl : UserControl, IDisposable
     {
         ViewNameText.Text = Camera.Kind.DisplayName();
         ProjectionText.Text = Camera.Kind == ViewKind.Camera
-            ? $"{_context.MainCamera?.Name}{(_context.MainCamera is { Orthographic: true } ? "・平行投影" : "")}・{(_context.IsLive ? "配信" : "書き出し")} {_context.ExportSize.Width} x {_context.ExportSize.Height} の枠"
+            ? $"{_context.ViewCamera?.Name}{(_context.ViewCamera is { Orthographic: true } ? "・平行投影" : "")}・{(_context.IsLive ? "配信" : "書き出し")} {_context.ExportSize.Width} x {_context.ExportSize.Height} の枠"
             : Camera.IsOrthographic ? "平行投影" : "透視投影";
     }
 
@@ -483,6 +516,24 @@ public partial class ViewportControl : UserControl, IDisposable
         Focus();
         Activated?.Invoke(this, EventArgs.Empty);
         _lastMouse = e.GetPosition(_surface);
+
+        if (DrivesLiveCamera && _drag == DragMode.None)
+        {
+            if (e.ChangedButton == MouseButton.Right)
+            {
+                BeginFly();
+                e.Handled = true;
+                return;
+            }
+            if (e.ChangedButton == MouseButton.Middle)
+            {
+                _drag = DragMode.CameraPan;
+                _flySession++;
+                _surface.CaptureMouse();
+                e.Handled = true;
+                return;
+            }
+        }
 
         switch (e.ChangedButton)
         {
@@ -544,6 +595,31 @@ public partial class ViewportControl : UserControl, IDisposable
             _gizmo.Move(e.GetPosition(_surface), CurrentView());
             return;
         }
+        if (_drag == DragMode.Fly)
+        {
+            Point now = e.GetPosition(_surface);
+            System.Windows.Vector turn = now - _flyAnchor;
+            if (turn.X != 0 || turn.Y != 0)
+            {
+                EditLiveCamera(c => c.Rotation = CameraFly.Look(c.Rotation, (float)turn.X, (float)turn.Y));
+                WarpCursorToAnchor();
+            }
+            return;
+        }
+        if (_drag == DragMode.CameraPan)
+        {
+            Point now = e.GetPosition(_surface);
+            System.Windows.Vector shift = now - _lastMouse;
+            _lastMouse = now;
+            if (_context.ViewCamera is { } panned)
+            {
+                // 注視点のあたりで、画面の 1 点ぶんがシーンでどれだけの長さか
+                float distance = Math.Max(MathF.Abs(panned.TargetDistance), 10f);
+                float unitsPerPixel = 2f * distance * MathF.Tan(panned.FieldOfView * MathF.PI / 360f) / (float)Math.Max(1, _surface.ActualHeight);
+                EditLiveCamera(c => c.Position = CameraFly.Pan(c.Position, c.Rotation, (float)shift.X, (float)shift.Y, unitsPerPixel));
+            }
+            return;
+        }
         if (_drag == DragMode.None)
         {
             if (_context.Tools.Active is null && GizmoAllowed && _gizmo.UpdateHover(e.GetPosition(_surface), CurrentView()))
@@ -557,11 +633,11 @@ public partial class ViewportControl : UserControl, IDisposable
         _lastMouse = position;
         if (_drag == DragMode.Orbit)
         {
-            Camera.Orbit(delta, _context.MainCamera);
+            Camera.Orbit(delta, _context.ViewCamera);
         }
         else
         {
-            Camera.Pan(delta, (float)_surface.ActualHeight, _context.MainCamera);
+            Camera.Pan(delta, (float)_surface.ActualHeight, _context.ViewCamera);
         }
     }
 
@@ -583,6 +659,12 @@ public partial class ViewportControl : UserControl, IDisposable
             e.Handled = true;
             return;
         }
+        if (e.ChangedButton == MouseButton.Right && _drag == DragMode.Fly)
+        {
+            EndFly();
+            e.Handled = true;
+            return;
+        }
         if (e.ChangedButton == MouseButton.Right && _cancelledByRightClick)
         {
             _cancelledByRightClick = false; // 取り消しに使った右クリックでは、メニューを出さない
@@ -595,7 +677,7 @@ public partial class ViewportControl : UserControl, IDisposable
             _surface.ReleaseMouseCapture();
             e.Handled = true;
         }
-        else if (e.ChangedButton == MouseButton.Right)
+        else if (e.ChangedButton == MouseButton.Right && !_liveLook)
         {
             Point position = e.GetPosition(_surface);
             if ((position - _lastMouse).Length <= ClickSelectTolerance)
@@ -607,6 +689,94 @@ public partial class ViewportControl : UserControl, IDisposable
             }
         }
     }
+
+    // ===== ライブモードのカメラの動かし方（右ボタンの間。設計判断記録 78 章の 3 段目） =====
+
+    private void BeginFly()
+    {
+        _drag = DragMode.Fly;
+        _flySession++;
+        _flyAnchor = _lastMouse;
+        _flyLastTick = Stopwatch.GetTimestamp();
+        _surface.CaptureMouse();
+        _surface.Cursor = Cursors.None; // 向きを変えている間はマウスの矢印を隠す
+        CompositionTarget.Rendering += OnFlyTick;
+    }
+
+    private void EndFly()
+    {
+        if (_drag != DragMode.Fly)
+        {
+            return;
+        }
+        _drag = DragMode.None;
+        CompositionTarget.Rendering -= OnFlyTick;
+        _surface.Cursor = null;
+        if (_surface.IsMouseCaptured)
+        {
+            _surface.ReleaseMouseCapture();
+        }
+    }
+
+    // 画面を描くたびに、押しているキーの分だけ動かす（押している時間に比例）
+    private void OnFlyTick(object? sender, EventArgs e)
+    {
+        long now = Stopwatch.GetTimestamp();
+        float seconds = Math.Min((float)Stopwatch.GetElapsedTime(_flyLastTick, now).TotalSeconds, 0.1f); // 止まった後に飛ばない
+        _flyLastTick = now;
+        FlyKeys keys = PressedFlyKeys();
+        if ((keys & ~FlyKeys.Fast) != FlyKeys.None)
+        {
+            EditLiveCamera(c => c.Position = CameraFly.Move(c.Position, c.Rotation, keys, seconds));
+        }
+    }
+
+    private static FlyKeys PressedFlyKeys()
+    {
+        FlyKeys keys = FlyKeys.None;
+        void Add(Key key, FlyKeys flag)
+        {
+            if (Keyboard.IsKeyDown(key))
+            {
+                keys |= flag;
+            }
+        }
+        Add(Key.W, FlyKeys.Forward);
+        Add(Key.S, FlyKeys.Back);
+        Add(Key.A, FlyKeys.Left);
+        Add(Key.D, FlyKeys.Right);
+        Add(Key.E, FlyKeys.Up);
+        Add(Key.Q, FlyKeys.Down);
+        Add(Key.LeftShift, FlyKeys.Fast);
+        Add(Key.RightShift, FlyKeys.Fast);
+        return keys;
+    }
+
+    // 見ているカメラを動かす（右ボタン・中ボタンを押してから離すまでを、1 つの「元に戻す」にまとめる）
+    private void EditLiveCamera(Action<CameraNode> apply)
+    {
+        if (_context.ViewCamera is not { CanEdit: true } camera)
+        {
+            return;
+        }
+        _context.Edits.Change($"{camera.Name}を動かす", [camera], () => apply(camera), mergeKey: $"fly:{camera.Id}:{_flySession}");
+    }
+
+    // マウスを押した所へ戻す（向きを変え続けても、画面の端で止まらないように）。戻した所を、次に比べる位置にする
+    private void WarpCursorToAnchor()
+    {
+        Point screen = _surface.PointToScreen(_flyAnchor);
+        int x = (int)Math.Round(screen.X);
+        int y = (int)Math.Round(screen.Y);
+        if (SetCursorPos(x, y))
+        {
+            _flyAnchor = _surface.PointFromScreen(new Point(x, y));
+        }
+    }
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetCursorPos(int x, int y);
 
     // プラグインの道具に押したことを渡し、受け取ったらドラッグを始める
     private bool TryBeginToolDrag(Shell.IViewportTool tool, Point point)
@@ -664,7 +834,7 @@ public partial class ViewportControl : UserControl, IDisposable
     private Shell.ViewportPointer ToolPointer(Point point)
     {
         var size = new Vector2((float)Math.Max(1, _surface.ActualWidth), (float)Math.Max(1, _surface.ActualHeight));
-        ViewMatrices matrices = Camera.GetMatrices(size.X / size.Y, _context.MainCamera, _context.ExportAspect);
+        ViewMatrices matrices = Camera.GetMatrices(size.X / size.Y, _context.ViewCamera, _context.ExportAspect);
         Ray ray = Picking.CreateRay(new Vector2((float)point.X, (float)point.Y), size, matrices.View, matrices.Projection);
         return new Shell.ViewportPointer(point, new Size(size.X, size.Y), Keyboard.Modifiers, ray, matrices.View * matrices.Projection);
     }
@@ -672,7 +842,18 @@ public partial class ViewportControl : UserControl, IDisposable
     private void OnSurfaceMouseWheel(object sender, MouseWheelEventArgs e)
     {
         Activated?.Invoke(this, EventArgs.Empty);
-        Camera.Zoom(e.Delta / 120f, _context.MainCamera);
+        if (DrivesLiveCamera)
+        {
+            // ライブ: 見ているカメラの視角を変える（本当のズーム。続けて回した分は 1 つの「元に戻す」）
+            if (_context.ViewCamera is { Orthographic: false, CanEdit: true } zoomed)
+            {
+                _context.Edits.Change($"{zoomed.Name}のズーム", [zoomed], () => zoomed.FieldOfView = CameraFly.Zoom(zoomed.FieldOfView, e.Delta),
+                    mergeKey: $"zoom:{zoomed.Id}");
+            }
+            e.Handled = true;
+            return;
+        }
+        Camera.Zoom(e.Delta / 120f, _context.ViewCamera);
         e.Handled = true;
     }
 
@@ -683,7 +864,7 @@ public partial class ViewportControl : UserControl, IDisposable
         {
             return;
         }
-        ViewMatrices matrices = Camera.GetMatrices(size.X / size.Y, _context.MainCamera, _context.ExportAspect);
+        ViewMatrices matrices = Camera.GetMatrices(size.X / size.Y, _context.ViewCamera, _context.ExportAspect);
         Ray ray = Picking.CreateRay(new Vector2((float)point.X, (float)point.Y), size, matrices.View, matrices.Projection);
 
         // 視線に当たったもののうち、いちばん手前を選ぶ

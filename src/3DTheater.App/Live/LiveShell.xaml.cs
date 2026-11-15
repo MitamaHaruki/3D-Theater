@@ -60,9 +60,25 @@ public partial class LiveShell : UserControl
         _preview = preview;
         preview.UseLiveLook();
         PreviewHost.Content = preview;
-        preview.FirstView.Camera.Changed += (_, _) => UpdateViewHint();
         UpdateToggles();
-        UpdateViewHint();
+    }
+
+    /// <summary>サイドバーの「カメラ」と、右上の「カメラ情報」の中身を置く（設計判断記録 78 章の 3 段目）。</summary>
+    public void SetCameraParts(FrameworkElement section, FrameworkElement info)
+    {
+        CameraExpander.Content = section;
+        CameraInfoHost.Content = info;
+    }
+
+    /// <summary>配信に映しているカメラで見ている印（赤い枠と札）を出すか。</summary>
+    public void SetOnAir(bool onAir)
+    {
+        Visibility visibility = onAir ? Visibility.Visible : Visibility.Collapsed;
+        if (OnAirFrame.Visibility != visibility)
+        {
+            OnAirFrame.Visibility = visibility;
+            OnAirBadge.Visibility = visibility;
+        }
     }
 
     /// <summary>サイドバーの「照明」「キャラクター」「背景」の中身を置く（設計判断記録 78 章の 2 段目）。</summary>
@@ -131,19 +147,6 @@ public partial class LiveShell : UserControl
         }
         GridButton.IsChecked = _preview.ShowGrid;
         BonesButton.IsChecked = _preview.ShowBones;
-    }
-
-    // カメラの動かし方を作るまでの仮: マウスで回すと自由視点に移るので、戻し方を出しておく
-    private void UpdateViewHint()
-    {
-        if (_preview is null)
-        {
-            return;
-        }
-        ViewKind kind = _preview.FirstView.Camera.Kind;
-        bool free = kind != ViewKind.Camera;
-        ViewHint.Visibility = free ? Visibility.Visible : Visibility.Collapsed;
-        ViewHintText.Text = free ? $"{kind.DisplayName()}（テンキーの 0 で、カメラの視点に戻ります）" : string.Empty;
     }
 
     // サイドバーの中に、自分で上下に動く欄（一覧・表情・プロパティ）がある。ホイールは、その欄がまだ動けるならその欄に、

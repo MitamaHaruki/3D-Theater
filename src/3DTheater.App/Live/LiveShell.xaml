@@ -7,10 +7,12 @@
   <Grid>
     <ContentControl x:Name="PreviewHost" Focusable="False" />
 
-    <!-- 自由視点のときだけ出す（カメラの動かし方を作るまでの仮。3 段目で作り直す） -->
-    <Border x:Name="ViewHint" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,12,0,0" Padding="12,5" CornerRadius="4"
-            Background="{StaticResource LiveOverlayBrush}" IsHitTestVisible="False" Visibility="Collapsed">
-      <TextBlock x:Name="ViewHintText" Foreground="{StaticResource TextBrush}" AutomationProperties.AutomationId="LiveViewHint" />
+    <!-- 配信に映しているカメラで見ている（配信用の画面か仮想カメラを使っている）ときの印: 赤い枠と札（設計判断記録 78 章の 3 段目） -->
+    <Border x:Name="OnAirFrame" BorderBrush="{StaticResource LiveErrorBrush}" BorderThickness="3" IsHitTestVisible="False" Visibility="Collapsed" />
+    <Border x:Name="OnAirBadge" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,12,0,0" Padding="12,5" CornerRadius="4"
+            Background="#CCB3261E" IsHitTestVisible="False" Visibility="Collapsed">
+      <TextBlock Foreground="White" FontWeight="SemiBold" Text="● 配信中のカメラで見ています（動かすと配信の絵も動きます）"
+                 AutomationProperties.AutomationId="LiveOnAirBadge" />
     </Border>
 
     <!-- サイドバー（左上から 50・50、幅 600、下は 50 空ける） -->
@@ -33,10 +35,8 @@
                          Text="（仮）保存したシーンを選んで切り替える形は、4 段目で作ります。今は、ファイルを開く・保存する形です。" />
             </StackPanel>
           </Expander>
-          <Expander x:Name="CameraExpander" Header="カメラ" Style="{StaticResource LiveSectionStyle}" Tag="Camera">
-            <TextBlock Style="{StaticResource PlannedNoteStyle}"
-                       Text="「ライブカメラ」と、別の視点のカメラを足す・消す・名前を変える所は、3 段目で作ります。" />
-          </Expander>
+          <!-- カメラの中身は、コードで置く（Live.CameraSection） -->
+          <Expander x:Name="CameraExpander" Header="カメラ" Style="{StaticResource LiveSectionStyle}" Tag="Camera" />
           <!-- 照明・キャラクター・背景の中身は、コードで置く（Live.LightSection・CharacterSection・BackgroundSection） -->
           <Expander x:Name="LightExpander" Header="照明" Style="{StaticResource LiveSectionStyle}" Tag="Light" />
           <Expander x:Name="CharacterExpander" Header="キャラクター" Style="{StaticResource LiveSectionStyle}" Tag="Character" />
@@ -59,11 +59,13 @@
         </DockPanel>
       </Border>
       <Border x:Name="CameraBox" Style="{StaticResource LiveOverlayBoxStyle}" Height="400" Margin="0,50,0,0" AutomationProperties.Name="カメラ情報">
-        <StackPanel>
-          <TextBlock Style="{StaticResource LiveBoxTitleStyle}" Text="カメラ情報" />
-          <TextBlock Margin="2,0,0,0" Style="{StaticResource PlannedNoteStyle}"
-                     Text="シーンのカメラの情報と、ほかのカメラへの切り替え・「配信用画面に適用」は、3 段目で作ります。" />
-        </StackPanel>
+        <DockPanel>
+          <TextBlock DockPanel.Dock="Top" Style="{StaticResource LiveBoxTitleStyle}" Text="カメラ情報" />
+          <!-- 中身は、コードで置く（Live.CameraInfoPanel） -->
+          <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Focusable="False">
+            <ContentControl x:Name="CameraInfoHost" Focusable="False" />
+          </ScrollViewer>
+        </DockPanel>
       </Border>
     </StackPanel>
 

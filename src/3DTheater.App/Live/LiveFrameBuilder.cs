@@ -19,7 +19,7 @@ internal sealed class LiveFrameBuilder(EditorContext context)
 
     public FrameParameters Build(int pixelWidth, int pixelHeight)
     {
-        CameraNode? camera = context.MainCamera;
+        CameraNode? camera = context.OnAirCamera; // ライブモードは「配信用画面に適用」で決めたカメラ（設計判断記録 78 章の 3 段目）
         float aspect = pixelWidth / (float)pixelHeight;
         // シーンのカメラが無いとき（ふつうは無い）は、初めの自由視点から見る
         ViewMatrices matrices = camera is not null ? ViewCamera.SceneCameraMatrices(camera, aspect) : _fallback.GetMatrices(aspect, null, aspect);

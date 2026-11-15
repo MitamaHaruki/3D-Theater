@@ -59,6 +59,9 @@ public sealed class ProjectFile
     /// <summary>「照明を追加」で足した照明（無ければ書かない）。</summary>
     public List<LightEntry>? Lights { get; set; }
 
+    /// <summary>ライブモードで足したカメラ（ライブカメラのほか。無ければ書かない。設計判断記録 78 章の 3 段目）。</summary>
+    public List<CameraEntry>? Cameras { get; set; }
+
     /// <summary>ライブモードだけ: 配信用の画面の設定（エディットのファイルには書かない）。</summary>
     public LiveEntry? Live { get; set; }
 }
@@ -78,15 +81,34 @@ public sealed class LiveEntry
     /// <summary>キー操作（無ければ書かない）。</summary>
     public List<HotkeyEntry>? Hotkeys { get; set; }
 
+    /// <summary>プレビューに映すカメラ（0 = ライブカメラ、n = 足したカメラの n 番目。<see cref="ProjectFile.Cameras"/> の並び）。</summary>
+    public int PreviewCamera { get; set; }
+
+    /// <summary>配信用の画面・仮想カメラに映すカメラ（<see cref="PreviewCamera"/> と同じ数え方）。</summary>
+    public int OnAirCamera { get; set; }
+
     public static LiveEntry From(LiveOutputSettings output, FaceRetargetSettings? tracking = null, HotkeySettings? hotkeys = null,
-        PhoneTrackingSettings? phone = null) => new()
+        PhoneTrackingSettings? phone = null, LiveCameraSettings? cameras = null, SceneDocument? scene = null) => new()
     {
         OutputWidth = output.Width,
         OutputHeight = output.Height,
         OutputBackground = ImageExport.FormatColor(output.Background),
         Tracking = tracking is null ? null : TrackingEntry.From(tracking, phone),
         Hotkeys = hotkeys is null || hotkeys.Bindings.Count == 0 ? null : [.. hotkeys.Bindings.Select(HotkeyEntry.From)],
+        PreviewCamera = cameras is null || scene is null ? 0 : CameraNumber(scene, cameras.PreviewCamera(scene)),
+        OnAirCamera = cameras is null || scene is null ? 0 : CameraNumber(scene, cameras.OnAirCamera(scene)),
     };
+
+    /// <summary>プレビュー・配信に映すカメラを設定へ入れる（足したカメラを読み込んでから呼ぶ。番号のカメラが無ければライブカメラ）。</summary>
+    public void ApplyTo(LiveCameraSettings cameras, SceneDocument scene)
+    {
+        CameraNode[] added = [.. scene.AddedCameras];
+        cameras.Preview = PreviewCamera >= 1 && PreviewCamera <= added.Length ? added[PreviewCamera - 1].Id : null;
+        cameras.OnAir = OnAirCamera >= 1 && OnAirCamera <= added.Length ? added[OnAirCamera - 1].Id : null;
+    }
+
+    private static int CameraNumber(SceneDocument scene, CameraNode camera) =>
+        scene.AddedCameras.ToList().IndexOf(camera) + 1; // ライブカメラ（足したカメラに無い）は 0
 
     /// <summary>キー操作を設定へ入れる（読めない項目は飛ばす）。<paramref name="findModel"/> は、モデルの目印から今のモデルの Id を探す。</summary>
     public void ApplyTo(HotkeySettings settings, Func<string, Guid?> findModel) =>
@@ -218,6 +240,27 @@ public sealed class TrackingEntry
         s.Smoothing = Smoothing;
         s.TargetModelId = Target is { } id ? findModel(id) : null;
     }
+}
+
+/// <summary>ライブモードで足したカメラ 1 つ（設計判断記録 78 章の 3 段目。キーは持たない）。</summary>
+public sealed class CameraEntry
+{
+    public string Name { get; set; } = string.Empty;
+
+    public bool Visible { get; set; } = true;
+
+    public bool Locked { get; set; }
+
+    public float[] Position { get; set; } = [0, 0, 0];
+
+    public float[] Rotation { get; set; } = [0, 0, 0];
+
+    /// <summary>縦の視野角（度）。</summary>
+    public float FieldOfView { get; set; } = 30f;
+
+    public float TargetDistance { get; set; } = 45f;
+
+    public bool Orthographic { get; set; }
 }
 
 /// <summary>足した照明 1 つ。色は #RRGGBB、種類は「directional」「point」「spot」。</summary>
@@ -698,6 +741,18 @@ public static class ProjectCapture
             Keys = l.Keys.Count > 0 ? [.. l.Keys.Keys.Select(KeyCodec.Encode)] : null,
         })];
         project.Lights = lights.Count > 0 ? lights : null;
+        List<CameraEntry> cameras = [.. scene.AddedCameras.Select(c => new CameraEntry
+        {
+            Name = c.Name,
+            Visible = c.IsVisible,
+            Locked = c.IsLocked,
+            Position = V(c.Position),
+            Rotation = V(c.Rotation),
+            FieldOfView = c.FieldOfView,
+            TargetDistance = c.TargetDistance,
+            Orthographic = c.Orthographic,
+        })];
+        project.Cameras = cameras.Count > 0 ? cameras : null;
         ModelNode[] models = [.. scene.ModelsGroup.Children.OfType<ModelNode>()];
         foreach (ModelNode model in models)
         {
@@ -1014,6 +1069,26 @@ public static class ProjectApply
             light.HasUnregisteredChange = entry.Unregistered;
             scene.Add(scene.LightsGroup, light);
             light.IsLocked = entry.Locked;
+        }
+
+        // ライブモードで足したカメラ（前のカメラは外してから、保存した順に足す）
+        foreach (CameraNode old in scene.AddedCameras.ToArray())
+        {
+            scene.Remove(old);
+        }
+        foreach (CameraEntry entry in project.Cameras ?? [])
+        {
+            var camera = new CameraNode(string.IsNullOrWhiteSpace(entry.Name) ? CameraPresenceAction.NameFor(scene) : entry.Name)
+            {
+                Position = V(entry.Position, Vector3.Zero),
+                Rotation = V(entry.Rotation, Vector3.Zero),
+                FieldOfView = entry.FieldOfView,
+                TargetDistance = entry.TargetDistance,
+                Orthographic = entry.Orthographic,
+                IsVisible = entry.Visible,
+            };
+            scene.Add(scene.CamerasGroup, camera);
+            camera.IsLocked = entry.Locked;
         }
     }
 

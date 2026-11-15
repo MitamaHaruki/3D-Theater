@@ -42,6 +42,15 @@ public sealed class SceneDocument
     /// <summary>MMD の照明（決まった役目の「light」）。</summary>
     public LightNode MainLight => (LightNode)_fixedNodes["light"];
 
+    /// <summary>カメラを置くグループ（最初のカメラは決まった役目の「camera」で外せない。ライブモードで足したカメラはその後ろに並ぶ）。</summary>
+    public SceneNode CamerasGroup => _fixedNodes["group.cameras"];
+
+    /// <summary>決まった役目のカメラ（エディットモードのシーンのカメラ・ライブモードの「ライブカメラ」）。</summary>
+    public CameraNode MainCamera => (CameraNode)_fixedNodes["camera"];
+
+    /// <summary>ライブモードで足したカメラ（決まった役目のカメラのほか。並び順）。</summary>
+    public IEnumerable<CameraNode> AddedCameras => CamerasGroup.Children.OfType<CameraNode>().Where(c => !ReferenceEquals(c, MainCamera));
+
     /// <summary>「照明を追加」で足した照明（MMD の照明のほか。並び順）。</summary>
     public IEnumerable<LightNode> AddedLights => LightsGroup.Children.OfType<LightNode>().Where(l => !ReferenceEquals(l, MainLight));
 
@@ -100,6 +109,10 @@ public sealed class SceneDocument
         foreach (LightNode light in AddedLights.ToArray())
         {
             Remove(light);
+        }
+        foreach (CameraNode camera in AddedCameras.ToArray())
+        {
+            Remove(camera);
         }
         foreach (var (node, state) in _defaults)
         {

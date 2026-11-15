@@ -173,6 +173,8 @@ public sealed class EditorContext
         MorphPresets = Shell.MorphPresetStore.Load();
         EnvironmentImage = new EnvironmentImage(engine, Rendering);
         Rendering.Changed += (_, _) => RenderLoop.InvalidateAll();
+        LiveCameras.Changed += (_, _) => RenderLoop.InvalidateAll(); // プレビュー・配信に映すカメラを切り替えた
+        NameLiveCamera();
         PreviewQuality.Changed += (_, _) => RenderLoop.InvalidateAll();
 
         Scene.NodeChanged += (_, _) => RenderLoop.InvalidateAll();
@@ -229,6 +231,29 @@ public sealed class EditorContext
 
     /// <summary>ライブモードの配信用の画面の設定（ライブのファイルに保存する）。</summary>
     public LiveOutputSettings LiveOutput { get; } = new();
+
+    /// <summary>ライブモードで、プレビューに映すカメラと、配信に映すカメラ（ライブのファイルに保存する。設計判断記録 78 章の 3 段目）。</summary>
+    public LiveCameraSettings LiveCameras { get; } = new();
+
+    /// <summary>
+    /// カメラ視点の区画に映すカメラ。エディットモードはシーンのカメラ、ライブモードはカメラ情報で選んだカメラ。
+    /// </summary>
+    public CameraNode? ViewCamera => IsLive ? LiveCameras.PreviewCamera(Scene) : MainCamera;
+
+    /// <summary>配信用の画面・仮想カメラに映すカメラ（ライブモードは「配信用画面に適用」で決めたカメラ）。</summary>
+    public CameraNode? OnAirCamera => IsLive ? LiveCameras.OnAirCamera(Scene) : MainCamera;
+
+    /// <summary>
+    /// ライブモードでは、決まった役目のカメラを「ライブカメラ」と呼ぶ（新しいシーン・前の版のファイルの「メインカメラ」）。
+    /// 開いている途中・新しくしたときに呼ぶので、保存していない変更にはしない（呼ぶ側で止める）。
+    /// </summary>
+    public void NameLiveCamera()
+    {
+        if (IsLive && Scene.MainCamera.Name != CameraPresenceAction.LiveCameraName)
+        {
+            Scene.MainCamera.Name = CameraPresenceAction.LiveCameraName;
+        }
+    }
 
     /// <summary>作品の描き方（セルフシャドウ・地面の影。プロジェクトに保存する）。</summary>
     public RenderSettings Rendering { get; } = new();
@@ -364,6 +389,8 @@ public sealed class EditorContext
         LiveTracking.Reset();
         LiveHotkeys.Reset();
         LivePhone.Reset();
+        LiveCameras.Reset();
+        NameLiveCamera();
         Animation.NotifyStateChanged();
         Undo.Clear();
         RenderLoop.InvalidateAll();

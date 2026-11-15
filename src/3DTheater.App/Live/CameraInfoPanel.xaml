@@ -1,0 +1,84 @@
+<UserControl x:Class="Theater3D.App.Live.CameraInfoPanel"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:c="clr-namespace:Theater3D.App.Controls">
+  <!-- 右上の「カメラ情報」（設計判断記録 78 章の 3 段目）: プレビューに映すカメラを選ぶ・配信用の画面に適用する・位置と向きと視野角 -->
+  <UserControl.Resources>
+    <Style TargetType="c:NumberBox" BasedOn="{StaticResource {x:Type TextBox}}">
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="Height" Value="24" />
+      <Setter Property="Padding" Value="4,1" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Margin" Value="0,0,6,0" />
+    </Style>
+    <Style x:Key="RowLabel" TargetType="TextBlock">
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{StaticResource SubTextBrush}" />
+    </Style>
+    <Style x:Key="AxisLabel" TargetType="TextBlock">
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Margin" Value="0,0,3,0" />
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="Foreground" Value="{StaticResource SubTextBrush}" />
+    </Style>
+  </UserControl.Resources>
+  <StackPanel>
+    <DockPanel>
+      <TextBlock DockPanel.Dock="Left" Width="80" Style="{StaticResource RowLabel}" Text="見るカメラ" />
+      <ComboBox x:Name="CameraCombo" MinHeight="0" Padding="6,2" FontSize="12" AutomationProperties.Name="見るカメラ"
+                SelectionChanged="OnCameraChanged" ToolTip="プレビューに映すカメラ。配信用の画面と仮想カメラは「配信用画面に適用」を押すまで変わりません" />
+    </DockPanel>
+    <DockPanel Margin="0,8,0,0">
+      <Button x:Name="ApplyButton" DockPanel.Dock="Right" Margin="8,0,0,0" Padding="10,4" Content="配信用画面に適用" Click="OnApplyClick"
+              AutomationProperties.Name="配信用画面に適用" ToolTip="今プレビューに映しているカメラを、配信用の画面と仮想カメラにも映します" />
+      <TextBlock x:Name="OnAirText" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" AutomationProperties.AutomationId="LiveOnAirCamera" />
+    </DockPanel>
+    <TextBlock x:Name="OnAirNote" Margin="0,6,0,0" TextWrapping="Wrap" FontSize="11" Foreground="{StaticResource LiveErrorBrush}"
+               Text="このカメラは配信に映っています。動かすと、配信の絵もそのまま動きます。" />
+
+    <Grid Margin="0,12,0,0">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="64" />
+        <ColumnDefinition Width="Auto" />
+        <ColumnDefinition Width="*" />
+        <ColumnDefinition Width="Auto" />
+        <ColumnDefinition Width="*" />
+        <ColumnDefinition Width="Auto" />
+        <ColumnDefinition Width="*" />
+      </Grid.ColumnDefinitions>
+      <Grid.RowDefinitions>
+        <RowDefinition />
+        <RowDefinition Height="6" />
+        <RowDefinition />
+        <RowDefinition Height="6" />
+        <RowDefinition />
+      </Grid.RowDefinitions>
+      <TextBlock Style="{StaticResource RowLabel}" Text="位置" />
+      <TextBlock Grid.Column="1" Style="{StaticResource AxisLabel}" Text="X" />
+      <c:NumberBox Grid.Column="2" Value="{Binding PositionX}" Step="0.5" Format="0.00" AutomationProperties.Name="カメラの位置 X" />
+      <TextBlock Grid.Column="3" Style="{StaticResource AxisLabel}" Text="Y" />
+      <c:NumberBox Grid.Column="4" Value="{Binding PositionY}" Step="0.5" Format="0.00" AutomationProperties.Name="カメラの位置 Y" />
+      <TextBlock Grid.Column="5" Style="{StaticResource AxisLabel}" Text="Z" />
+      <c:NumberBox Grid.Column="6" Value="{Binding PositionZ}" Step="0.5" Format="0.00" AutomationProperties.Name="カメラの位置 Z" />
+
+      <TextBlock Grid.Row="2" Style="{StaticResource RowLabel}" Text="向き" />
+      <TextBlock Grid.Row="2" Grid.Column="1" Style="{StaticResource AxisLabel}" Text="上下" />
+      <c:NumberBox Grid.Row="2" Grid.Column="2" Value="{Binding Pitch}" Step="1" Format="0.0°" AutomationProperties.Name="カメラの向き 上下"
+                   ToolTip="正で見下ろす（度）" />
+      <TextBlock Grid.Row="2" Grid.Column="3" Style="{StaticResource AxisLabel}" Text="左右" />
+      <c:NumberBox Grid.Row="2" Grid.Column="4" Value="{Binding Yaw}" Step="1" Format="0.0°" AutomationProperties.Name="カメラの向き 左右"
+                   ToolTip="正で右を向く（度）" />
+      <TextBlock Grid.Row="2" Grid.Column="5" Style="{StaticResource AxisLabel}" Text="傾き" />
+      <c:NumberBox Grid.Row="2" Grid.Column="6" Value="{Binding Roll}" Step="1" Format="0.0°" AutomationProperties.Name="カメラの向き 傾き" />
+
+      <TextBlock Grid.Row="4" Style="{StaticResource RowLabel}" Text="視野角" />
+      <c:NumberBox Grid.Row="4" Grid.Column="2" Value="{Binding FieldOfView}" Step="1" Format="0.0°" AutomationProperties.Name="カメラの視野角"
+                   ToolTip="縦の視野角（度）。小さいほど寄って写ります（ズーム）" />
+      <Button Grid.Row="4" Grid.Column="3" Grid.ColumnSpan="4" Margin="8,0,0,0" Padding="10,3" HorizontalAlignment="Right" Content="初めの位置に戻す"
+              Click="OnResetClick" AutomationProperties.Name="カメラを初めの位置に戻す" ToolTip="MMD の初めのカメラの位置・向き・視野角に戻します（Ctrl+Z で戻せます）" />
+    </Grid>
+
+    <TextBlock Margin="0,14,0,0" Style="{StaticResource PlannedNoteStyle}" FontSize="11.5" Foreground="{StaticResource SubTextBrush}"
+               Text="プレビューで右ボタンを押している間: マウスで向き、W・A・S・D で前後左右、Q・E で下・上（Shift で速く）。ホイールでズーム、中ボタンのドラッグで上下左右にずらします。" />
+  </StackPanel>
+</UserControl>
