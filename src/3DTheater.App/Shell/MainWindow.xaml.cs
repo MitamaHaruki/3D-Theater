@@ -1561,7 +1561,7 @@ public partial class MainWindow : Window, Live.ILiveSceneActions, Live.ILiveScen
         }
         if (!LiveCast.IsCharacterFile(dialog.FileName))
         {
-            ShowNotice("キャラクターにできるのは、PMX と VRM のモデルです（アクセサリと glTF は「背景」で読み込みます）", isError: true);
+            ShowNotice("キャラクターにできるのは、PMX と VRM のモデルです（アクセサリと glTF・FBX は「背景」で読み込みます）", isError: true);
             return;
         }
         Domain.ModelNode? old = LiveCast.Character(_context.Scene, _context.LiveTracking);

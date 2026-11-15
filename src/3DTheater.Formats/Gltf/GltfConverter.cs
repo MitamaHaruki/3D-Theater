@@ -5,6 +5,11 @@ using Theater3D.Formats.Pmx;
 
 namespace Theater3D.Formats.Gltf;
 
+/// <summary>
+/// glTF の中身の元のファイル（FBX など、glTF にしてから読むもの。設計判断記録 83 章）。<paramref name="Kind"/> はレポートとコメントに出す形式の名前。
+/// </summary>
+internal sealed record GltfSource(string Kind, string Comment);
+
 /// <summary>VRM の版（無ければ、ふつうの glTF）。</summary>
 public enum VrmVersion
 {
@@ -57,7 +62,7 @@ internal static class GltfConverter
         public Matrix4x4 World = Matrix4x4.Identity;
     }
 
-    public static PmxDocument ToPmx(GltfFile file, string name, string? baseDirectory, LoadReport report)
+    public static PmxDocument ToPmx(GltfFile file, string name, string? baseDirectory, LoadReport report, GltfSource? source = null)
     {
         var (version, comment, title) = ReadVrmMeta(file.Root);
         var builder = new Builder(file, baseDirectory, report, version);
@@ -66,12 +71,13 @@ internal static class GltfConverter
         {
             VrmVersion.Vrm0 => "VRM 0.x",
             VrmVersion.Vrm1 => "VRM 1.0",
-            _ => "glTF",
+            _ => source?.Kind ?? "glTF",
         };
         report.Info(LoadIssueCategory.Note,
             $"{kind} を、MMD と同じ大きさ（1 m を {MetersToMmd:0.#}）と向き（正面が -Z）にして読み込みました（元のファイルは書き換えていません）");
-        builder.ReportUnsupported(version);
-        return builder.ToDocument(name, string.IsNullOrWhiteSpace(title) ? name : title!, $"{kind} から読み込みました（元のファイルは書き換えていません）。" + comment);
+        builder.ReportUnsupported(version, kind);
+        return builder.ToDocument(name, string.IsNullOrWhiteSpace(title) ? name : title!,
+            $"{kind} から読み込みました（元のファイルは書き換えていません）。" + (source?.Comment ?? string.Empty) + comment);
     }
 
     // ---- VRM の利用条件など（PMX のコメントに書く） ----
@@ -138,6 +144,10 @@ internal static class GltfConverter
     internal static float LinearToSrgb(float value)
     {
         float v = Math.Clamp(value, 0f, 1f);
+        if (v >= 1f)
+        {
+            return 1f; // 白は白のまま（式のままだと 0.99999994 になる）
+        }
         return v <= 0.0031308f ? v * 12.92f : 1.055f * MathF.Pow(v, 1f / 2.4f) - 0.055f;
     }
 
@@ -1420,7 +1430,7 @@ internal static class GltfConverter
 
         // ---- まとめ ----
 
-        public void ReportUnsupported(VrmVersion version)
+        public void ReportUnsupported(VrmVersion version, string kind)
         {
             if (_humanoidApplied)
             {
@@ -1438,7 +1448,7 @@ internal static class GltfConverter
             }
             else
             {
-                report.Info(LoadIssueCategory.Note, "glTF には人型のボーンの決まりが無いため、ボーンの名前は元のままです（MMD のモーションは当てはまりません）");
+                report.Info(LoadIssueCategory.Note, $"{kind} には人型のボーンの決まりが無いため、ボーンの名前は元のままです（MMD のモーションは当てはまりません）");
             }
             if (_expressionMorphs.Count > 0)
             {

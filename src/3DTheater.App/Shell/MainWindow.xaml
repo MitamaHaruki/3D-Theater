@@ -43,8 +43,8 @@
                       ToolTip="モデルの場所・置き方・ボーンとモーフのキー・カメラなどを保存します（モデルのファイルそのものは書き換えません）" />
             <MenuItem Header="名前を付けて保存(_A)..." InputGestureText="Ctrl+Shift+S" Click="OnSaveProjectAsClick" />
             <Separator />
-            <MenuItem Header="モデル・アクセサリを読み込む（PMX / VRM / glTF / X / VAC）..." InputGestureText="Ctrl+I" Click="OnImportModelClick"
-                      ToolTip="PMX・VRM・glTF のモデルとアクセサリをシーンに加えて表示します（ドラッグでも読み込めます）" />
+            <MenuItem Header="モデル・アクセサリを読み込む（PMX / VRM / glTF / FBX / X / VAC）..." InputGestureText="Ctrl+I" Click="OnImportModelClick"
+                      ToolTip="PMX・VRM・glTF・FBX のモデルとアクセサリをシーンに加えて表示します（ドラッグでも読み込めます）" />
             <MenuItem Header="モーション・ポーズを読み込む（VMD / VPD）..." Click="OnImportMotionClick" shell:ModeOnly.Edit="True"
                       ToolTip="今操作しているモデルに当てはめます（ウィンドウへのドラッグでも読み込めます）" />
             <MenuItem Header="音声を読み込む（WAV / MP3 など）..." Click="OnImportAudioClick" shell:ModeOnly.Edit="True"
@@ -103,7 +103,7 @@
           </MenuItem>
           <MenuItem Header="モデル(_M)">
             <MenuItem Header="モデル・アクセサリを読み込む..." InputGestureText="Ctrl+I" Click="OnImportModelClick"
-                      ToolTip="PMX・VRM・glTF のモデルとアクセサリをシーンに加えて表示します（ドラッグでも読み込めます）" />
+                      ToolTip="PMX・VRM・glTF・FBX のモデルとアクセサリをシーンに加えて表示します（ドラッグでも読み込めます）" />
             <MenuItem Header="選んだモデルを外す" InputGestureText="Delete" Click="OnRemoveModelClick"
                       ToolTip="選んだモデルをシーンから外します（モデルのファイルは消しません。Ctrl+Z で戻せます）" />
             <Separator />

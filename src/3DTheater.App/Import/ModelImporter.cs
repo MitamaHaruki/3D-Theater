@@ -7,6 +7,7 @@ using Theater3D.Domain;
 using Theater3D.Editor;
 using Theater3D.Engine.Interop;
 using Theater3D.Formats;
+using Theater3D.Formats.Fbx;
 using Theater3D.Formats.Gltf;
 using Theater3D.Formats.Pmx;
 using Theater3D.Formats.XFile;
@@ -22,8 +23,8 @@ namespace Theater3D.App.Import;
 internal static class ModelImporter
 {
     public const string FileFilter =
-        "モデル・アクセサリ (*.pmx;*.vrm;*.glb;*.gltf;*.x;*.vac)|*.pmx;*.vrm;*.glb;*.gltf;*.x;*.vac|PMX モデル (*.pmx)|*.pmx|VRM モデル (*.vrm)|*.vrm|"
-        + "glTF (*.glb;*.gltf)|*.glb;*.gltf|アクセサリ (*.x;*.vac)|*.x;*.vac|すべてのファイル (*.*)|*.*";
+        "モデル・アクセサリ (*.pmx;*.vrm;*.glb;*.gltf;*.fbx;*.x;*.vac)|*.pmx;*.vrm;*.glb;*.gltf;*.fbx;*.x;*.vac|PMX モデル (*.pmx)|*.pmx|VRM モデル (*.vrm)|*.vrm|"
+        + "glTF (*.glb;*.gltf)|*.glb;*.gltf|FBX (*.fbx)|*.fbx|アクセサリ (*.x;*.vac)|*.x;*.vac|すべてのファイル (*.*)|*.*";
 
     /// <summary>キャラクターにできるモデル（PMX・VRM）を選ぶときの絞り込み。</summary>
     public const string CharacterFilter = "キャラクターのモデル (*.pmx;*.vrm)|*.pmx;*.vrm|PMX モデル (*.pmx)|*.pmx|VRM モデル (*.vrm)|*.vrm|すべてのファイル (*.*)|*.*";
@@ -32,10 +33,10 @@ internal static class ModelImporter
 
     /// <summary>
     /// ドラッグで受け付けるファイルか（PMD は読めない理由をレポートで伝えるために受け付ける）。.x・.vac は MMD のアクセサリ、
-    /// .vrm・.glb・.gltf は VRM と glTF（読み込むときに PMX と同じ中身にする。設計判断記録 82 章）。
+    /// .vrm・.glb・.gltf は VRM と glTF（読み込むときに PMX と同じ中身にする。設計判断記録 82 章）。.fbx は FBX（同じく。83 章）。
     /// </summary>
     public static bool IsModelFile(string path) =>
-        Path.GetExtension(path).ToLowerInvariant() is ".pmx" or ".pmd" or ".x" or ".vac" or ".vrm" or ".glb" or ".gltf";
+        Path.GetExtension(path).ToLowerInvariant() is ".pmx" or ".pmd" or ".x" or ".vac" or ".vrm" or ".glb" or ".gltf" or ".fbx";
 
     public static bool IsXFile(string path) => Path.GetExtension(path).Equals(".x", StringComparison.OrdinalIgnoreCase);
 
@@ -56,7 +57,10 @@ internal static class ModelImporter
         (PmxLoadResult result, PreparedModel? prepared, ModelRig? rig, ModelPhysics? physics) =
             await Task.Run<(PmxLoadResult, PreparedModel?, ModelRig?, ModelPhysics?)>(() =>
         {
-            PmxLoadResult loaded = IsXFile(path) ? XFileReader.Load(path) : GltfReader.IsGltfFile(path) ? GltfReader.Load(path) : PmxReader.Load(path);
+            PmxLoadResult loaded = IsXFile(path) ? XFileReader.Load(path)
+                : GltfReader.IsGltfFile(path) ? GltfReader.Load(path)
+                : FbxReader.IsFbxFile(path) ? FbxReader.Load(path)
+                : PmxReader.Load(path);
             if (!loaded.Succeeded)
             {
                 return (loaded, null, null, null);

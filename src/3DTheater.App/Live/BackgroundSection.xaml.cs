@@ -73,6 +73,7 @@ public partial class BackgroundSection : UserControl
             "pmx" => "PMX",
             "vrm" => "VRM",
             "glb" or "gltf" => "glTF",
+            "fbx" => "FBX",
             _ => $"アクセサリ {extension}",
         };
         return $"{model.Name}（{kind}）";

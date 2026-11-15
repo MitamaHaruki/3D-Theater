@@ -5,7 +5,7 @@
   <StackPanel>
     <DockPanel>
       <Button DockPanel.Dock="Right" Style="{StaticResource LiveActionButtonStyle}" Margin="8,0,0,0" Content="読み込む..." Click="OnLoadClick"
-              AutomationProperties.Name="背景を読み込む" ToolTip="部屋・小物などのモデル（PMX・VRM・glTF）とアクセサリ（.x・.vac）を読み込みます。PMX・VRM のキャラクターは、トラッキングしないサブキャラクターになります" />
+              AutomationProperties.Name="背景を読み込む" ToolTip="部屋・小物などのモデル（PMX・VRM・glTF・FBX）とアクセサリ（.x・.vac）を読み込みます。PMX・VRM のキャラクターは、トラッキングしないサブキャラクターになります" />
       <TextBlock VerticalAlignment="Center" TextWrapping="Wrap" Foreground="{StaticResource SubTextBrush}"
                  Text="キャラクター以外のモデルとアクセサリ（PMX・VRM のキャラクターは、トラッキングしないサブキャラクター）" />
     </DockPanel>

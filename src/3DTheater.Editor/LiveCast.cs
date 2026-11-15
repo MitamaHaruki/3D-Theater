@@ -11,7 +11,7 @@ namespace Theater3D.Editor;
 public static class LiveCast
 {
     /// <summary>
-    /// キャラクターにできるファイルか（PMX と VRM のモデル。.x・.vac のアクセサリと、ボーンの決まりの無い glTF（.glb・.gltf）はできない）。
+    /// キャラクターにできるファイルか（PMX と VRM のモデル。.x・.vac のアクセサリと、ボーンの決まりの無い glTF（.glb・.gltf）と FBX（.fbx）はできない）。
     /// </summary>
     public static bool IsCharacterFile(string? path) =>
         Path.GetExtension(path)?.ToLowerInvariant() is ".pmx" or ".vrm";
