@@ -37,6 +37,15 @@ internal static class GltfConverter
 
     public const string RootBoneName = "全ての親";
 
+    /// <summary>腕を A の字にするとき、水平から下げる角度（度。手本の PMX は 40 度ほど）。</summary>
+    public const float ArmAngleDegrees = 37f;
+
+    /// <summary>センターを、腰（下半身）の高さの何倍の所に置くか（手本の PMX は 0.69）。</summary>
+    public const float CenterHeight = 0.69f;
+
+    /// <summary>両目を、目の真ん中からどれだけ上に置くか（MMD の長さ。手本の PMX と同じく頭の上の操作用の位置）。</summary>
+    public const float EyesHandleHeight = 2f;
+
     private sealed class Node
     {
         public string Name = string.Empty;
@@ -51,7 +60,7 @@ internal static class GltfConverter
     public static PmxDocument ToPmx(GltfFile file, string name, string? baseDirectory, LoadReport report)
     {
         var (version, comment, title) = ReadVrmMeta(file.Root);
-        var builder = new Builder(file, baseDirectory, report, mirrorX: version == VrmVersion.Vrm0);
+        var builder = new Builder(file, baseDirectory, report, version);
         builder.Build();
         string kind = version switch
         {
@@ -132,9 +141,14 @@ internal static class GltfConverter
         return v <= 0.0031308f ? v * 12.92f : 1.055f * MathF.Pow(v, 1f / 2.4f) - 0.055f;
     }
 
-    private sealed class Builder(GltfFile file, string? baseDirectory, LoadReport report, bool mirrorX)
+    private sealed class Builder(GltfFile file, string? baseDirectory, LoadReport report, VrmVersion version)
     {
+        private readonly bool _mirrorX = version == VrmVersion.Vrm0;
         private Node[] _nodes = [];
+        private Dictionary<string, int> _human = [];   // VRM の人型のボーンの名前 → ノード
+        private Matrix4x4[] _pose = [];               // ノードごとの、初めの姿勢へ足す動き（腕を A の字にする回転。ほかは何もしない）
+        private int _posedArms;
+        private bool _humanoidApplied;
         private readonly List<int> _order = []; // 階層の順（親が先）
         private readonly Dictionary<int, int> _boneOf = []; // ノード → ボーンの番号
         private readonly List<PmxBone> _bones = [];
@@ -153,14 +167,16 @@ internal static class GltfConverter
         private bool _springBones;
         private bool _mtoon;
 
-        private Vector3 Point(Vector3 p) => (mirrorX ? new Vector3(-p.X, p.Y, p.Z) : new Vector3(p.X, p.Y, -p.Z)) * MetersToMmd;
+        private Vector3 Point(Vector3 p) => (_mirrorX ? new Vector3(-p.X, p.Y, p.Z) : new Vector3(p.X, p.Y, -p.Z)) * MetersToMmd;
 
-        private Vector3 Direction(Vector3 d) => mirrorX ? new Vector3(-d.X, d.Y, d.Z) : new Vector3(d.X, d.Y, -d.Z);
+        private Vector3 Direction(Vector3 d) => _mirrorX ? new Vector3(-d.X, d.Y, d.Z) : new Vector3(d.X, d.Y, -d.Z);
 
         public void Build()
         {
             ReadNodes();
             ComputeWorld();
+            _human = VrmHumanoid.Read(file.Root, version, _nodes.Length);
+            ComputePose();
             BuildBones();
             foreach (int node in _order)
             {
@@ -264,6 +280,39 @@ internal static class GltfConverter
 
         // ---- ボーン ----
 
+        // 作っている途中のボーン（並びの番号は、最後に親が先の順で決める）
+        private sealed class BoneSpec
+        {
+            public string Name = string.Empty;
+            public string Universal = string.Empty;
+            public Vector3 Position;
+            public PmxBoneFlags Flags = PmxBoneFlags.Rotatable | PmxBoneFlags.Visible | PmxBoneFlags.Operable;
+            public int Node = -1;
+            public BoneSpec? Parent;
+            public readonly List<BoneSpec> Children = [];
+            public BoneSpec? Inherit;
+            public float InheritWeight;
+            public BoneSpec? IkTarget;
+            public int IkLoop;
+            public float IkLimit;
+            public readonly List<(BoneSpec Bone, bool Limited, Vector3 Min, Vector3 Max)> IkLinks = [];
+            public int Index = -1;
+
+            public void Add(BoneSpec child)
+            {
+                child.Parent = this;
+                Children.Add(child);
+            }
+        }
+
+        private const PmxBoneFlags Movable = PmxBoneFlags.Rotatable | PmxBoneFlags.Translatable | PmxBoneFlags.Visible | PmxBoneFlags.Operable;
+
+        private BoneSpec? HumanSpec(Dictionary<int, BoneSpec> specOf, string vrmBone) =>
+            _human.TryGetValue(vrmBone, out int node) && specOf.TryGetValue(node, out BoneSpec? spec) ? spec : null;
+
+        // 初めの姿勢（腕を A の字にした後）での、ノードの位置（MMD の座標）
+        private Vector3 PosedPoint(int node) => Point(Vector3.Transform(_nodes[node].World.Translation, _pose[node]));
+
         private void BuildBones()
         {
             var used = new HashSet<int>();
@@ -281,6 +330,7 @@ internal static class GltfConverter
             {
                 used.Add(i); // 骨で変形しない形は、置いてあるノードに付ける
             }
+            used.UnionWith(_human.Values); // 人型のボーンは、形が付いていなくても作る（目など）
             foreach (int i in used.ToArray())
             {
                 for (int p = _nodes[i].Parent; p >= 0 && used.Add(p); p = _nodes[p].Parent)
@@ -288,55 +338,236 @@ internal static class GltfConverter
                 }
             }
 
-            var names = new HashSet<string>(StringComparer.Ordinal) { RootBoneName };
-            _bones.Add(new PmxBone
+            // 名前: 人型のボーンは MMD の名前（先に取っておく）。ほかはノードの名前のまま（重なれば「_2」を足す）
+            bool human = _human.TryGetValue("hips", out int hips) && used.Contains(hips);
+            int spine = _human.GetValueOrDefault("spine", -1);
+            var reserved = new HashSet<string>(StringComparer.Ordinal) { RootBoneName };
+            var mmdName = new Dictionary<int, string>();
+            if (human)
             {
-                Name = RootBoneName,
-                NameUniversal = "Root",
-                Flags = PmxBoneFlags.Rotatable | PmxBoneFlags.Translatable | PmxBoneFlags.Visible | PmxBoneFlags.Operable,
-            });
+                reserved.UnionWith(["センター", "グルーブ", "両目", "左つま先", "右つま先", "左足ＩＫ", "右足ＩＫ", "左つま先ＩＫ", "右つま先ＩＫ"]);
+                foreach (var (vrmBone, node) in _human)
+                {
+                    if (used.Contains(node) && VrmHumanoid.MmdName(vrmBone, version) is { } name && reserved.Add(name))
+                    {
+                        mmdName[node] = name;
+                    }
+                }
+            }
+            string Unique(string name)
+            {
+                string result = name;
+                for (int k = 2; !reserved.Add(result); k++)
+                {
+                    result = $"{name}_{k}";
+                }
+                return result;
+            }
+
+            var root = new BoneSpec { Name = RootBoneName, Universal = "Root", Flags = Movable };
+            var specOf = new Dictionary<int, BoneSpec>();
             foreach (int i in _order.Where(used.Contains))
             {
-                _boneOf[i] = _bones.Count;
-                string boneName = _nodes[i].Name;
-                for (int k = 2; !names.Add(boneName); k++)
+                specOf[i] = new BoneSpec
                 {
-                    boneName = $"{_nodes[i].Name}_{k}";
+                    Node = i,
+                    Name = mmdName.TryGetValue(i, out string? n) ? n : Unique(_nodes[i].Name),
+                    Universal = _nodes[i].Name,
+                    Position = PosedPoint(i),
+                };
+            }
+
+            // MMD の体の中心: 全ての親 → センター → グルーブ → 下半身（腰）と上半身（背骨）。上半身は下半身の子にしない
+            // （MMD のモーションは、上半身と下半身を別々に回すため）。センターは腰の高さの 0.69 倍（手本の PMX と同じくらい）
+            BoneSpec? groove = null;
+            if (human)
+            {
+                Vector3 hipsPosition = specOf[hips].Position;
+                var center = new BoneSpec
+                {
+                    Name = "センター",
+                    Universal = "center",
+                    Position = new Vector3(hipsPosition.X, hipsPosition.Y * CenterHeight, hipsPosition.Z),
+                    Flags = Movable,
+                };
+                groove = new BoneSpec { Name = "グルーブ", Universal = "groove", Position = center.Position, Flags = Movable };
+                root.Add(center);
+                center.Add(groove);
+            }
+            foreach (int i in _order.Where(used.Contains))
+            {
+                BoneSpec spec = specOf[i];
+                BoneSpec parent = groove is not null && (i == hips || i == spine) ? groove
+                    : _nodes[i].Parent >= 0 && specOf.TryGetValue(_nodes[i].Parent, out BoneSpec? p) ? p
+                    : root;
+                parent.Add(spec);
+                if (parent == root)
+                {
+                    spec.Flags |= PmxBoneFlags.Translatable; // いちばん上のボーンは動かせる
                 }
-                int parent = _nodes[i].Parent >= 0 && _boneOf.TryGetValue(_nodes[i].Parent, out int p) ? p : 0;
-                PmxBoneFlags flags = PmxBoneFlags.Rotatable | PmxBoneFlags.Visible | PmxBoneFlags.Operable;
-                if (parent == 0)
+            }
+
+            if (human)
+            {
+                AddEyes(specOf);
+                AddLegIk(specOf, root);
+                _humanoidApplied = true;
+            }
+
+            // 親が先の順に番号を付けて、PMX のボーンにする
+            var ordered = new List<BoneSpec>();
+            var stack = new Stack<BoneSpec>();
+            stack.Push(root);
+            while (stack.Count > 0)
+            {
+                BoneSpec spec = stack.Pop();
+                spec.Index = ordered.Count;
+                ordered.Add(spec);
+                for (int c = spec.Children.Count - 1; c >= 0; c--)
                 {
-                    flags |= PmxBoneFlags.Translatable; // いちばん上のボーン（腰など）は動かせる
+                    stack.Push(spec.Children[c]);
+                }
+            }
+            foreach (BoneSpec s in ordered)
+            {
+                if (s.Node >= 0)
+                {
+                    _boneOf[s.Node] = s.Index;
                 }
                 _bones.Add(new PmxBone
                 {
-                    Name = boneName,
-                    NameUniversal = _nodes[i].Name,
-                    Position = Point(_nodes[i].World.Translation),
-                    ParentIndex = parent,
-                    Flags = flags,
+                    Name = s.Name,
+                    NameUniversal = s.Universal,
+                    Position = s.Position,
+                    ParentIndex = s.Parent?.Index ?? -1,
+                    Flags = s.Flags | (s.Children.Count > 0 ? PmxBoneFlags.TailIsBone : PmxBoneFlags.None),
+                    TailBone = s.Children.Count > 0 ? s.Children[0].Index : -1,
+                    InheritParent = s.Inherit?.Index ?? -1,
+                    InheritWeight = s.InheritWeight,
+                    IkTarget = s.IkTarget?.Index ?? -1,
+                    IkLoopCount = s.IkLoop,
+                    IkLimitAngle = s.IkLimit,
+                    IkLinks = [.. s.IkLinks.Select(l => new PmxIkLink { Bone = l.Bone.Index, HasLimits = l.Limited, MinAngle = l.Min, MaxAngle = l.Max })],
                 });
             }
-            // 先端: いちばん初めの子のボーン
-            for (int b = 1; b < _bones.Count; b++)
+        }
+
+        // 両目: 左目・右目の真ん中の上に置き、左目・右目はその回転を受け取る（顔のトラッキングの目線は両目を回す）。
+        // 左目・右目より先に計算するよう、頭の初めの子にする
+        private void AddEyes(Dictionary<int, BoneSpec> specOf)
+        {
+            BoneSpec[] eyes = [.. new[] { "leftEye", "rightEye" }.Select(e => HumanSpec(specOf, e)).OfType<BoneSpec>()];
+            if (eyes.Length == 0 || HumanSpec(specOf, "head") is not { } head)
             {
-                int child = _bones.FindIndex(b + 1, x => x.ParentIndex == b);
-                if (child > 0)
-                {
-                    PmxBone bone = _bones[b];
-                    _bones[b] = new PmxBone
-                    {
-                        Name = bone.Name,
-                        NameUniversal = bone.NameUniversal,
-                        Position = bone.Position,
-                        ParentIndex = bone.ParentIndex,
-                        Flags = bone.Flags | PmxBoneFlags.TailIsBone,
-                        TailBone = child,
-                    };
-                }
+                return;
+            }
+            Vector3 middle = eyes.Aggregate(Vector3.Zero, (sum, e) => sum + e.Position) / eyes.Length;
+            var both = new BoneSpec { Name = "両目", Universal = "eyes", Position = middle + new Vector3(0, EyesHandleHeight, 0), Parent = head };
+            head.Children.Insert(0, both);
+            foreach (BoneSpec eye in eyes)
+            {
+                eye.Inherit = both;
+                eye.InheritWeight = 1f;
+                eye.Flags |= PmxBoneFlags.InheritRotation;
             }
         }
+
+        // 足の IK（MMD の標準と同じ）: 足ＩＫ（足首の位置。目標は足首、つなぎはひざ（後ろにだけ曲がる）と足。40 回・1 回 2 ラジアンまで）と、
+        // つま先ＩＫ（つま先の位置。目標はつま先の先端、つなぎは足首。3 回・4 ラジアンまで）。先端の「つま先」は、つま先（toes）か足首の前に置く
+        private void AddLegIk(Dictionary<int, BoneSpec> specOf, BoneSpec root)
+        {
+            foreach (var (side, name) in new[] { ("left", "左"), ("right", "右") })
+            {
+                if (HumanSpec(specOf, side + "UpperLeg") is not { } upper || HumanSpec(specOf, side + "LowerLeg") is not { } lower
+                    || HumanSpec(specOf, side + "Foot") is not { } foot)
+                {
+                    continue;
+                }
+                Vector3 tipPosition = HumanSpec(specOf, side + "Toes")?.Position
+                    ?? foot.Position + new Vector3(0, -0.94f * foot.Position.Y, -2f * Math.Max(foot.Position.Y, 0.1f));
+                var tip = new BoneSpec
+                {
+                    Name = name + "つま先",
+                    Universal = $"toe tip_{side}",
+                    Position = tipPosition,
+                    Flags = PmxBoneFlags.Rotatable | PmxBoneFlags.Operable, // 目印なので見せない（手本の PMX と同じ）
+                };
+                foot.Add(tip);
+                var legIk = new BoneSpec
+                {
+                    Name = name + "足ＩＫ",
+                    Universal = $"leg IK_{side}",
+                    Position = foot.Position,
+                    Flags = Movable | PmxBoneFlags.IK,
+                    IkTarget = foot,
+                    IkLoop = 40,
+                    IkLimit = 2f,
+                };
+                legIk.IkLinks.Add((lower, true, new Vector3(-MathF.PI, 0, 0), new Vector3(-0.5f * MathF.PI / 180f, 0, 0)));
+                legIk.IkLinks.Add((upper, false, Vector3.Zero, Vector3.Zero));
+                var toeIk = new BoneSpec
+                {
+                    Name = name + "つま先ＩＫ",
+                    Universal = $"toe IK_{side}",
+                    Position = tipPosition,
+                    Flags = Movable | PmxBoneFlags.IK,
+                    IkTarget = tip,
+                    IkLoop = 3,
+                    IkLimit = 4f,
+                };
+                toeIk.IkLinks.Add((foot, false, Vector3.Zero, Vector3.Zero));
+                legIk.Add(toeIk);
+                root.Add(legIk); // IK は、ほかのボーンの後に計算する（全ての親の最後の子）
+            }
+        }
+
+        // 腕を A の字にする: VRM は腕を横に伸ばした T の字で作られているが、MMD のモーションは腕を下げた A の字を基本にしているので、
+        // 腕（上腕）から先を、肩の付け根を中心に、正面から見て水平から ArmAngleDegrees 度下がるまで回した形を、初めの姿勢にする
+        private void ComputePose()
+        {
+            _pose = new Matrix4x4[_nodes.Length];
+            Array.Fill(_pose, Matrix4x4.Identity);
+            foreach (string side in new[] { "left", "right" })
+            {
+                if (!_human.TryGetValue(side + "UpperArm", out int upper) || !_human.TryGetValue(side + "LowerArm", out int lower))
+                {
+                    continue;
+                }
+                Vector3 shoulder = _nodes[upper].World.Translation;
+                Vector3 elbow = _nodes[lower].World.Translation;
+                // 正面から見た面（glTF の XY。VRM はどちらの版も正面が ±Z）での、腕の向き
+                var direction = new Vector2(elbow.X - shoulder.X, elbow.Y - shoulder.Y);
+                if (direction.LengthSquared() < 1e-12f)
+                {
+                    continue;
+                }
+                float current = MathF.Atan2(direction.Y, MathF.Abs(direction.X)); // 水平から上が正
+                float delta = -ArmAngleDegrees * MathF.PI / 180f - current;
+                if (MathF.Abs(delta) < 1e-4f)
+                {
+                    continue;
+                }
+                float angle = direction.X >= 0 ? delta : -delta; // +X へ伸びる腕は負の向き、-X へ伸びる腕は正の向きに回すと下がる
+                Matrix4x4 rotation = Matrix4x4.CreateTranslation(-shoulder) * Matrix4x4.CreateRotationZ(angle) * Matrix4x4.CreateTranslation(shoulder);
+                var stack = new Stack<int>();
+                stack.Push(upper);
+                while (stack.Count > 0)
+                {
+                    int n = stack.Pop();
+                    _pose[n] = rotation;
+                    foreach (int child in _nodes[n].Children)
+                    {
+                        if ((uint)child < (uint)_nodes.Length && _nodes[child].Parent == n)
+                        {
+                            stack.Push(child);
+                        }
+                    }
+                }
+                _posedArms++;
+            }
+        }
+
+        private Matrix4x4 PoseOf(int node) => (uint)node < (uint)_pose.Length ? _pose[node] : Matrix4x4.Identity;
 
         private bool IsSkinned(int node) => _nodes[node].Skin >= 0 && _nodes[node].Skin < file.Count("skins");
 
@@ -372,7 +603,7 @@ internal static class GltfConverter
                         bind = new Matrix4x4(m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7], m[8], m[9], m[10], m[11], m[12], m[13], m[14], m[15]);
                     }
                     Matrix4x4 jointWorld = (uint)jointNodes[j] < (uint)_nodes.Length ? _nodes[jointNodes[j]].World : Matrix4x4.Identity;
-                    skinMatrices[j] = bind * jointWorld;
+                    skinMatrices[j] = bind * jointWorld * PoseOf(jointNodes[j]);
                 }
             }
 
@@ -473,7 +704,7 @@ internal static class GltfConverter
                     }
                     if (total <= 1e-6f)
                     {
-                        matrix = node.World;
+                        matrix = node.World * PoseOf(nodeIndex);
                         used = 0;
                     }
                     else
@@ -484,7 +715,7 @@ internal static class GltfConverter
                 }
                 else
                 {
-                    matrix = node.World;
+                    matrix = node.World * PoseOf(nodeIndex);
                     SetWeights(ref vertex, [], 0f, rigidBone);
                 }
                 vertexMatrices[i] = matrix;
@@ -738,10 +969,26 @@ internal static class GltfConverter
 
         public void ReportUnsupported(VrmVersion version)
         {
+            if (_humanoidApplied)
+            {
+                report.Info(LoadIssueCategory.Note,
+                    "VRM の人型のボーンを、MMD の名前（センター・上半身・頭・左腕 など）に付け替え、足の IK と両目を足しました。MMD のモーションと顔のトラッキングで動かせます");
+                if (_posedArms > 0)
+                {
+                    report.Info(LoadIssueCategory.Note, $"腕を、MMD と同じ A の字（水平から {ArmAngleDegrees:0} 度下げた形）にして読み込みました（VRM は T の字で作られているため）");
+                }
+            }
+            else if (version != VrmVersion.None)
+            {
+                report.Warning(LoadIssueCategory.Unsupported,
+                    "VRM の人型のボーンの決まり（腰の hips）が見つからないため、ボーンの名前は元のままです（MMD のモーションと顔のトラッキングは当てはまりません）");
+            }
+            else
+            {
+                report.Info(LoadIssueCategory.Note, "glTF には人型のボーンの決まりが無いため、ボーンの名前は元のままです（MMD のモーションは当てはまりません）");
+            }
             if (version != VrmVersion.None)
             {
-                report.Info(LoadIssueCategory.Unsupported,
-                    "VRM のボーンは、まだ MMD の名前（センター・上半身・頭 など）に付け替えていないため、MMD のモーションと顔のトラッキングは、まだ当てはまりません");
                 report.Info(LoadIssueCategory.Unsupported, "VRM の表情（まばたき・あいうえお など）は、まだ MMD の表情に結び付けていません（元の形の変化として、名前のまま読みました）");
             }
             if (_springBones)

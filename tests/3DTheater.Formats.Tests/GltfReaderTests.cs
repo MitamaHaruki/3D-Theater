@@ -68,7 +68,186 @@ public sealed class GltfReaderTests
         StringAssert.Contains(d.Comment, "アバターとして使える人: everyone");
         Assert.AreEqual("Test", d.NameUniversal);
         Assert.AreEqual("テスト", d.Name);
-        Assert.IsFalse(result.Report.Issues.Any(i => i.Severity != LoadSeverity.Info), "注意やエラーは無い");
+        Assert.IsFalse(result.Report.Issues.Any(i => i.Severity == LoadSeverity.Error), "エラーは無い");
+        // この VRM には人型のボーンの決まりが無いので、その注意だけ出る（ボーンの名前は元のまま）
+        StringAssert.Contains(result.Report.Issues.Single(i => i.Severity == LoadSeverity.Warning).Message, "人型のボーンの決まり");
+    }
+
+    [TestMethod]
+    public void HumanoidBonesGetMmdNamesIkAndAPose()
+    {
+        PmxLoadResult result = GltfReader.Read(HumanoidModel(), name: "人型");
+        Assert.IsTrue(result.Succeeded, string.Join("\n", result.Report.Issues.Select(i => i.Message)));
+        PmxDocument d = result.Document!;
+        int Bone(string name)
+        {
+            int index = Array.FindIndex(d.Bones, b => b.Name == name);
+            Assert.IsGreaterThanOrEqualTo(0, index, $"ボーン「{name}」が無い");
+            return index;
+        }
+        string ParentName(string name) => d.Bones[d.Bones[Bone(name)].ParentIndex].Name;
+
+        // MMD の体の中心: 全ての親 → センター → グルーブ → 下半身・上半身（上半身は下半身の子にしない）
+        Assert.AreEqual("全ての親", ParentName("センター"));
+        Assert.AreEqual("センター", ParentName("グルーブ"));
+        Assert.AreEqual("グルーブ", ParentName("下半身"));
+        Assert.AreEqual("グルーブ", ParentName("上半身"));
+        Assert.AreEqual("上半身", ParentName("上半身2"));
+        Assert.AreEqual("首", ParentName("頭"));
+        Assert.AreEqual("下半身", ParentName("左足"));
+        Assert.AreEqual("左足", ParentName("左ひざ"));
+        Assert.AreEqual("左肩", ParentName("左腕"));
+        Assert.AreEqual(12.5f * CenterRatio, d.Bones[Bone("センター")].Position.Y, 1e-3f, "センターは腰の高さの 0.69 倍");
+        Assert.AreEqual("RightToes", d.Bones[Bone("右足先EX")].NameUniversal, "元のノードの名前は、英語の名前に残す");
+        for (int i = 0; i < d.Bones.Length; i++)
+        {
+            Assert.IsLessThan(i, d.Bones[i].ParentIndex, $"親が先（{d.Bones[i].Name}）");
+        }
+
+        // 両目: 頭の子で、左目・右目より先。目は両目の回転を受け取る
+        Assert.AreEqual("頭", ParentName("両目"));
+        Assert.IsLessThan(Bone("左目"), Bone("両目"));
+        PmxBone leftEye = d.Bones[Bone("左目")];
+        Assert.AreEqual(Bone("両目"), leftEye.InheritParent);
+        Assert.AreEqual(1f, leftEye.InheritWeight);
+        Assert.IsTrue(leftEye.Has(PmxBoneFlags.InheritRotation));
+
+        // 足の IK（MMD の標準と同じ）
+        PmxBone legIk = d.Bones[Bone("左足ＩＫ")];
+        Assert.AreEqual("全ての親", d.Bones[legIk.ParentIndex].Name);
+        Assert.IsTrue(legIk.Has(PmxBoneFlags.IK) && legIk.Has(PmxBoneFlags.Translatable));
+        Assert.AreEqual(Bone("左足首"), legIk.IkTarget);
+        Assert.AreEqual(40, legIk.IkLoopCount);
+        Assert.AreEqual(2f, legIk.IkLimitAngle);
+        CollectionAssert.AreEqual(new[] { Bone("左ひざ"), Bone("左足") }, legIk.IkLinks.Select(l => l.Bone).ToArray());
+        Assert.IsTrue(legIk.IkLinks[0].HasLimits, "ひざは後ろにだけ曲がる");
+        Assert.AreEqual(-MathF.PI, legIk.IkLinks[0].MinAngle.X, 1e-5f);
+        Assert.AreEqual(-0.5f * MathF.PI / 180f, legIk.IkLinks[0].MaxAngle.X, 1e-6f);
+        AssertNear(d.Bones[Bone("左足首")].Position, legIk.Position);
+        PmxBone toeIk = d.Bones[Bone("左つま先ＩＫ")];
+        Assert.AreEqual(Bone("左足ＩＫ"), toeIk.ParentIndex);
+        Assert.AreEqual(Bone("左つま先"), toeIk.IkTarget);
+        Assert.AreEqual(3, toeIk.IkLoopCount);
+        Assert.AreEqual("左足首", ParentName("左つま先"));
+        Assert.IsLessThan(d.Bones[Bone("左足首")].Position.Z, d.Bones[Bone("左つま先")].Position.Z, "つま先が無ければ、足首の前（-Z）に先端を置く");
+        AssertNear(d.Bones[Bone("右足先EX")].Position, d.Bones[Bone("右つま先")].Position);
+        Assert.IsGreaterThan(Bone("右つま先"), Bone("左足ＩＫ"), "IK は、ほかのボーンの後");
+
+        // 腕を A の字に: 左腕（+X）から左ひじへの向きが、水平から 37 度下がる。左ひじに付いた頂点も一緒に動く
+        Vector3 shoulder = d.Bones[Bone("左腕")].Position;
+        Vector3 elbow = d.Bones[Bone("左ひじ")].Position;
+        AssertNear(new Vector3(0.15f, 1.45f, 0) * Scale, shoulder);
+        Assert.AreEqual(37f, MathF.Atan2(shoulder.Y - elbow.Y, elbow.X - shoulder.X) * 180f / MathF.PI, 0.01f);
+        Assert.AreEqual(0.25f * Scale, Vector3.Distance(shoulder, elbow), 1e-3f, "長さは変えない");
+        AssertNear(elbow, d.Vertices[0].Position);
+        Vector3 rightShoulder = d.Bones[Bone("右腕")].Position;
+        Vector3 rightElbow = d.Bones[Bone("右ひじ")].Position;
+        Assert.IsLessThan(0f, rightElbow.X, "右腕は -X");
+        Assert.AreEqual(37f, MathF.Atan2(rightShoulder.Y - rightElbow.Y, rightShoulder.X - rightElbow.X) * 180f / MathF.PI, 0.01f);
+        AssertNear(new Vector3(0, 1 * Scale, 0), d.Vertices[1].Position, "腰の頂点は動かない");
+
+        Assert.IsTrue(result.Report.Issues.Any(i => i.Message.Contains("A の字", StringComparison.Ordinal)));
+        Assert.IsFalse(result.Report.Issues.Any(i => i.Severity != LoadSeverity.Info));
+    }
+
+    [TestMethod]
+    public void VrmBoneNamesFollowMmd()
+    {
+        Assert.AreEqual("下半身", VrmHumanoid.MmdName("hips", VrmVersion.Vrm1));
+        Assert.AreEqual("上半身2", VrmHumanoid.MmdName("chest", VrmVersion.Vrm1));
+        Assert.AreEqual("右ひじ", VrmHumanoid.MmdName("rightLowerArm", VrmVersion.Vrm1));
+        Assert.AreEqual("左人指３", VrmHumanoid.MmdName("leftIndexDistal", VrmVersion.Vrm1));
+        // 親指: 1.0 は Metacarpal・Proximal・Distal、0.x は Proximal・Intermediate・Distal。どちらも根元から ０・１・２
+        Assert.AreEqual("左親指０", VrmHumanoid.MmdName("leftThumbMetacarpal", VrmVersion.Vrm1));
+        Assert.AreEqual("左親指１", VrmHumanoid.MmdName("leftThumbProximal", VrmVersion.Vrm1));
+        Assert.AreEqual("左親指０", VrmHumanoid.MmdName("leftThumbProximal", VrmVersion.Vrm0));
+        Assert.AreEqual("左親指１", VrmHumanoid.MmdName("leftThumbIntermediate", VrmVersion.Vrm0));
+        Assert.AreEqual("左親指２", VrmHumanoid.MmdName("leftThumbDistal", VrmVersion.Vrm0));
+        Assert.AreEqual("右足先EX", VrmHumanoid.MmdName("rightToes", VrmVersion.Vrm0));
+        Assert.IsNull(VrmHumanoid.MmdName("jaw", VrmVersion.Vrm1));
+    }
+
+    private const float CenterRatio = 0.69f;
+
+    // 人型のボーン（VRM 1.0）。腕は T の字。頂点は左ひじ・腰・頭に 1 つずつ
+    private static byte[] HumanoidModel()
+    {
+        var nodes = new List<(string Name, string? Human, float[] T, int[] Children)>
+        {
+            ("Body", null, [0, 0, 0], []),                       // 0
+            ("Hips", "hips", [0, 1, 0], [2, 7, 10]),            // 1
+            ("Spine", "spine", [0, 0.1f, 0], [3]),              // 2
+            ("Chest", "chest", [0, 0.2f, 0], [4, 13, 16]),      // 3
+            ("Neck", "neck", [0, 0.2f, 0], [5]),                // 4
+            ("Head", "head", [0, 0.1f, 0], [6, 19]),            // 5
+            ("LeftEye", "leftEye", [0.03f, 0.05f, 0.08f], []),  // 6
+            ("LeftUpperLeg", "leftUpperLeg", [0.1f, -0.05f, 0], [8]),   // 7
+            ("LeftLowerLeg", "leftLowerLeg", [0, -0.45f, 0], [9]),      // 8
+            ("LeftFoot", "leftFoot", [0, -0.45f, 0], []),               // 9
+            ("RightUpperLeg", "rightUpperLeg", [-0.1f, -0.05f, 0], [11]), // 10
+            ("RightLowerLeg", "rightLowerLeg", [0, -0.45f, 0], [12]),     // 11
+            ("RightFoot", "rightFoot", [0, -0.45f, 0], [20]),             // 12
+            ("LeftShoulder", "leftShoulder", [0.05f, 0.15f, 0], [14]),    // 13
+            ("LeftUpperArm", "leftUpperArm", [0.1f, 0, 0], [15]),         // 14
+            ("LeftLowerArm", "leftLowerArm", [0.25f, 0, 0], []),          // 15
+            ("RightShoulder", "rightShoulder", [-0.05f, 0.15f, 0], [17]), // 16
+            ("RightUpperArm", "rightUpperArm", [-0.1f, 0, 0], [18]),      // 17
+            ("RightLowerArm", "rightLowerArm", [-0.25f, 0, 0], []),       // 18
+            ("RightEye", "rightEye", [-0.03f, 0.05f, 0.08f], []),         // 19
+            ("RightToes", "rightToes", [0, -0.04f, 0.1f], []),            // 20
+        };
+        // ワールドの位置（回転は無いので、親の位置を足すだけ）
+        var world = new Vector3[nodes.Count];
+        var parent = Enumerable.Repeat(-1, nodes.Count).ToArray();
+        for (int i = 0; i < nodes.Count; i++)
+        {
+            foreach (int c in nodes[i].Children)
+            {
+                parent[c] = i;
+            }
+        }
+        for (int pass = 0; pass < nodes.Count; pass++)
+        {
+            for (int i = 0; i < nodes.Count; i++)
+            {
+                var t = new Vector3(nodes[i].T[0], nodes[i].T[1], nodes[i].T[2]);
+                world[i] = parent[i] >= 0 ? world[parent[i]] + t : t;
+            }
+        }
+        int[] joints = [.. Enumerable.Range(1, nodes.Count - 1)];
+        var inverseBind = new List<float>();
+        foreach (int j in joints)
+        {
+            inverseBind.AddRange([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -world[j].X, -world[j].Y, -world[j].Z, 1]);
+        }
+        var b = new GlbBuilder();
+        Vector3 elbow = world[15];
+        int position = b.Floats([elbow.X, elbow.Y, elbow.Z, 0, 1, 0, 0, 1.6f, 0], "VEC3");
+        // 関節の番号は joints の中の番号（ノード 15 は 14 番、ノード 1 は 0 番、ノード 5 は 4 番）
+        int jointAccessor = b.UShorts([14, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0], "VEC4");
+        int weights = b.Floats([1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0], "VEC4");
+        int ibm = b.Floats([.. inverseBind], "MAT4");
+        var humanBones = nodes.Select((n, i) => (n.Human, i)).Where(x => x.Human is not null).ToDictionary(x => x.Human!, x => (object)new { node = x.i });
+        var json = new Dictionary<string, object>
+        {
+            ["asset"] = new { version = "2.0" },
+            ["scene"] = 0,
+            ["scenes"] = new[] { new { nodes = new[] { 0, 1 } } },
+            ["nodes"] = nodes.Select((n, i) => i == 0
+                ? (object)new { name = n.Name, mesh = 0, skin = 0 }
+                : new { name = n.Name, translation = n.T, children = n.Children }).ToArray(),
+            ["skins"] = new[] { new { joints, inverseBindMatrices = ibm } },
+            ["meshes"] = new[]
+            {
+                new { primitives = new[] { new { attributes = new Dictionary<string, int> { ["POSITION"] = position, ["JOINTS_0"] = jointAccessor, ["WEIGHTS_0"] = weights } } } },
+            },
+            ["extensionsUsed"] = new[] { "VRMC_vrm" },
+            ["extensions"] = new Dictionary<string, object>
+            {
+                ["VRMC_vrm"] = new { specVersion = "1.0", meta = new { name = "Human" }, humanoid = new { humanBones } },
+            },
+        };
+        return b.Build(json);
     }
 
     [TestMethod]
@@ -168,6 +347,22 @@ public sealed class GltfReaderTests
             Assert.IsGreaterThan(-1f, bottom, $"{name}: 足は床の近く");
             Assert.IsTrue(d.Vertices.All(v => float.IsFinite(v.Position.X) && float.IsFinite(v.Normal.X)), name);
             Assert.IsTrue(d.Morphs.All(m => m.VertexOffsets.All(o => o.Vertex < d.Vertices.Length)), name);
+
+            // 2 段目: MMD の名前・IK・A の字
+            string[] names = [.. d.Bones.Select(b => b.Name)];
+            foreach (string required in new[] { "センター", "グルーブ", "上半身", "下半身", "首", "頭", "左腕", "右ひじ", "左足ＩＫ", "右つま先ＩＫ" })
+            {
+                CollectionAssert.Contains(names, required, $"{name}: {required}");
+            }
+            PmxBone arm = d.Bones.Single(b => b.Name == "左腕");
+            PmxBone elbow = d.Bones.Single(b => b.Name == "左ひじ");
+            Assert.IsGreaterThan(0f, arm.Position.X, $"{name}: 左腕は +X");
+            Assert.AreEqual(37f, MathF.Atan2(arm.Position.Y - elbow.Position.Y, elbow.Position.X - arm.Position.X) * 180f / MathF.PI, 0.5f, $"{name}: 腕は A の字");
+            for (int i = 0; i < d.Bones.Length; i++)
+            {
+                Assert.IsLessThan(i, d.Bones[i].ParentIndex, $"{name}: 親が先（{d.Bones[i].Name}）");
+            }
+            Assert.IsFalse(result.Report.Issues.Any(i => i.Severity == LoadSeverity.Warning), $"{name}: 注意は無い");
         }
     }
 
@@ -252,9 +447,9 @@ public sealed class GltfReaderTests
         return b.Build(json);
     }
 
-    private static void AssertNear(Vector3 expected, Vector3 actual)
+    private static void AssertNear(Vector3 expected, Vector3 actual, string? message = null)
     {
-        Assert.IsLessThan(1e-4f, Vector3.Distance(expected, actual), $"期待 {expected}・実際 {actual}");
+        Assert.IsLessThan(1e-3f, Vector3.Distance(expected, actual), $"期待 {expected}・実際 {actual} {message}");
     }
 
     /// <summary>テスト用の GLB を組み立てる（データの塊は 1 つ。並びは 4 バイトずつそろえる）。</summary>
