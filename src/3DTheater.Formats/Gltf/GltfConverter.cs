@@ -164,6 +164,12 @@ internal static class GltfConverter
         private readonly List<ColliderSpec?> _colliderSpecs = [];
         private SpringBoneSet? _springBoneSet;
         private int _springChains;
+        private Dictionary<int, JsonElement> _vrm0Materials = [];                 // glTF の材質 → VRM 0.x の materialProperties
+        private readonly Dictionary<string, int> _toonTextures = [];              // 影の色の画像（同じものは 1 つ）
+        private readonly Dictionary<int, EdgeWidthTexture> _edgeWidthTextures = []; // PMX の材質 → 輪郭線の太さの画像
+        private readonly SortedSet<string> _mtoonUnsupported = new(StringComparer.Ordinal);
+        private int _mtoonMaterials;
+        private int _outlineMaterials;
         private readonly List<int> _order = []; // 階層の順（親が先）
         private readonly Dictionary<int, int> _boneOf = []; // ノード → ボーンの番号
         private readonly List<PmxBone> _bones = [];
@@ -191,6 +197,7 @@ internal static class GltfConverter
             ReadNodes();
             ComputeWorld();
             _human = VrmHumanoid.Read(file.Root, version, _nodes.Length);
+            _vrm0Materials = ReadVrm0Materials();
             (_expressions, _lookAtByExpression) = VrmExpressions.Read(file.Root, version, n => (uint)n < (uint)_nodes.Length ? _nodes[n].Mesh : -1, MaterialByName);
             ComputePose();
             ReadSprings();
@@ -943,14 +950,46 @@ internal static class GltfConverter
                     _textureTransforms++;
                 }
             }
-            if (GltfFile.TryGet(m, "extensions", out JsonElement me) && GltfFile.TryGet(me, "VRMC_materials_mtoon", out _))
-            {
-                _mtoon = true;
-            }
             PmxMaterialFlags flags = shadows;
             if (GltfFile.TryGet(m, "doubleSided", out JsonElement ds) && ds.ValueKind == JsonValueKind.True)
             {
                 flags |= PmxMaterialFlags.DoubleSided;
+            }
+
+            // アニメ調の材質（MToon。5 段目）: 影の色はトゥーンの画像に、輪郭線は MMD の輪郭線に、matcap はスフィア（足す）にする
+            int toon = -1;
+            int sphere = -1;
+            var edgeColor = new Vector4(0, 0, 0, 1);
+            float edgeSize = 0f;
+            MToonSettings? mtoon = version == VrmVersion.Vrm0
+                ? (_vrm0Materials.TryGetValue(index, out JsonElement properties) ? MToon.ReadVrm0(properties) : null)
+                : MToon.ReadVrm1(m);
+            if (mtoon is not null)
+            {
+                _mtoon = true;
+                _mtoonMaterials++;
+                _mtoonUnsupported.UnionWith(mtoon.Unsupported);
+                if (mtoon.Shade is { } shade)
+                {
+                    // トゥーンは材質の色に掛けるので、影の色 ÷ 材質の色（1 より明るくはしない）
+                    Vector3 ratio = Vector3.Clamp(shade / Vector3.Max(color, new Vector3(1e-3f)), Vector3.Zero, Vector3.One);
+                    toon = ShadeToon(ratio, mtoon.Shift, mtoon.Toony);
+                }
+                edgeSize = MToon.EdgeSize(mtoon);
+                if (edgeSize > 0f)
+                {
+                    flags |= PmxMaterialFlags.Edge;
+                    edgeColor = new Vector4(mtoon.OutlineColor, 1f);
+                    _outlineMaterials++;
+                    if (mtoon.OutlineTexture >= 0 && Texture(mtoon.OutlineTexture) is int widthTexture and >= 0)
+                    {
+                        _edgeWidthTextures[_materials.Count] = new EdgeWidthTexture(widthTexture, mtoon.OutlineChannel);
+                    }
+                }
+                if (mtoon.Matcap >= 0)
+                {
+                    sphere = Texture(mtoon.Matcap);
+                }
             }
             return new PmxMaterial
             {
@@ -959,10 +998,50 @@ internal static class GltfConverter
                 Diffuse = new Vector4(color, opaque ? 1f : Math.Clamp(factor[3], 0f, 1f)),
                 Ambient = color * AmbientShare,
                 Flags = flags,
-                EdgeColor = new Vector4(0, 0, 0, 1),
+                EdgeColor = edgeColor,
+                EdgeSize = edgeSize,
                 TextureIndex = texture,
+                ToonIndex = toon,
+                SharedToon = false,
+                SphereTextureIndex = sphere,
+                SphereMode = sphere >= 0 ? PmxSphereMode.Add : PmxSphereMode.None,
                 IndexCount = indexCount,
             };
+        }
+
+        // 影の色の画像（同じ色・ずれ・くっきりさは 1 つ）。TGA にして、ファイルの中の画像と同じく持たせる
+        private int ShadeToon(Vector3 ratio, float shift, float toony)
+        {
+            string key = FormattableString.Invariant($"{ratio.X:F3},{ratio.Y:F3},{ratio.Z:F3},{shift:F2},{toony:F2}");
+            if (_toonTextures.TryGetValue(key, out int known))
+            {
+                return known;
+            }
+            int index = _textures.Count;
+            _textures.Add($"mtoon_shade_{_toonTextures.Count + 1}.tga");
+            _embedded[index] = MToon.ToonTga(MToon.ToonColumn(ratio, shift, toony));
+            _toonTextures[key] = index;
+            return index;
+        }
+
+        // VRM 0.x の材質の設定（materialProperties。名前で glTF の材質と結ぶ。名前が無ければ同じ番号）
+        private Dictionary<int, JsonElement> ReadVrm0Materials()
+        {
+            var result = new Dictionary<int, JsonElement>();
+            if (version != VrmVersion.Vrm0 || !GltfFile.TryGet(file.Root, "extensions", out JsonElement extensions)
+                || !GltfFile.TryGet(extensions, "VRM", out JsonElement vrm0) || !GltfFile.TryGet(vrm0, "materialProperties", out JsonElement properties)
+                || properties.ValueKind != JsonValueKind.Array)
+            {
+                return result;
+            }
+            int i = 0;
+            foreach (JsonElement p in properties.EnumerateArray())
+            {
+                int material = GltfFile.String(p, "name") is { Length: > 0 } name ? MaterialByName(name) : -1;
+                result.TryAdd(material >= 0 ? material : i, p);
+                i++;
+            }
+            return result;
         }
 
         // glTF のテクスチャ → PMX のテクスチャの番号（画像ごとに 1 つ。中に入っている画像は、中身を持たせる）
@@ -1393,9 +1472,16 @@ internal static class GltfConverter
             {
                 report.Info(LoadIssueCategory.Unsupported, "髪などの揺れ（VRM のスプリングボーン）の設定を読めませんでした（揺らしません）");
             }
-            if (_mtoon)
+            if (_mtoonMaterials > 0)
             {
-                report.Info(LoadIssueCategory.Unsupported, "VRM のアニメ調の材質（MToon）の影の色と輪郭線は、まだ使いません（光の当たり方によらず、材質の色のまま描きます）");
+                report.Info(LoadIssueCategory.Note,
+                    $"VRM のアニメ調の材質（MToon）{_mtoonMaterials} 個の影の色を MMD のトゥーン（{_toonTextures.Count} 枚）に、" +
+                    $"輪郭線（{_outlineMaterials} 個）を MMD の輪郭線にしました。MMD の輪郭線は画面の上で太さが決まるので、上半身を写したときの太さに合わせています。" +
+                    "セルフシャドウを受ける面は、MMD と同じく、影の境目のずれとくっきりさを使わずに描きます");
+            }
+            if (_mtoonUnsupported.Count > 0)
+            {
+                report.Info(LoadIssueCategory.Unsupported, $"MToon の{string.Join("・", _mtoonUnsupported)}は、まだ使いません");
             }
             if (_textureTransforms > 0)
             {
@@ -1448,6 +1534,7 @@ internal static class GltfConverter
                 Bones = [.. _bones],
                 Morphs = morphs,
                 SpringBones = _springBoneSet,
+                EdgeWidthTextures = _edgeWidthTextures,
                 DisplayFrames =
                 [
                     new PmxDisplayFrame { Name = "Root", NameUniversal = "Root", IsSpecial = true, Elements = [new PmxDisplayElement(PmxDisplayTarget.Bone, 0)] },

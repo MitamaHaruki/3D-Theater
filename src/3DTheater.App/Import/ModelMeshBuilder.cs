@@ -175,6 +175,30 @@ internal static class ModelMeshBuilder
             textures[key] = SharedToons.Load(-2 - key, baseDirectory);
         }
 
+        // 輪郭線の太さを場所ごとに変える画像（VRM の MToon）: その材質の頂点の太さに、UV の所の画像の値を掛ける（設計判断記録 82 章の 5 段目）
+        foreach (var (material, width) in d.EdgeWidthTextures)
+        {
+            if ((uint)material >= (uint)materials.Length || !Valid(width.Texture))
+            {
+                continue;
+            }
+            DecodedImage? image = textures.GetValueOrDefault(width.Texture);
+            try
+            {
+                image ??= d.EmbeddedTextures.TryGetValue(width.Texture, out byte[]? data) ? TextureLoader.Decode(data, d.Textures[width.Texture])
+                    : PathOf(width.Texture) is { } path ? TextureLoader.Load(path) : null;
+            }
+            catch (Exception ex) when (ex is ModelFormatException or IOException or UnauthorizedAccessException or OutOfMemoryException)
+            {
+                report.Warning(LoadIssueCategory.Format, $"輪郭線の太さの画像「{d.Textures[width.Texture]}」を読めませんでした（{ex.Message}）。どこも同じ太さで描きます");
+            }
+            if (image is not null)
+            {
+                MeshMaterial range = materials[material];
+                ApplyEdgeWidth(image, Math.Clamp(width.Channel, 0, 2), vertices, indices.AsSpan((int)range.IndexStart, (int)range.IndexCount), edgeScales);
+            }
+        }
+
         // 画面に収めるときの箱は、遠くに隠した部品（使わない眼鏡など）を除いて求める
         Vector3[] positions = [.. d.Vertices.Select(v => v.Position)];
         bool[] core = DisplayBounds.CoreVertices(positions, indices);
@@ -187,6 +211,30 @@ internal static class ModelMeshBuilder
         }
 
         return new PreparedModel(vertices, indices, materials, materialTextures, textures, edgeScales, min, max, core, displayMin, displayMax);
+    }
+
+    // 材質の面が使う頂点の輪郭線の太さに、UV の所の画像の値（0〜1。channel は 0 = R・1 = G・2 = B）を掛ける。UV は繰り返し、いちばん近い画素を読む
+    private static void ApplyEdgeWidth(DecodedImage image, int channel, MeshVertex[] vertices, ReadOnlySpan<uint> faces, float[] edgeScales)
+    {
+        if (image.Width <= 0 || image.Height <= 0)
+        {
+            return;
+        }
+        var done = new HashSet<uint>();
+        foreach (uint v in faces)
+        {
+            if (v >= (uint)vertices.Length || !done.Add(v))
+            {
+                continue;
+            }
+            Vector2 uv = vertices[v].Uv;
+            float u = uv.X - MathF.Floor(uv.X);
+            float t = uv.Y - MathF.Floor(uv.Y);
+            int x = Math.Clamp((int)(u * image.Width), 0, image.Width - 1);
+            int y = Math.Clamp((int)(t * image.Height), 0, image.Height - 1);
+            byte value = image.Bgra[y * image.Stride + x * 4 + (2 - channel)]; // BGRA の並び
+            edgeScales[v] *= value / 255f;
+        }
     }
 
     private static int CountUnused(uint[] indices, int vertexCount)

@@ -3,6 +3,7 @@ using System.Numerics;
 using System.Text;
 using System.Text.Json;
 using Theater3D.Formats.Gltf;
+using Theater3D.Formats.Images;
 using Theater3D.Formats.Pmx;
 
 namespace Theater3D.Formats.Tests;
@@ -519,6 +520,128 @@ public sealed class GltfReaderTests
     }
 
     [TestMethod]
+    public void ShadeToonFollowsMToon()
+    {
+        var ratio = new Vector3(0.5f, 0.6f, 0.7f);
+        Vector3[] column = MToon.ToonColumn(ratio, shift: 0f, toony: 0.9f);
+        Assert.HasCount(MToon.ToonHeight, column);
+        AssertNear(Vector3.One, column[0], "上（光の当たる側）は白");
+        AssertNear(ratio, column[^1], "下（影の側）は影の色 ÷ 材質の色");
+        // くっきりさ 0.9: 光の当たり方 -0.1〜0.1 の間で白から影へ変わる（真ん中で半分）
+        AssertNear(Vector3.Lerp(ratio, Vector3.One, 0.5f), Vector3.Lerp(column[MToon.ToonHeight / 2 - 1], column[MToon.ToonHeight / 2], 0.5f), "真ん中で半分");
+        // 境目を -0.5 ずらすと、影の側が広がる（光の当たり方 0.5 で、もう半分）
+        Vector3[] shifted = MToon.ToonColumn(ratio, shift: -0.5f, toony: 0.9f);
+        AssertNear(Vector3.Lerp(ratio, Vector3.One, 0.5f), Vector3.Lerp(shifted[MToon.ToonHeight / 4 - 1], shifted[MToon.ToonHeight / 4], 0.5f), "境目がずれる");
+
+        // TGA にしても、同じ色に読める（上が先）
+        DecodedImage image = TgaDecoder.Decode(MToon.ToonTga(column));
+        Assert.AreEqual(MToon.ToonWidth, image.Width);
+        Assert.AreEqual(MToon.ToonHeight, image.Height);
+        Assert.AreEqual(255, image.Bgra[2], "いちばん上の R");
+        int last = (MToon.ToonHeight - 1) * image.Stride;
+        Assert.AreEqual((byte)MathF.Round(0.5f * 255), image.Bgra[last + 2], "いちばん下の R");
+        Assert.AreEqual((byte)MathF.Round(0.7f * 255), image.Bgra[last], "いちばん下の B");
+    }
+
+    [TestMethod]
+    public void Vrm1MToonBecomesToonEdgeAndSphere()
+    {
+        var mtoon = new
+        {
+            specVersion = "1.0",
+            shadeColorFactor = new[] { 0.5f, 0.5f, 1f },
+            shadingShiftFactor = -0.1f,
+            shadingToonyFactor = 0.9f,
+            outlineWidthMode = "worldCoordinates",
+            outlineWidthFactor = 0.0008f,
+            outlineColorFactor = new[] { 1f, 0, 0 },
+            outlineWidthMultiplyTexture = new { index = 0 },
+            matcapFactor = new[] { 1f, 1, 1 },
+            matcapTexture = new { index = 0 },
+        };
+        var extensions = new Dictionary<string, object> { ["VRMC_vrm"] = new { specVersion = "1.0", meta = new { name = "Toon" } } };
+        PmxLoadResult result = GltfReader.Read(ToonModel(new { name = "Skin", extensions = new Dictionary<string, object> { ["VRMC_materials_mtoon"] = mtoon } }, extensions));
+        Assert.IsTrue(result.Succeeded);
+        PmxDocument d = result.Document!;
+        PmxMaterial m = d.Materials.Single();
+        // 影の色: トゥーン（ファイルの中の TGA）。いちばん下は影の色（画面の色の値）÷ 材質の色（白）
+        Assert.IsFalse(m.SharedToon);
+        Assert.AreEqual("mtoon_shade_1.tga", d.Textures[m.ToonIndex]);
+        DecodedImage toon = TgaDecoder.Decode(d.EmbeddedTextures[m.ToonIndex]);
+        int bottom = (toon.Height - 1) * toon.Stride;
+        Assert.AreEqual((byte)MathF.Round(GltfConverter.LinearToSrgb(0.5f) * 255), toon.Bgra[bottom + 2], "影の R");
+        Assert.AreEqual(255, toon.Bgra[bottom], "影の B");
+        // 輪郭線: 0.8 mm → 太さ 1（1 mm で 1.25 画素）。色は画面の色の値。太さの画像は G を使う
+        Assert.IsTrue(m.Flags.HasFlag(PmxMaterialFlags.Edge));
+        Assert.AreEqual(1f, m.EdgeSize, 1e-4f);
+        AssertNear(new Vector3(1, 0, 0), new Vector3(m.EdgeColor.X, m.EdgeColor.Y, m.EdgeColor.Z), "輪郭線の色");
+        Assert.AreEqual(1f, m.EdgeColor.W);
+        Assert.AreEqual(new EdgeWidthTexture(m.TextureIndex, 1), d.EdgeWidthTextures[0], "太さの画像（ここでは色の画像と同じもの）");
+        // matcap → スフィア（足す）
+        Assert.AreEqual(PmxSphereMode.Add, m.SphereMode);
+        Assert.AreEqual(m.TextureIndex, m.SphereTextureIndex);
+        Assert.IsTrue(result.Report.Issues.Any(i => i.Message.Contains("MToon", StringComparison.Ordinal) && i.Message.Contains("トゥーン", StringComparison.Ordinal)));
+    }
+
+    [TestMethod]
+    public void Vrm0MToonBecomesToonAndEdge()
+    {
+        var extensions = new Dictionary<string, object>
+        {
+            ["VRM"] = new
+            {
+                meta = new { title = "Toon0" },
+                materialProperties = new[]
+                {
+                    new
+                    {
+                        name = "Skin",
+                        shader = "VRM/MToon",
+                        floatProperties = new Dictionary<string, float> { ["_ShadeShift"] = 0f, ["_ShadeToony"] = 0.9f, ["_OutlineWidthMode"] = 1f, ["_OutlineWidth"] = 0.08f },
+                        vectorProperties = new Dictionary<string, float[]> { ["_ShadeColor"] = [0.5f, 0.5f, 0.5f, 1], ["_OutlineColor"] = [0.2f, 0.2f, 0.2f, 1] },
+                        textureProperties = new Dictionary<string, int> { ["_MainTex"] = 0, ["_SphereAdd"] = 0 },
+                    },
+                },
+            },
+        };
+        PmxDocument d = GltfReader.Read(ToonModel(new { name = "Skin" }, extensions)).Document!;
+        PmxMaterial m = d.Materials.Single();
+        DecodedImage toon = TgaDecoder.Decode(d.EmbeddedTextures[m.ToonIndex]);
+        // 0.x の色は、そのまま画面の色の値
+        Assert.AreEqual((byte)MathF.Round(0.5f * 255), toon.Bgra[(toon.Height - 1) * toon.Stride + 2]);
+        Assert.AreEqual(1f, m.EdgeSize, 1e-4f, "0.08 cm → 太さ 1");
+        Assert.AreEqual(new Vector4(0.2f, 0.2f, 0.2f, 1), m.EdgeColor);
+        Assert.AreEqual(PmxSphereMode.Add, m.SphereMode);
+        Assert.IsEmpty(d.EdgeWidthTextures);
+    }
+
+    // 三角形 1 枚に、色の画像（材質の名前は Skin）。MToon の設定は material と extensions で渡す
+    private static byte[] ToonModel(object material, Dictionary<string, object> extensions)
+    {
+        var b = new GlbBuilder();
+        int position = b.Floats([0, 1, 0, 1, 1, 0, 0, 1.5f, 0], "VEC3");
+        int uv = b.Floats([0, 0, 1, 0, 0, 1], "VEC2");
+        int image = b.View([1, 2, 3, 4]);
+        string materialJson = JsonSerializer.Serialize(material);
+        var materialObject = JsonSerializer.Deserialize<Dictionary<string, object>>(materialJson)!;
+        materialObject["pbrMetallicRoughness"] = new { baseColorTexture = new { index = 0 } };
+        var json = new Dictionary<string, object>
+        {
+            ["asset"] = new { version = "2.0" },
+            ["scene"] = 0,
+            ["scenes"] = new[] { new { nodes = new[] { 0 } } },
+            ["nodes"] = new object[] { new { name = "Body", mesh = 0 } },
+            ["meshes"] = new[] { new { primitives = new[] { new { attributes = new Dictionary<string, int> { ["POSITION"] = position, ["TEXCOORD_0"] = uv }, material = 0 } } } },
+            ["materials"] = new[] { materialObject },
+            ["textures"] = new[] { new { source = 0 } },
+            ["images"] = new[] { new { bufferView = image, mimeType = "image/png", name = "skin" } },
+            ["extensionsUsed"] = extensions.Keys.ToArray(),
+            ["extensions"] = extensions,
+        };
+        return b.Build(json);
+    }
+
+    [TestMethod]
     public void Vrm0IsMirroredOnX()
     {
         var extensions = new Dictionary<string, object> { ["VRM"] = new { meta = new { title = "T0", author = "B" } } };
@@ -661,7 +784,15 @@ public sealed class GltfReaderTests
             Assert.IsNotEmpty(springs.Colliders, name);
             Assert.IsTrue(springs.Joints.All(j => (uint)j.Bone < (uint)d.Bones.Length && j.Colliders.All(c => (uint)c < (uint)springs.Colliders.Count)), name);
             // 先端が根元と重なる節（Seed-san の前髪 F・G の 2 本。元のモデルの作り）は、向きが決まらないので計算で飛ばす
-            Assert.IsLessThanOrEqualTo(2, springs.Joints.Count(j => Vector3.Distance(j.Tail, d.Bones[j.Bone].Position) < 1e-4f), $"{name}: 先端が根元と重なる節"); 
+            Assert.IsLessThanOrEqualTo(2, springs.Joints.Count(j => Vector3.Distance(j.Tail, d.Bones[j.Bone].Position) < 1e-4f), $"{name}: 先端が根元と重なる節");
+
+            // 5 段目: MToon の影の色はトゥーンに、輪郭線は MMD の輪郭線に（太さは 0.3〜3 ほど）
+            PmxMaterial[] toon = [.. d.Materials.Where(m => m.ToonIndex >= 0)];
+            Assert.IsGreaterThan(5, toon.Length, $"{name}: トゥーンの付いた材質");
+            Assert.IsTrue(toon.All(m => d.EmbeddedTextures.ContainsKey(m.ToonIndex) && d.Textures[m.ToonIndex].StartsWith("mtoon_shade_", StringComparison.Ordinal)), name);
+            PmxMaterial[] edged = [.. d.Materials.Where(m => m.Flags.HasFlag(PmxMaterialFlags.Edge))];
+            Assert.IsNotEmpty(edged, $"{name}: 輪郭線のある材質");
+            Assert.IsTrue(edged.All(m => m.EdgeSize is > 0.3f and < 3f), $"{name}: 輪郭線の太さ {string.Join(",", edged.Select(m => m.EdgeSize))}");
         }
     }
 

@@ -304,6 +304,9 @@ public sealed class PmxJoint
     public Vector3 RotationSpring { get; init; }
 }
 
+/// <summary>輪郭線の太さの画像（<see cref="PmxDocument.Textures"/> の番号）と、使う色（0 = R、1 = G、2 = B）。</summary>
+public readonly record struct EdgeWidthTexture(int Texture, int Channel);
+
 /// <summary>PMX ファイル 1 つ分。</summary>
 public sealed class PmxDocument
 {
@@ -337,6 +340,12 @@ public sealed class PmxDocument
     public PmxDisplayFrame[] DisplayFrames { get; init; } = [];
     public PmxRigidBody[] RigidBodies { get; init; } = [];
     public PmxJoint[] Joints { get; init; } = [];
+
+    /// <summary>
+    /// 輪郭線の太さを場所ごとに変える画像（VRM の MToon。鍵は材質の番号）。その材質の頂点の輪郭線の太さに、頂点の UV の所の画像の値（0〜1）を掛ける。
+    /// PMX と .x では空。
+    /// </summary>
+    public IReadOnlyDictionary<int, EdgeWidthTexture> EdgeWidthTextures { get; init; } = new Dictionary<int, EdgeWidthTexture>();
 
     /// <summary>VRM の揺れ物（スプリングボーン）。PMX と .x では null（揺れ物は剛体とジョイントで作る）。</summary>
     public SpringBoneSet? SpringBones { get; init; }
