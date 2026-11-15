@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.IO.Pipes;
 using System.Runtime.Versioning;
 
@@ -229,5 +230,58 @@ public sealed class VirtualCameraTests
         byte[] bgra = new byte[capture.FrameBytes];
         Assert.IsTrue(capture.Read(bgra, out _));
         Assert.IsLessThan(8, bgra.Max(), "黒");
+    }
+
+    [TestMethod]
+    public void CancelEndsAWaitingRead()
+    {
+        // 映像が届くのを待っている読み出しは、Cancel ですぐ戻る。
+        // 前は、待っている間にカメラの元を閉じても戻らず、トラッキングを止めるときに 5 秒待たされた（ノートパソコンのカメラで起きた）
+        var frames = new VirtualCameraFrames { PreferredSize = (160, 120) };
+        using VirtualCameraServer server = StartServer(frames);
+        Paint(frames.GetWriteBuffer(160, 120), 160, 120);
+        frames.Publish(160, 120);
+
+        for (int trial = 1; trial <= 5; trial++)
+        {
+            CameraCapture? shared = null;
+            Exception? ended = null;
+            long returned = 0;
+            using var reading = new ManualResetEventSlim();
+            var thread = new Thread(() =>
+            {
+                try
+                {
+                    // 開く・読む・壊すは、同じスレッドで
+                    using CameraCapture capture = CameraCapture.OpenActivate(DllPath, VirtualCameraProtocol.Clsid);
+                    byte[] bgra = new byte[capture.FrameBytes];
+                    capture.Read(bgra, out _);
+                    Volatile.Write(ref shared, capture);
+                    reading.Set();
+                    while (true)
+                    {
+                        capture.Read(bgra, out _); // 1 秒に 30 枚なので、ほとんどの時間は映像が届くのを待っている
+                    }
+                }
+                catch (Exception ex)
+                {
+                    ended = ex;
+                }
+                finally
+                {
+                    returned = Stopwatch.GetTimestamp(); // カメラを閉じた後
+                    reading.Set();
+                }
+            }) { IsBackground = true };
+            thread.Start();
+            Assert.IsTrue(reading.Wait(TimeSpan.FromSeconds(10)), "読み始める");
+            Thread.Sleep(100 + (trial * 37));
+            long cancelled = Stopwatch.GetTimestamp();
+            Volatile.Read(ref shared)?.Cancel();
+            Assert.IsTrue(thread.Join(TimeSpan.FromSeconds(5)), $"{trial} 回目: Cancel で、待っている読み出しが戻る");
+            Assert.IsInstanceOfType<VideoException>(ended, $"{trial} 回目: やめたことが例外で分かる");
+            double milliseconds = Stopwatch.GetElapsedTime(cancelled, returned).TotalMilliseconds;
+            Assert.IsLessThan(1000, milliseconds, $"{trial} 回目: カメラを閉じるまで含めて、すぐ終わる（{milliseconds:F0} ms）");
+        }
     }
 }

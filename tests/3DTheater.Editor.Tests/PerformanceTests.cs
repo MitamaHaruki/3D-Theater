@@ -205,6 +205,11 @@ public sealed class PerformanceTests
         Assert.AreEqual("1 分 30 秒", PerformanceText.Duration(TimeSpan.FromSeconds(90)));
         Assert.AreEqual("1 時間 5 分", PerformanceText.Duration(TimeSpan.FromMinutes(65)));
         Assert.AreEqual("2 時間", PerformanceText.Duration(TimeSpan.FromHours(2)));
+        // 少し足りないときは、丸めた値で書く（ノートパソコンのログで「60 秒」と出ていた）
+        Assert.AreEqual("1 分", PerformanceText.Duration(TimeSpan.FromSeconds(59.999)));
+        Assert.AreEqual("5 分", PerformanceText.Duration(TimeSpan.FromSeconds(299.6)));
+        Assert.AreEqual("1 時間", PerformanceText.Duration(TimeSpan.FromSeconds(3599.7)));
+        Assert.AreEqual("0 秒", PerformanceText.Duration(TimeSpan.FromSeconds(-3)));
     }
 
     [TestMethod]

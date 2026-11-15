@@ -506,6 +506,8 @@ public static class PerformanceText
     /// <summary>「1 分 30 秒」「2 時間 5 分」「45 秒」の形。</summary>
     public static string Duration(TimeSpan duration)
     {
+        // 先に秒へ丸める（1 分に少し足りない 59.999 秒が「60 秒」にならないように。ノートパソコンのログで見つけた）
+        duration = TimeSpan.FromSeconds(Math.Max(0, Math.Round(duration.TotalSeconds)));
         if (duration.TotalHours >= 1)
         {
             return duration.Minutes == 0 ? $"{(int)duration.TotalHours} 時間" : $"{(int)duration.TotalHours} 時間 {duration.Minutes} 分";
@@ -514,7 +516,7 @@ public static class PerformanceText
         {
             return duration.Seconds == 0 ? $"{(int)duration.TotalMinutes} 分" : $"{(int)duration.TotalMinutes} 分 {duration.Seconds} 秒";
         }
-        return $"{Math.Max(0, (int)Math.Round(duration.TotalSeconds))} 秒";
+        return $"{(int)duration.TotalSeconds} 秒";
     }
 
     /// <summary>CPU の作り（ARM64 の PC で x64 の版をまねて動かしているときは、そう書く）。</summary>

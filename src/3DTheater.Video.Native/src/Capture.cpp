@@ -1,4 +1,5 @@
-// カメラと動画のファイルから映像を読む。読み出しは呼んだスレッドで待つ（同期）。作ったスレッドで読み、壊すこと。
+// カメラと動画のファイルから映像を読む。読み出しは呼んだスレッドで待つ（中では Source Reader を非同期で使い、待つ間にやめられるようにした）。
+// 作ったスレッドで読み、壊すこと。
 #include "Capture.h"
 
 #include <mfapi.h>
@@ -49,7 +50,92 @@ void EnumerateCameras(ActivateList& list)
 
 const DWORD kVideo = static_cast<DWORD>(MF_SOURCE_READER_FIRST_VIDEO_STREAM);
 
+// 頼んだままの読み出しを捨てるのを待つ長さ（閉じるとき）
+constexpr DWORD kFlushWaitMilliseconds = 2000;
+
 } // namespace
+
+ReadCallback::ReadCallback()
+{
+    ready_ = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+    flushed_ = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+    if (!ready_ || !flushed_) {
+        if (ready_) {
+            CloseHandle(ready_);
+        }
+        if (flushed_) {
+            CloseHandle(flushed_);
+        }
+        throw Error(TV_E_MEDIA, L"映像の読み出しの合図を作れません");
+    }
+}
+
+ReadCallback::~ReadCallback()
+{
+    CloseHandle(ready_);
+    CloseHandle(flushed_);
+}
+
+STDMETHODIMP ReadCallback::QueryInterface(REFIID riid, void** object)
+{
+    if (!object) {
+        return E_POINTER;
+    }
+    if (riid == __uuidof(IUnknown) || riid == __uuidof(IMFSourceReaderCallback)) {
+        *object = static_cast<IMFSourceReaderCallback*>(this);
+        AddRef();
+        return S_OK;
+    }
+    *object = nullptr;
+    return E_NOINTERFACE;
+}
+
+STDMETHODIMP_(ULONG) ReadCallback::AddRef()
+{
+    return ++references_;
+}
+
+STDMETHODIMP_(ULONG) ReadCallback::Release()
+{
+    const ULONG count = --references_;
+    if (count == 0) {
+        delete this;
+    }
+    return count;
+}
+
+// Media Foundation の作業用のスレッドから呼ばれる
+STDMETHODIMP ReadCallback::OnReadSample(HRESULT status, DWORD /*streamIndex*/, DWORD flags, LONGLONG timestamp, IMFSample* sample)
+{
+    {
+        std::lock_guard guard(lock_);
+        result_.status = status;
+        result_.flags = flags;
+        result_.time = timestamp;
+        result_.sample = sample;
+    }
+    SetEvent(ready_);
+    return S_OK;
+}
+
+STDMETHODIMP ReadCallback::OnFlush(DWORD /*streamIndex*/)
+{
+    SetEvent(flushed_);
+    return S_OK;
+}
+
+STDMETHODIMP ReadCallback::OnEvent(DWORD /*streamIndex*/, IMFMediaEvent* /*event*/)
+{
+    return S_OK;
+}
+
+ReadCallback::Result ReadCallback::Take()
+{
+    std::lock_guard guard(lock_);
+    Result taken = std::move(result_);
+    result_ = {};
+    return taken;
+}
 
 int ListCameras(TvCameraInfo* items, int capacity)
 {
@@ -132,12 +218,27 @@ Capture* Capture::OpenActivate(const wchar_t* dllPath, const wchar_t* clsid)
     return capture.release();
 }
 
+Capture::Capture()
+{
+    callback_.Attach(new ReadCallback());
+    cancel_ = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    if (!cancel_) {
+        throw Error(TV_E_MEDIA, L"映像の読み出しの合図を作れません");
+    }
+}
+
+ComPtr<IMFAttributes> Capture::ReaderAttributes()
+{
+    ComPtr<IMFAttributes> attributes;
+    CheckHr(MFCreateAttributes(&attributes, 2), L"読み込みの設定の作成");
+    CheckHr(attributes->SetUINT32(MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING, TRUE), L"読み込みの設定"); // BGRA へ変換させる
+    CheckHr(attributes->SetUnknown(MF_SOURCE_READER_ASYNC_CALLBACK, callback_.Get()), L"読み込みの設定"); // 結果はここで受け取る（非同期）
+    return attributes;
+}
+
 void Capture::CreateReader()
 {
-    ComPtr<IMFAttributes> readerAttributes;
-    CheckHr(MFCreateAttributes(&readerAttributes, 1), L"読み込みの設定の作成");
-    CheckHr(readerAttributes->SetUINT32(MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING, TRUE), L"読み込みの設定"); // BGRA へ変換させる
-    CheckHr(MFCreateSourceReaderFromMediaSource(source_.Get(), readerAttributes.Get(), &reader_), L"カメラの読み手の作成");
+    CheckHr(MFCreateSourceReaderFromMediaSource(source_.Get(), ReaderAttributes().Get(), &reader_), L"カメラの読み手の作成");
 }
 
 Capture* Capture::OpenFile(const wchar_t* path, bool loop)
@@ -145,10 +246,7 @@ Capture* Capture::OpenFile(const wchar_t* path, bool loop)
     auto capture = std::unique_ptr<Capture>(new Capture());
     capture->isFile_ = true;
     capture->loop_ = loop;
-    ComPtr<IMFAttributes> attributes;
-    CheckHr(MFCreateAttributes(&attributes, 1), L"読み込みの設定の作成");
-    CheckHr(attributes->SetUINT32(MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING, TRUE), L"読み込みの設定");
-    CheckHr(MFCreateSourceReaderFromURL(path, attributes.Get(), &capture->reader_), L"動画のファイルを開く");
+    CheckHr(MFCreateSourceReaderFromURL(path, capture->ReaderAttributes().Get(), &capture->reader_), L"動画のファイルを開く");
     capture->reader_->SetStreamSelection(static_cast<DWORD>(MF_SOURCE_READER_ALL_STREAMS), FALSE);
     capture->reader_->SetStreamSelection(kVideo, TRUE);
     capture->UseRgbOutput();
@@ -175,6 +273,12 @@ void Capture::UseRgbOutput()
 Capture::~Capture()
 {
     magic_ = 0;
+    if (pending_ && reader_) {
+        // やめさせた読み出しが、まだ頼んだまま。捨てさせてから放す（放した後に結果が届かないように）
+        if (SUCCEEDED(reader_->Flush(static_cast<DWORD>(MF_SOURCE_READER_ALL_STREAMS)))) {
+            WaitForSingleObject(callback_->Flushed(), kFlushWaitMilliseconds);
+        }
+    }
     reader_.Reset();
     if (source_) {
         source_->Shutdown();
@@ -184,14 +288,19 @@ Capture::~Capture()
         activate_->ShutdownObject();
         activate_.Reset();
     }
+    callback_.Reset();
+    if (cancel_) {
+        CloseHandle(cancel_);
+    }
 }
 
 void Capture::Cancel()
 {
+    // 待っている Read は、この合図ですぐ戻る。
+    // 前は、カメラの元を閉じれば、待っている同期の ReadSample が戻ると考えていたが、戻らなかった（Windows のカメラの仕組みを通すカメラでも、
+    // このプロセスの中で直接作ったカメラの元でも）。カメラの元を閉じるのは、壊すとき（作ったスレッド）にする
     cancelled_ = true;
-    if (source_) {
-        source_->Shutdown(); // 待っている ReadSample が MF_E_SHUTDOWN で戻る（Media Foundation のオブジェクトはどのスレッドからでも呼べる）
-    }
+    SetEvent(cancel_);
 }
 
 void Capture::GetInfo(TvCaptureInfo& info) const
@@ -216,10 +325,23 @@ bool Capture::Read(void* bgra, int stride, int bufferSize, int64_t& timestamp)
         if (tries > 1000) {
             throw Error(TV_E_MEDIA, L"映像のフレームが届きません");
         }
-        DWORD streamIndex = 0;
-        DWORD flags = 0;
-        LONGLONG time = 0;
-        CheckHr(reader_->ReadSample(kVideo, 0, &streamIndex, &flags, &time, &sample), L"映像の読み出し");
+        CheckHr(reader_->ReadSample(kVideo, 0, nullptr, nullptr, nullptr, nullptr), L"映像の読み出し");
+        pending_ = true;
+        // 結果が届くのと、やめさせる合図のどちらか早い方を待つ（両方なら、やめる方）
+        const HANDLE events[] = {cancel_, callback_->Ready()};
+        const DWORD waited = WaitForMultipleObjects(2, events, FALSE, INFINITE);
+        if (waited == WAIT_OBJECT_0) {
+            throw Error(TV_E_INVALID_STATE, L"映像の読み込みをやめました");
+        }
+        if (waited != WAIT_OBJECT_0 + 1) {
+            throw Error(TV_E_MEDIA, std::format(L"映像が届くのを待てません（{}）", GetLastError()));
+        }
+        pending_ = false;
+        ReadCallback::Result result = callback_->Take();
+        CheckHr(result.status, L"映像の読み出し");
+        const DWORD flags = result.flags;
+        const LONGLONG time = result.time;
+        sample = std::move(result.sample);
         if (flags & MF_SOURCE_READERF_ERROR) {
             throw Error(TV_E_MEDIA, L"映像の読み出しでエラーが起きました（カメラが外れた可能性があります）");
         }
