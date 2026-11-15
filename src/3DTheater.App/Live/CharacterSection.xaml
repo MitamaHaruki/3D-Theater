@@ -6,14 +6,14 @@
     <DockPanel>
       <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
         <Button x:Name="LoadButton" Style="{StaticResource LiveActionButtonStyle}" Margin="8,0,0,0" Content="読み込む..." Click="OnLoadClick"
-                AutomationProperties.Name="キャラクターを読み込む" ToolTip="PMX・VRM のモデルを、キャラクターとして読み込みます（いれば、確かめてから入れ替えます）" />
+                AutomationProperties.Name="キャラクターを読み込む" ToolTip="PMX・VRM・FBX のモデルを、キャラクターとして読み込みます（いれば、確かめてから入れ替えます）" />
         <Button x:Name="RemoveButton" Style="{StaticResource LiveActionButtonStyle}" Margin="8,0,0,0" Content="外す" Click="OnRemoveClick"
                 AutomationProperties.Name="キャラクターを外す" ToolTip="キャラクターをシーンから外します（モデルのファイルは消しません。Ctrl+Z で戻せます）" />
       </StackPanel>
       <TextBlock x:Name="NameText" VerticalAlignment="Center" FontSize="13" TextTrimming="CharacterEllipsis" AutomationProperties.AutomationId="LiveCharacterName" />
     </DockPanel>
     <TextBlock x:Name="EmptyNote" Margin="0,8,0,0" Style="{StaticResource PlannedNoteStyle}"
-               Text="「読み込む...」で PMX・VRM のモデルを読み込むと、キャラクターになります。カメラ・スマホの顔のトラッキングは、キャラクターにだけ当てはめます。" />
+               Text="「読み込む...」で PMX・VRM・FBX のモデルを読み込むと、キャラクターになります。カメラ・スマホの顔のトラッキングは、キャラクターにだけ当てはめます。" />
     <StackPanel x:Name="Body" Margin="0,10,0,0">
       <WrapPanel>
         <Button Style="{StaticResource LiveActionButtonStyle}" Content="待機モーション・ポーズを読み込む..." Click="OnIdleMotionClick"

@@ -160,7 +160,7 @@ public sealed class TrackingDriver
             }
             else if (target is null)
             {
-                Status = "キャラクターがいません（サイドバーの「キャラクター」で、PMX か VRM のモデルを読み込んでください）";
+                Status = "キャラクターがいません（サイドバーの「キャラクター」で、PMX・VRM・FBX のモデルを読み込んでください）";
             }
         }
         return target;

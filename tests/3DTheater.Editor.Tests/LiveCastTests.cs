@@ -79,8 +79,24 @@ public sealed class LiveCastTests
     {
         Assert.IsTrue(LiveCast.IsCharacterFile(@"C:\モデル\レン.pmx"));
         Assert.IsTrue(LiveCast.IsCharacterFile("a.PMX"));
+        Assert.IsTrue(LiveCast.IsCharacterFile("a.vrm"));
+        Assert.IsTrue(LiveCast.IsCharacterFile("a.fbx"));
         Assert.IsFalse(LiveCast.IsCharacterFile("ネギ.x"));
         Assert.IsFalse(LiveCast.IsCharacterFile("ネギ.vac"));
+        Assert.IsFalse(LiveCast.IsCharacterFile("部屋.glb"));
         Assert.IsFalse(LiveCast.IsCharacterFile(null));
+    }
+
+    [TestMethod]
+    public void FbxNeedsAHeadToBeACharacter()
+    {
+        // FBX は、ボーンの名前から人型のボーンが見つかった（頭がある）ものだけキャラクターにできる（83 章の 2 段目）
+        SceneDocument scene = SceneDocument.CreateDefault();
+        ModelNode room = AddModel(scene, "部屋.fbx", "Root", "Door");
+        ModelNode avatar = AddModel(scene, "アバター.FBX", "センター", "頭");
+        Assert.IsFalse(LiveCast.CanBeCharacter(room));
+        Assert.IsTrue(LiveCast.CanBeCharacter(avatar));
+        Assert.IsTrue(LiveCast.CanBeCharacter(AddModel(scene, "ステージ.pmx", "全ての親")), "PMX は頭が無くてもよい（今まで通り）");
+        Assert.AreSame(avatar, LiveCast.ChooseCharacter([room, avatar]));
     }
 }

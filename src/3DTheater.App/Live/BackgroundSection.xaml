@@ -5,9 +5,9 @@
   <StackPanel>
     <DockPanel>
       <Button DockPanel.Dock="Right" Style="{StaticResource LiveActionButtonStyle}" Margin="8,0,0,0" Content="読み込む..." Click="OnLoadClick"
-              AutomationProperties.Name="背景を読み込む" ToolTip="部屋・小物などのモデル（PMX・VRM・glTF・FBX）とアクセサリ（.x・.vac）を読み込みます。PMX・VRM のキャラクターは、トラッキングしないサブキャラクターになります" />
+              AutomationProperties.Name="背景を読み込む" ToolTip="部屋・小物などのモデル（PMX・VRM・glTF・FBX）とアクセサリ（.x・.vac）を読み込みます。PMX・VRM・FBX のキャラクターは、トラッキングしないサブキャラクターになります" />
       <TextBlock VerticalAlignment="Center" TextWrapping="Wrap" Foreground="{StaticResource SubTextBrush}"
-                 Text="キャラクター以外のモデルとアクセサリ（PMX・VRM のキャラクターは、トラッキングしないサブキャラクター）" />
+                 Text="キャラクター以外のモデルとアクセサリ（PMX・VRM・FBX のキャラクターは、トラッキングしないサブキャラクター）" />
     </DockPanel>
     <ListBox x:Name="ItemList" Margin="0,8,0,0" MaxHeight="220" Background="Transparent" AutomationProperties.Name="背景の一覧"
              SelectionChanged="OnListSelectionChanged" />
@@ -17,7 +17,7 @@
         <Button Style="{StaticResource LiveActionButtonStyle}" Content="外す" Click="OnRemoveClick" AutomationProperties.Name="背景を外す"
                 ToolTip="選んだモデルをシーンから外します（モデルのファイルは消しません。Ctrl+Z で戻せます）" />
         <Button x:Name="MakeCharacterButton" Style="{StaticResource LiveActionButtonStyle}" Content="キャラクターにする" Click="OnMakeCharacterClick"
-                ToolTip="選んだ PMX・VRM のモデルをキャラクターにします（今のキャラクターは背景になります）" />
+                ToolTip="選んだ PMX・VRM・FBX のモデルをキャラクターにします（今のキャラクターは背景になります）" />
         <Button Style="{StaticResource LiveActionButtonStyle}" Content="待機モーション・ポーズを読み込む..." Click="OnIdleMotionClick"
                 ToolTip="選んだモデルに、待機モーション（VMD）かポーズ（VPD）を当てはめます。モーションは、その長さで繰り返します" />
         <Button Style="{StaticResource LiveActionButtonStyle}" Content="待機モーションを外す" Click="OnRemoveIdleMotionClick"

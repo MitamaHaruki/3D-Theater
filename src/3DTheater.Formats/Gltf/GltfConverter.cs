@@ -7,8 +7,9 @@ namespace Theater3D.Formats.Gltf;
 
 /// <summary>
 /// glTF の中身の元のファイル（FBX など、glTF にしてから読むもの。設計判断記録 83 章）。<paramref name="Kind"/> はレポートとコメントに出す形式の名前。
+/// <paramref name="Humanoid"/> は、元のファイルのボーンの名前から推し量った人型のボーン（VRM の名前 → ノード）。あれば VRM と同じく MMD の形にする。
 /// </summary>
-internal sealed record GltfSource(string Kind, string Comment);
+internal sealed record GltfSource(string Kind, string Comment, IReadOnlyDictionary<string, int>? Humanoid = null);
 
 /// <summary>VRM の版（無ければ、ふつうの glTF）。</summary>
 public enum VrmVersion
@@ -65,7 +66,7 @@ internal static class GltfConverter
     public static PmxDocument ToPmx(GltfFile file, string name, string? baseDirectory, LoadReport report, GltfSource? source = null)
     {
         var (version, comment, title) = ReadVrmMeta(file.Root);
-        var builder = new Builder(file, baseDirectory, report, version);
+        var builder = new Builder(file, baseDirectory, report, version, source);
         builder.Build();
         string kind = version switch
         {
@@ -151,7 +152,7 @@ internal static class GltfConverter
         return v <= 0.0031308f ? v * 12.92f : 1.055f * MathF.Pow(v, 1f / 2.4f) - 0.055f;
     }
 
-    private sealed class Builder(GltfFile file, string? baseDirectory, LoadReport report, VrmVersion version)
+    private sealed class Builder(GltfFile file, string? baseDirectory, LoadReport report, VrmVersion version, GltfSource? source)
     {
         private readonly bool _mirrorX = version == VrmVersion.Vrm0;
         private Node[] _nodes = [];
@@ -206,7 +207,9 @@ internal static class GltfConverter
         {
             ReadNodes();
             ComputeWorld();
-            _human = VrmHumanoid.Read(file.Root, version, _nodes.Length);
+            _human = source?.Humanoid is { } guessed
+                ? guessed.Where(b => (uint)b.Value < (uint)_nodes.Length).ToDictionary(b => b.Key, b => b.Value, StringComparer.Ordinal)
+                : VrmHumanoid.Read(file.Root, version, _nodes.Length);
             _vrm0Materials = ReadVrm0Materials();
             (_expressions, _lookAtByExpression) = VrmExpressions.Read(file.Root, version, n => (uint)n < (uint)_nodes.Length ? _nodes[n].Mesh : -1, MaterialByName);
             ComputePose();
@@ -1434,11 +1437,13 @@ internal static class GltfConverter
         {
             if (_humanoidApplied)
             {
+                string bones = source?.Humanoid is not null ? "ボーンの名前から見つけた人型のボーン" : "VRM の人型のボーン";
                 report.Info(LoadIssueCategory.Note,
-                    "VRM の人型のボーンを、MMD の名前（センター・上半身・頭・左腕 など）に付け替え、足の IK と両目を足しました。MMD のモーションと顔のトラッキングで動かせます");
+                    $"{bones}を、MMD の名前（センター・上半身・頭・左腕 など）に付け替え、足の IK と両目を足しました。MMD のモーションと顔のトラッキングで動かせます");
                 if (_posedArms > 0)
                 {
-                    report.Info(LoadIssueCategory.Note, $"腕を、MMD と同じ A の字（水平から {ArmAngleDegrees:0} 度下げた形）にして読み込みました（VRM は T の字で作られているため）");
+                    string reason = source?.Humanoid is not null ? "MMD のモーションは A の字を基本にしているため" : "VRM は T の字で作られているため";
+                    report.Info(LoadIssueCategory.Note, $"腕を、MMD と同じ A の字（水平から {ArmAngleDegrees:0} 度下げた形）にして読み込みました（{reason}）");
                 }
             }
             else if (version != VrmVersion.None)
@@ -1446,8 +1451,9 @@ internal static class GltfConverter
                 report.Warning(LoadIssueCategory.Unsupported,
                     "VRM の人型のボーンの決まり（腰の hips）が見つからないため、ボーンの名前は元のままです（MMD のモーションと顔のトラッキングは当てはまりません）");
             }
-            else
+            else if (source is null)
             {
+                // FBX などは、元のファイルの読み込みが、人型のボーンを見つけられなかったことを書いている
                 report.Info(LoadIssueCategory.Note, $"{kind} には人型のボーンの決まりが無いため、ボーンの名前は元のままです（MMD のモーションは当てはまりません）");
             }
             if (_expressionMorphs.Count > 0)

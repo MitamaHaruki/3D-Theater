@@ -1561,7 +1561,7 @@ public partial class MainWindow : Window, Live.ILiveSceneActions, Live.ILiveScen
         }
         if (!LiveCast.IsCharacterFile(dialog.FileName))
         {
-            ShowNotice("キャラクターにできるのは、PMX と VRM のモデルです（アクセサリと glTF・FBX は「背景」で読み込みます）", isError: true);
+            ShowNotice("キャラクターにできるのは、PMX・VRM・FBX のモデルです（アクセサリと glTF は「背景」で読み込みます）", isError: true);
             return;
         }
         Domain.ModelNode? old = LiveCast.Character(_context.Scene, _context.LiveTracking);
@@ -1576,6 +1576,13 @@ public partial class MainWindow : Window, Live.ILiveSceneActions, Live.ILiveScen
         {
             return;
         }
+        if (!LiveCast.CanBeCharacter(model))
+        {
+            // FBX で、ボーンの名前から人型のボーンが見つからなかった: 背景のまま（今のキャラクターも、そのまま）
+            ShowNotice($"「{model.Name}」は、ボーンの名前から人型のボーン（頭など）を見つけられなかったので、キャラクターにできません（背景として読み込みました）", isError: true);
+            AppLog.Info($"「{model.Name}」は人型のボーンが見つからないので、背景にしました");
+            return;
+        }
         _context.LiveTracking.TargetModelId = model.Id;
         if (old is not null)
         {
@@ -1587,7 +1594,7 @@ public partial class MainWindow : Window, Live.ILiveSceneActions, Live.ILiveScen
 
     void Live.ILiveSceneActions.MakeCharacter(Domain.ModelNode model)
     {
-        if (!LiveCast.IsCharacterFile(model.FilePath))
+        if (!LiveCast.CanBeCharacter(model))
         {
             return;
         }
@@ -2131,7 +2138,7 @@ public partial class MainWindow : Window, Live.ILiveSceneActions, Live.ILiveScen
                 {
                     imported.Add(node);
                     if (_mode == AppMode.Live && role == LiveImportRole.Auto && LiveCast.Character(_context.Scene, _context.LiveTracking) is null
-                        && LiveCast.IsCharacterFile(node.FilePath))
+                        && LiveCast.CanBeCharacter(node))
                     {
                         _context.LiveTracking.TargetModelId = node.Id;
                         AppLog.Info($"「{node.Name}」をキャラクターにしました（キャラクターがいなかったため）");

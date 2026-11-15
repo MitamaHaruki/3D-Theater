@@ -47,10 +47,10 @@ public static class FbxReader
             }
             FbxScene scene = FbxScene.Build(document);
             string modelName = name ?? "モデル";
-            byte[] glb = FbxConverter.ToGlb(scene, baseDirectory, modelName, report);
+            var (glb, humanoid) = FbxConverter.ToGlb(scene, baseDirectory, modelName, report);
             using GltfFile file = GltfFile.Parse(glb, baseDirectory);
             string comment = scene.Creator.Length > 0 ? $"\n作ったソフト: {scene.Creator}" : string.Empty;
-            PmxDocument pmx = GltfConverter.ToPmx(file, modelName, baseDirectory, report, new GltfSource("FBX", comment));
+            PmxDocument pmx = GltfConverter.ToPmx(file, modelName, baseDirectory, report, new GltfSource("FBX", comment, humanoid));
             PmxValidator.Validate(pmx, report, baseDirectory);
             return new PmxLoadResult(pmx, report, path);
         }

@@ -124,7 +124,7 @@ public partial class BackgroundSection : UserControl
         ItemList.Visibility = any ? Visibility.Visible : Visibility.Collapsed;
         EmptyNote.Visibility = any ? Visibility.Collapsed : Visibility.Visible;
         Body.Visibility = model is null ? Visibility.Collapsed : Visibility.Visible;
-        MakeCharacterButton.Visibility = model is not null && LiveCast.IsCharacterFile(model.FilePath) ? Visibility.Visible : Visibility.Collapsed;
+        MakeCharacterButton.Visibility = model is not null && LiveCast.CanBeCharacter(model) ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private async void OnLoadClick(object sender, RoutedEventArgs e) => await _actions.LoadBackgroundAsync();

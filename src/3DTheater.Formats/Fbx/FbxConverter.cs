@@ -24,7 +24,8 @@ internal static class FbxConverter
     private static readonly string[] DiffuseSlots =
         ["DiffuseColor", "Diffuse", "Maya|baseColor", "Maya|TEX_color_map", "3dsMax|Parameters|base_color_map", "base_color_map", "BaseColor", "baseColor"];
 
-    public static byte[] ToGlb(FbxScene scene, string? baseDirectory, string fileName, LoadReport report) =>
+    /// <summary>GLB の中身と、ボーンの名前から推し量った人型のボーン（VRM の名前 → ノード。見つからなければ null）。</summary>
+    public static (byte[] Glb, IReadOnlyDictionary<string, int>? Humanoid) ToGlb(FbxScene scene, string? baseDirectory, string fileName, LoadReport report) =>
         new Builder(scene, baseDirectory, fileName, report).Build();
 
     private sealed class Builder(FbxScene scene, string? baseDirectory, string fileName, LoadReport report)
@@ -48,8 +49,11 @@ internal static class FbxConverter
         private int _otherInherit;
         private int _skippedGeometries;
         private bool _flippedHandedness;
+        private bool _turnedAround;
+        private Dictionary<string, int> _humanoid = [];
+        private string[] _missingBones = [];
 
-        public byte[] Build()
+        public (byte[] Glb, IReadOnlyDictionary<string, int>? Humanoid) Build()
         {
             Matrix4x4 axis = AxisConversion(out string axisText);
             foreach (FbxObject model in scene.OfKind("Model"))
@@ -66,14 +70,39 @@ internal static class FbxConverter
                     (childrenOf[parentOf[i]] ??= []).Add(i);
                 }
             }
+            var locals = new Matrix4x4[_models.Count];
+            for (int i = 0; i < _models.Count; i++)
+            {
+                locals[i] = LocalMatrix(_models[i]);
+                if (parentOf[i] < 0)
+                {
+                    locals[i] *= axis;
+                }
+            }
+
+            // 人型のボーン（2 段目）: ボーンの名前から推し量る。左右が逆なら（後ろを向いていれば）、Y の周りに半回転させて前を向かせる
+            string[] names = [.. _models.Select(m => m.Name)];
+            _humanoid = FbxHumanoid.Guess(names, parentOf, out _missingBones);
+            if (_humanoid.Count > 0 && FacesBackward(locals, parentOf))
+            {
+                Matrix4x4 turn = Matrix4x4.CreateRotationY(MathF.PI);
+                for (int i = 0; i < _models.Count; i++)
+                {
+                    if (parentOf[i] < 0)
+                    {
+                        locals[i] *= turn;
+                    }
+                }
+                _turnedAround = true;
+            }
+
             var roots = new JsonArray();
             for (int i = 0; i < _models.Count; i++)
             {
                 FbxObject model = _models[i];
-                Matrix4x4 local = LocalMatrix(model);
+                Matrix4x4 local = locals[i];
                 if (parentOf[i] < 0)
                 {
-                    local *= axis;
                     roots.Add(JsonValue.Create(i));
                 }
                 if (model.Number("InheritType", 1) is not (0 or 1))
@@ -114,7 +143,33 @@ internal static class FbxConverter
                 ["images"] = _images,
             };
             ReportNotes(axisText);
-            return _out.ToGlb(root);
+            return (_out.ToGlb(root), _humanoid.Count > 0 ? _humanoid : null);
+        }
+
+        // glTF と同じく正面が +Z なら、モデルの左（左腕・左足）は +X にある。逆なら後ろを向いている
+        private bool FacesBackward(Matrix4x4[] locals, int[] parentOf)
+        {
+            Vector3 World(int node)
+            {
+                Matrix4x4 m = locals[node];
+                for (int p = parentOf[node], guard = 0; p >= 0 && guard++ < locals.Length; p = parentOf[p])
+                {
+                    m *= locals[p];
+                }
+                return m.Translation;
+            }
+            foreach (string part in new[] { "UpperArm", "Shoulder", "Hand", "UpperLeg", "Foot" })
+            {
+                if (_humanoid.TryGetValue("left" + part, out int left) && _humanoid.TryGetValue("right" + part, out int right))
+                {
+                    float difference = World(left).X - World(right).X;
+                    if (MathF.Abs(difference) > 1e-4f)
+                    {
+                        return difference < 0;
+                    }
+                }
+            }
+            return false;
         }
 
         // 親のノード（つながっている 1 つ目の Model。輪になっていれば、いちばん上とみなす）
@@ -766,6 +821,30 @@ internal static class FbxConverter
         {
             string creator = scene.Creator.Length > 0 ? $"（作ったソフト: {scene.Creator}）" : string.Empty;
             report.Info(LoadIssueCategory.Note, $"FBX {scene.Version / 1000}.{scene.Version / 100 % 10}{creator}の軸と長さ（{axisText}）に合わせて読みました");
+            string Names(IEnumerable<string> bones) =>
+                string.Join("・", bones.Select(b => Gltf.VrmHumanoid.MmdName(b, Gltf.VrmVersion.None) ?? b switch
+                {
+                    "hips" => "下半身",
+                    "spine" => "上半身",
+                    "head" => "頭",
+                    "neck" => "首",
+                    _ => b,
+                }));
+            if (_humanoid.Count > 0)
+            {
+                report.Info(LoadIssueCategory.Note,
+                    $"ボーンの名前から、人型のボーン {_humanoid.Count} 本（腰・背骨・頭・腕・足・指など）を見つけました" +
+                    (_missingBones.Length > 0 ? $"。見つからなかったもの: {Names(_missingBones)}" : string.Empty));
+            }
+            else if (_models.Count > 0)
+            {
+                report.Info(LoadIssueCategory.Note,
+                    $"ボーンの名前から、人型のボーン（{Names(_missingBones.Intersect(FbxHumanoid.Required))}）を見つけられなかったので、ボーンの名前は元のままです（MMD のモーションと顔のトラッキングは当てはまりません）");
+            }
+            if (_turnedAround)
+            {
+                report.Info(LoadIssueCategory.Note, "左右のボーンの位置から後ろを向いていると分かったので、半回転させて正面を向かせました");
+            }
             if (_flippedHandedness)
             {
                 report.Info(LoadIssueCategory.Note, "左手系と書かれた FBX なので、右の向きを逆にして読みました（左右が逆に見えるときは、元のソフトで書き出し直してください）");

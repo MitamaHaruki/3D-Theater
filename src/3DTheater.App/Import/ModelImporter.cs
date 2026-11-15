@@ -26,8 +26,9 @@ internal static class ModelImporter
         "モデル・アクセサリ (*.pmx;*.vrm;*.glb;*.gltf;*.fbx;*.x;*.vac)|*.pmx;*.vrm;*.glb;*.gltf;*.fbx;*.x;*.vac|PMX モデル (*.pmx)|*.pmx|VRM モデル (*.vrm)|*.vrm|"
         + "glTF (*.glb;*.gltf)|*.glb;*.gltf|FBX (*.fbx)|*.fbx|アクセサリ (*.x;*.vac)|*.x;*.vac|すべてのファイル (*.*)|*.*";
 
-    /// <summary>キャラクターにできるモデル（PMX・VRM）を選ぶときの絞り込み。</summary>
-    public const string CharacterFilter = "キャラクターのモデル (*.pmx;*.vrm)|*.pmx;*.vrm|PMX モデル (*.pmx)|*.pmx|VRM モデル (*.vrm)|*.vrm|すべてのファイル (*.*)|*.*";
+    /// <summary>キャラクターにできるモデル（PMX・VRM・FBX）を選ぶときの絞り込み。</summary>
+    public const string CharacterFilter =
+        "キャラクターのモデル (*.pmx;*.vrm;*.fbx)|*.pmx;*.vrm;*.fbx|PMX モデル (*.pmx)|*.pmx|VRM モデル (*.vrm)|*.vrm|FBX モデル (*.fbx)|*.fbx|すべてのファイル (*.*)|*.*";
 
     public const string AccessoryFilter = "アクセサリ (*.x;*.vac)|*.x;*.vac|すべてのファイル (*.*)|*.*";
 

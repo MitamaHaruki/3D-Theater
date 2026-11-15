@@ -11,10 +11,21 @@ namespace Theater3D.Editor;
 public static class LiveCast
 {
     /// <summary>
-    /// キャラクターにできるファイルか（PMX と VRM のモデル。.x・.vac のアクセサリと、ボーンの決まりの無い glTF（.glb・.gltf）と FBX（.fbx）はできない）。
+    /// キャラクターにできるかもしれないファイルか（PMX・VRM・FBX のモデル。.x・.vac のアクセサリと、ボーンの決まりの無い glTF（.glb・.gltf）はできない）。
+    /// FBX は、読み込んでボーンの名前から人型のボーンが見つかったものだけ（<see cref="CanBeCharacter"/>）。
     /// </summary>
     public static bool IsCharacterFile(string? path) =>
-        Path.GetExtension(path)?.ToLowerInvariant() is ".pmx" or ".vrm";
+        Path.GetExtension(path)?.ToLowerInvariant() is ".pmx" or ".vrm" or ".fbx";
+
+    /// <summary>
+    /// 読み込んだモデルをキャラクターにできるか。FBX は人型の決まりが無いので、ボーンの名前から人型のボーンが見つかった（頭のボーンがある）ものだけ
+    /// （設計判断記録 83 章の 2 段目）。
+    /// </summary>
+    public static bool CanBeCharacter(ModelNode model) =>
+        IsCharacterFile(model.FilePath)
+        && (!string.Equals(Path.GetExtension(model.FilePath), ".fbx", StringComparison.OrdinalIgnoreCase) || HasHead(model));
+
+    private static bool HasHead(ModelNode model) => FaceRigNames.Find([.. model.Bones.Select(b => b.Name)], FaceRigNames.Head) >= 0;
 
     /// <summary>シーンのモデル（並び順）。</summary>
     public static IReadOnlyList<ModelNode> Models(SceneDocument scene) => [.. scene.ModelsGroup.Children.OfType<ModelNode>()];
@@ -36,8 +47,7 @@ public static class LiveCast
     /// </summary>
     public static ModelNode? ChooseCharacter(IEnumerable<ModelNode> models)
     {
-        ModelNode[] candidates = [.. models.Where(m => IsCharacterFile(m.FilePath))];
-        return candidates.FirstOrDefault(m => FaceRigNames.Find([.. m.Bones.Select(b => b.Name)], FaceRigNames.Head) >= 0)
-            ?? candidates.FirstOrDefault();
+        ModelNode[] candidates = [.. models.Where(CanBeCharacter)];
+        return candidates.FirstOrDefault(HasHead) ?? candidates.FirstOrDefault();
     }
 }

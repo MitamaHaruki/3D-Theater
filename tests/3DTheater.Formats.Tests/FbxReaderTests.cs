@@ -248,6 +248,188 @@ public sealed class FbxReaderTests
     }
 
     [TestMethod]
+    public void HumanoidIsGuessedFromMixamoNames()
+    {
+        var (names, parents) = Tree(
+        [
+            "mixamorig:Hips",
+            " mixamorig:Spine",
+            "  mixamorig:Spine1",
+            "   mixamorig:Spine2",
+            "    mixamorig:Neck",
+            "     mixamorig:Head",
+            "      mixamorig:HeadTop_End",
+            "      mixamorig:LeftEye",
+            "      mixamorig:RightEye",
+            .. Sided(
+            [
+                "    mixamorig:$Shoulder",
+                "     mixamorig:$Arm",
+                "      mixamorig:$ForeArm",
+                "       mixamorig:$Hand",
+                "        mixamorig:$HandThumb1",
+                "         mixamorig:$HandThumb2",
+                "          mixamorig:$HandThumb3",
+                "           mixamorig:$HandThumb4",
+                "        mixamorig:$HandIndex1",
+                "         mixamorig:$HandIndex2",
+                "          mixamorig:$HandIndex3",
+                "           mixamorig:$HandIndex4",
+            ], "Left", "Right"),
+            .. Sided([" mixamorig:$UpLeg", "  mixamorig:$Leg", "   mixamorig:$Foot", "    mixamorig:$ToeBase", "     mixamorig:$Toe_End"], "Left", "Right"),
+        ]);
+        AssertHumanoid(names, parents, new()
+        {
+            ["hips"] = "mixamorig:Hips", ["spine"] = "mixamorig:Spine", ["chest"] = "mixamorig:Spine1", ["upperChest"] = "mixamorig:Spine2",
+            ["neck"] = "mixamorig:Neck", ["head"] = "mixamorig:Head", ["leftEye"] = "mixamorig:LeftEye",
+            ["leftShoulder"] = "mixamorig:LeftShoulder", ["leftUpperArm"] = "mixamorig:LeftArm", ["leftLowerArm"] = "mixamorig:LeftForeArm",
+            ["rightHand"] = "mixamorig:RightHand",
+            ["leftThumbMetacarpal"] = "mixamorig:LeftHandThumb1", ["leftThumbDistal"] = "mixamorig:LeftHandThumb3",
+            ["leftIndexProximal"] = "mixamorig:LeftHandIndex1", ["leftIndexDistal"] = "mixamorig:LeftHandIndex3",
+            ["leftUpperLeg"] = "mixamorig:LeftUpLeg", ["leftLowerLeg"] = "mixamorig:LeftLeg", ["rightFoot"] = "mixamorig:RightFoot",
+            ["leftToes"] = "mixamorig:LeftToeBase",
+        });
+    }
+
+    [TestMethod]
+    public void HumanoidIsGuessedFromOtherNamingStyles()
+    {
+        // VRChat（CATS）: 「Left leg」は太もも、「Left knee」はひざ。ねじれのボーンは使わない
+        var (names, parents) = Tree(
+        [
+            "Armature",
+            " Hips",
+            "  Spine",
+            "   Chest",
+            "    Neck",
+            "     Head",
+            "      Eye_L",
+            "      Eye_R",
+            .. Sided(["    $ shoulder", "     $ arm", "      $ arm twist", "      $ elbow", "       $ wrist", "        Thumb0_#", "         Thumb1_#", "          Thumb2_#",
+                "        IndexFinger1_#", "         IndexFinger2_#", "          IndexFinger3_#"], "Left", "Right", "L", "R"),
+            .. Sided(["  $ leg", "   $ knee", "    $ ankle", "     $ toe"], "Left", "Right"),
+        ]);
+        AssertHumanoid(names, parents, new()
+        {
+            ["hips"] = "Hips", ["chest"] = "Chest", ["head"] = "Head", ["leftEye"] = "Eye_L", ["leftUpperArm"] = "Left arm", ["leftLowerArm"] = "Left elbow",
+            ["leftHand"] = "Left wrist", ["leftThumbMetacarpal"] = "Thumb0_L", ["leftThumbDistal"] = "Thumb2_L", ["leftIndexIntermediate"] = "IndexFinger2_L",
+            ["leftUpperLeg"] = "Left leg", ["leftLowerLeg"] = "Left knee", ["leftFoot"] = "Left ankle", ["rightToes"] = "Right toe",
+        });
+
+        // Unity の人型の名前（.L・.R）
+        (names, parents) = Tree(
+        [
+            "Hips", " Spine", "  Chest", "   UpperChest", "    Neck", "     Head",
+            .. Sided(["    Shoulder.#", "     UpperArm.#", "      LowerArm.#", "       Hand.#", "        Thumb Proximal.#", "         Thumb Intermediate.#",
+                "          Thumb Distal.#", "        Little Proximal.#"], "", "", "L", "R"),
+            .. Sided([" UpperLeg.#", "  LowerLeg.#", "   Foot.#", "    Toes.#"], "", "", "L", "R"),
+        ]);
+        AssertHumanoid(names, parents, new()
+        {
+            ["upperChest"] = "UpperChest", ["leftUpperArm"] = "UpperArm.L", ["rightLowerArm"] = "LowerArm.R", ["leftThumbMetacarpal"] = "Thumb Proximal.L",
+            ["leftThumbProximal"] = "Thumb Intermediate.L", ["leftLittleProximal"] = "Little Proximal.L", ["leftToes"] = "Toes.L",
+        });
+
+        // VRoid（J_Bip_）: 補助のボーン（J_Aim_・J_Roll_・J_Sec_）は使わない
+        (names, parents) = Tree(
+        [
+            "Root", " J_Bip_C_Hips", "  J_Aim_L_UpperLeg", "   J_Roll_L_UpperLeg", "  J_Bip_C_Spine", "   J_Bip_C_Chest", "    J_Bip_C_UpperChest",
+            "     J_Bip_C_Neck", "      J_Bip_C_Head", "       J_Adj_L_FaceEye", "       J_Adj_R_FaceEye", "       J_Sec_Hair1_01",
+            .. Sided(["     J_Bip_#_Shoulder", "      J_Bip_#_UpperArm", "       J_Bip_#_LowerArm", "        J_Bip_#_Hand", "         J_Bip_#_Middle1"], "", "", "L", "R"),
+            .. Sided(["  J_Bip_#_UpperLeg", "   J_Bip_#_LowerLeg", "    J_Bip_#_Foot", "     J_Bip_#_ToeBase"], "", "", "L", "R"),
+        ]);
+        AssertHumanoid(names, parents, new()
+        {
+            ["hips"] = "J_Bip_C_Hips", ["leftEye"] = "J_Adj_L_FaceEye", ["leftUpperLeg"] = "J_Bip_L_UpperLeg", ["rightMiddleProximal"] = "J_Bip_R_Middle1",
+        });
+
+        // Blender（upper_arm.L・thigh.L・shin.L）。手首は、ひじのねじれのボーンの下にあってもよい
+        (names, parents) = Tree(
+        [
+            "Armature", " hips", "  spine", "   chest", "    neck", "     head 1",
+            .. Sided(["    shoulder.#", "     upper_arm.#", "      forearm.#", "       forearm.twist.#", "        hand.#", "         f_index.01.#",
+                "          f_index.02.#", "           f_index.03.#", "            f_index.03.#_end"], "", "", "L", "R"),
+            .. Sided(["  thigh.#", "   shin.#", "    foot.#", "     toe.#", "    foot_rope_#"], "", "", "L", "R"),
+        ]);
+        AssertHumanoid(names, parents, new()
+        {
+            ["head"] = "head 1", ["leftLowerArm"] = "forearm.L", ["leftHand"] = "hand.L", ["leftIndexDistal"] = "f_index.03.L", ["rightLowerLeg"] = "shin.R",
+        });
+
+        // 3ds Max の Biped（Bip01 〜。太ももは背骨の下）
+        (names, parents) = Tree(
+        [
+            "Bip01", " Bip01 Pelvis", "  Bip01 Spine", "   Bip01 Spine1", "    Bip01 Neck", "     Bip01 Head",
+            .. Sided(["     Bip01 # Clavicle", "      Bip01 # UpperArm", "       Bip01 # Forearm", "        Bip01 # Hand"], "", "", "L", "R"),
+            .. Sided(["   Bip01 # Thigh", "    Bip01 # Calf", "     Bip01 # Foot", "      Bip01 # Toe0"], "", "", "L", "R"),
+        ]);
+        AssertHumanoid(names, parents, new()
+        {
+            ["hips"] = "Bip01 Pelvis", ["chest"] = "Bip01 Spine1", ["leftShoulder"] = "Bip01 L Clavicle", ["leftUpperLeg"] = "Bip01 L Thigh",
+            ["leftLowerLeg"] = "Bip01 L Calf", ["rightToes"] = "Bip01 R Toe0",
+        });
+
+        // 人型でないもの（部屋・小物）
+        (names, parents) = Tree(["Root", " Door", "  Handle", " Lamp"]);
+        Assert.IsEmpty(FbxHumanoid.Guess(names, parents, out string[] missing));
+        CollectionAssert.IsSubsetOf(FbxHumanoid.Required, missing);
+    }
+
+    [TestMethod]
+    public void HumanoidFbxBecomesMmdSkeletonFacingFront()
+    {
+        // 後ろを向いた（左腕が -X にある）T の字の人型（cm）
+        var scene = new TestScene();
+        long Bone(string name, long parent, double x, double y, double z)
+        {
+            long id = scene.Add("Model", name, "LimbNode", Props(P("Lcl Translation", "Lcl Translation", x, y, z)));
+            scene.Connect(id, parent);
+            return id;
+        }
+        long hips = Bone("Hips", 0, 0, 100, 0);
+        long spine = Bone("Spine", hips, 0, 10, 0);
+        long chest = Bone("Spine1", spine, 0, 15, 0);
+        long neck = Bone("Neck", chest, 0, 20, 0);
+        long head = Bone("Head", neck, 0, 10, 0);
+        Bone("LeftEye", head, -3, 8, -5);
+        Bone("RightEye", head, 3, 8, -5);
+        foreach ((string side, double sign) in new[] { ("Left", -1.0), ("Right", 1.0) })
+        {
+            long shoulder = Bone(side + "Shoulder", chest, sign * 3, 18, 0);
+            long arm = Bone(side + "Arm", shoulder, sign * 10, 0, 0);
+            long fore = Bone(side + "ForeArm", arm, sign * 25, 0, 0);
+            Bone(side + "Hand", fore, sign * 22, 0, 0);
+            long upLeg = Bone(side + "UpLeg", hips, sign * 10, -5, 0);
+            long leg = Bone(side + "Leg", upLeg, 0, -45, 0);
+            long foot = Bone(side + "Foot", leg, 0, -42, 0);
+            Bone(side + "ToeBase", foot, 0, -6, -12);
+        }
+        long body = scene.Add("Model", "Body", "Mesh");
+        scene.Connect(body, 0);
+        scene.Connect(Triangle(scene, [0, 0, 0, 10, 0, 0, 0, 10, 0]), body);
+
+        PmxLoadResult result = FbxReader.Read(FbxTestWriter.Binary(scene.Nodes(7400)));
+        Assert.IsTrue(result.Succeeded, string.Join("\n", result.Report.Issues.Select(i => i.Message)));
+        PmxDocument d = result.Document!;
+        PmxBone Find(string name) => d.Bones.FirstOrDefault(b => b.Name == name) ?? throw new AssertFailedException($"ボーン「{name}」がありません");
+        foreach (string name in new[] { "センター", "グルーブ", "下半身", "上半身", "上半身2", "首", "頭", "両目", "左目", "左肩", "左腕", "左ひじ", "左手首",
+            "左足", "左ひざ", "左足首", "左足先EX", "左つま先", "左足ＩＫ", "左つま先ＩＫ", "右腕", "右足ＩＫ" })
+        {
+            Find(name);
+        }
+        Assert.AreEqual(Find("グルーブ"), d.Bones[Find("上半身").ParentIndex], "上半身はグルーブの子");
+        // 半回転して前を向き、左は MMD と同じく +X
+        Assert.IsGreaterThan(0f, Find("左腕").Position.X);
+        Assert.IsLessThan(0f, Find("右腕").Position.X);
+        Assert.IsLessThan(0f, Find("左目").Position.Z, "目は顔の前（MMD の正面は -Z）");
+        Assert.IsTrue(result.Report.Issues.Any(i => i.Message.Contains("半回転", StringComparison.Ordinal)));
+        // 腕は A の字（水平から 37 度下がる）
+        Vector3 upperArm = Find("左ひじ").Position - Find("左腕").Position;
+        Assert.AreEqual(GltfConverter.ArmAngleDegrees, MathF.Atan2(-upperArm.Y, upperArm.X) * 180f / MathF.PI, 0.1f);
+        Assert.AreEqual(25 * Cm, upperArm.Length(), 1e-3f, "腕の長さはそのまま");
+    }
+
+    [TestMethod]
     public void RealFbxSamplesLoad()
     {
         // VRM の公式サンプルを Blender で FBX にしたもの（artifacts\fbx-samples に置いたとき。リポジトリには入れない）
@@ -278,18 +460,26 @@ public sealed class FbxReaderTests
             Assert.IsTrue(d.Materials.All(m => m.TextureIndex >= 0) || name == "Seed-san", $"{name}: テクスチャ");
             Assert.IsGreaterThan(40, d.Morphs.Length, $"{name}: 表情の元");
             Assert.IsGreaterThan(100, d.Bones.Length, $"{name}: ボーン");
-            // 左手は MMD と同じく +X（正面が -Z）
-            PmxBone? leftHand = d.Bones.FirstOrDefault(b => b.Name is "LeftHand" or "J_Bip_L_Hand" or "leftHand" or "hand_L");
-            if (leftHand is not null)
-            {
-                Assert.IsGreaterThan(3f, leftHand.Position.X, $"{name}: 左手");
-            }
-            // 元の VRM と三角形の数が同じ
+            // 人型のボーン（2 段目）。左手は MMD と同じく +X（正面が -Z）
+            PmxBone? leftHand = d.Bones.FirstOrDefault(b => b.Name == "左手首");
+            Assert.IsNotNull(leftHand, $"{name}: 左手首");
+            Assert.IsGreaterThan(3f, leftHand.Position.X, $"{name}: 左手");
+            Assert.IsTrue(d.Bones.Any(b => b.Name == "左足ＩＫ"), $"{name}: 足の IK");
+            // 元の VRM と三角形の数が同じ。ボーンの名前から見つけた人型のボーンは、VRM の人型の決まりと同じ所に来る（2 段目）
             if (vrmFolder is not null && vrmOf.TryGetValue(name, out string? vrm) && File.Exists(Path.Combine(vrmFolder, vrm)))
             {
                 PmxDocument original = GltfReader.Load(Path.Combine(vrmFolder, vrm)).Document!;
                 Assert.HasCount(original.Indices.Length, d.Indices, $"{name}: 三角形の数");
-                Assert.AreEqual(original.Vertices.Max(v => v.Position.Y), top, 0.05f, $"{name}: 背丈が元の VRM と同じ");
+                Assert.AreEqual(original.Vertices.Max(v => v.Position.Y), d.Vertices.Max(v => v.Position.Y), 0.05f, $"{name}: 背丈が元の VRM と同じ");
+                int compared = 0;
+                foreach (PmxBone bone in original.Bones.Where(b => b.Name.Length > 0 && !b.Name.Any(char.IsAsciiLetter)))
+                {
+                    PmxBone? same = d.Bones.FirstOrDefault(b => b.Name == bone.Name);
+                    Assert.IsNotNull(same, $"{name}: VRM にある「{bone.Name}」が FBX に無い");
+                    Assert.IsLessThan(0.02f, Vector3.Distance(bone.Position, same.Position), $"{name}: 「{bone.Name}」の位置 VRM {bone.Position}・FBX {same.Position}");
+                    compared++;
+                }
+                Assert.IsGreaterThan(40, compared, $"{name}: 比べた MMD の名前のボーン");
             }
         }
     }
@@ -369,6 +559,45 @@ public sealed class FbxReaderTests
             start += m.IndexCount;
         }
         throw new AssertFailedException($"材質「{material}」がありません");
+    }
+
+    // 字下げで親子を書いた木（1 字で 1 段）→ 名前と親の番号
+    private static (string[] Names, int[] Parents) Tree(string[] lines)
+    {
+        var names = new string[lines.Length];
+        var parents = new int[lines.Length];
+        var last = new List<int>();
+        for (int i = 0; i < lines.Length; i++)
+        {
+            int depth = lines[i].Length - lines[i].TrimStart(' ').Length;
+            names[i] = lines[i].TrimStart(' ');
+            parents[i] = depth > 0 && depth - 1 < last.Count ? last[depth - 1] : -1;
+            if (last.Count > depth)
+            {
+                last.RemoveRange(depth, last.Count - depth);
+            }
+            last.Add(i);
+        }
+        return (names, parents);
+    }
+
+    // 左右の枝: 「$」は左右の語（Left・Right など）、「#」は左右の 1 文字（L・R など）にする
+    private static string[] Sided(string[] lines, string left, string right, string leftLetter = "L", string rightLetter = "R") =>
+    [
+        .. lines.Select(l => l.Replace("$", left, StringComparison.Ordinal).Replace("#", leftLetter, StringComparison.Ordinal)),
+        .. lines.Select(l => l.Replace("$", right, StringComparison.Ordinal).Replace("#", rightLetter, StringComparison.Ordinal)),
+    ];
+
+    private static void AssertHumanoid(string[] names, int[] parents, Dictionary<string, string> expected)
+    {
+        Dictionary<string, int> human = FbxHumanoid.Guess(names, parents, out string[] missing);
+        Assert.IsNotEmpty(human, "人型が見つからない: " + string.Join(",", missing));
+        foreach (var (bone, name) in expected)
+        {
+            Assert.IsTrue(human.TryGetValue(bone, out int node), $"{bone} が見つからない（期待 {name}）");
+            Assert.AreEqual(name, names[node], bone);
+        }
+        Assert.HasCount(human.Count, human.Values.Distinct(), "1 つのボーンを 2 つの名前に使わない");
     }
 
     private static void AssertNear(Vector3 expected, Vector3 actual, string? message = null) =>
