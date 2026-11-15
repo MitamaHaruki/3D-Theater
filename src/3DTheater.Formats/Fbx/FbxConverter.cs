@@ -24,8 +24,12 @@ internal static class FbxConverter
     private static readonly string[] DiffuseSlots =
         ["DiffuseColor", "Diffuse", "Maya|baseColor", "Maya|TEX_color_map", "3dsMax|Parameters|base_color_map", "base_color_map", "BaseColor", "baseColor"];
 
-    /// <summary>GLB の中身と、ボーンの名前から推し量った人型のボーン（VRM の名前 → ノード。見つからなければ null）。</summary>
-    public static (byte[] Glb, IReadOnlyDictionary<string, int>? Humanoid) ToGlb(FbxScene scene, string? baseDirectory, string fileName, LoadReport report) =>
+    /// <summary>
+    /// GLB の中身と、ボーンの名前から推し量った人型のボーン（VRM の名前 → ノード。見つからなければ null）と、
+    /// 表情の元の名前から推し量った表情（3 段目）。
+    /// </summary>
+    public static (byte[] Glb, IReadOnlyDictionary<string, int>? Humanoid, IReadOnlyList<Gltf.VrmExpression> Expressions) ToGlb(
+        FbxScene scene, string? baseDirectory, string fileName, LoadReport report) =>
         new Builder(scene, baseDirectory, fileName, report).Build();
 
     private sealed class Builder(FbxScene scene, string? baseDirectory, string fileName, LoadReport report)
@@ -52,8 +56,10 @@ internal static class FbxConverter
         private bool _turnedAround;
         private Dictionary<string, int> _humanoid = [];
         private string[] _missingBones = [];
+        private readonly List<(int Mesh, IReadOnlyList<string> Targets)> _meshTargets = [];
+        private List<Gltf.VrmExpression> _expressions = [];
 
-        public (byte[] Glb, IReadOnlyDictionary<string, int>? Humanoid) Build()
+        public (byte[] Glb, IReadOnlyDictionary<string, int>? Humanoid, IReadOnlyList<Gltf.VrmExpression> Expressions) Build()
         {
             Matrix4x4 axis = AxisConversion(out string axisText);
             foreach (FbxObject model in scene.OfKind("Model"))
@@ -142,8 +148,10 @@ internal static class FbxConverter
                 ["textures"] = _textures,
                 ["images"] = _images,
             };
+            // 表情（3 段目）: 表情の元の名前から、MMD の表情にするものを推し量る
+            _expressions = FbxExpressions.Guess(_meshTargets);
             ReportNotes(axisText);
-            return (_out.ToGlb(root), _humanoid.Count > 0 ? _humanoid : null);
+            return (_out.ToGlb(root), _humanoid.Count > 0 ? _humanoid : null, _expressions);
         }
 
         // glTF と同じく正面が +Z なら、モデルの左（左腕・左足）は +X にある。逆なら後ろを向いている
@@ -575,6 +583,7 @@ internal static class FbxConverter
             if (channels.Count > 0)
             {
                 mesh["extras"] = new JsonObject { ["targetNames"] = new JsonArray([.. channels.Select(c => (JsonNode)c.Name)]) };
+                _meshTargets.Add((_meshes.Count, [.. channels.Select(c => c.Name)]));
             }
             _meshes.Add(mesh);
             node["mesh"] = _meshes.Count - 1;
@@ -840,6 +849,12 @@ internal static class FbxConverter
             {
                 report.Info(LoadIssueCategory.Note,
                     $"ボーンの名前から、人型のボーン（{Names(_missingBones.Intersect(FbxHumanoid.Required))}）を見つけられなかったので、ボーンの名前は元のままです（MMD のモーションと顔のトラッキングは当てはまりません）");
+            }
+            int targets = _meshTargets.Sum(m => m.Targets.Count);
+            if (targets > 0 && _expressions.Count == 0)
+            {
+                report.Info(LoadIssueCategory.Note,
+                    $"表情の元（{targets} 個）の名前から、MMD の表情（まばたき・あ など）にするものを見つけられませんでした。表情の元は、名前のまま使えます");
             }
             if (_turnedAround)
             {

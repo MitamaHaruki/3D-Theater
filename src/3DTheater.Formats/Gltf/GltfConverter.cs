@@ -8,8 +8,10 @@ namespace Theater3D.Formats.Gltf;
 /// <summary>
 /// glTF の中身の元のファイル（FBX など、glTF にしてから読むもの。設計判断記録 83 章）。<paramref name="Kind"/> はレポートとコメントに出す形式の名前。
 /// <paramref name="Humanoid"/> は、元のファイルのボーンの名前から推し量った人型のボーン（VRM の名前 → ノード）。あれば VRM と同じく MMD の形にする。
+/// <paramref name="Expressions"/> は、表情の元の名前から推し量った表情。あれば VRM と同じく MMD の表情にする。
 /// </summary>
-internal sealed record GltfSource(string Kind, string Comment, IReadOnlyDictionary<string, int>? Humanoid = null);
+internal sealed record GltfSource(string Kind, string Comment, IReadOnlyDictionary<string, int>? Humanoid = null,
+    IReadOnlyList<VrmExpression>? Expressions = null);
 
 /// <summary>VRM の版（無ければ、ふつうの glTF）。</summary>
 public enum VrmVersion
@@ -211,7 +213,15 @@ internal static class GltfConverter
                 ? guessed.Where(b => (uint)b.Value < (uint)_nodes.Length).ToDictionary(b => b.Key, b => b.Value, StringComparer.Ordinal)
                 : VrmHumanoid.Read(file.Root, version, _nodes.Length);
             _vrm0Materials = ReadVrm0Materials();
-            (_expressions, _lookAtByExpression) = VrmExpressions.Read(file.Root, version, n => (uint)n < (uint)_nodes.Length ? _nodes[n].Mesh : -1, MaterialByName);
+            if (source?.Expressions is { } guessedExpressions)
+            {
+                _expressions = [.. guessedExpressions];
+                _lookAtByExpression = false;
+            }
+            else
+            {
+                (_expressions, _lookAtByExpression) = VrmExpressions.Read(file.Root, version, n => (uint)n < (uint)_nodes.Length ? _nodes[n].Mesh : -1, MaterialByName);
+            }
             ComputePose();
             ReadSprings();
             BuildBones();
@@ -1459,8 +1469,9 @@ internal static class GltfConverter
             if (_expressionMorphs.Count > 0)
             {
                 string sample = string.Join("・", _expressionMorphs.Take(8).Select(m => m.Name));
-                report.Info(LoadIssueCategory.Note,
-                    $"VRM の表情を、MMD の表情（{sample} など {_expressionMorphs.Count} 個）にしました。元の形の変化も、名前のまま残しています");
+                report.Info(LoadIssueCategory.Note, source?.Expressions is not null
+                    ? $"表情の元の名前から、MMD の表情（{sample} など {_expressionMorphs.Count} 個）を作りました。元の表情の元も、名前のまま残しています"
+                    : $"VRM の表情を、MMD の表情（{sample} など {_expressionMorphs.Count} 個）にしました。元の形の変化も、名前のまま残しています");
             }
             if (_lookAtByExpression && _humanoidApplied)
             {

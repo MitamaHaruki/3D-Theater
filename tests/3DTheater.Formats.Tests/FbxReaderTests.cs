@@ -163,12 +163,13 @@ public sealed class FbxReaderTests
         scene.Connect(blinkShape, blink);
 
         PmxDocument d = Load(FbxTestWriter.Binary(scene.Nodes(7400)));
-        CollectionAssert.AreEqual(new[] { "smile", "vrc.blink" }, d.Morphs.Select(m => m.Name).ToArray(), "チャンネルの名前のまま");
-        PmxVertexOffset offset = d.Morphs[0].VertexOffsets.Single();
+        // 元の表情の元はチャンネルの名前のまま（3 段目: vrc.blink からは MMD の「まばたき」も作る）
+        CollectionAssert.AreEqual(new[] { "まばたき", "smile", "vrc.blink" }, d.Morphs.Select(m => m.Name).ToArray());
+        PmxVertexOffset offset = d.Morphs[1].VertexOffsets.Single();
         Assert.AreEqual(2, offset.Vertex);
         AssertNear(new Vector3(0, 8 * Cm, 0), offset.Translation);
-        Assert.HasCount(2, d.Morphs[1].VertexOffsets);
-        AssertNear(new Vector3(0, 0, -8 * Cm), d.Morphs[1].VertexOffsets[0].Translation, "Z を裏返す");
+        Assert.HasCount(2, d.Morphs[2].VertexOffsets);
+        AssertNear(new Vector3(0, 0, -8 * Cm), d.Morphs[2].VertexOffsets[0].Translation, "Z を裏返す");
     }
 
     [TestMethod]
@@ -430,6 +431,93 @@ public sealed class FbxReaderTests
     }
 
     [TestMethod]
+    public void ExpressionNamesAreRecognized()
+    {
+        var expected = new (string Name, string? Key)[]
+        {
+            // VRChat
+            ("vrc.v_aa", "aa"), ("vrc.v_ih", "ih"), ("vrc.v_ou", "ou"), ("vrc.v_e", "ee"), ("vrc.v_oh", "oh"), ("vrc.blink_left", "blinkLeft"), ("Blink", "blink"),
+            ("Blink_R", "blinkRight"),
+            // VRoid（前に「Face_Blendshape.」が付くことがある）
+            ("Face_Blendshape.Fcl_MTH_A", "aa"), ("Fcl_MTH_O", "oh"), ("Fcl_EYE_Close", "blink"), ("Fcl_EYE_Close_L", "blinkLeft"), ("Fcl_ALL_Joy", "happy"),
+            ("Fcl_ALL_Fun", "relaxed"), ("Fcl_ALL_Sorrow", "sad"), ("Fcl_ALL_Surprised", "surprised"),
+            // Maya（ブレンドシェイプの節の名前が前に付く）・そのほか
+            ("bs_face.mouth_a", "aa"), ("bs_face.eye_blink", "blink"), ("bs_face.eye_winkL", "blinkLeft"), ("bs_face.eye_smile", "happy"),
+            ("lip_u", "ou"), ("eye_close", "blink"), ("face_relax", "relaxed"), ("face_angry", "angry"), ("look_left", "lookLeft"), ("e", "ee"),
+            // iPhone の顔の動き
+            ("eyeBlinkRight", "blinkRight"), ("jawOpen", "aa"), ("mouthSmileLeft", "smileLeft"),
+            // 当てはめないもの
+            ("bs_face.mouth_a2", null), ("bs_face.mouth_smile", null), ("Fcl_MTH_Close", null), ("Fcl_EYE_Joy", null), ("wink", null), ("close", null),
+            ("mouth_wide", null), ("Fcl_HA_Hide", null), ("eyeLookUpLeft", null), ("まばたき", null),
+        };
+        foreach (var (name, key) in expected)
+        {
+            Assert.AreEqual(key, FbxExpressions.Classify(name)?.Key, name);
+        }
+        Assert.IsLessThan(FbxExpressions.Classify("mouth_a")!.Value.Priority, FbxExpressions.Classify("vrc.v_aa")!.Value.Priority, "VRChat の名前を先に");
+        Assert.IsLessThan(FbxExpressions.Classify("eye_close")!.Value.Priority, FbxExpressions.Classify("Blink")!.Value.Priority);
+    }
+
+    [TestMethod]
+    public void ExpressionsChooseNamesAndCombineSides()
+    {
+        // 決まった付け方の名前を先に使い、同じ名前の表情の元はすべての形で使う
+        List<VrmExpression> e = FbxExpressions.Guess([(0, ["mouth_a", "vrc.v_aa", "Blink_L", "Blink_R"]), (3, ["vrc.v_aa"])]);
+        VrmExpression aa = e.Single(x => x.Key == "aa");
+        CollectionAssert.AreEquivalent(new[] { (0, 1, 1f), (3, 0, 1f) }, aa.MorphBinds.ToArray());
+        // 両目を閉じる表情の元が無ければ、左右を合わせる
+        VrmExpression blink = e.Single(x => x.Key == "blink");
+        CollectionAssert.AreEquivalent(new[] { (0, 2, 1f), (0, 3, 1f) }, blink.MorphBinds.ToArray());
+        Assert.AreEqual((0, 2, 1f), e.Single(x => x.Key == "blinkLeft").MorphBinds.Single());
+
+        // iPhone の顔の動きだけのモデル
+        e = FbxExpressions.Guess([(0, ["eyeBlinkLeft", "eyeBlinkRight", "jawOpen", "mouthSmileLeft", "mouthSmileRight", "browInnerUp"])]);
+        CollectionAssert.AreEquivalent(new[] { "blink", "blinkLeft", "blinkRight", "aa", "relaxed" }, e.Select(x => x.Key).ToArray());
+        Assert.HasCount(2, e.Single(x => x.Key == "relaxed").MorphBinds, "にっこりは左右の口角");
+
+        // 表情の元がもう MMD の名前なら、その表情は作らない（そのまま使える）
+        e = FbxExpressions.Guess([(0, ["あ", "vrc.v_aa", "vrc.v_ih"])]);
+        CollectionAssert.AreEqual(new[] { "ih" }, e.Select(x => x.Key).ToArray());
+    }
+
+    [TestMethod]
+    public void BlendShapeNamesBecomeMmdExpressions()
+    {
+        // 顔と歯の 2 つの形に、同じ名前の口の表情の元
+        var scene = new TestScene();
+        foreach (string part in new[] { "Face", "Teeth" })
+        {
+            long model = scene.Add("Model", part, "Mesh");
+            scene.Connect(model, 0);
+            long geometry = Quad(scene);
+            scene.Connect(geometry, model);
+            long blend = scene.Add("Deformer", part, "BlendShape");
+            scene.Connect(blend, geometry);
+            foreach ((string name, int cp) in new[] { ("vrc.v_aa", 0), ("Blink", 2) })
+            {
+                if (part == "Teeth" && name == "Blink")
+                {
+                    continue;
+                }
+                long channel = scene.Add("Deformer", name, "BlendShapeChannel", new FbxTestNode("DeformPercent", 0.0), new FbxTestNode("FullWeights", new[] { 100.0 }));
+                long shape = scene.Add("Geometry", name, "Shape", new FbxTestNode("Indexes", new[] { cp }), new FbxTestNode("Vertices", new[] { 0.0, -8.0, 0.0 }));
+                scene.Connect(channel, blend);
+                scene.Connect(shape, channel);
+            }
+        }
+        PmxLoadResult result = FbxReader.Read(FbxTestWriter.Binary(scene.Nodes(7400)));
+        Assert.IsTrue(result.Succeeded);
+        PmxDocument d = result.Document!;
+        CollectionAssert.AreEqual(new[] { "まばたき", "あ", "vrc.v_aa", "Blink" }, d.Morphs.Select(m => m.Name).ToArray(), "MMD の名前の表情 → 元の表情の元（名前のまま）");
+        PmxMorph a = d.Morphs.Single(m => m.Name == "あ");
+        Assert.AreEqual(PmxMorphPanel.Mouth, a.Panel);
+        Assert.HasCount(2, a.VertexOffsets, "顔と歯の両方");
+        AssertNear(new Vector3(0, -8 * Cm, 0), a.VertexOffsets[0].Translation);
+        Assert.AreEqual(PmxMorphPanel.Eye, d.Morphs[0].Panel);
+        Assert.IsTrue(result.Report.Issues.Any(i => i.Message.Contains("表情の元の名前から", StringComparison.Ordinal)));
+    }
+
+    [TestMethod]
     public void RealFbxSamplesLoad()
     {
         // VRM の公式サンプルを Blender で FBX にしたもの（artifacts\fbx-samples に置いたとき。リポジトリには入れない）
@@ -439,6 +527,12 @@ public sealed class FbxReaderTests
             Assert.Inconclusive("artifacts\\fbx-samples に FBX のサンプルがありません");
         }
         string? vrmFolder = FindSamples("vrm-samples", "*.vrm");
+        var sameExpressions = new Dictionary<string, string[]>
+        {
+            ["AliciaSolid"] = ["まばたき", "あ", "い", "う", "え", "お"],
+            ["Seed-san"] = ["ウィンク", "ウィンク右", "あ", "い", "う", "え", "お", "視線上", "視線下", "視線左", "視線右"],
+            ["Twist"] = ["まばたき", "ウィンク", "ウィンク右", "あ", "い", "う", "え", "お", "笑い", "にっこり", "怒り", "困る", "びっくり"],
+        };
         var vrmOf = new Dictionary<string, string>
         {
             ["AliciaSolid"] = "AliciaSolid_vrm-0.51.vrm",
@@ -480,6 +574,12 @@ public sealed class FbxReaderTests
                     compared++;
                 }
                 Assert.IsGreaterThan(40, compared, $"{name}: 比べた MMD の名前のボーン");
+
+                // 3 段目: 表情の元の名前から作った表情が、VRM の表情と同じ形の変化になる（VRM が同じ表情の元を 1 つだけ使うもの）
+                foreach (string expression in sameExpressions[name])
+                {
+                    AssertSameMorph(original, d, expression, name);
+                }
             }
         }
     }
@@ -598,6 +698,31 @@ public sealed class FbxReaderTests
             Assert.AreEqual(name, names[node], bone);
         }
         Assert.HasCount(human.Count, human.Values.Distinct(), "1 つのボーンを 2 つの名前に使わない");
+    }
+
+    // 2 つのモデルの同じ名前の表情が、同じ位置の頂点を同じだけ動かす（頂点の番号は違ってよい）
+    private static void AssertSameMorph(PmxDocument expected, PmxDocument actual, string morph, string model)
+    {
+        PmxMorph? e = expected.Morphs.FirstOrDefault(m => m.Name == morph);
+        PmxMorph? a = actual.Morphs.FirstOrDefault(m => m.Name == morph);
+        Assert.IsNotNull(e, $"{model}: VRM に「{morph}」が無い");
+        Assert.IsNotNull(a, $"{model}: FBX に「{morph}」が無い");
+        Assert.AreEqual(PmxMorphType.Vertex, a.Type, $"{model}: {morph}");
+        static (int, int, int) Key(Vector3 p) => ((int)MathF.Round(p.X * 500), (int)MathF.Round(p.Y * 500), (int)MathF.Round(p.Z * 500));
+        var moved = new Dictionary<(int, int, int), List<Vector3>>();
+        foreach (PmxVertexOffset o in a.VertexOffsets)
+        {
+            var key = Key(actual.Vertices[o.Vertex].Position);
+            if (!moved.TryGetValue(key, out List<Vector3>? list))
+            {
+                list = [];
+                moved[key] = list;
+            }
+            list.Add(o.Translation);
+        }
+        int same = e.VertexOffsets.Count(o => moved.TryGetValue(Key(expected.Vertices[o.Vertex].Position), out List<Vector3>? list)
+            && list.Any(t => Vector3.Distance(t, o.Translation) < 2e-3f));
+        Assert.IsGreaterThanOrEqualTo(e.VertexOffsets.Count * 0.98, (double)same, $"{model}: 「{morph}」の同じ頂点の動き {same}/{e.VertexOffsets.Count}");
     }
 
     private static void AssertNear(Vector3 expected, Vector3 actual, string? message = null) =>
