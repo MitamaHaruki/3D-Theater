@@ -296,6 +296,11 @@ public partial class MainWindow : Window, Live.ILiveSceneActions, Live.ILiveScen
 
         switch (key)
         {
+            case Key.H when !edit && modifiers == ModifierKeys.None && _live is not null:
+                _live.ToggleUi(); // UI を隠す・出す（設計判断記録 86 章）
+                AppLog.Info(_live.IsUiHidden ? "UI を隠しました（H キー）" : "UI を出しました（H キー）");
+                e.Handled = true;
+                break;
             case Key.Space when edit:
                 _context.Playback.TogglePlay();
                 e.Handled = true;
@@ -1854,7 +1859,7 @@ public partial class MainWindow : Window, Live.ILiveSceneActions, Live.ILiveScen
         "  Ctrl+I … モデルを読み込む　Delete … 選んだモデル・照明を外す\n" +
         "  Ctrl+A … すべて選ぶ　Esc … 選択を解除\n" +
         "  Q・W・E … ギズモの道具（選択・移動・回転。Blender 方式にする）\n" +
-        "  F11 … 仮想フルスクリーン（もう一度で戻す）\n" +
+        "  F11 … 仮想フルスクリーン（もう一度で戻す）　H … UI（サイドバー・情報・右下の切り替え）を隠す・出す\n" +
         "  キー操作の項目で決めたキー … 表情・小物・カメラの切り替え・トラッキングなど（ほかのアプリを使っている間も効く）";
 
     // MMD のモデルは確認用の立方体よりずっと大きいので、全プレビューの区画をモデルに合わせる（カメラ視点は動かさない）

@@ -237,19 +237,8 @@ internal static class ImageExporter
         DrawItem[] items = [.. context.VisibleModels.Where(x => x.Model.Mesh is not null)
             .Select(x => new DrawItem(x.Model.Mesh!, x.Node.WorldMatrix, DrawFlags.None))];
         var (lightDirection, lightColor) = SceneLighting.From(context.MainLight);
-        FrameFlags flags = FrameFlags.UseLight | FrameFlags.ClearColor;
-        if (context.Rendering.SelfShadow)
-        {
-            flags |= FrameFlags.SelfShadow;
-        }
-        if (context.Rendering.GroundShadow)
-        {
-            flags |= FrameFlags.GroundShadow;
-        }
-        if ((context.Rendering.SelfShadow || context.Rendering.GroundShadow) && context.Rendering.ShadowStyle.RayTraced)
-        {
-            flags |= FrameFlags.RayTracedShadows; // セルフシャドウと地面の影の両方
-        }
+        FrameFlags flags = FrameFlags.UseLight | FrameFlags.ClearColor
+            | EffectsMapping.ShadowFlags(context.Scene, context.MainLight, context.Rendering); // 見えている照明だけが影を落とす
         FloorReflection reflection = context.Rendering.Reflection;
         if (reflection.Enabled)
         {

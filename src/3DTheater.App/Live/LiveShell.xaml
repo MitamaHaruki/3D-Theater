@@ -36,7 +36,7 @@
     </Border>
 
     <!-- 右上: トラッキング情報（右上から 50・50、400 × 400）と、その 50 下にカメラ情報 -->
-    <StackPanel Width="400" Margin="0,50,50,0" HorizontalAlignment="Right" VerticalAlignment="Top">
+    <StackPanel x:Name="InfoPanels" Width="400" Margin="0,50,50,0" HorizontalAlignment="Right" VerticalAlignment="Top">
       <!-- 高さは 400 から、中身に合わせて少し伸びてよい（利用者と決めた） -->
       <Border x:Name="TrackingBox" Style="{StaticResource LiveOverlayBoxStyle}" MinHeight="400" AutomationProperties.Name="トラッキング情報">
         <DockPanel>
@@ -56,7 +56,7 @@
     </StackPanel>
 
     <!-- 右下: 配信の枠・グリッド・ボーン・選んだ物の枠とギズモ（どれも初めは出さない。利用者の頼み） -->
-    <StackPanel Margin="0,0,50,10" HorizontalAlignment="Right" VerticalAlignment="Bottom" Orientation="Horizontal">
+    <StackPanel x:Name="ViewToggles" Margin="0,0,50,10" HorizontalAlignment="Right" VerticalAlignment="Bottom" Orientation="Horizontal">
       <ToggleButton x:Name="FrameButton" Style="{StaticResource LiveToggleStyle}" Checked="OnFrameClick" Unchecked="OnFrameClick"
                     AutomationProperties.Name="配信の枠" ToolTip="配信に映る範囲の枠を表示（枠の外側を暗くします）">
         <Path Width="14" Height="14" Stretch="Fill" StrokeThickness="1.1"
@@ -82,6 +82,12 @@
               Data="M2,2 H12 V12 H2 Z M7,0 V14 M0,7 H14" />
       </ToggleButton>
     </StackPanel>
+
+    <!-- UI を隠したとき（H キー）に、少しの間だけ出す案内（設計判断記録 86 章） -->
+    <Border x:Name="HiddenHint" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,24" Padding="12,5" CornerRadius="4"
+            Background="#B3000000" IsHitTestVisible="False" Visibility="Collapsed">
+      <TextBlock Foreground="White" Text="UI を隠しました（H キーで戻します）" AutomationProperties.AutomationId="LiveHiddenHint" />
+    </Border>
 
     <!-- 左下: エラーのときだけ、赤い字で出す（サイドバーの下の 50 の空き） -->
     <TextBlock x:Name="ErrorText" Margin="50,0,0,16" MaxWidth="1100" HorizontalAlignment="Left" VerticalAlignment="Bottom"

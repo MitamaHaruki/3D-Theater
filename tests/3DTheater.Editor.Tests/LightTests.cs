@@ -102,6 +102,36 @@ public sealed class LightTests
     }
 
     [TestMethod]
+    public void OnlyVisibleLightsCastShadows()
+    {
+        // 影は、見えている照明だけが落とす（設計判断記録 86 章）
+        SceneDocument scene = SceneDocument.CreateDefault();
+        var undo = new UndoService();
+        (bool, bool) Shadows(bool rayTraced = false) => SceneLighting.Shadows(scene, scene.MainLight, true, true, rayTraced);
+        Assert.AreEqual((true, true), Shadows(), "MMD の照明が見えていれば、セルフシャドウも地面の影も");
+        Assert.AreEqual((false, true), SceneLighting.Shadows(scene, scene.MainLight, false, true, false), "描画の設定で切っていれば落とさない");
+        Assert.AreEqual((true, true), SceneLighting.Shadows(scene, null, true, true, false), "MMD の照明の無いシーンは、初めの照明があるとみなす");
+
+        scene.MainLight.IsVisible = false;
+        Assert.AreEqual((false, false), Shadows(), "見えている照明が無ければ、影を落とさない");
+        Assert.AreEqual((false, false), Shadows(rayTraced: true));
+
+        // 足した照明は、レイトレーシングのときだけ影を落とす。地面の影は MMD の照明の向きなので、MMD の照明を隠すと落とさない
+        LightNode spot = LightPresenceAction.Create(scene, LightType.Spot, Vector3.Zero);
+        LightPresenceAction.Add(scene, undo, spot);
+        Assert.AreEqual((false, false), Shadows(), "レイトレーシングでなければ、足した照明は影を落とさない");
+        Assert.AreEqual((true, false), Shadows(rayTraced: true), "足した照明のセルフシャドウだけ");
+        spot.CastsShadow = false;
+        Assert.AreEqual((false, false), Shadows(rayTraced: true), "「影を落とす」を外した照明");
+        spot.CastsShadow = true;
+        spot.Intensity = 0f;
+        Assert.AreEqual((false, false), Shadows(rayTraced: true), "明るさ 0 の照明");
+        spot.Intensity = 1f;
+        spot.IsVisible = false;
+        Assert.AreEqual((false, false), Shadows(rayTraced: true), "隠した照明");
+    }
+
+    [TestMethod]
     public void LightsAreSavedAndLoaded()
     {
         var (scene, playback, animation, _) = AnimationFixtures.Create();

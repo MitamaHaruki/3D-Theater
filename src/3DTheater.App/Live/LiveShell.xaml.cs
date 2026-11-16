@@ -16,11 +16,42 @@ namespace Theater3D.App.Live;
 /// </summary>
 public partial class LiveShell : UserControl
 {
+    private static readonly TimeSpan HintTime = TimeSpan.FromSeconds(3);
+
     private PreviewPanel? _preview;
+    private readonly System.Windows.Threading.DispatcherTimer _hintTimer;
 
     public LiveShell()
     {
         InitializeComponent();
+        _hintTimer = new System.Windows.Threading.DispatcherTimer { Interval = HintTime };
+        _hintTimer.Tick += (_, _) =>
+        {
+            _hintTimer.Stop();
+            HiddenHint.Visibility = Visibility.Collapsed;
+        };
+    }
+
+    /// <summary>UI（サイドバー・トラッキング情報・カメラ情報・右下の切り替え）を隠しているか（設計判断記録 86 章）。</summary>
+    public bool IsUiHidden => Sidebar.Visibility != Visibility.Visible;
+
+    /// <summary>
+    /// UI を隠す・出す（H キー）。プレビューだけにして、背景とキャラクターを見やすくする。配信の印（赤い枠と札）とエラーは隠さない。
+    /// 配信の絵（配信用の画面・仮想カメラ）には、もともと UI は映らない。隠したときは、戻し方を少しの間だけ出す。次に起動したときは出ている。
+    /// </summary>
+    public void ToggleUi()
+    {
+        bool hide = !IsUiHidden;
+        Visibility visibility = hide ? Visibility.Collapsed : Visibility.Visible;
+        Sidebar.Visibility = visibility;
+        InfoPanels.Visibility = visibility;
+        ViewToggles.Visibility = visibility;
+        _hintTimer.Stop();
+        HiddenHint.Visibility = hide ? Visibility.Visible : Visibility.Collapsed;
+        if (hide)
+        {
+            _hintTimer.Start();
+        }
     }
 
     /// <summary>「設定」が押された（設定画面を開く）。</summary>

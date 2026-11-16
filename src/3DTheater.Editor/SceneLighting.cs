@@ -8,6 +8,7 @@ namespace Theater3D.Editor;
 /// 照明は MMD と同じく平行光 1 つ。向きは照明の項目の回転で、何も回していないときに +Z を向く（カメラと同じ決まり）。
 /// 色は MMD の初期値 154/255 に、照明の色と明るさを掛けたもの。照明を非表示にすると、照明なし（材質の環境色だけ）にする。
 /// 「照明を追加」で足した照明（点光源・スポットライト・平行光）は <see cref="AddedLights"/> で、同じ決まりの色にする。
+/// 影は、見えている照明だけが落とす（<see cref="Shadows"/>）。
 /// </summary>
 public static class SceneLighting
 {
@@ -50,6 +51,23 @@ public static class SceneLighting
         [.. scene.AddedLights.Where(l => l.IsEffectivelyVisible && l.Intensity > 0f).Select(l => new AddedLight(
             l.Type, l.Position, DirectionOf(l.Rotation), l.Range, l.Color * (MmdIntensity * l.Intensity), l.SpotAngle, l.SpotSoftness,
             l.CastsShadow))];
+
+    /// <summary>
+    /// 影を落とすか（設計判断記録 86 章）。影は、見えている照明だけが落とす。
+    /// <list type="bullet">
+    /// <item>地面の影は、MMD の照明（<paramref name="mainLight"/>）の向きで落とすので、MMD の照明が見えているときだけ。</item>
+    /// <item>セルフシャドウは、MMD の照明が見えているか、影を落とす足した照明（見えていて、明るさが 0 でなく、「影を落とす」を入れたもの。
+    /// 足した照明はレイトレーシングのときだけ影を落とす）があるときだけ。</item>
+    /// </list>
+    /// どちらも、描画の設定（<paramref name="selfShadow"/>・<paramref name="groundShadow"/>）が入っていることが前提。
+    /// MMD の照明が無いシーン（<paramref name="mainLight"/> が null）は、MMD の初めの照明が見えているとみなす。
+    /// </summary>
+    public static (bool SelfShadow, bool GroundShadow) Shadows(SceneDocument scene, LightNode? mainLight, bool selfShadow, bool groundShadow, bool rayTraced)
+    {
+        bool main = mainLight is null || mainLight.IsEffectivelyVisible;
+        bool added = rayTraced && scene.AddedLights.Any(l => l.IsEffectivelyVisible && l.Intensity > 0f && l.CastsShadow);
+        return (selfShadow && (main || added), groundShadow && main);
+    }
 
     /// <summary>
     /// 輪郭線の太さ 1 を何ピクセルにするか。高さ 1080 ピクセルまでは 1 ピクセル（小さなプレビューでも線が消えないように）、

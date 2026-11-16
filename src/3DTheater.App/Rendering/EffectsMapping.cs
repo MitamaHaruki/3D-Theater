@@ -6,6 +6,29 @@ namespace Theater3D.App.Rendering;
 /// <summary>映像効果・イラスト風の表現・霧の設定（プロジェクトの値）と足した照明を、描画エンジンへ渡す形にする。</summary>
 public static class EffectsMapping
 {
+    /// <summary>
+    /// 影のフラグ（セルフシャドウ・地面の影・レイトレーシング）。描画の設定に、見えている照明だけが影を落とす決まり（<see cref="SceneLighting.Shadows"/>。
+    /// 設計判断記録 86 章）を合わせる。プレビュー・配信の絵・書き出し・レンダーパスで同じにする。
+    /// </summary>
+    public static FrameFlags ShadowFlags(Domain.SceneDocument scene, Domain.LightNode? mainLight, RenderSettings rendering)
+    {
+        var (self, ground) = SceneLighting.Shadows(scene, mainLight, rendering.SelfShadow, rendering.GroundShadow, rendering.ShadowStyle.RayTraced);
+        FrameFlags flags = FrameFlags.None;
+        if (self)
+        {
+            flags |= FrameFlags.SelfShadow;
+        }
+        if (ground)
+        {
+            flags |= FrameFlags.GroundShadow;
+        }
+        if ((self || ground) && rendering.ShadowStyle.RayTraced)
+        {
+            flags |= FrameFlags.RayTracedShadows; // セルフシャドウと地面の影の両方
+        }
+        return flags;
+    }
+
     /// <summary>シーンの足した照明（見えているもの）。</summary>
     public static LightSource[] LightsOf(Domain.SceneDocument scene) =>
         [.. SceneLighting.AddedLights(scene).Select(l => new LightSource(

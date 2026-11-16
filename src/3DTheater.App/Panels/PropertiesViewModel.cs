@@ -444,7 +444,7 @@ public sealed class PropertiesViewModel : ObservableObject
     /// <summary>照明の種類の説明（MMD の照明か、足した照明の種類か）。</summary>
     public string LightTypeText => _node switch
     {
-        LightNode l when ReferenceEquals(l, _context.Scene.MainLight) => "MMD の照明（平行光。セルフシャドウ・地面の影もこの向き）",
+        LightNode l when ReferenceEquals(l, _context.Scene.MainLight) => "MMD の照明（平行光。セルフシャドウ・地面の影もこの向き。隠すと影も落としません）",
         LightNode { Type: LightType.Point } => "点光源（足した照明）",
         LightNode { Type: LightType.Spot } => "スポットライト（足した照明）",
         LightNode => "平行光（足した照明）",

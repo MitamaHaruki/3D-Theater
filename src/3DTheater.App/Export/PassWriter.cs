@@ -164,18 +164,11 @@ internal sealed class PassWriter : IDisposable
         Vector4 groundShadow = default;
         if (pass == ExportPasses.Shadow)
         {
-            if (_context.Rendering.SelfShadow)
+            FrameFlags shadows = EffectsMapping.ShadowFlags(_context.Scene, _context.MainLight, _context.Rendering); // 見えている照明だけが影を落とす
+            flags |= shadows;
+            if (shadows.HasFlag(FrameFlags.GroundShadow))
             {
-                flags |= FrameFlags.SelfShadow;
-            }
-            if (_context.Rendering.GroundShadow)
-            {
-                flags |= FrameFlags.GroundShadow;
                 groundShadow = new Vector4(1f, 1f, 1f, _context.Rendering.ShadowStyle.GroundColor.W); // 白で描くと、影の濃さがそのまま白さになる
-            }
-            if ((_context.Rendering.SelfShadow || _context.Rendering.GroundShadow) && _context.Rendering.ShadowStyle.RayTraced)
-            {
-                flags |= FrameFlags.RayTracedShadows; // セルフシャドウと地面の影の両方
             }
         }
         var parameters = new FrameParameters(flags, matrices.View, matrices.Projection, Matrix4x4.Identity, Matrix4x4.Identity, items, default,

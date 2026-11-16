@@ -32,20 +32,8 @@ internal sealed class LiveFrameBuilder(EditorContext context)
             }
         }
         var (lightDirection, lightColor) = SceneLighting.From(context.MainLight);
-        FrameFlags flags = FrameFlags.UseLight | FrameFlags.ClearColor;
         RenderSettings rendering = context.Rendering;
-        if (rendering.SelfShadow)
-        {
-            flags |= FrameFlags.SelfShadow;
-        }
-        if (rendering.GroundShadow)
-        {
-            flags |= FrameFlags.GroundShadow;
-        }
-        if ((rendering.SelfShadow || rendering.GroundShadow) && rendering.ShadowStyle.RayTraced)
-        {
-            flags |= FrameFlags.RayTracedShadows;
-        }
+        FrameFlags flags = FrameFlags.UseLight | FrameFlags.ClearColor | EffectsMapping.ShadowFlags(context.Scene, context.MainLight, rendering);
         FloorReflection reflection = rendering.Reflection;
         if (reflection.Enabled)
         {
