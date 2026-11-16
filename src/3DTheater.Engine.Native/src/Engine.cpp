@@ -667,8 +667,10 @@ void Engine::DrawScene(ID3D11RenderTargetView* rtv, ID3D11DepthStencilView* dsv,
 
     // 影（セルフシャドウ・地面の影）。レイトレーシングで求めるときは、光線を当てる物を先に GPU へ送り、場面を描く間ずっと読めるようにしておく
     // （テクスチャを縮めて並べるために描くので、場面を描き始める前に）
+    // MMD の照明が影を落とすか（API 0.33。照明を隠したときは落とさない: セルフシャドウは足す照明の影だけ、地面の影は描かない）
+    const bool lightShadow = !(params.flags & TT_FRAME_NO_LIGHT_SHADOW);
     const bool selfShadow = drawScene && (params.flags & TT_FRAME_SELF_SHADOW) && params.item_count > 0;
-    const bool groundShadow = drawScene && (params.flags & TT_FRAME_GROUND_SHADOW) && params.item_count > 0;
+    const bool groundShadow = drawScene && (params.flags & TT_FRAME_GROUND_SHADOW) && params.item_count > 0 && lightShadow;
     const bool shadowRays = (selfShadow || groundShadow) && (params.flags & TT_FRAME_RAYTRACED_SHADOWS) && rayScene_->Prepare(params);
     const bool rayShadows = shadowRays && selfShadow;
     if (shadowRays) {
@@ -710,8 +712,9 @@ void Engine::DrawScene(ID3D11RenderTargetView* rtv, ID3D11DepthStencilView* dsv,
         // 足す照明のうち影を落とすものも、同じ光線で影を求める（シェーダーの ExtraLightShadow）
         frame.shadowParams = {0.0f, 0.0f, 1.0f, 0.0f};
         frame.shadowSoftness = {0.0f, ShadowSoftnessOf(params), 0.0f, 0.0f};
-        frame.rayShadowParams = {1.0f, static_cast<float>(rayScene_->InstanceCount()), RaySamplesOf(params), 0.0f};
-    } else if (selfShadow) {
+        // w = 1 なら、MMD の照明の影は求めない（足す照明の影だけ）
+        frame.rayShadowParams = {1.0f, static_cast<float>(rayScene_->InstanceCount()), RaySamplesOf(params), lightShadow ? 0.0f : 1.0f};
+    } else if (selfShadow && lightShadow) {
         RenderShadowMap(params, frame); // 影を落とすものが無ければ、セルフシャドウなしのまま
     }
     // 柔らかな影のときは、地面の影も照明から見た奥行きで描く（押しつぶす描き方では、境目をぼかせないため）。

@@ -273,6 +273,62 @@ public sealed class NativeEngineTests
         Assert.IsGreaterThan(60, (int)RenderGreen(true, rayTraced, 21), "影の外は照明で明るい");
         Assert.IsGreaterThan(40, (int)RenderGreen(false, rayTraced, 43), "影を落とさない照明は影を落とさない");
         Assert.IsGreaterThan(40, (int)RenderGreen(true, FrameFlags.SelfShadow, 43), "レイトレーシングでなければ、足す照明は影を落とさない");
+        Assert.IsLessThan(10, (int)RenderGreen(true, rayTraced | FrameFlags.NoLightShadow, 43), "MMD の照明が影を落とさなくても、足す照明の影は残る");
+    }
+
+    [TestMethod]
+    public void HiddenMainLightCastsNoShadow()
+    {
+        // 床（影を受ける。トゥーンは上が白・下が赤）と、その上の板（影を落とす）を真上から見て、MMD の照明で斜めに照らす。
+        // 板の影は床の右に落ちる（影の中はトゥーンの下の赤）。API 0.33: NoLightShadow なら、MMD の照明は影を落とさない
+        using var engine = NativeEngine.Create(NativeEngineOptions.UseWarp);
+        const int width = 64;
+        const int height = 48;
+        using var view = engine.CreateOffscreenView(width, height);
+        var up = System.Numerics.Vector3.UnitY;
+        byte[] toonPixels = [255, 255, 255, 255, 255, 255, 255, 255, 0, 0, 200, 255, 0, 0, 200, 255];
+        using NativeTexture toon = engine.CreateTexture(2, 2, toonPixels, 8);
+        NativeMesh Plate(float y, float half, MaterialFlags flags, NativeTexture? toonTexture)
+        {
+            MeshVertex[] quad =
+            [
+                new(new(-half, y, half), up, new(0, 0)),
+                new(new(half, y, half), up, new(1, 0)),
+                new(new(half, y, -half), up, new(1, 1)),
+                new(new(-half, y, -half), up, new(0, 1)),
+            ];
+            MeshMaterial[] materials =
+            [
+                new(0, 6, System.Numerics.Vector4.One, System.Numerics.Vector3.Zero, 0, System.Numerics.Vector3.One,
+                    flags | MaterialFlags.DoubleSided, null, ToonTexture: toonTexture),
+            ];
+            return engine.CreateMesh(quad, [0, 1, 2, 0, 2, 3], materials);
+        }
+
+        using NativeMesh floor = Plate(0f, 3f, MaterialFlags.ReceiveShadow, toon);
+        using NativeMesh occluder = Plate(1f, 0.5f, MaterialFlags.CastShadow, null);
+        byte Green(FrameFlags flags)
+        {
+            FrameParameters frame = DefaultFrame with
+            {
+                Flags = FrameFlags.UseLight | flags,
+                View = System.Numerics.Matrix4x4.CreateLookAtLeftHanded(new(0, 8, 0), System.Numerics.Vector3.Zero, System.Numerics.Vector3.UnitZ),
+                Items = [new DrawItem(floor, System.Numerics.Matrix4x4.Identity, DrawFlags.None),
+                    new DrawItem(occluder, System.Numerics.Matrix4x4.Identity, DrawFlags.None)],
+                LightDirection = System.Numerics.Vector3.Normalize(new(1f, -1f, 0f)),
+                LightColor = new(0.6f),
+            };
+            Assert.IsTrue(view.Render(frame));
+            var pixels = new byte[width * height * 4];
+            view.ReadPixels(pixels, width * 4);
+            return pixels[(((height / 2) * width) + 39) * 4 + 1]; // 板の右の、影の真ん中
+        }
+
+        const FrameFlags rayTraced = FrameFlags.SelfShadow | FrameFlags.RayTracedShadows;
+        Assert.IsLessThan(40, (int)Green(rayTraced), "MMD の照明の影（レイトレーシング）");
+        Assert.IsGreaterThan(200, (int)Green(rayTraced | FrameFlags.NoLightShadow), "MMD の照明は影を落とさない（レイトレーシング）");
+        Assert.IsLessThan(40, (int)Green(FrameFlags.SelfShadow), "MMD の照明の影（奥行きの画像）");
+        Assert.IsGreaterThan(200, (int)Green(FrameFlags.SelfShadow | FrameFlags.NoLightShadow), "MMD の照明は影を落とさない（奥行きの画像）");
     }
 
     [TestMethod]

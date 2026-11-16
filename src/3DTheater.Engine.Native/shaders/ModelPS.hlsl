@@ -62,12 +62,12 @@ float RayTracedShadow(ModelPSInput input, float3 n)
         (uint)(RayShadowParams.y + 0.5), kRayCastShadow, input.position.xy);
 }
 
-// セルフシャドウの光の当たる割合（奥行きの画像か、レイトレーシング）
+// セルフシャドウの光の当たる割合（奥行きの画像か、レイトレーシング）。MMD の照明が影を落とさないとき（RayShadowParams.w）は 1
 float ShadowAt(ModelPSInput input, float3 n)
 {
     if (RayShadowParams.x > 0.5)
     {
-        return RayTracedShadow(input, n);
+        return RayShadowParams.w > 0.5 ? 1.0 : RayTracedShadow(input, n);
     }
     return SelfShadowFactor(input.shadowPosition, input.position.xy);
 }

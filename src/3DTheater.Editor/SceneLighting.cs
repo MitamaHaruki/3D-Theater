@@ -64,10 +64,16 @@ public static class SceneLighting
     /// </summary>
     public static (bool SelfShadow, bool GroundShadow) Shadows(SceneDocument scene, LightNode? mainLight, bool selfShadow, bool groundShadow, bool rayTraced)
     {
-        bool main = mainLight is null || mainLight.IsEffectivelyVisible;
+        bool main = MainLightCastsShadow(mainLight);
         bool added = rayTraced && scene.AddedLights.Any(l => l.IsEffectivelyVisible && l.Intensity > 0f && l.CastsShadow);
         return (selfShadow && (main || added), groundShadow && main);
     }
+
+    /// <summary>
+    /// MMD の照明が影を落とすか（見えているか。照明の無いシーンは、MMD の初めの照明があるとみなす）。落とさないのにセルフシャドウを描くとき
+    /// （足した照明だけが影を落とすとき）は、描画エンジンに MMD の照明の影を求めないよう伝える（設計判断記録 86 章）。
+    /// </summary>
+    public static bool MainLightCastsShadow(LightNode? mainLight) => mainLight is null || mainLight.IsEffectivelyVisible;
 
     /// <summary>
     /// 輪郭線の太さ 1 を何ピクセルにするか。高さ 1080 ピクセルまでは 1 ピクセル（小さなプレビューでも線が消えないように）、

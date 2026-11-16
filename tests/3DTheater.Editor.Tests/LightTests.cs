@@ -121,6 +121,8 @@ public sealed class LightTests
         LightPresenceAction.Add(scene, undo, spot);
         Assert.AreEqual((false, false), Shadows(), "レイトレーシングでなければ、足した照明は影を落とさない");
         Assert.AreEqual((true, false), Shadows(rayTraced: true), "足した照明のセルフシャドウだけ");
+        Assert.IsFalse(SceneLighting.MainLightCastsShadow(scene.MainLight), "そのとき、隠した MMD の照明は影を落とさない（描画エンジンへ伝える）");
+        Assert.IsTrue(SceneLighting.MainLightCastsShadow(null));
         spot.CastsShadow = false;
         Assert.AreEqual((false, false), Shadows(rayTraced: true), "「影を落とす」を外した照明");
         spot.CastsShadow = true;

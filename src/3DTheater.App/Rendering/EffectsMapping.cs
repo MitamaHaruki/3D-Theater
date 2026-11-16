@@ -26,6 +26,10 @@ public static class EffectsMapping
         {
             flags |= FrameFlags.RayTracedShadows; // セルフシャドウと地面の影の両方
         }
+        if (self && !SceneLighting.MainLightCastsShadow(mainLight))
+        {
+            flags |= FrameFlags.NoLightShadow; // 隠した MMD の照明は影を落とさない（足した照明の影だけ）
+        }
         return flags;
     }
 

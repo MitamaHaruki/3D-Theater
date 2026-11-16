@@ -27,7 +27,7 @@ extern "C" {
 
 // 上位 16 ビットが大きな版、下位 16 ビットが小さな版。大きな版が違う DLL とは組み合わせない。
 #define TT_API_VERSION_MAJOR 0
-#define TT_API_VERSION_MINOR 32
+#define TT_API_VERSION_MINOR 33
 #define TT_API_VERSION ((TT_API_VERSION_MAJOR << 16) | TT_API_VERSION_MINOR)
 
 // 0 以上は成功、負の値は失敗。
@@ -119,6 +119,9 @@ enum {
     // （TT_MATERIAL_GROUND_SHADOW）に当たった割合で、地面の影の色を重ねる（押しつぶす描き方・奥行きの画像の代わり）
     // API 0.31: TT_FRAME_SELF_SHADOW と一緒に使うと、足す照明のうち TT_LIGHT_FLAG_CAST_SHADOW のものも影を落とす（TtLight）
     TT_FRAME_RAYTRACED_SHADOWS = 1u << 13,
+    // API 0.33: MMD の照明（light_direction・light_color）は影を落とさない（照明を隠したとき。設計判断記録 86 章）。
+    // セルフシャドウは、足す照明のうち影を落とすもの（TT_FRAME_RAYTRACED_SHADOWS のとき）だけになり、地面の影は描かない
+    TT_FRAME_NO_LIGHT_SHADOW = 1u << 14,
 };
 
 // 映像効果（TtFrameParams.post_flags。API 0.11）。どれかを使うと、場面を背景なしで描いてから効果をかけ、背景を後ろに置く。

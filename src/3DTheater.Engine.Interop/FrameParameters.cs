@@ -45,6 +45,13 @@ public enum FrameFlags : uint
     /// <see cref="LightSource.CastsShadow"/> のものも影を落とす。
     /// </summary>
     RayTracedShadows = 1u << 13,
+
+    /// <summary>
+    /// MMD の照明（<see cref="FrameParameters.LightDirection"/>・<see cref="FrameParameters.LightColor"/>）は影を落とさない（照明を隠したとき。
+    /// API 0.33・設計判断記録 86 章）。セルフシャドウは、足す照明のうち影を落とすもの（<see cref="RayTracedShadows"/> のとき）だけになり、
+    /// 地面の影は描かない。
+    /// </summary>
+    NoLightShadow = 1u << 14,
 }
 
 /// <summary>
