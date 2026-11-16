@@ -1,6 +1,7 @@
 <Window x:Class="Theater3D.App.Shell.FogWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:c="clr-namespace:Theater3D.App.Controls"
         Title="霧"
         Width="480" SizeToContent="Height" ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
@@ -60,7 +61,7 @@
       <StackPanel Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal">
         <TextBox x:Name="ColorBox" Style="{StaticResource ColorBoxStyle}" AutomationProperties.Name="霧の色"
                  ToolTip="#RRGGBB（例: 白っぽい青 = #B4BECD）" TextChanged="OnColorChanged" />
-        <Border x:Name="ColorSwatch" Style="{StaticResource SwatchStyle}" />
+        <c:ColorPickerButton x:Name="ColorSwatch" Margin="8,0,0,0" Target="{Binding ElementName=ColorBox}" AutomationProperties.Name="霧の色を選ぶ" />
       </StackPanel>
       <TextBlock Grid.Row="1" Style="{StaticResource RowLabelStyle}" Text="始まる距離" ToolTip="カメラからこの距離より先で、霧が始まります" />
       <Slider x:Name="StartSlider" Grid.Row="1" Grid.Column="1" Style="{StaticResource FogSliderStyle}" Minimum="0" Maximum="300"

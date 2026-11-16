@@ -119,6 +119,7 @@ public:
     static constexpr uint32_t kMaterialPbr = 4u;
     static constexpr uint32_t kMaterialCastShadow = 8u;    // セルフシャドウを落とす（影を調べる光線を遮る）
     static constexpr uint32_t kMaterialGroundShadow = 16u; // 地面の影を落とす
+    static constexpr uint32_t kMaterialShadowOnly = 32u;   // 見えなくても、セルフシャドウの光線を遮る（API 0.34）
 
 private:
     // まとめたバッファー（構造体の並び。足りなくなったら大きく作り直す）

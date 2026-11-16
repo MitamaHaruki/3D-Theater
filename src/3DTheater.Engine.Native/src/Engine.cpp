@@ -1747,7 +1747,9 @@ void Engine::DrawLightDepth(const TtFrameParams& params, DirectX::CXMMATRIX ligh
         BindMesh(mesh);
         for (const Mesh::Material& material : mesh.Materials()) {
             const bool casts = groundCasters ? material.groundShadow : material.castShadow;
-            if (casts && material.indexCount > 0 && material.diffuse.w > 0.0f) {
+            // 不透明度 0 の材質（材質モーフで消した所）は影を落とさない。ただし「見えなくても影を落とす」材質（API 0.34）は、セルフシャドウを落とす
+            const bool shown = material.diffuse.w > 0.0f || (!groundCasters && material.shadowOnly);
+            if (casts && material.indexCount > 0 && shown) {
                 ctx->DrawIndexed(material.indexCount, material.indexStart, 0);
             }
         }

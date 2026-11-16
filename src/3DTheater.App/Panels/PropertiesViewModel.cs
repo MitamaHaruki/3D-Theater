@@ -444,7 +444,8 @@ public sealed class PropertiesViewModel : ObservableObject
     /// <summary>照明の種類の説明（MMD の照明か、足した照明の種類か）。</summary>
     public string LightTypeText => _node switch
     {
-        LightNode l when ReferenceEquals(l, _context.Scene.MainLight) => "MMD の照明（平行光。セルフシャドウ・地面の影もこの向き。隠すと影も落としません）",
+        LightNode l when ReferenceEquals(l, _context.Scene.MainLight) =>
+            "サンライト（太陽。MMD の照明で、いつも影を落とします。セルフシャドウ・地面の影もこの向き。隠すと影も落としません）",
         LightNode { Type: LightType.Point } => "点光源（足した照明）",
         LightNode { Type: LightType.Spot } => "スポットライト（足した照明）",
         LightNode => "平行光（足した照明）",
@@ -459,6 +460,35 @@ public sealed class PropertiesViewModel : ObservableObject
 
     /// <summary>足した照明か（MMD の照明でない。影を落とすかを出す）。</summary>
     public bool IsAddedLight => _node is LightNode l && !ReferenceEquals(l, _context.Scene.MainLight);
+
+    /// <summary>サンライト（MMD の照明）か（時刻と太陽の高さ・向きを出す）。</summary>
+    public bool IsMainLight => _node is LightNode l && ReferenceEquals(l, _context.Scene.MainLight);
+
+    /// <summary>太陽の高さ（度。照明の下向きの回転 X。-90〜90）。</summary>
+    public double SunElevation
+    {
+        get => Get(n => n.Rotation.X);
+        set => Edit("太陽の高さ", n => n.Rotation = n.Rotation with { X = Math.Clamp((float)value, -90f, 90f) });
+    }
+
+    /// <summary>太陽の向き（度。真上から見た、照明の左右の回転 Y）。</summary>
+    public double SunAzimuth
+    {
+        get => Get(n => n.Rotation.Y);
+        set => Edit("太陽の向き", n => n.Rotation = n.Rotation with { Y = (float)value });
+    }
+
+    /// <summary>サンライトと画面の色合いを、時刻 <paramref name="time"/> にする（元に戻すは 1 回）。</summary>
+    public void ApplyTimeOfDay(TimeOfDay time)
+    {
+        if (_node is not LightNode sun || !ReferenceEquals(sun, _context.Scene.MainLight) || !sun.CanEdit)
+        {
+            return;
+        }
+        _context.Playback.Pause();
+        TimeOfDayPresets.Apply(_context.Edits, _context.Rendering, sun, time);
+        AppLog.Info($"時刻を「{TimeOfDayPresets.Of(time).Name}」にしました（サンライトの高さ・色・明るさと、画面の色合い）");
+    }
 
     /// <summary>照明の色（#RRGGBB）。読めない文字は入れない。</summary>
     public string LightColor

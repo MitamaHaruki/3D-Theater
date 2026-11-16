@@ -27,7 +27,7 @@ extern "C" {
 
 // 上位 16 ビットが大きな版、下位 16 ビットが小さな版。大きな版が違う DLL とは組み合わせない。
 #define TT_API_VERSION_MAJOR 0
-#define TT_API_VERSION_MINOR 33
+#define TT_API_VERSION_MINOR 34
 #define TT_API_VERSION ((TT_API_VERSION_MAJOR << 16) | TT_API_VERSION_MINOR)
 
 // 0 以上は成功、負の値は失敗。
@@ -187,6 +187,9 @@ enum {
     TT_MATERIAL_GROUND_SHADOW = 1u << 2, // 地面の影を落とす（API 0.7）
     TT_MATERIAL_CAST_SHADOW = 1u << 3,   // セルフシャドウを落とす（API 0.7）
     TT_MATERIAL_RECEIVE_SHADOW = 1u << 4, // セルフシャドウを受ける（API 0.7）。受ける材質は、影の中をトゥーンの影の色で描く（MMD と同じ）
+    // API 0.34: 見えなくても（不透明度 0 でも）セルフシャドウを落とす（TT_MATERIAL_CAST_SHADOW と一緒に使う）。
+    // MMD の背景の「影落とし用ダミー」（透明な箱で、部屋の壁の影を落とす）のための印（設計判断記録 87 章）
+    TT_MATERIAL_SHADOW_ONLY = 1u << 5,
 };
 
 enum {

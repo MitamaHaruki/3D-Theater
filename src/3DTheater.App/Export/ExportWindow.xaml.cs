@@ -251,9 +251,6 @@ public partial class ExportWindow : Window
         bool transparent = TransparentCheck.IsChecked == true && _kind != ExportKind.Video;
         BackgroundBox.IsEnabled = BackgroundLabel.IsEnabled = !transparent;
         BackgroundSwatch.Opacity = transparent ? 0.3 : 1;
-        BackgroundSwatch.Background = ImageExport.TryParseColor(BackgroundBox.Text, out Vector3 c)
-            ? new SolidColorBrush(Color.FromRgb((byte)(c.X * 255), (byte)(c.Y * 255), (byte)(c.Z * 255)))
-            : Brushes.Transparent;
     }
 
     private void OnBrowseClick(object sender, RoutedEventArgs e)

@@ -1,6 +1,7 @@
 <Window x:Class="Theater3D.App.Shell.IllustrationWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:c="clr-namespace:Theater3D.App.Controls"
         Title="イラスト風"
         Width="480" SizeToContent="Height" ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
@@ -78,7 +79,7 @@
       <StackPanel Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal">
         <TextBox x:Name="LineColorBox" Style="{StaticResource ColorBoxStyle}" AutomationProperties.Name="線画の色"
                  ToolTip="#RRGGBB（例: 黒 = #000000）" TextChanged="OnColorChanged" />
-        <Border x:Name="LineColorSwatch" Style="{StaticResource SwatchStyle}" />
+        <c:ColorPickerButton x:Name="LineColorSwatch" Margin="8,0,0,0" Target="{Binding ElementName=LineColorBox}" AutomationProperties.Name="線画の色を選ぶ" />
       </StackPanel>
     </Grid>
 
@@ -115,7 +116,7 @@
       <StackPanel Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal">
         <TextBox x:Name="ShadowColorBox" Style="{StaticResource ColorBoxStyle}" AutomationProperties.Name="影の色"
                  ToolTip="#RRGGBB（例: 青紫 = #6A5ACD）" TextChanged="OnColorChanged" />
-        <Border x:Name="ShadowColorSwatch" Style="{StaticResource SwatchStyle}" />
+        <c:ColorPickerButton x:Name="ShadowColorSwatch" Margin="8,0,0,0" Target="{Binding ElementName=ShadowColorBox}" AutomationProperties.Name="影の色を選ぶ" />
       </StackPanel>
       <TextBlock Grid.Row="1" Style="{StaticResource RowLabelStyle}" Text="強さ" />
       <Slider x:Name="ShadowTintSlider" Grid.Row="1" Grid.Column="1" Style="{StaticResource EffectSliderStyle}" Minimum="0" Maximum="1"

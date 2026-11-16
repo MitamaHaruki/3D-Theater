@@ -9,12 +9,19 @@ namespace Theater3D.App.Controls;
 /// <summary>
 /// 数値の入力欄。Enter かフォーカスを外したときに確定し、Esc で元に戻す。
 /// 正しくない文字は確定せず元の値に戻す。ホイールで <see cref="Step"/> ずつ増減（Shift で 1/10、Ctrl で 10 倍）。
+/// 字を打っていないときは、左右にドラッグして値を変えられる（右で増え、左で減る。Shift で 1/10、Ctrl で 10 倍。設計判断記録 87 章）。
+/// 押して動かさずに離すと、字を打つ欄になる。
 /// 書き換えていないとき（入力の焦点があっても）は、外から変わった値（元に戻すなど）をすぐ出し、焦点を外しても確定し直さない。
 /// </summary>
 public sealed class NumberBox : TextBox
 {
     // この欄が最後に自分で出した文字（利用者が書き換えていなければ Text と同じ）
     private string? _shownText;
+
+    // 左右のドラッグ（押した所と、そのときの値。動かし始めたら _dragging）
+    private Point? _pressPoint;
+    private double _dragStart;
+    private bool _dragging;
 
     public static readonly DependencyProperty ValueProperty = DependencyProperty.Register(
         nameof(Value), typeof(double), typeof(NumberBox),
@@ -34,6 +41,8 @@ public sealed class NumberBox : TextBox
         MinHeight = 0;
         Padding = new Thickness(4, 1, 4, 1);
         HorizontalContentAlignment = HorizontalAlignment.Right;
+        // 文字の欄が I の形に決めた後で、形を決め直す（決め終わった知らせも受け取る）
+        AddHandler(Mouse.QueryCursorEvent, new QueryCursorEventHandler(OnQueryCursorChanged), handledEventsToo: true);
         ShowValue();
     }
 
@@ -62,7 +71,8 @@ public sealed class NumberBox : TextBox
         HideButtons(this);
     }
 
-    private static void HideButtons(DependencyObject parent)
+    /// <summary>Fluent の見た目の、文字の欄の中のボタン（「×」など）を隠す。</summary>
+    internal static void HideButtons(DependencyObject parent)
     {
         for (int i = 0; i < System.Windows.Media.VisualTreeHelper.GetChildrenCount(parent); i++)
         {
@@ -103,6 +113,89 @@ public sealed class NumberBox : TextBox
     {
         base.OnGotKeyboardFocus(e);
         SelectAll();
+    }
+
+    /// <summary>ドラッグで値を変えられるか（字を打っている間・変えられないときは、ふつうの文字の欄）。</summary>
+    private bool CanDrag => !IsReadOnly && IsEnabled && !IsKeyboardFocusWithin;
+
+    protected override void OnPreviewMouseLeftButtonDown(MouseButtonEventArgs e)
+    {
+        base.OnPreviewMouseLeftButtonDown(e);
+        if (!CanDrag || e.Handled)
+        {
+            return;
+        }
+        _pressPoint = e.GetPosition(this);
+        _dragStart = Value;
+        _dragging = false;
+        CaptureMouse();
+        e.Handled = true; // 押しただけでは字の欄にしない（離したときに決める）
+    }
+
+    protected override void OnPreviewMouseMove(MouseEventArgs e)
+    {
+        base.OnPreviewMouseMove(e);
+        if (_pressPoint is not { } start || !IsMouseCaptured)
+        {
+            return; // 押している間（マウスをつかんでいる間）だけ。離すと、つかむのをやめる
+        }
+        double dx = e.GetPosition(this).X - start.X;
+        if (!_dragging && Math.Abs(dx) < Theater3D.Editor.NumberDrag.Threshold)
+        {
+            return;
+        }
+        _dragging = true;
+        ModifierKeys modifiers = Keyboard.Modifiers;
+        double next = Theater3D.Editor.NumberDrag.ValueAt(_dragStart, dx, Step,
+            fine: modifiers.HasFlag(ModifierKeys.Shift), coarse: modifiers.HasFlag(ModifierKeys.Control));
+        if (next != Value)
+        {
+            SetAndPush(next);
+        }
+        e.Handled = true;
+    }
+
+    protected override void OnPreviewMouseLeftButtonUp(MouseButtonEventArgs e)
+    {
+        base.OnPreviewMouseLeftButtonUp(e);
+        if (_pressPoint is null)
+        {
+            return;
+        }
+        bool dragged = _dragging;
+        EndDrag();
+        if (!dragged)
+        {
+            Focus(); // 動かさずに離したら、字を打つ（全部を選ぶ）
+        }
+        e.Handled = true;
+    }
+
+    protected override void OnLostMouseCapture(MouseEventArgs e)
+    {
+        base.OnLostMouseCapture(e);
+        _pressPoint = null;
+        _dragging = false;
+    }
+
+    // 字を打っていないときは、左右の矢印の形にして、ドラッグできることを見せる
+    private void OnQueryCursorChanged(object sender, QueryCursorEventArgs e)
+    {
+        if (CanDrag || _dragging)
+        {
+            e.Cursor = Cursors.SizeWE;
+            e.Handled = true;
+        }
+    }
+
+    private void EndDrag()
+    {
+        _pressPoint = null;
+        _dragging = false;
+        if (IsMouseCaptured)
+        {
+            ReleaseMouseCapture();
+        }
     }
 
     protected override void OnMouseWheel(MouseWheelEventArgs e)

@@ -10,7 +10,7 @@ namespace Theater3D.App.Live;
 /// <summary>
 /// サイドバーの「照明」（設計判断記録 78 章の 2 段目）。照明を足す・外す・名前を変える・操作する。
 /// 一覧で選ぶと、プレビューでも選んだことになる（ギズモで動かせる）。プレビューで照明を選ぶと、一覧でも選ぶ。
-/// 名前や色などは、一覧で選んだ照明のプロパティ欄で変える。MMD の照明（初めからある平行光）は外せない。
+/// 名前や色などは、一覧で選んだ照明のプロパティ欄で変える。サンライト（MMD の照明。太陽として扱う）は外せない（設計判断記録 87 章）。
 /// </summary>
 public partial class LightSection : UserControl
 {
@@ -70,7 +70,7 @@ public partial class LightSection : UserControl
             LightType.Spot => "スポットライト",
             _ => "平行光",
         };
-        return ReferenceEquals(light, _context.Scene.MainLight) ? $"{light.Name}（{kind}・MMD の照明）" : $"{light.Name}（{kind}）";
+        return ReferenceEquals(light, _context.Scene.MainLight) ? $"{light.Name}（太陽・MMD の照明）" : $"{light.Name}（{kind}）";
     }
 
     // プレビュー・シーンの一覧で照明を選んだら、この一覧でも選ぶ

@@ -1,8 +1,6 @@
 using System.Globalization;
-using System.Numerics;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Media;
 using Theater3D.Editor;
 
 namespace Theater3D.App.Shell;
@@ -91,15 +89,6 @@ public partial class IllustrationWindow : Window, IShowsCurrentValues
         ShadowTintText.Text = ShadowTintSlider.Value.ToString("0.00", c);
         PaperStrengthText.Text = PaperStrengthSlider.Value.ToString("0.00", c);
         PaperGrainText.Text = PaperGrainSlider.Value.ToString("0.0", c) + " 画素";
-        UpdateSwatch(LineColorBox, LineColorSwatch);
-        UpdateSwatch(ShadowColorBox, ShadowColorSwatch);
-    }
-
-    private static void UpdateSwatch(TextBox box, System.Windows.Controls.Border swatch)
-    {
-        swatch.Background = ImageExport.TryParseColor(box.Text, out Vector3 color)
-            ? new SolidColorBrush(Color.FromRgb((byte)(color.X * 255), (byte)(color.Y * 255), (byte)(color.Z * 255)))
-            : Brushes.Transparent;
     }
 
     private void Apply()

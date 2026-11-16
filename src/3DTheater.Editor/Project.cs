@@ -1046,7 +1046,8 @@ public static class ProjectApply
             }
             if (node.CanRename && !string.IsNullOrWhiteSpace(entry.Name))
             {
-                node.Name = entry.Name;
+                // 前の版の MMD の照明の初めの名前は、今の初めの名前（サンライト）にする（設計判断記録 87 章）
+                node.Name = role == "light" && entry.Name == SceneDocument.OldMainLightName ? SceneDocument.MainLightName : entry.Name;
             }
             node.IsVisible = entry.Visible;
             if (node.HasTransform)

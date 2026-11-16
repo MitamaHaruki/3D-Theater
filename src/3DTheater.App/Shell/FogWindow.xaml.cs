@@ -1,8 +1,6 @@
 using System.Globalization;
-using System.Numerics;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Media;
 using Theater3D.Editor;
 
 namespace Theater3D.App.Shell;
@@ -57,9 +55,6 @@ public partial class FogWindow : Window, IShowsCurrentValues
         StartText.Text = StartSlider.Value.ToString("0", c);
         VisibilityText.Text = VisibilitySlider.Value.ToString("0", c);
         HeightText.Text = HeightSlider.Value.ToString("0.0", c);
-        ColorSwatch.Background = ImageExport.TryParseColor(ColorBox.Text, out Vector3 color)
-            ? new SolidColorBrush(Color.FromRgb((byte)(color.X * 255), (byte)(color.Y * 255), (byte)(color.Z * 255)))
-            : Brushes.Transparent;
     }
 
     private void Apply()

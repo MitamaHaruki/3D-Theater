@@ -338,12 +338,15 @@
               <RowDefinition Height="Auto" />
               <RowDefinition Height="22" />
             </Grid.RowDefinitions>
-            <TextBlock Text="種類" Style="{StaticResource RowLabelStyle}" />
-            <TextBlock Grid.Column="1" Grid.ColumnSpan="2" VerticalAlignment="Center" TextWrapping="Wrap" Text="{Binding LightTypeText}" />
-            <TextBlock Grid.Row="1" Text="色" Style="{StaticResource RowLabelStyle}" ToolTip="#RRGGBB（白 = #FFFFFF）" />
-            <TextBox Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Margin="0,2" MinHeight="0" Height="24" Padding="4,1"
-                     VerticalContentAlignment="Center" IsEnabled="{Binding IsEditable}"
-                     Text="{Binding LightColor, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="照明の色" />
+            <TextBlock Text="種類" Style="{StaticResource RowLabelStyle}" VerticalAlignment="Top" Margin="0,2,6,2" />
+            <TextBlock Grid.Column="1" Grid.ColumnSpan="2" Margin="0,2" VerticalAlignment="Center" TextWrapping="Wrap" Text="{Binding LightTypeText}" />
+            <TextBlock Grid.Row="1" Text="色" Style="{StaticResource RowLabelStyle}" ToolTip="#RRGGBB（白 = #FFFFFF）。見本を押すと、パレットから選べます" />
+            <DockPanel Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Margin="0,2">
+              <c:ColorPickerButton DockPanel.Dock="Left" Margin="0,0,6,0" Target="{Binding ElementName=LightColorBox}" IsEnabled="{Binding IsEditable}"
+                                   AutomationProperties.Name="照明の色を選ぶ" />
+              <c:ColorBox x:Name="LightColorBox" Height="24" Padding="4,1" FontSize="12" IsEnabled="{Binding IsEditable}"
+                          Value="{Binding LightColor}" AutomationProperties.Name="照明の色" />
+            </DockPanel>
             <TextBlock Grid.Row="2" Text="明るさ" Style="{StaticResource RowLabelStyle}" />
             <c:NumberBox Grid.Row="2" Grid.Column="2" Value="{Binding Intensity}" Step="0.1" Format="0.00" />
             <TextBlock Grid.Row="3" Text="届く距離" Style="{StaticResource RowLabelStyle}"
@@ -363,11 +366,43 @@
                        ToolTip="位置・回転・色・明るさ・届く距離・広がり・ぼかしをキーで動かせます（タイムラインの「キーを登録」）" />
             <TextBlock Grid.Row="6" Grid.Column="1" Grid.ColumnSpan="2" VerticalAlignment="Center" Text="{Binding KeyCountText}" shell:ModeOnly.Edit="True" />
           </Grid>
+          <!-- サンライト（MMD の照明）: 時刻と太陽の高さ・向き（設計判断記録 87 章） -->
+          <StackPanel Margin="0,8,0,0" Visibility="{Binding IsMainLight, Converter={StaticResource BoolToVisibility}}">
+            <TextBlock Text="時刻" Style="{StaticResource RowLabelStyle}" Margin="0,0,0,4"
+                       ToolTip="太陽の高さ・色・明るさと、画面の色合い（色調補正）をまとめて変えます。太陽の向き（左右）は変えません。変えた後は、それぞれの欄で直せます" />
+            <UniformGrid Columns="4">
+              <Button Margin="0,0,4,0" Content="朝" Tag="Morning" HorizontalAlignment="Stretch" Click="OnTimeOfDayClick" IsEnabled="{Binding IsEditable}"
+                      AutomationProperties.Name="時刻を朝にする" ToolTip="低い太陽のやわらかい光と、少し暖かい色合い" />
+              <Button Margin="2,0,2,0" Content="昼" Tag="Noon" HorizontalAlignment="Stretch" Click="OnTimeOfDayClick" IsEnabled="{Binding IsEditable}"
+                      AutomationProperties.Name="時刻を昼にする" ToolTip="MMD の初めの照明と同じ高さ・明るさで、色合いを変えません" />
+              <Button Margin="2,0,2,0" Content="夕" Tag="Evening" HorizontalAlignment="Stretch" Click="OnTimeOfDayClick" IsEnabled="{Binding IsEditable}"
+                      AutomationProperties.Name="時刻を夕にする" ToolTip="とても低い太陽のだいだい色の光と、暖かく鮮やかな色合い" />
+              <Button Margin="4,0,0,0" Content="夜" Tag="Night" HorizontalAlignment="Stretch" Click="OnTimeOfDayClick" IsEnabled="{Binding IsEditable}"
+                      AutomationProperties.Name="時刻を夜にする" ToolTip="青白い月明かりと、暗く青っぽい色合い" />
+            </UniformGrid>
+            <Grid Margin="0,6,0,0">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="96" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="84" />
+              </Grid.ColumnDefinitions>
+              <Grid.RowDefinitions>
+                <RowDefinition Height="28" />
+                <RowDefinition Height="28" />
+              </Grid.RowDefinitions>
+              <TextBlock Text="太陽の高さ（度）" Style="{StaticResource RowLabelStyle}"
+                         ToolTip="地平線から見上げる角度。90 で真上、0 で真横から照らします（回転の X と同じ）" />
+              <c:NumberBox Grid.Column="2" Value="{Binding SunElevation}" Step="1" Format="0.0" AutomationProperties.Name="太陽の高さ" />
+              <TextBlock Grid.Row="1" Text="太陽の向き（度）" Style="{StaticResource RowLabelStyle}"
+                         ToolTip="真上から見て、光が来る向き（回転の Y と同じ）。窓から光が入るように合わせます" />
+              <c:NumberBox Grid.Row="1" Grid.Column="2" Value="{Binding SunAzimuth}" Step="1" Format="0.0" AutomationProperties.Name="太陽の向き" />
+            </Grid>
+          </StackPanel>
           <CheckBox Margin="0,6,0,0" Content="影を落とす（影をレイトレーシングで求めるとき）" IsChecked="{Binding LightCastsShadow}"
                     IsEnabled="{Binding IsEditable}" Visibility="{Binding IsAddedLight, Converter={StaticResource BoolToVisibility}}"
                     ToolTip="「影の設定...」でセルフシャドウを使い、「影をレイトレーシングで求める」にしたとき、この照明もモデルに影を落とします（くっきりした影。照明ごとに少し重くなります）" />
           <TextBlock Margin="0,6,0,0" Style="{StaticResource PlannedNoteStyle}"
-                     Text="MMD の照明は、向き（回転）・色・明るさで、モデルの陰影と影を描きます（隠すと、材質の環境色だけ）。足した照明（シーンのメニュー「照明を追加」）は、位置・向きと色でモデルを明るくします（影は、影をレイトレーシングで求めるときだけ落とします。プレビューに目印の線が出ます）。どちらの照明も、キーで動かせます（MMD のカメラ・照明のモーションの照明のキーは、MMD の照明に当てはまります）。" />
+                     Text="サンライト（MMD の照明）は太陽です。向き（回転）・色・明るさで、モデルの陰影と影を描きます（隠すと、材質の環境色だけ）。時刻のボタンで、朝・昼・夕・夜の光と色合いにできます。足した照明（シーンのメニュー「照明を追加」）は、位置・向きと色でモデルを明るくします（影は、影をレイトレーシングで求めるときだけ落とします。プレビューに目印の線が出ます）。どちらの照明も、キーで動かせます（MMD のカメラ・照明のモーションの照明のキーは、MMD の照明に当てはまります）。" />
         </StackPanel>
 
         <!-- 映像効果 -->

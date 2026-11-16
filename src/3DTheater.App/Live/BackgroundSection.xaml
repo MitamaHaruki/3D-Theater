@@ -28,6 +28,10 @@
       <Expander Header="位置・向き・表示・付ける先など" Style="{StaticResource LiveSubSectionStyle}" IsExpanded="True">
         <ContentControl x:Name="PropertiesHost" Focusable="False" />
       </Expander>
+      <!-- 背景のモデルのモーフ（部屋の「セルフシャドウON」・壁を透かすなどの切り替え。設計判断記録 87 章） -->
+      <Expander Header="モーフ（影の濃さ・壁の透け方などの切り替え）" Style="{StaticResource LiveSubSectionStyle}">
+        <ContentControl x:Name="MorphHost" Height="360" Focusable="False" />
+      </Expander>
     </StackPanel>
   </StackPanel>
 </UserControl>

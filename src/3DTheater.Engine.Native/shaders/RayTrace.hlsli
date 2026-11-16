@@ -60,6 +60,7 @@ static const uint kRayAlphaTest = 2;
 static const uint kRayPbr = 4;
 static const uint kRayCastShadow = 8;    // セルフシャドウを落とす
 static const uint kRayGroundShadow = 16; // 地面の影を落とす
+static const uint kRayShadowOnly = 32;   // 見えなくても、セルフシャドウの光線を遮る（API 0.34）
 static const int kRayStackSize = 40;
 static const uint kRayMaxVisits = 4096; // 1 本の光線で調べる箱の上限（とても込み入った所で止まらないように）
 static const float kRayTextureSize = 256.0;
@@ -146,6 +147,10 @@ bool RayPassesThrough(RayMaterial material, uint4 tri, uint vertexOffset, float2
         if ((material.info.z & shadowMask) == 0)
         {
             return true;
+        }
+        if ((shadowMask & kRayCastShadow) != 0 && (material.info.z & kRayShadowOnly) != 0)
+        {
+            return false; // 見えなくても影を落とす材質（透明でも遮る）
         }
     }
     else if (!front && (material.info.z & kRayDoubleSided) == 0)

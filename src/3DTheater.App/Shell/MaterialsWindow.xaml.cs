@@ -2,7 +2,6 @@ using System.Globalization;
 using System.Numerics;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Media;
 using Theater3D.Domain;
 using Theater3D.Editor;
 
@@ -106,15 +105,6 @@ public partial class MaterialsWindow : Window
         MetallicText.Text = MetallicSlider.Value.ToString("0.00", c);
         RoughnessText.Text = RoughnessSlider.Value.ToString("0.00", c);
         EmissiveText.Text = EmissiveSlider.Value.ToString("0.0", c);
-        UpdateSwatch(TintBox, TintSwatch);
-        UpdateSwatch(EmissiveBox, EmissiveSwatch);
-    }
-
-    private static void UpdateSwatch(TextBox box, System.Windows.Controls.Border swatch)
-    {
-        swatch.Background = ImageExport.TryParseColor(box.Text, out Vector3 color)
-            ? new SolidColorBrush(Color.FromRgb((byte)(color.X * 255), (byte)(color.Y * 255), (byte)(color.Z * 255)))
-            : Brushes.Transparent;
     }
 
     /// <summary>画面の値をモデルへ入れる（元に戻せる操作として）。</summary>

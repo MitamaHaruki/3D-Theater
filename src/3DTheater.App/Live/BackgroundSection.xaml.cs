@@ -11,13 +11,14 @@ namespace Theater3D.App.Live;
 /// <summary>
 /// サイドバーの「背景」（設計判断記録 78 章の 2 段目）。キャラクター以外のモデル・アクセサリを読み込む・外す・操作する。
 /// 一覧で選ぶと、プレビューでも選んだことになる（ギズモで動かせる）。プレビューで背景のモデルを選ぶと、一覧でも選ぶ。
-/// 下の欄は、一覧で選んだモデルを相手にする。
+/// 下の欄は、一覧で選んだモデルを相手にする（位置などと、モーフ。背景の部屋の「セルフシャドウON」などのモーフも、ここで動かす。設計判断記録 87 章）。
 /// </summary>
 public partial class BackgroundSection : UserControl
 {
     private readonly EditorContext _context;
     private readonly ILiveSceneActions _actions;
     private readonly PropertiesPanel _properties;
+    private readonly MorphPanel _morphs;
     private bool _syncing;
 
     internal BackgroundSection(EditorContext context, ILiveSceneActions actions)
@@ -26,7 +27,9 @@ public partial class BackgroundSection : UserControl
         _context = context;
         _actions = actions;
         _properties = new PropertiesPanel(context, () => Selected) { Background = Brushes.Transparent };
+        _morphs = new MorphPanel(context, () => Selected) { Background = Brushes.Transparent };
         PropertiesHost.Content = _properties;
+        MorphHost.Content = _morphs;
         context.LiveTracking.Changed += (_, _) => Rebuild();
         context.Scene.NodeChanged += (_, e) =>
         {
@@ -120,6 +123,7 @@ public partial class BackgroundSection : UserControl
     {
         ModelNode? model = Selected;
         _properties.RefreshTarget();
+        _morphs.RefreshTarget();
         bool any = ItemList.Items.Count > 0;
         ItemList.Visibility = any ? Visibility.Visible : Visibility.Collapsed;
         EmptyNote.Visibility = any ? Visibility.Collapsed : Visibility.Visible;

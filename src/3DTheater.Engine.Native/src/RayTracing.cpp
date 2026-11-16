@@ -495,7 +495,7 @@ void RayScene::UploadMaterials(Mesh& mesh, const Entry& entry)
         r.info[1] = m.toon ? SlotOf(m.toon) : kNoTexture;
         r.info[2] = (m.doubleSided ? kMaterialDoubleSided : 0u) | (m.texture && m.texture->HasTransparency() ? kMaterialAlphaTest : 0u)
             | (m.shading == TT_SHADING_PBR ? kMaterialPbr : 0u) | (m.castShadow ? kMaterialCastShadow : 0u)
-            | (m.groundShadow ? kMaterialGroundShadow : 0u);
+            | (m.groundShadow ? kMaterialGroundShadow : 0u) | (m.shadowOnly ? kMaterialShadowOnly : 0u);
         data.push_back(r);
     }
     Upload(materialBuffer_, entry.materialOffset, static_cast<UINT>(data.size()), sizeof(Material), data.data());

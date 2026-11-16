@@ -210,6 +210,7 @@ Mesh::Mesh(Engine& engine, const TtMeshDesc& desc) : engine_(engine), id_(g_next
         material.groundShadow = (m.flags & TT_MATERIAL_GROUND_SHADOW) != 0;
         material.castShadow = (m.flags & TT_MATERIAL_CAST_SHADOW) != 0;
         material.receiveShadow = (m.flags & TT_MATERIAL_RECEIVE_SHADOW) != 0;
+        material.shadowOnly = (m.flags & TT_MATERIAL_SHADOW_ONLY) != 0;
         material.texture = image(m.texture, i, L"テクスチャ");
         material.toon = image(m.toon_texture, i, L"トゥーンのテクスチャ");
         material.sphere = image(m.sphere_texture, i, L"スフィアのテクスチャ");

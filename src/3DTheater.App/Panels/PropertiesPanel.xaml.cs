@@ -28,6 +28,14 @@ public partial class PropertiesPanel : UserControl
 
     private void OnResetBoneClick(object sender, RoutedEventArgs e) => _viewModel.ResetBone();
 
+    private void OnTimeOfDayClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: string tag } && Enum.TryParse(tag, out Editor.TimeOfDay time))
+        {
+            _viewModel.ApplyTimeOfDay(time);
+        }
+    }
+
     private void OnResetPoseClick(object sender, RoutedEventArgs e) => _viewModel.ResetModelPose();
 
     private void OnMaterialsClick(object sender, RoutedEventArgs e)

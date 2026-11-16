@@ -19,7 +19,7 @@
         <Button x:Name="RemoveButton" Style="{StaticResource LiveActionButtonStyle}" Content="外す" Click="OnRemoveClick" AutomationProperties.Name="照明を外す"
                 ToolTip="選んだ照明をシーンから外します（Ctrl+Z で戻せます）" />
         <TextBlock x:Name="RemoveNote" Margin="0,0,0,6" VerticalAlignment="Center" Style="{StaticResource PlannedNoteStyle}"
-                   Text="MMD の照明（初めからある平行光）は外せません。名前と色・向きは変えられます。" />
+                   Text="サンライト（MMD の照明。太陽として影を落とす平行光）は外せません。名前と色・向き・時刻は変えられます。" />
       </WrapPanel>
       <Expander Header="名前・色・明るさ・位置・向きなど" Style="{StaticResource LiveSubSectionStyle}" IsExpanded="True">
         <ContentControl x:Name="PropertiesHost" Focusable="False" />

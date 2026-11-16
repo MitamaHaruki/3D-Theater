@@ -39,7 +39,13 @@ public sealed class SceneDocument
     /// <summary>セルフ影（セルフシャドウを使うかを切り替えるキーを持つ）。</summary>
     public SelfShadowNode SelfShadow { get; private set; } = null!;
 
-    /// <summary>MMD の照明（決まった役目の「light」）。</summary>
+    /// <summary>MMD の照明の初めの名前。太陽として扱う（時刻で高さと色を変える。設計判断記録 87 章）。</summary>
+    public const string MainLightName = "サンライト";
+
+    /// <summary>前の版の、MMD の照明の初めの名前（このままのファイルを開くと、<see cref="MainLightName"/> にする）。</summary>
+    public const string OldMainLightName = "ディレクショナルライト";
+
+    /// <summary>MMD の照明（決まった役目の「light」）。太陽として扱う。</summary>
     public LightNode MainLight => (LightNode)_fixedNodes["light"];
 
     /// <summary>カメラを置くグループ（最初のカメラは決まった役目の「camera」で外せない。ライブモードで足したカメラはその後ろに並ぶ）。</summary>
@@ -171,8 +177,8 @@ public sealed class SceneDocument
             Position = new Vector3(0f, 10f, -45f),
             Rotation = Vector3.Zero,
         });
-        // MMD の初期の照明と同じ向き（光が進む向き (-0.5, -1, 0.5)。下向き 54.7°、左右 -45°）
-        document.Add(lights, new LightNode("ディレクショナルライト") { Rotation = new Vector3(54.73561f, -45f, 0f) });
+        // MMD の初期の照明と同じ向き（光が進む向き (-0.5, -1, 0.5)。下向き 54.7°、左右 -45°）。太陽として扱う（設計判断記録 87 章）
+        document.Add(lights, new LightNode(MainLightName) { Rotation = new Vector3(54.73561f, -45f, 0f) });
         document.Add(models, new TestObjectNode("テスト用立方体") { Position = new Vector3(0f, 0.5f, 0f) });
         var grid = new SceneNode(SceneNodeKind.Stage, "床グリッド", hasTransform: false);
         document.Add(stage, grid);

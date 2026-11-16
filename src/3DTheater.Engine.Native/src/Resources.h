@@ -110,6 +110,7 @@ public:
         bool groundShadow;
         bool castShadow;
         bool receiveShadow;
+        bool shadowOnly = false; // 見えなくても（不透明度 0 でも）セルフシャドウを落とす（API 0.34）
         std::shared_ptr<TextureImage> texture; // 無ければ空（白として描く）
         std::shared_ptr<TextureImage> toon;    // 無ければ陰影を付けない
         std::shared_ptr<TextureImage> sphere;

@@ -332,6 +332,69 @@ public sealed class NativeEngineTests
     }
 
     [TestMethod]
+    public void ShadowOnlyMaterialCastsShadowWhileHidden()
+    {
+        // 上の確かめと同じ床と板。板は赤で、不透明度 0（見えない）。API 0.34: ShadowOnly の材質は、見えなくてもセルフシャドウを落とす
+        // （MMD の背景の「影落とし用ダミー」）。印が無ければ、今まで通り影を落とさない（材質モーフで消した所）
+        using var engine = NativeEngine.Create(NativeEngineOptions.UseWarp);
+        const int width = 64;
+        const int height = 48;
+        using var view = engine.CreateOffscreenView(width, height);
+        var up = System.Numerics.Vector3.UnitY;
+        byte[] toonPixels = [255, 255, 255, 255, 255, 255, 255, 255, 0, 0, 200, 255, 0, 0, 200, 255];
+        using NativeTexture toon = engine.CreateTexture(2, 2, toonPixels, 8);
+        NativeMesh Plate(float y, float half, MaterialFlags flags, NativeTexture? toonTexture, System.Numerics.Vector4 diffuse)
+        {
+            MeshVertex[] quad =
+            [
+                new(new(-half, y, half), up, new(0, 0)),
+                new(new(half, y, half), up, new(1, 0)),
+                new(new(half, y, -half), up, new(1, 1)),
+                new(new(-half, y, -half), up, new(0, 1)),
+            ];
+            MeshMaterial[] materials =
+            [
+                new(0, 6, diffuse, System.Numerics.Vector3.Zero, 0, new(diffuse.X, diffuse.Y, diffuse.Z),
+                    flags | MaterialFlags.DoubleSided, null, ToonTexture: toonTexture),
+            ];
+            return engine.CreateMesh(quad, [0, 1, 2, 0, 2, 3], materials);
+        }
+
+        using NativeMesh floor = Plate(0f, 3f, MaterialFlags.ReceiveShadow, toon, System.Numerics.Vector4.One);
+        var hiddenRed = new System.Numerics.Vector4(1f, 0f, 0f, 0f);
+        using NativeMesh hidden = Plate(1f, 0.5f, MaterialFlags.CastShadow, null, hiddenRed);
+        using NativeMesh shadowOnly = Plate(1f, 0.5f, MaterialFlags.CastShadow | MaterialFlags.ShadowOnly, null, hiddenRed);
+        (byte Shadow, byte Center) Green(NativeMesh occluder, FrameFlags flags)
+        {
+            FrameParameters frame = DefaultFrame with
+            {
+                Flags = FrameFlags.UseLight | flags,
+                View = System.Numerics.Matrix4x4.CreateLookAtLeftHanded(new(0, 8, 0), System.Numerics.Vector3.Zero, System.Numerics.Vector3.UnitZ),
+                Items = [new DrawItem(floor, System.Numerics.Matrix4x4.Identity, DrawFlags.None),
+                    new DrawItem(occluder, System.Numerics.Matrix4x4.Identity, DrawFlags.None)],
+                LightDirection = System.Numerics.Vector3.Normalize(new(1f, -1f, 0f)),
+                LightColor = new(0.6f),
+            };
+            Assert.IsTrue(view.Render(frame));
+            var pixels = new byte[width * height * 4];
+            view.ReadPixels(pixels, width * 4);
+            int row = (height / 2) * width;
+            return (pixels[(row + 39) * 4 + 1], pixels[(row + 32) * 4 + 1]); // 板の右の影の真ん中と、板の真下（見えれば赤）
+        }
+
+        foreach (FrameFlags flags in new[] { FrameFlags.SelfShadow, FrameFlags.SelfShadow | FrameFlags.RayTracedShadows })
+        {
+            string how = flags.HasFlag(FrameFlags.RayTracedShadows) ? "レイトレーシング" : "奥行きの画像";
+            (byte shadow, byte center) = Green(hidden, flags);
+            Assert.IsGreaterThan(200, (int)shadow, $"不透明度 0 の材質は影を落とさない（{how}）");
+            Assert.IsGreaterThan(200, (int)center, $"不透明度 0 の板は見えない（{how}）");
+            (shadow, center) = Green(shadowOnly, flags);
+            Assert.IsLessThan(40, (int)shadow, $"見えなくても影を落とす材質は、影を落とす（{how}）");
+            Assert.IsGreaterThan(200, (int)center, $"影を落としても、板は見えない（{how}）");
+        }
+    }
+
+    [TestMethod]
     public void RenderPassesReachTheEngine()
     {
         // カメラの 5 先に、カメラへ向いた四角形を 1 つ置き、パスごとに真ん中の画素を読む

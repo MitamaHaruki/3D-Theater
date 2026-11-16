@@ -30,6 +30,12 @@ public enum MaterialFlags : uint
 
     /// <summary>セルフシャドウを受ける（影の中はトゥーンの影の色で描く）。</summary>
     ReceiveShadow = 1u << 4,
+
+    /// <summary>
+    /// 見えなくても（不透明度 0 でも）セルフシャドウを落とす（<see cref="CastShadow"/> と一緒に使う。API 0.34）。
+    /// MMD の背景の「影落とし用ダミー」（透明な箱で部屋の壁の影を落とす）のための印。
+    /// </summary>
+    ShadowOnly = 1u << 5,
 }
 
 /// <summary>スフィアマップの使い方（tt_engine.h の TT_SPHERE_*）。</summary>

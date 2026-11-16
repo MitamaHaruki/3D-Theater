@@ -1,6 +1,7 @@
 <Window x:Class="Theater3D.App.Shell.MaterialsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:c="clr-namespace:Theater3D.App.Controls"
         Title="材質の設定"
         Width="720" Height="560" MinWidth="620" MinHeight="460"
         WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
@@ -79,7 +80,7 @@
           <StackPanel Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal">
             <TextBox x:Name="TintBox" Style="{StaticResource ColorBoxStyle}" AutomationProperties.Name="色合い" ToolTip="#RRGGBB（白 = #FFFFFF は変えない）"
                      TextChanged="OnTextChanged" />
-            <Border x:Name="TintSwatch" Style="{StaticResource SwatchStyle}" />
+            <c:ColorPickerButton x:Name="TintSwatch" Margin="8,0,0,0" Target="{Binding ElementName=TintBox}" AutomationProperties.Name="色合いを選ぶ" />
           </StackPanel>
           <TextBlock Grid.Row="1" Style="{StaticResource RowLabelStyle}" Text="金属らしさ" ToolTip="1 に近いほど金属（色の付いた照り返し・拡散なし）" />
           <Slider x:Name="MetallicSlider" Grid.Row="1" Grid.Column="1" Style="{StaticResource MaterialSliderStyle}" Minimum="0" Maximum="1"
@@ -106,7 +107,7 @@
           <StackPanel Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal">
             <TextBox x:Name="EmissiveBox" Style="{StaticResource ColorBoxStyle}" AutomationProperties.Name="発光の色" ToolTip="#RRGGBB"
                      TextChanged="OnTextChanged" />
-            <Border x:Name="EmissiveSwatch" Style="{StaticResource SwatchStyle}" />
+            <c:ColorPickerButton x:Name="EmissiveSwatch" Margin="8,0,0,0" Target="{Binding ElementName=EmissiveBox}" AutomationProperties.Name="発光の色を選ぶ" />
           </StackPanel>
           <TextBlock Grid.Row="1" Style="{StaticResource RowLabelStyle}" Text="強さ" ToolTip="0 なら光らない。1 より大きくすると、ブルームで周りへにじみます" />
           <Slider x:Name="EmissiveSlider" Grid.Row="1" Grid.Column="1" Style="{StaticResource MaterialSliderStyle}" Minimum="0" Maximum="10"

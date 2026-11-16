@@ -127,6 +127,12 @@ internal static class ModelMeshBuilder
             if ((m.Flags & PmxMaterialFlags.CastSelfShadow) != 0)
             {
                 flags |= MaterialFlags.CastShadow;
+                if (m.Diffuse.W <= 0f)
+                {
+                    // ファイルで不透明度 0 の、影を落とす材質は、見えなくても影を落とす（MMD の背景の「影落とし用ダミー」。設計判断記録 87 章）。
+                    // 材質モーフで消した所（ファイルでは見えている）は、今まで通り影を落とさない
+                    flags |= MaterialFlags.ShadowOnly;
+                }
             }
             if ((m.Flags & PmxMaterialFlags.ReceiveSelfShadow) != 0)
             {
