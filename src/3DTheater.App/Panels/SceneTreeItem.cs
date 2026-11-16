@@ -53,6 +53,7 @@ public sealed class SceneTreeItem : ObservableObject
         SceneNodeKind.Display => "\uE7B3",
         SceneNodeKind.Effects => "\uE790",
         SceneNodeKind.SelfShadow => "\uE793",
+        SceneNodeKind.TimeOfDay => "\uE823",
         _ => Parent is null ? "" : "",
     };
 
@@ -92,7 +93,8 @@ public sealed class SceneTreeItem : ObservableObject
 
     /// <summary>キーに登録していない変更がある。</summary>
     public bool IsUnregistered => Node is BoneNode { HasUnregisteredChange: true } or MorphNode { HasUnregisteredChange: true } or CameraNode { HasUnregisteredChange: true }
-        or LightNode { HasUnregisteredChange: true } or ModelDisplayNode { HasUnregisteredChange: true } or EffectsNode { HasUnregisteredChange: true } or SelfShadowNode { HasUnregisteredChange: true };
+        or LightNode { HasUnregisteredChange: true } or ModelDisplayNode { HasUnregisteredChange: true } or EffectsNode { HasUnregisteredChange: true } or SelfShadowNode { HasUnregisteredChange: true }
+        or TimeOfDayNode { HasUnregisteredChange: true };
 
     public bool IsExpanded
     {

@@ -88,13 +88,14 @@ public sealed class AnimationService
             .Concat(Lights.Where(l => l.HasUnregisteredChange))
             .Concat(Displays.Where(d => d.HasUnregisteredChange))
             .Concat(Effects.Where(x => x.HasUnregisteredChange))
-            .Concat(SelfShadows.Where(x => x.HasUnregisteredChange))];
+            .Concat(SelfShadows.Where(x => x.HasUnregisteredChange))
+            .Concat(Times.Where(x => x.HasUnregisteredChange))];
 
     public int UnregisteredCount =>
         Models.Sum(m => m.Bones.Count(b => b.HasUnregisteredChange) + m.Morphs.Count(x => x.HasUnregisteredChange))
         + Cameras.Count(c => c.HasUnregisteredChange) + Lights.Count(l => l.HasUnregisteredChange)
         + Displays.Count(d => d.HasUnregisteredChange) + Effects.Count(x => x.HasUnregisteredChange)
-        + SelfShadows.Count(x => x.HasUnregisteredChange);
+        + SelfShadows.Count(x => x.HasUnregisteredChange) + Times.Count(x => x.HasUnregisteredChange);
 
     /// <summary>
     /// この間は、値やキーが変わっても「手で変えた」とみなさず、キーの当てはめもしない（元に戻すで値を書き戻すときに使う）。
@@ -121,6 +122,43 @@ public sealed class AnimationService
     private IEnumerable<EffectsNode> Effects => _scene.Effects is { } effects ? [effects] : [];
 
     private IEnumerable<SelfShadowNode> SelfShadows => _scene.SelfShadow is { } shadow ? [shadow] : [];
+
+    private IEnumerable<TimeOfDayNode> Times => _scene.TimeOfDay is { } time ? [time] : [];
+
+    /// <summary>
+    /// 時刻のキーがあり、時刻がサンライト（MMD の照明）を動かしているか。このときは、サンライトの向き・色・明るさを手で変えると
+    /// 未登録の変更にする（次の当てはめで、黙って時刻の値に戻さないため）。
+    /// </summary>
+    private bool IsDrivenByTime(LightNode light) => _scene.TimeOfDay is { Keys.Count: > 0 } && ReferenceEquals(light, _scene.MainLight);
+
+    /// <summary>
+    /// 時刻の項目の時刻の光を、サンライトに当てはめる（時刻のボタン・欄で時刻や昼の太陽の向きを変えたとき。設計判断記録 88 章）。
+    /// 時刻のキーがあれば、時刻がサンライトを動かしているので当てはめとして行い、サンライトの未登録の変更も消す（時刻に従わせる）。
+    /// キーが無ければ、手でサンライトを変えたのと同じにする（サンライトにキーがあれば未登録の変更、自動キーなら照明のキー）。
+    /// </summary>
+    public void ApplyTimeToSun()
+    {
+        if (_scene.TimeOfDay is not { } time || !_scene.MainLight.CanEdit)
+        {
+            return;
+        }
+        LightNode sun = _scene.MainLight;
+        if (time.Keys.Count == 0)
+        {
+            SunClock.ApplyToSun(sun, time);
+            return;
+        }
+        bool wasUnregistered = sun.HasUnregisteredChange;
+        Apply(() =>
+        {
+            SunClock.ApplyToSun(sun, time);
+            sun.HasUnregisteredChange = false;
+        });
+        if (wasUnregistered)
+        {
+            StateChanged?.Invoke(this, EventArgs.Empty);
+        }
+    }
 
     /// <summary>今のフレームの値を、キーのある項目に当てはめる（未登録の変更がある項目はそのまま）。</summary>
     public void ApplyFrame()
@@ -154,6 +192,7 @@ public sealed class AnimationService
             }
             ApplyEffects(frame);
             ApplySelfShadow(frame);
+            ApplyTime(frame); // 時刻のキーは、照明のキーより後（サンライトは時刻で決まる）
         }
         finally
         {
@@ -236,6 +275,10 @@ public sealed class AnimationService
             {
                 ApplyLight(light, SampleTime(light.Keys, time, anchorFrame));
             }
+            if (_scene.TimeOfDay is { } timeOfDay)
+            {
+                ApplyTime(SampleTime(timeOfDay.Keys, time, anchorFrame));
+            }
         }
         finally
         {
@@ -277,7 +320,7 @@ public sealed class AnimationService
         var seen = new HashSet<SceneNode>();
         foreach (SceneNode node in selection)
         {
-            if (node is BoneNode or MorphNode or CameraNode or LightNode or ModelDisplayNode or EffectsNode or SelfShadowNode)
+            if (node is BoneNode or MorphNode or CameraNode or LightNode or ModelDisplayNode or EffectsNode or SelfShadowNode or TimeOfDayNode)
             {
                 if (seen.Add(node))
                 {
@@ -347,6 +390,11 @@ public sealed class AnimationService
                         shadow.Keys.Set(NewSelfShadowKey(shadow, _rendering.SelfShadow, frame));
                         count++;
                         break;
+                    case TimeOfDayNode time:
+                        ClearUnregistered(time);
+                        time.Keys.Set(NewTimeKey(time, frame));
+                        count++;
+                        break;
                 }
             }
         }
@@ -403,6 +451,7 @@ public sealed class AnimationService
                         break;
                 }
             }
+            ApplyTime(frame); // 時刻・サンライトを捨てたときは、時刻のキーの値に戻す（キーが無ければ何もしない）
         }
         finally
         {
@@ -503,6 +552,33 @@ public sealed class AnimationService
             distance = near.Distance;
         }
         return new SelfShadowKey(frame, enabled ? (mode == 0 ? (byte)1 : mode) : (byte)0, distance);
+    }
+
+    private static TimeKey NewTimeKey(TimeOfDayNode time, int frame)
+    {
+        // 同じフレームにキーがあれば、その動き方を引き継ぐ。無ければ直線
+        BezierCurve curve = BezierCurve.Linear;
+        KeyInterpolationKind kind = KeyInterpolationKind.Curve;
+        if (time.Keys.TryGet(frame, out TimeKey existing))
+        {
+            curve = existing.Curve;
+            kind = existing.Kind;
+        }
+        return new TimeKey(frame, time.Hour, curve, kind);
+    }
+
+    // 時刻のキーの値を時刻の項目へ入れ、サンライトをその時刻の光にする（_applying の中で呼ぶ。未登録の変更がある方は変えない）
+    private void ApplyTime(float frame)
+    {
+        if (_scene.TimeOfDay is not { HasUnregisteredChange: false } time || !KeyframeEvaluator.TryEvaluate(time.Keys, frame, out float hour))
+        {
+            return;
+        }
+        time.Hour = hour;
+        if (_scene.MainLight is { HasUnregisteredChange: false } sun)
+        {
+            SunClock.ApplyToSun(sun, time);
+        }
     }
 
     // セルフ影のキーの値を、描き方の設定へ入れる（_applying の中で呼ぶ）
@@ -641,7 +717,7 @@ public sealed class AnimationService
                 Apply(() => ApplyCamera(camera, _playback.CurrentFrame));
                 break;
             case LightNode light when IsKeyedLightProperty(e.PropertyName):
-                if (_autoKey || light.Keys.Count > 0)
+                if (_autoKey || light.Keys.Count > 0 || IsDrivenByTime(light))
                 {
                     OnUserEdit(light);
                 }
@@ -663,6 +739,15 @@ public sealed class AnimationService
                 break;
             case SelfShadowNode when e.PropertyName == nameof(SelfShadowNode.Keys):
                 Apply(() => ApplySelfShadow(_playback.CurrentFrame));
+                break;
+            case TimeOfDayNode time when e.PropertyName == nameof(TimeOfDayNode.Hour):
+                if (_autoKey || time.Keys.Count > 0)
+                {
+                    OnUserEdit(time);
+                }
+                break;
+            case TimeOfDayNode when e.PropertyName == nameof(TimeOfDayNode.Keys):
+                Apply(() => ApplyTime(_playback.CurrentFrame));
                 break;
         }
     }
@@ -688,7 +773,8 @@ public sealed class AnimationService
     private static bool IsUnregistered(SceneNode node) =>
         node is BoneNode { HasUnregisteredChange: true } or MorphNode { HasUnregisteredChange: true } or CameraNode { HasUnregisteredChange: true }
             or LightNode { HasUnregisteredChange: true } or ModelDisplayNode { HasUnregisteredChange: true }
-            or EffectsNode { HasUnregisteredChange: true } or SelfShadowNode { HasUnregisteredChange: true };
+            or EffectsNode { HasUnregisteredChange: true } or SelfShadowNode { HasUnregisteredChange: true }
+            or TimeOfDayNode { HasUnregisteredChange: true };
 
     private static void ClearUnregistered(SceneNode node)
     {
@@ -722,6 +808,9 @@ public sealed class AnimationService
                 break;
             case SelfShadowNode shadow:
                 shadow.HasUnregisteredChange = value;
+                break;
+            case TimeOfDayNode time:
+                time.HasUnregisteredChange = value;
                 break;
         }
     }

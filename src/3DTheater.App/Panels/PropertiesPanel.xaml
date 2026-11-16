@@ -366,43 +366,68 @@
                        ToolTip="位置・回転・色・明るさ・届く距離・広がり・ぼかしをキーで動かせます（タイムラインの「キーを登録」）" />
             <TextBlock Grid.Row="6" Grid.Column="1" Grid.ColumnSpan="2" VerticalAlignment="Center" Text="{Binding KeyCountText}" shell:ModeOnly.Edit="True" />
           </Grid>
-          <!-- サンライト（MMD の照明）: 時刻と太陽の高さ・向き（設計判断記録 87 章） -->
-          <StackPanel Margin="0,8,0,0" Visibility="{Binding IsMainLight, Converter={StaticResource BoolToVisibility}}">
-            <TextBlock Text="時刻" Style="{StaticResource RowLabelStyle}" Margin="0,0,0,4"
-                       ToolTip="太陽の高さ・色・明るさと、画面の色合い（色調補正）をまとめて変えます。太陽の向き（左右）は変えません。変えた後は、それぞれの欄で直せます" />
-            <UniformGrid Columns="4">
-              <Button Margin="0,0,4,0" Content="朝" Tag="Morning" HorizontalAlignment="Stretch" Click="OnTimeOfDayClick" IsEnabled="{Binding IsEditable}"
-                      AutomationProperties.Name="時刻を朝にする" ToolTip="低い太陽のやわらかい光と、少し暖かい色合い" />
-              <Button Margin="2,0,2,0" Content="昼" Tag="Noon" HorizontalAlignment="Stretch" Click="OnTimeOfDayClick" IsEnabled="{Binding IsEditable}"
-                      AutomationProperties.Name="時刻を昼にする" ToolTip="MMD の初めの照明と同じ高さ・明るさで、色合いを変えません" />
-              <Button Margin="2,0,2,0" Content="夕" Tag="Evening" HorizontalAlignment="Stretch" Click="OnTimeOfDayClick" IsEnabled="{Binding IsEditable}"
-                      AutomationProperties.Name="時刻を夕にする" ToolTip="とても低い太陽のだいだい色の光と、暖かく鮮やかな色合い" />
-              <Button Margin="4,0,0,0" Content="夜" Tag="Night" HorizontalAlignment="Stretch" Click="OnTimeOfDayClick" IsEnabled="{Binding IsEditable}"
-                      AutomationProperties.Name="時刻を夜にする" ToolTip="青白い月明かりと、暗く青っぽい色合い" />
-            </UniformGrid>
-            <Grid Margin="0,6,0,0">
+          <CheckBox Margin="0,6,0,0" Content="影を落とす（影をレイトレーシングで求めるとき）" IsChecked="{Binding LightCastsShadow}"
+                    IsEnabled="{Binding IsEditable}" Visibility="{Binding IsAddedLight, Converter={StaticResource BoolToVisibility}}"
+                    ToolTip="「影の設定...」でセルフシャドウを使い、「影をレイトレーシングで求める」にしたとき、この照明もモデルに影を落とします（くっきりした影。照明ごとに少し重くなります）" />
+          <TextBlock Margin="0,6,0,0" Style="{StaticResource PlannedNoteStyle}"
+                     Text="サンライト（MMD の照明）は太陽です。向き（回転）・色・明るさで、モデルの陰影と影を描きます（隠すと、材質の環境色だけ）。下の「時刻」で、朝・昼・夕・夜の光と色合いにできます。足した照明（シーンのメニュー「照明を追加」）は、位置・向きと色でモデルを明るくします（影は、影をレイトレーシングで求めるときだけ落とします。プレビューに目印の線が出ます）。どちらの照明も、キーで動かせます（MMD のカメラ・照明のモーションの照明のキーは、MMD の照明に当てはまります）。" />
+        </StackPanel>
+
+        <!-- 時刻（サンライトと時刻の項目。設計判断記録 87・88 章） -->
+        <StackPanel Visibility="{Binding ShowsTimeOfDay, Converter={StaticResource BoolToVisibility}}">
+          <TextBlock Text="時刻（太陽と画面の色合い）" Style="{StaticResource SectionHeaderStyle}" Margin="0,14,0,6" />
+          <UniformGrid Columns="4">
+            <Button Margin="0,0,4,0" Content="朝" Tag="Morning" HorizontalAlignment="Stretch" Click="OnTimeOfDayClick" IsEnabled="{Binding IsTimeEditable}"
+                    AutomationProperties.Name="時刻を朝にする" ToolTip="8 時。低い太陽のやわらかい光と、少し暖かい色合い" />
+            <Button Margin="2,0,2,0" Content="昼" Tag="Noon" HorizontalAlignment="Stretch" Click="OnTimeOfDayClick" IsEnabled="{Binding IsTimeEditable}"
+                    AutomationProperties.Name="時刻を昼にする" ToolTip="12 時。MMD の初めの照明と同じ高さ・明るさで、色合いを変えません" />
+            <Button Margin="2,0,2,0" Content="夕" Tag="Evening" HorizontalAlignment="Stretch" Click="OnTimeOfDayClick" IsEnabled="{Binding IsTimeEditable}"
+                    AutomationProperties.Name="時刻を夕にする" ToolTip="17 時。とても低い太陽のだいだい色の光と、暖かく鮮やかな色合い" />
+            <Button Margin="4,0,0,0" Content="夜" Tag="Night" HorizontalAlignment="Stretch" Click="OnTimeOfDayClick" IsEnabled="{Binding IsTimeEditable}"
+                    AutomationProperties.Name="時刻を夜にする" ToolTip="22 時。青白い月明かりと、暗く青っぽい色合い" />
+          </UniformGrid>
+          <Grid Margin="0,6,0,0">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="96" />
+              <ColumnDefinition Width="*" />
+              <ColumnDefinition Width="84" />
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+              <RowDefinition Height="28" />
+              <RowDefinition Height="28" />
+              <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+            <TextBlock Text="時刻（時）" Style="{StaticResource RowLabelStyle}"
+                       ToolTip="0〜24 時（17.5 = 17 時 30 分）。24 時より後は次の日（25 時 = 次の日の 1 時。夜をまたいでキーで動かすとき）。ドラッグ・ホイールで 15 分ずつ変わります" />
+            <TextBlock Grid.Column="1" VerticalAlignment="Center" Margin="0,0,8,0" Text="{Binding TimeClockText}" TextTrimming="CharacterEllipsis" />
+            <c:NumberBox Grid.Column="2" Value="{Binding TimeHour}" Step="0.25" Format="0.00" IsEnabled="{Binding IsTimeEditable}"
+                         AutomationProperties.Name="時刻" />
+            <TextBlock Grid.Row="1" Text="昼の向き（度）" Style="{StaticResource RowLabelStyle}"
+                       ToolTip="昼の太陽の向き。真上から見て、昼（12 時）に光が来る向き（サンライトの回転の Y と同じ）。窓から光が入るように合わせます。昼の太陽に向かって、朝は左から、夕方は右から光が来ます" />
+            <c:NumberBox Grid.Row="1" Grid.Column="2" Value="{Binding NoonAzimuth}" Step="1" Format="0.0" IsEnabled="{Binding IsTimeEditable}"
+                         AutomationProperties.Name="昼の太陽の向き" />
+            <Grid Grid.Row="2" Grid.ColumnSpan="3" Height="28" Visibility="{Binding IsMainLight, Converter={StaticResource BoolToVisibility}}">
               <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="96" />
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="84" />
               </Grid.ColumnDefinitions>
-              <Grid.RowDefinitions>
-                <RowDefinition Height="28" />
-                <RowDefinition Height="28" />
-              </Grid.RowDefinitions>
               <TextBlock Text="太陽の高さ（度）" Style="{StaticResource RowLabelStyle}"
-                         ToolTip="地平線から見上げる角度。90 で真上、0 で真横から照らします（回転の X と同じ）" />
+                         ToolTip="地平線から見上げる角度。90 で真上、0 で真横から照らします（回転の X と同じ。時刻を変えると、その時刻の高さになります）" />
               <c:NumberBox Grid.Column="2" Value="{Binding SunElevation}" Step="1" Format="0.0" AutomationProperties.Name="太陽の高さ" />
-              <TextBlock Grid.Row="1" Text="太陽の向き（度）" Style="{StaticResource RowLabelStyle}"
-                         ToolTip="真上から見て、光が来る向き（回転の Y と同じ）。窓から光が入るように合わせます" />
-              <c:NumberBox Grid.Row="1" Grid.Column="2" Value="{Binding SunAzimuth}" Step="1" Format="0.0" AutomationProperties.Name="太陽の向き" />
             </Grid>
-          </StackPanel>
-          <CheckBox Margin="0,6,0,0" Content="影を落とす（影をレイトレーシングで求めるとき）" IsChecked="{Binding LightCastsShadow}"
-                    IsEnabled="{Binding IsEditable}" Visibility="{Binding IsAddedLight, Converter={StaticResource BoolToVisibility}}"
-                    ToolTip="「影の設定...」でセルフシャドウを使い、「影をレイトレーシングで求める」にしたとき、この照明もモデルに影を落とします（くっきりした影。照明ごとに少し重くなります）" />
+          </Grid>
+          <CheckBox Margin="0,4,0,0" Content="太陽の向きも時刻で動かす" IsChecked="{Binding FollowsSunPath}" IsEnabled="{Binding IsTimeEditable}"
+                    ToolTip="朝は左（東）から、昼は「昼の太陽の向き」から、夕方は右（西）から光が来ます。外すと、いつも「昼の太陽の向き」から照らします（窓からいつも光を入れたいとき）" />
+          <DockPanel Margin="0,8,0,0" shell:ModeOnly.Edit="True">
+            <Button DockPanel.Dock="Left" Padding="10,2" Content="時刻のキーを登録" Click="OnRegisterTimeKeyClick" IsEnabled="{Binding IsTimeEditable}"
+                    ToolTip="今のフレームに、今の時刻のキーを置きます。キーの間は時刻が進み、太陽は空の道筋をたどって動きます" />
+            <TextBlock Margin="8,0,0,0" VerticalAlignment="Center" Text="{Binding TimeKeyCountText}" TextTrimming="CharacterEllipsis" />
+          </DockPanel>
           <TextBlock Margin="0,6,0,0" Style="{StaticResource PlannedNoteStyle}"
-                     Text="サンライト（MMD の照明）は太陽です。向き（回転）・色・明るさで、モデルの陰影と影を描きます（隠すと、材質の環境色だけ）。時刻のボタンで、朝・昼・夕・夜の光と色合いにできます。足した照明（シーンのメニュー「照明を追加」）は、位置・向きと色でモデルを明るくします（影は、影をレイトレーシングで求めるときだけ落とします。プレビューに目印の線が出ます）。どちらの照明も、キーで動かせます（MMD のカメラ・照明のモーションの照明のキーは、MMD の照明に当てはまります）。" />
+                     Text="時刻を変えると、サンライトの向き・高さ・色・明るさがその時刻の光になり、画面の色合いも変わります（色合いは、映像効果の色調補正に重ねます。映像効果の値は変えません）。太陽は 6 時に昇り、12 時にいちばん高く、18 時に沈みます。夜は月明かりです。変えた後も、照明の欄で色・明るさを直せます。" />
+          <TextBlock Margin="0,4,0,0" Style="{StaticResource PlannedNoteStyle}" shell:ModeOnly.Edit="True"
+                     Text="時刻のキーがあるときは、サンライトの向き・高さ・色・明るさは時刻で決まります（サンライトの照明のキーより、時刻が優先されます）。手で変えると未登録の変更になります。" />
         </StackPanel>
 
         <!-- 映像効果 -->

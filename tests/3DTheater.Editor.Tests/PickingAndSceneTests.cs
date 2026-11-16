@@ -92,7 +92,7 @@ public sealed class SceneTests
     public void DefaultSceneHasExpectedGroupsAndTestObject()
     {
         SceneDocument scene = SceneDocument.CreateDefault();
-        CollectionAssert.AreEqual(new[] { "カメラ", "照明", "映像効果", "セルフ影", "モデル", "ステージ", "音声" }, scene.Root.Children.Select(c => c.Name).ToArray());
+        CollectionAssert.AreEqual(new[] { "カメラ", "照明", "時刻", "映像効果", "セルフ影", "モデル", "ステージ", "音声" }, scene.Root.Children.Select(c => c.Name).ToArray());
         Assert.AreSame(scene.Effects, scene.FixedNodes["effects"], "映像効果は決まった項目");
         Assert.AreSame(scene.SelfShadow, scene.FixedNodes["selfShadow"], "セルフ影も決まった項目");
         Assert.IsNotNull(scene.FindFirst<CameraNode>());

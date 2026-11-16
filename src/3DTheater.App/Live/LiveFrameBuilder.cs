@@ -49,7 +49,7 @@ internal sealed class LiveFrameBuilder(EditorContext context)
         QualityProfile quality = context.PreviewQuality.Profile;
         return new FrameParameters(flags, matrices.View, matrices.Projection, Matrix4x4.Identity, Matrix4x4.Identity, _items, default,
             lightDirection, lightColor, SceneLighting.EdgePixelScale(pixelHeight), rendering.ShadowStyle.GroundColor,
-            quality.ShadowMapSize, clear, rendering.ToNative(pixelHeight, camera), EffectsMapping.LightsOf(context.Scene),
+            quality.ShadowMapSize, clear, rendering.ToNative(pixelHeight, camera, context.Scene.TimeOfDay), EffectsMapping.LightsOf(context.Scene),
             reflection.Strength, reflection.Fade, rendering.ShadowStyle.SoftnessTangent, environmentImage, environment.Intensity,
             environment.RotationRadians, ReflectionBlur: reflection.Blur, RaySamples: quality.RaySamples);
     }

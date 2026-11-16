@@ -200,6 +200,11 @@ internal sealed class ProjectService
             {
                 // 開いた値を、映像効果の手の変更とみなさない
                 (project.Rendering ?? new RenderingEntry()).ApplyTo(_context.Rendering, baseDirectory);
+                if (!project.Nodes.ContainsKey("timeOfDay"))
+                {
+                    // 時刻の項目の無い前の版のファイル: 今のサンライトの向きを昼の向きにし、前の版の時刻のボタンの色合いを時刻へ移す
+                    TimeOfDayPresets.UpgradeFromOldProject(_context.Scene, _context.Rendering);
+                }
             }
             if (_mode == AppMode.Live)
             {

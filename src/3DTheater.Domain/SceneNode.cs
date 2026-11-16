@@ -23,6 +23,8 @@ public enum SceneNodeKind
     Effects,
     /// <summary>セルフ影（シーンに 1 つ）。セルフシャドウを使うかを切り替えるキーを持つ（MMD のセルフ影のキー）。</summary>
     SelfShadow,
+    /// <summary>時刻（シーンに 1 つ）。サンライトの向き・色・明るさと画面の色合いを決め、時刻をキーで動かす。</summary>
+    TimeOfDay,
 }
 
 /// <summary>
@@ -818,6 +820,89 @@ public sealed class SelfShadowNode : SceneNode
             {
                 Keys.ReplaceAll(s.Keys.Keys);
             }
+            HasUnregisteredChange = s.HasUnregisteredChange;
+        }
+    }
+}
+
+/// <summary>
+/// 時刻（シーンに 1 つ。設計判断記録 88 章）。<see cref="Hour"/> の時刻で、サンライト（MMD の照明）の向き・高さ・色・明るさと、
+/// 画面の色合いを決める。計算と当てはめは Editor の SunClock と AnimationService が行う（色合いは、映像効果の色調補正に描くときに重ねる）。
+/// 時刻はキーで動かせる（<see cref="Keys"/>）。24 時より後は次の日の時刻（25 時 = 次の日の 1 時。夜をまたいで動かすため）。
+/// </summary>
+public sealed class TimeOfDayNode : SceneNode
+{
+    public const string DefaultName = "時刻";
+
+    /// <summary>時刻の上限（次の日の 24 時）。</summary>
+    public const float MaxHour = 48f;
+
+    /// <summary>初めの時刻（昼。MMD の初めの照明と同じ光になる）。</summary>
+    public const float DefaultHour = 12f;
+
+    /// <summary>初めの、昼の太陽の向き（MMD の初めの照明の左右の向き）。</summary>
+    public const float DefaultNoonAzimuth = -45f;
+
+    private float _hour = DefaultHour;
+    private float _noonAzimuth = DefaultNoonAzimuth;
+    private bool _followsSunPath = true;
+    private bool _hasUnregisteredChange;
+
+    public TimeOfDayNode()
+        : base(SceneNodeKind.TimeOfDay, DefaultName, canRename: false, hasTransform: false)
+    {
+        CanToggleVisibility = false;
+        Keys.Changed += (_, _) => OnPropertyChanged(nameof(Keys));
+    }
+
+    /// <summary>時刻（時。0〜48。17.5 = 17 時 30 分）。</summary>
+    public float Hour
+    {
+        get => _hour;
+        set => SetProperty(ref _hour, float.IsFinite(value) ? Math.Clamp(value, 0f, MaxHour) : _hour);
+    }
+
+    /// <summary>
+    /// 昼（12 時）の太陽の向き（度。真上から見て光が来る向きで、サンライトの回転の Y と同じ）。窓から光が入るように合わせる。
+    /// <see cref="FollowsSunPath"/> なら、朝は左から・夕方は右から（昼の太陽に向かって）光が来るように、時刻で回る。
+    /// </summary>
+    public float NoonAzimuth
+    {
+        get => _noonAzimuth;
+        set => SetProperty(ref _noonAzimuth, float.IsFinite(value) ? Math.Clamp(value, -720f, 720f) : _noonAzimuth);
+    }
+
+    /// <summary>太陽の向き（左右）も時刻で動かすか（false なら、いつも <see cref="NoonAzimuth"/> の向きから照らす）。</summary>
+    public bool FollowsSunPath
+    {
+        get => _followsSunPath;
+        set => SetProperty(ref _followsSunPath, value);
+    }
+
+    /// <summary>キーフレーム（時刻を動かす）。</summary>
+    public KeyTrack<TimeKey> Keys { get; } = new();
+
+    /// <summary>キーに登録していない変更がある（キーのあるときに、時刻を手で変えた）。</summary>
+    public bool HasUnregisteredChange
+    {
+        get => _hasUnregisteredChange;
+        set => SetProperty(ref _hasUnregisteredChange, value);
+    }
+
+    protected override object? CaptureExtra(bool includeKeys) =>
+        new TimeOfDayState(Hour, NoonAzimuth, FollowsSunPath, HasUnregisteredChange, includeKeys ? new KeySnapshot<TimeKey>(Keys.ToArray()) : null);
+
+    protected override void RestoreExtra(object? extra)
+    {
+        if (extra is TimeOfDayState s)
+        {
+            if (s.Keys is not null)
+            {
+                Keys.ReplaceAll(s.Keys.Keys);
+            }
+            Hour = s.Hour;
+            NoonAzimuth = s.NoonAzimuth;
+            FollowsSunPath = s.FollowsSunPath;
             HasUnregisteredChange = s.HasUnregisteredChange;
         }
     }

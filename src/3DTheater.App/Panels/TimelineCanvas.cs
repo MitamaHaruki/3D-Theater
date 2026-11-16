@@ -166,6 +166,7 @@ public sealed class TimelineCanvas : FrameworkElement
             }
             Brush nameBrush = node is BoneNode { HasUnregisteredChange: true } or MorphNode { HasUnregisteredChange: true } or CameraNode { HasUnregisteredChange: true }
                 or LightNode { HasUnregisteredChange: true } or ModelDisplayNode { HasUnregisteredChange: true } or EffectsNode { HasUnregisteredChange: true } or SelfShadowNode { HasUnregisteredChange: true }
+                or TimeOfDayNode { HasUnregisteredChange: true }
                 ? _unregistered
                 : node.IsEffectivelyVisible ? _text : _disabledText;
             var name = Text(node.Name, 12, nameBrush, dip);
@@ -552,6 +553,13 @@ public sealed class TimelineCanvas : FrameworkElement
                     yield return shadow.Keys.Keys[i].Frame;
                 }
                 break;
+            case TimeOfDayNode time:
+                var (ts, te) = time.Keys.Range(first, last);
+                for (int i = ts; i < te; i++)
+                {
+                    yield return time.Keys.Keys[i].Frame;
+                }
+                break;
             default:
                 int[] frames = SummaryFrames(node);
                 int start = Array.BinarySearch(frames, first);
@@ -736,6 +744,12 @@ public sealed class TimelineCanvas : FrameworkElement
                     break;
                 case SelfShadowNode shadow:
                     foreach (SelfShadowKey key in shadow.Keys.Keys)
+                    {
+                        frames.Add(key.Frame);
+                    }
+                    break;
+                case TimeOfDayNode time:
+                    foreach (TimeKey key in time.Keys.Keys)
                     {
                         frames.Add(key.Frame);
                     }

@@ -36,6 +36,8 @@ public partial class PropertiesPanel : UserControl
         }
     }
 
+    private void OnRegisterTimeKeyClick(object sender, RoutedEventArgs e) => _viewModel.RegisterTimeKey();
+
     private void OnResetPoseClick(object sender, RoutedEventArgs e) => _viewModel.ResetModelPose();
 
     private void OnMaterialsClick(object sender, RoutedEventArgs e)

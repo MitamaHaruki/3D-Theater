@@ -12,7 +12,7 @@ public sealed record GraphSeries(string Name, int CurveChannel, int FirstFrame, 
 /// <summary>
 /// 補間曲線の編集と、グラフエディタに描く値。補間曲線はキーごとに持ち、「前のキーからこのキーまで」の動き方（MMD と同じ）。
 /// 曲線の番号: ボーン = 移動 X・移動 Y・移動 Z・回転、モーフ = 値、カメラ = 注視点 X・Y・Z・回転・距離・視野角（MMD と同じ本数）、
-/// 照明・映像効果 = すべての値（1 本）。
+/// 照明・映像効果 = すべての値（1 本）、時刻 = 時刻。
 /// キーの並びを書き換えるので、画面からは <see cref="EditService"/> の中で呼び、元に戻せるようにする。
 /// </summary>
 public static class CurveEditing
@@ -24,6 +24,7 @@ public static class CurveEditing
         MorphNode => ["値"],
         CameraNode => ["注視点 X", "注視点 Y", "注視点 Z", "回転", "距離", "視野角"],
         LightNode or EffectsNode => ["すべての値"],
+        TimeOfDayNode => ["時刻"],
         _ => [],
     };
 
@@ -59,6 +60,10 @@ public static class CurveEditing
                 kind = k.Kind;
                 return true;
             case EffectsNode effects when effects.Keys.TryGet(key.Frame, out EffectKey k) && channel == 0:
+                curve = k.Curve;
+                kind = k.Kind;
+                return true;
+            case TimeOfDayNode time when time.Keys.TryGet(key.Frame, out TimeKey k) && channel == 0:
                 curve = k.Curve;
                 kind = k.Kind;
                 return true;
@@ -104,6 +109,11 @@ public static class CurveEditing
                         ? k with { Curve = curve, Kind = KeyInterpolationKind.Curve }
                         : k));
                     break;
+                case TimeOfDayNode time:
+                    time.Keys.ReplaceAll(time.Keys.Keys.Select(k => frames.Contains(k.Frame) && channel is null or 0
+                        ? k with { Curve = curve, Kind = KeyInterpolationKind.Curve }
+                        : k));
+                    break;
                 default:
                     continue;
             }
@@ -124,6 +134,7 @@ public static class CurveEditing
             ModelDisplayNode display => display.Keys.Keys.Select(k => k.Frame),
             EffectsNode effects => effects.Keys.Keys.Select(k => k.Frame),
             SelfShadowNode shadow => shadow.Keys.Keys.Select(k => k.Frame),
+            TimeOfDayNode time => time.Keys.Keys.Select(k => k.Frame),
             _ => [],
         };
         int? previous = null;
@@ -148,6 +159,7 @@ public static class CurveEditing
         ModelDisplayNode display => [.. display.Keys.Keys.Select(k => k.Frame)],
         EffectsNode effects => [.. effects.Keys.Keys.Select(k => k.Frame)],
         SelfShadowNode shadow => [.. shadow.Keys.Keys.Select(k => k.Frame)],
+        TimeOfDayNode time => [.. time.Keys.Keys.Select(k => k.Frame)],
         _ => [],
     };
 
@@ -297,6 +309,15 @@ public static class CurveEditing
                     }
                 }
                 return [.. names.Select((name, c) => new GraphSeries(name, 0, first, values[c]))];
+            }
+            case TimeOfDayNode time:
+            {
+                var values = new float[count];
+                for (int i = 0; i < count; i++)
+                {
+                    values[i] = time.Keys.Count > 0 && KeyframeEvaluator.TryEvaluate(time.Keys, first + i, out float hour) ? hour : time.Hour;
+                }
+                return [new("時刻", 0, first, values)];
             }
             default:
                 return [];

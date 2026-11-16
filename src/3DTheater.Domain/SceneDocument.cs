@@ -39,6 +39,9 @@ public sealed class SceneDocument
     /// <summary>セルフ影（セルフシャドウを使うかを切り替えるキーを持つ）。</summary>
     public SelfShadowNode SelfShadow { get; private set; } = null!;
 
+    /// <summary>時刻（サンライトと画面の色合いを決め、時刻を動かすキーを持つ。設計判断記録 88 章）。</summary>
+    public TimeOfDayNode TimeOfDay { get; private set; } = null!;
+
     /// <summary>MMD の照明の初めの名前。太陽として扱う（時刻で高さと色を変える。設計判断記録 87 章）。</summary>
     public const string MainLightName = "サンライト";
 
@@ -161,8 +164,10 @@ public sealed class SceneDocument
         var audio = Group("音声");
         var effects = new EffectsNode();
         var selfShadow = new SelfShadowNode();
+        var timeOfDay = new TimeOfDayNode();
         document.Add(root, cameras);
         document.Add(root, lights);
+        document.Add(root, timeOfDay);
         document.Add(root, effects);
         document.Add(root, selfShadow);
         document.Add(root, models);
@@ -187,6 +192,7 @@ public sealed class SceneDocument
         document.LightsGroup = lights;
         document.Effects = effects;
         document.SelfShadow = selfShadow;
+        document.TimeOfDay = timeOfDay;
 
         document._fixedNodes["group.cameras"] = cameras;
         document._fixedNodes["group.lights"] = lights;
@@ -199,6 +205,7 @@ public sealed class SceneDocument
         document._fixedNodes["stage"] = grid;
         document._fixedNodes["effects"] = effects;
         document._fixedNodes["selfShadow"] = selfShadow;
+        document._fixedNodes["timeOfDay"] = timeOfDay;
         foreach (SceneNode node in document._fixedNodes.Values.Append(root))
         {
             // キーも含めて覚える（新しいプロジェクトに戻すと、カメラ・照明・映像効果のキーも消える）

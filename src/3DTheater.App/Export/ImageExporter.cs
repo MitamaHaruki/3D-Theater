@@ -254,7 +254,7 @@ internal static class ImageExporter
         }
         var parameters = new FrameParameters(flags, matrices.View, matrices.Projection, Matrix4x4.Identity, Matrix4x4.Identity, items, default,
             lightDirection, lightColor, SceneLighting.EdgePixelScale(height), context.Rendering.ShadowStyle.GroundColor,
-            RenderQuality.Export.ShadowMapSize, clear, context.Rendering.ToNative(height, camera), EffectsMapping.LightsOf(context.Scene),
+            RenderQuality.Export.ShadowMapSize, clear, context.Rendering.ToNative(height, camera, context.Scene.TimeOfDay), EffectsMapping.LightsOf(context.Scene),
             reflection.Strength, reflection.Fade, context.Rendering.ShadowStyle.SoftnessTangent, environmentImage, environment.Intensity,
             environment.RotationRadians, ReflectionBlur: reflection.Blur, RaySamples: RenderQuality.Export.RaySamples);
         view.Render(parameters);

@@ -25,9 +25,9 @@ public partial class ScenePanel : UserControl
     {
         InitializeComponent();
         _context = context;
-        // ライブモードは、キーのための行（映像効果・セルフ影）と音声のまとまりを出さない
+        // ライブモードは、キーのための行（映像効果・セルフ影・時刻）と音声のまとまりを出さない
         Func<SceneNode, bool>? shows = context.IsLive
-            ? node => node is not (EffectsNode or SelfShadowNode) && !ReferenceEquals(node, context.Scene.AudioGroup)
+            ? node => node is not (EffectsNode or SelfShadowNode or TimeOfDayNode) && !ReferenceEquals(node, context.Scene.AudioGroup)
             : null;
         _root = new SceneTreeItem(context.Scene.Root, null, context.Edits, shows);
         Tree.ItemsSource = new[] { _root };

@@ -39,6 +39,13 @@ public sealed class PropertiesViewModel : ObservableObject
                 OnPropertyChanged(nameof(SelfShadowEnabled)); // メニューやキーで切り替わった
             }
         };
+        context.Scene.TimeOfDay.PropertyChanged += (_, _) =>
+        {
+            if (ShowsTimeOfDay && _node is not TimeOfDayNode)
+            {
+                OnPropertyChanged(string.Empty); // サンライトの欄: 時刻がキー・元に戻すで変わった（時刻の項目は、自分の通知で更新する）
+            }
+        };
         Refresh();
     }
 
@@ -63,6 +70,7 @@ public sealed class PropertiesViewModel : ObservableObject
         SceneNodeKind.Display => "表示・IK",
         SceneNodeKind.Effects => "映像効果",
         SceneNodeKind.SelfShadow => "セルフ影",
+        SceneNodeKind.TimeOfDay => "時刻",
         _ => "グループ",
     };
 
@@ -342,7 +350,8 @@ public sealed class PropertiesViewModel : ObservableObject
 
     /// <summary>選んだボーン・モーフ・カメラ・照明に、キーに登録していない変更がある。</summary>
     public bool HasUnregisteredChange => _node is BoneNode { HasUnregisteredChange: true } or MorphNode { HasUnregisteredChange: true } or CameraNode { HasUnregisteredChange: true }
-        or LightNode { HasUnregisteredChange: true } or ModelDisplayNode { HasUnregisteredChange: true } or EffectsNode { HasUnregisteredChange: true } or SelfShadowNode { HasUnregisteredChange: true };
+        or LightNode { HasUnregisteredChange: true } or ModelDisplayNode { HasUnregisteredChange: true } or EffectsNode { HasUnregisteredChange: true } or SelfShadowNode { HasUnregisteredChange: true }
+        or TimeOfDayNode { HasUnregisteredChange: true };
 
     /// <summary>キーの数（ボーン・モーフ・カメラ・照明）。</summary>
     public string KeyCountText => _node switch
@@ -354,8 +363,12 @@ public sealed class PropertiesViewModel : ObservableObject
         ModelDisplayNode display => display.Keys.Count == 0 ? "キーなし" : $"キー {display.Keys.Count:N0} 個（{display.Keys.FirstFrame}〜{display.Keys.LastFrame} フレーム）",
         EffectsNode effects => effects.Keys.Count == 0 ? "キーなし" : $"キー {effects.Keys.Count:N0} 個（{effects.Keys.FirstFrame}〜{effects.Keys.LastFrame} フレーム）",
         SelfShadowNode shadow => shadow.Keys.Count == 0 ? "キーなし" : $"キー {shadow.Keys.Count:N0} 個（{shadow.Keys.FirstFrame}〜{shadow.Keys.LastFrame} フレーム）",
+        TimeOfDayNode time => TimeKeyText(time),
         _ => string.Empty,
     };
+
+    private static string TimeKeyText(TimeOfDayNode time) =>
+        time.Keys.Count == 0 ? "キーなし" : $"キー {time.Keys.Count:N0} 個（{time.Keys.FirstFrame}〜{time.Keys.LastFrame} フレーム）";
 
     public bool IsMorph => _node is MorphNode;
 
@@ -461,8 +474,17 @@ public sealed class PropertiesViewModel : ObservableObject
     /// <summary>足した照明か（MMD の照明でない。影を落とすかを出す）。</summary>
     public bool IsAddedLight => _node is LightNode l && !ReferenceEquals(l, _context.Scene.MainLight);
 
-    /// <summary>サンライト（MMD の照明）か（時刻と太陽の高さ・向きを出す）。</summary>
+    /// <summary>サンライト（MMD の照明）か（太陽の高さを出す）。</summary>
     public bool IsMainLight => _node is LightNode l && ReferenceEquals(l, _context.Scene.MainLight);
+
+    /// <summary>時刻の項目か。</summary>
+    public bool IsTimeNode => _node is TimeOfDayNode;
+
+    /// <summary>時刻の欄を出すか（サンライトか時刻の項目を選んだとき。設計判断記録 88 章）。</summary>
+    public bool ShowsTimeOfDay => IsMainLight || IsTimeNode;
+
+    /// <summary>時刻を変えられるか（時刻の項目とサンライトのどちらもロックしていない）。</summary>
+    public bool IsTimeEditable => _context.Scene.TimeOfDay.CanEdit && _context.Scene.MainLight.CanEdit;
 
     /// <summary>太陽の高さ（度。照明の下向きの回転 X。-90〜90）。</summary>
     public double SunElevation
@@ -471,23 +493,76 @@ public sealed class PropertiesViewModel : ObservableObject
         set => Edit("太陽の高さ", n => n.Rotation = n.Rotation with { X = Math.Clamp((float)value, -90f, 90f) });
     }
 
-    /// <summary>太陽の向き（度。真上から見た、照明の左右の回転 Y）。</summary>
-    public double SunAzimuth
+    /// <summary>時刻（時。0〜48）。変えるとサンライトがその時刻の光になる（続けて変えたときは 1 回の元に戻すにまとめる）。</summary>
+    public double TimeHour
     {
-        get => Get(n => n.Rotation.Y);
-        set => Edit("太陽の向き", n => n.Rotation = n.Rotation with { Y = (float)value });
+        get => _context.Scene.TimeOfDay.Hour;
+        set
+        {
+            if (!IsTimeEditable)
+            {
+                OnPropertyChanged(string.Empty);
+                return;
+            }
+            _context.Playback.Pause();
+            TimeOfDayPresets.SetHour(_context.Edits, _context.Animation, _context.Rendering, (float)value, "時刻", mergeKey: "time:hour");
+        }
     }
 
-    /// <summary>サンライトと画面の色合いを、時刻 <paramref name="time"/> にする（元に戻すは 1 回）。</summary>
+    /// <summary>時刻の「17:30」の形。</summary>
+    public string TimeClockText => SunClock.FormatClock(_context.Scene.TimeOfDay.Hour);
+
+    /// <summary>昼（12 時）の太陽の向き（度）。</summary>
+    public double NoonAzimuth
+    {
+        get => _context.Scene.TimeOfDay.NoonAzimuth;
+        set => EditSunPath((float)value, null, "昼の太陽の向き");
+    }
+
+    /// <summary>太陽の向き（左右）も時刻で動かすか。</summary>
+    public bool FollowsSunPath
+    {
+        get => _context.Scene.TimeOfDay.FollowsSunPath;
+        set => EditSunPath(null, value, "太陽の向きを時刻で動かす");
+    }
+
+    /// <summary>時刻のキーの数。</summary>
+    public string TimeKeyCountText => TimeKeyText(_context.Scene.TimeOfDay);
+
+    private void EditSunPath(float? noonAzimuth, bool? follows, string what)
+    {
+        if (!IsTimeEditable)
+        {
+            OnPropertyChanged(string.Empty);
+            return;
+        }
+        _context.Playback.Pause();
+        TimeOfDayPresets.SetSunPath(_context.Edits, _context.Animation, noonAzimuth, follows, what, mergeKey: $"time:{what}");
+    }
+
+    /// <summary>時刻のボタン: 時刻を朝・昼・夕・夜にする（サンライトの光と画面の色合い。元に戻すは 1 回）。</summary>
     public void ApplyTimeOfDay(TimeOfDay time)
     {
-        if (_node is not LightNode sun || !ReferenceEquals(sun, _context.Scene.MainLight) || !sun.CanEdit)
+        if (!IsTimeEditable)
         {
             return;
         }
         _context.Playback.Pause();
-        TimeOfDayPresets.Apply(_context.Edits, _context.Rendering, sun, time);
-        AppLog.Info($"時刻を「{TimeOfDayPresets.Of(time).Name}」にしました（サンライトの高さ・色・明るさと、画面の色合い）");
+        TimeOfDayPresets.Apply(_context.Edits, _context.Animation, _context.Rendering, time);
+        AppLog.Info($"時刻を「{TimeOfDayPresets.NameOf(time)}」（{SunClock.FormatClock(TimeOfDayPresets.HourOf(time))}）にしました（サンライトの向き・色・明るさと、画面の色合い）");
+    }
+
+    /// <summary>今のフレームに時刻のキーを置く（元に戻せる）。</summary>
+    public void RegisterTimeKey()
+    {
+        TimeOfDayNode time = _context.Scene.TimeOfDay;
+        if (!time.CanEdit)
+        {
+            return;
+        }
+        _context.Playback.Pause();
+        _context.Edits.Change("時刻のキーの登録", [time], () => _context.Animation.Register([time]), includeKeys: true);
+        AppLog.Info($"{_context.Playback.CurrentFrame} フレーム目に時刻のキー（{SunClock.FormatClock(time.Hour)}）を置きました");
     }
 
     /// <summary>照明の色（#RRGGBB）。読めない文字は入れない。</summary>

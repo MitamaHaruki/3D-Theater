@@ -445,7 +445,7 @@ public partial class ViewportControl : UserControl, IDisposable
         }
         return new FrameParameters(flags, matrices.View, matrices.Projection, gridWorld, testWorld, _drawItems, _lines.Memory,
             lightDirection, lightColor, SceneLighting.EdgePixelScale(effectHeight), _context.Rendering.ShadowStyle.GroundColor,
-            ShadowMapSize: _context.PreviewQuality.Profile.ShadowMapSize, Effects: _context.Rendering.ToNative(effectHeight, Camera.Kind == ViewKind.Camera ? _context.ViewCamera : null),
+            ShadowMapSize: _context.PreviewQuality.Profile.ShadowMapSize, Effects: _context.Rendering.ToNative(effectHeight, Camera.Kind == ViewKind.Camera ? _context.ViewCamera : null, _context.Scene.TimeOfDay),
             Lights: EffectsMapping.LightsOf(_context.Scene), ReflectionStrength: reflection.Strength, ReflectionFade: reflection.Fade,
             ShadowSoftness: _context.Rendering.ShadowStyle.SoftnessTangent, Environment: environmentImage,
             EnvironmentIntensity: environment.Intensity, EnvironmentRotation: environment.RotationRadians, ReflectionBlur: reflection.Blur,

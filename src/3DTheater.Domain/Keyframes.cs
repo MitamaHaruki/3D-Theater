@@ -218,6 +218,12 @@ public readonly record struct EffectKey(int Frame, EffectPose Pose, BezierCurve 
     : IKeyframe;
 
 /// <summary>
+/// 時刻のキー 1 つ（<see cref="TimeOfDayNode"/>）。<see cref="Hour"/> は時（0〜48）。<see cref="Curve"/> と <see cref="Kind"/> は
+/// 前のキーからこのキーまでの動き方。キーの間は時刻を補間するので、太陽は空の道筋をたどって動く。
+/// </summary>
+public readonly record struct TimeKey(int Frame, float Hour, BezierCurve Curve, KeyInterpolationKind Kind = KeyInterpolationKind.Curve) : IKeyframe;
+
+/// <summary>
 /// 照明の値（キーで動かすもの）。<see cref="Rotation"/> は度（シーンの項目と同じ。補間では成分ごとに直線で動く）、
 /// <see cref="Color"/> は各 0〜1。届く距離・広がり・ぼかしは、点光源・スポットライトだけが使う。
 /// </summary>
@@ -550,6 +556,29 @@ public static class KeyframeEvaluator
             return true;
         }
         pose = EffectPose.Lerp(a.Pose, b.Pose, b.Curve.Evaluate((frame - a.Frame) / (b.Frame - a.Frame)));
+        return true;
+    }
+
+    public static bool TryEvaluate(KeyTrack<TimeKey> track, float frame, out float hour)
+    {
+        hour = 0;
+        if (!track.FindSegment(frame, out int before, out int after))
+        {
+            return false;
+        }
+        TimeKey a = track.Keys[before];
+        if (before == after)
+        {
+            hour = a.Hour;
+            return true;
+        }
+        TimeKey b = track.Keys[after];
+        if (b.Kind == KeyInterpolationKind.Step)
+        {
+            hour = a.Hour;
+            return true;
+        }
+        hour = float.Lerp(a.Hour, b.Hour, b.Curve.Evaluate((frame - a.Frame) / (b.Frame - a.Frame)));
         return true;
     }
 

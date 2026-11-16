@@ -1,9 +1,8 @@
-using System.Numerics;
 using Theater3D.Domain;
 
 namespace Theater3D.Editor;
 
-/// <summary>時刻（朝・昼・夕・夜）。</summary>
+/// <summary>時刻のボタン（朝・昼・夕・夜）。</summary>
 public enum TimeOfDay
 {
     Morning,
@@ -13,65 +12,119 @@ public enum TimeOfDay
 }
 
 /// <summary>
-/// 時刻の明るさと色合い（設計判断記録 87 章）。サンライト（MMD の照明。太陽として扱う）の高さ・色・明るさと、
-/// 画面の色合い（映像効果の色調補正）をまとめて変える。太陽の向き（左右）は変えない（窓などに合わせて決めた向きを保つ）。
-/// 太陽は影を落とす（セルフシャドウを入れ、サンライトを見えるようにする）。変えた後は、それぞれの欄で手で直せる。
+/// 時刻を変える操作（設計判断記録 87・88 章）。時刻の項目（<see cref="TimeOfDayNode"/>）の時刻を変え、サンライトをその時刻の光にする。
+/// 画面の色合いは、描くときに時刻から求めて映像効果の色調補正に重ねる（<see cref="SunClock.GradeFor"/>。映像効果の値は変えない）。
+/// 太陽は影を落とす（サンライトを見えるようにし、セルフシャドウを入れる）。元に戻すは 1 回。
 /// </summary>
 public static class TimeOfDayPresets
 {
-    /// <summary>
-    /// 1 つの時刻の値。<see cref="Elevation"/> は太陽の高さ（度。照明の下向きの回転）、<see cref="Color"/> は「#RRGGBB」、
-    /// 色調補正は <see cref="VisualEffects"/> と同じ決まり（明るさは段、色温度は -1 で青く +1 で黄色く）。
-    /// </summary>
-    public readonly record struct Preset(string Name, float Elevation, string Color, float Intensity,
-        float Exposure, float Contrast, float Saturation, float Temperature)
+    /// <summary>ボタンの時刻（朝 8 時・昼 12 時・夕 17 時・夜 22 時）。</summary>
+    public static float HourOf(TimeOfDay time) => time switch
     {
-        /// <summary>色調補正で何も変えない（昼）。</summary>
-        public bool IsNeutral => Exposure == 0f && Contrast == 1f && Saturation == 1f && Temperature == 0f;
-    }
-
-    /// <summary>時刻の値（昼は MMD の初めの照明と同じ高さ・色・明るさで、色合いを変えない）。</summary>
-    public static Preset Of(TimeOfDay time) => time switch
-    {
-        TimeOfDay.Morning => new("朝", 25f, "#FFE3C8", 0.95f, 0.1f, 0.95f, 0.95f, 0.15f),
-        TimeOfDay.Evening => new("夕", 12f, "#FF9E5E", 1.1f, -0.15f, 1.05f, 1.15f, 0.45f),
-        TimeOfDay.Night => new("夜", 40f, "#8FA8FF", 0.55f, -0.9f, 1.05f, 0.7f, -0.45f),
-        _ => new("昼", SceneLighting.MmdRotation.X, "#FFFFFF", 1f, 0f, 1f, 1f, 0f),
+        TimeOfDay.Morning => 8f,
+        TimeOfDay.Evening => 17f,
+        TimeOfDay.Night => 22f,
+        _ => 12f,
     };
 
+    public static string NameOf(TimeOfDay time) => time switch
+    {
+        TimeOfDay.Morning => "朝",
+        TimeOfDay.Evening => "夕",
+        TimeOfDay.Night => "夜",
+        _ => "昼",
+    };
+
+    /// <summary>時刻のボタン: 時刻を <paramref name="time"/> のボタンの時刻にする。</summary>
+    public static void Apply(EditService edits, AnimationService animation, RenderSettings rendering, TimeOfDay time) =>
+        SetHour(edits, animation, rendering, HourOf(time), $"時刻を「{NameOf(time)}」に");
+
     /// <summary>
-    /// <paramref name="sun"/>（サンライト）と画面の色合いを、時刻 <paramref name="time"/> にする（元に戻すは 1 回にまとめる）。
-    /// 太陽の向き（左右の回転）は変えない。サンライトを見えるようにし、セルフシャドウを入れる（太陽は影を落とす）。
+    /// 時刻を <paramref name="hour"/>（時）にし、サンライトをその時刻の光にする。<paramref name="mergeKey"/> を渡すと、続けて変えたとき
+    /// （欄のホイール・ドラッグ）は 1 回の元に戻すにまとめる。時刻のキーがあるときは、時刻の未登録の変更になる（自動キーならキー）。
     /// </summary>
-    public static void Apply(EditService edits, RenderSettings rendering, LightNode sun, TimeOfDay time)
+    public static void SetHour(EditService edits, AnimationService animation, RenderSettings rendering, float hour, string description,
+        string? mergeKey = null)
     {
         ArgumentNullException.ThrowIfNull(edits);
+        ArgumentNullException.ThrowIfNull(animation);
         ArgumentNullException.ThrowIfNull(rendering);
-        ArgumentNullException.ThrowIfNull(sun);
-        Preset preset = Of(time);
-        Vector3 color = ImageExport.TryParseColor(preset.Color, out Vector3 parsed) ? parsed : Vector3.One;
-        string description = $"時刻を「{preset.Name}」に";
+        TimeOfDayNode time = animation.Scene.TimeOfDay;
+        LightNode sun = animation.Scene.MainLight;
+        void Change()
+        {
+            time.Hour = hour;
+            sun.IsVisible = true;
+            animation.ApplyTimeToSun();
+        }
+        if (rendering.SelfShadow)
+        {
+            edits.Change(description, [time, sun], Change, mergeKey);
+            return;
+        }
         using (edits.Undo.BeginGroup())
         {
-            edits.Change(description, [sun], () =>
+            edits.Change(description, [time, sun], Change);
+            edits.ChangeSettings(description, rendering, () => rendering.SelfShadow = true);
+        }
+    }
+
+    /// <summary>
+    /// 昼の太陽の向き（<paramref name="noonAzimuth"/>）か、太陽の向きも時刻で動かすか（<paramref name="followsSunPath"/>）を変え、
+    /// サンライトの向きを合わせる（null の値は変えない）。
+    /// </summary>
+    public static void SetSunPath(EditService edits, AnimationService animation, float? noonAzimuth, bool? followsSunPath, string description,
+        string? mergeKey = null)
+    {
+        ArgumentNullException.ThrowIfNull(edits);
+        ArgumentNullException.ThrowIfNull(animation);
+        TimeOfDayNode time = animation.Scene.TimeOfDay;
+        edits.Change(description, [time, animation.Scene.MainLight], () =>
+        {
+            if (noonAzimuth is { } azimuth)
             {
-                sun.IsVisible = true;
-                sun.Rotation = sun.Rotation with { X = preset.Elevation };
-                sun.Color = color;
-                sun.Intensity = preset.Intensity;
-            });
-            edits.ChangeSettings(description, rendering, () =>
+                time.NoonAzimuth = azimuth;
+            }
+            if (followsSunPath is { } follows)
             {
-                rendering.SelfShadow = true;
+                time.FollowsSunPath = follows;
+            }
+            animation.ApplyTimeToSun();
+        }, mergeKey);
+    }
+
+    /// <summary>
+    /// 前の版（87 章）のプロジェクトを開いたとき: 時刻の項目が無いので、今のサンライトの左右の向きを昼の太陽の向きにする。
+    /// 前の版の時刻のボタンは、色合いを映像効果の色調補正に書いていた。その値がボタンの値のままなら、時刻をそのボタンの時刻にして、
+    /// 色調補正を使わない状態に戻す（同じ色合いが時刻から重なるので、見た目は変わらない）。
+    /// </summary>
+    public static void UpgradeFromOldProject(SceneDocument scene, RenderSettings rendering)
+    {
+        ArgumentNullException.ThrowIfNull(scene);
+        ArgumentNullException.ThrowIfNull(rendering);
+        TimeOfDayNode time = scene.TimeOfDay;
+        time.NoonAzimuth = scene.MainLight.Rotation.Y;
+        time.Hour = TimeOfDayNode.DefaultHour;
+        ColorGrade grade = ColorGrade.Of(rendering.Effects);
+        foreach (TimeOfDay preset in new[] { TimeOfDay.Morning, TimeOfDay.Evening, TimeOfDay.Night })
+        {
+            if (rendering.Effects.ColorEnabled && Near(grade, SunClock.LookAt(HourOf(preset)).Grade))
+            {
+                time.Hour = HourOf(preset);
                 rendering.Effects = rendering.Effects with
                 {
-                    ColorEnabled = !preset.IsNeutral,
-                    Exposure = preset.Exposure,
-                    Contrast = preset.Contrast,
-                    Saturation = preset.Saturation,
-                    Temperature = preset.Temperature,
+                    ColorEnabled = false,
+                    Exposure = 0f,
+                    Contrast = 1f,
+                    Saturation = 1f,
+                    Temperature = 0f,
                 };
-            });
+                break;
+            }
         }
+
+        static bool Near(ColorGrade a, ColorGrade b) =>
+            MathF.Abs(a.Exposure - b.Exposure) < 1e-4f && MathF.Abs(a.Contrast - b.Contrast) < 1e-4f
+            && MathF.Abs(a.Saturation - b.Saturation) < 1e-4f && MathF.Abs(a.Temperature - b.Temperature) < 1e-4f;
     }
 }

@@ -48,13 +48,15 @@ public static class EffectsMapping
     /// 高さ <paramref name="pixelHeight"/> の画像を描くときの値。線画の太さは輪郭線と同じく高さ 1080 までは指定の画素のまま、
     /// それより大きい画像では比例して太くする。紙の粒と被写界深度のぼけは高さに比例させる（小さなプレビューでも書き出しと同じ見え方に）。
     /// 被写界深度は、シーンのカメラから描くとき（<paramref name="sceneCamera"/> が null でない）だけかける。
+    /// 色調補正には、時刻 <paramref name="time"/> の色合いを重ねる（設計判断記録 88 章。昼は何も変えない）。
     /// </summary>
-    public static PostEffects ToNative(this RenderSettings settings, int pixelHeight, Domain.CameraNode? sceneCamera = null)
+    public static PostEffects ToNative(this RenderSettings settings, int pixelHeight, Domain.CameraNode? sceneCamera, Domain.TimeOfDayNode? time)
     {
         VisualEffects effects = settings.Effects;
         IllustrationStyle style = settings.Illustration;
         PostEffectFlags flags = PostEffectFlags.None;
-        Add(effects.ColorEnabled, PostEffectFlags.Color);
+        ColorGrade grade = SunClock.GradeFor(effects, time);
+        Add(effects.ColorEnabled || !grade.IsNeutral, PostEffectFlags.Color);
         Add(effects.BloomEnabled, PostEffectFlags.Bloom);
         Add(effects.VignetteEnabled, PostEffectFlags.Vignette);
         Add(style.LinesEnabled, PostEffectFlags.Lines);
@@ -73,7 +75,7 @@ public static class EffectsMapping
         // 平行投影で注視点の側へ向きを回したカメラ（距離が負）では、注視点までの見る向きの距離は距離の大きさ
         float focus = effects.FocusDistanceFor(sceneCamera is null ? effects.DofFocusDistance
             : sceneCamera.Orthographic ? MathF.Abs(sceneCamera.TargetDistance) : sceneCamera.TargetDistance);
-        return new PostEffects(flags, effects.Exposure, effects.Contrast, effects.Saturation, effects.Temperature,
+        return new PostEffects(flags, grade.Exposure, grade.Contrast, grade.Saturation, grade.Temperature,
             effects.BloomIntensity, effects.BloomThreshold, effects.BloomSpread, effects.Vignette,
             LineColor: IllustrationStyle.ColorOf(style.LineColor),
             LineWidth: style.LineWidth * SceneLighting.EdgePixelScale(pixelHeight),

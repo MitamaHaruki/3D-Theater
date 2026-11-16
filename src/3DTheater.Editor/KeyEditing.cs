@@ -107,12 +107,13 @@ public static class KeyEditing
         ModelDisplayNode display => display.Keys.HasKeyAt(key.Frame),
         EffectsNode effects => effects.Keys.HasKeyAt(key.Frame),
         SelfShadowNode shadow => shadow.Keys.HasKeyAt(key.Frame),
+        TimeOfDayNode time => time.Keys.HasKeyAt(key.Frame),
         _ => false,
     };
 
-    /// <summary>キーを持てる項目か（ボーン・モーフ・カメラ・照明・モデルの表示・IK・映像効果・セルフ影）。</summary>
+    /// <summary>キーを持てる項目か（ボーン・モーフ・カメラ・照明・モデルの表示・IK・映像効果・セルフ影・時刻）。</summary>
     public static bool HasKeys(SceneNode node) =>
-        node is BoneNode or MorphNode or CameraNode or LightNode or ModelDisplayNode or EffectsNode or SelfShadowNode;
+        node is BoneNode or MorphNode or CameraNode or LightNode or ModelDisplayNode or EffectsNode or SelfShadowNode or TimeOfDayNode;
 
     /// <summary>項目のキーの数（キーを持てない項目は 0）。</summary>
     public static int CountKeys(SceneNode node) => node switch
@@ -124,6 +125,7 @@ public static class KeyEditing
         ModelDisplayNode display => display.Keys.Count,
         EffectsNode effects => effects.Keys.Count,
         SelfShadowNode shadow => shadow.Keys.Count,
+        TimeOfDayNode time => time.Keys.Count,
         _ => 0,
     };
 
@@ -179,6 +181,9 @@ public static class KeyEditing
                 case SelfShadowNode shadow:
                     lost += Replace(shadow.Keys, [.. shadow.Keys.Keys.Select(k => k with { Frame = Scale(k.Frame) })]);
                     break;
+                case TimeOfDayNode time:
+                    lost += Replace(time.Keys, [.. time.Keys.Keys.Select(k => k with { Frame = Scale(k.Frame) })]);
+                    break;
             }
         }
         return lost;
@@ -223,6 +228,9 @@ public static class KeyEditing
                     break;
                 case SelfShadowNode shadow:
                     Collect(shadow, shadow.Keys);
+                    break;
+                case TimeOfDayNode time:
+                    Collect(time, time.Keys);
                     break;
             }
         }
@@ -276,6 +284,9 @@ public static class KeyEditing
                 case SelfShadowNode shadow:
                     MoveIn(shadow.Keys, frames, delta, duplicate, (k, f) => k with { Frame = f });
                     break;
+                case TimeOfDayNode time:
+                    MoveIn(time.Keys, frames, delta, duplicate, (k, f) => k with { Frame = f });
+                    break;
             }
             result.AddRange(frames.Select(f => new KeyRef(group.Key, f + delta)));
         }
@@ -312,6 +323,9 @@ public static class KeyEditing
                 case SelfShadowNode shadow:
                     shadow.Keys.ReplaceAll(shadow.Keys.Keys.Where(k => !frames.Contains(k.Frame)));
                     break;
+                case TimeOfDayNode time:
+                    time.Keys.ReplaceAll(time.Keys.Keys.Where(k => !frames.Contains(k.Frame)));
+                    break;
             }
         }
         return count;
@@ -347,6 +361,9 @@ public static class KeyEditing
                 case SelfShadowNode shadow when shadow.Keys.TryGet(k.Frame, out SelfShadowKey key):
                     items.Add((shadow, k.Frame - origin, key));
                     break;
+                case TimeOfDayNode time when time.Keys.TryGet(k.Frame, out TimeKey key):
+                    items.Add((time, k.Frame - origin, key));
+                    break;
             }
         }
         return new KeyClipboard(items);
@@ -380,6 +397,9 @@ public static class KeyEditing
                     break;
                 case SelfShadowNode shadow:
                     shadow.Keys.SetRange(group.Select(i => ((SelfShadowKey)i.Key) with { Frame = frame + i.Offset }));
+                    break;
+                case TimeOfDayNode time:
+                    time.Keys.SetRange(group.Select(i => ((TimeKey)i.Key) with { Frame = frame + i.Offset }));
                     break;
             }
             result.AddRange(group.Select(i => new KeyRef(group.Key, frame + i.Offset)));
@@ -415,6 +435,9 @@ public static class KeyEditing
                     break;
                 case EffectsNode effects:
                     effects.Keys.ReplaceAll(effects.Keys.Keys.Select(k => frames.Contains(k.Frame) ? k with { Curve = curve, Kind = kind } : k));
+                    break;
+                case TimeOfDayNode time:
+                    time.Keys.ReplaceAll(time.Keys.Keys.Select(k => frames.Contains(k.Frame) ? k with { Curve = curve, Kind = kind } : k));
                     break;
             }
         }

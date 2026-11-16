@@ -533,6 +533,15 @@ public sealed class NodeEntry
     /// <summary>カメラの平行投影（MMD の「パース OFF」。無い古いファイルは透視投影）。</summary>
     public bool? Orthographic { get; set; }
 
+    /// <summary>時刻（時。時刻の項目だけ。無い古いファイルは 12 時）。</summary>
+    public float? Hour { get; set; }
+
+    /// <summary>昼の太陽の向き（度。時刻の項目だけ。無い古いファイルは、サンライトの今の左右の向き）。</summary>
+    public float? NoonAzimuth { get; set; }
+
+    /// <summary>太陽の向きも時刻で動かすか（時刻の項目だけ。無いときは動かす）。</summary>
+    public bool? FollowSunPath { get; set; }
+
     /// <summary>カメラ・照明の未登録の変更。</summary>
     public bool Unregistered { get; set; }
 
@@ -541,6 +550,7 @@ public sealed class NodeEntry
     /// 照明: フレーム・位置 3・回転 3・色 3・明るさ・届く距離・広がり・ぼかし・種類、曲線が直線でなければ 4 個足す。
     /// 映像効果: フレーム・明るさ・コントラスト・彩度・色温度・ブルーム 3・周辺減光・被写界深度 3・霧の始まり・見通せる距離・霧の色 3・種類、
     /// 曲線が直線でなければ 4 個足す。セルフ影: フレーム・MMD のモード・MMD の影範囲（VMD での値）。
+    /// 時刻: フレーム・時刻・種類、曲線が直線でなければ 4 個足す。
     /// </summary>
     public float[][]? Keys { get; set; }
 }
@@ -858,6 +868,13 @@ public static class ProjectCapture
                 entry.Unregistered = shadow.HasUnregisteredChange;
                 entry.Keys = shadow.Keys.Count > 0 ? [.. shadow.Keys.Keys.Select(KeyCodec.Encode)] : null;
                 break;
+            case TimeOfDayNode time:
+                entry.Hour = time.Hour;
+                entry.NoonAzimuth = time.NoonAzimuth;
+                entry.FollowSunPath = time.FollowsSunPath;
+                entry.Unregistered = time.HasUnregisteredChange;
+                entry.Keys = time.Keys.Count > 0 ? [.. time.Keys.Keys.Select(KeyCodec.Encode)] : null;
+                break;
             case TestObjectNode test:
                 entry.SpinWithFrame = test.SpinWithFrame;
                 break;
@@ -1084,6 +1101,13 @@ public static class ProjectApply
                 case SelfShadowNode shadow:
                     shadow.Keys.ReplaceAll((entry.Keys ?? []).Select(KeyCodec.DecodeSelfShadow).OfType<SelfShadowKey>());
                     shadow.HasUnregisteredChange = entry.Unregistered;
+                    break;
+                case TimeOfDayNode time:
+                    time.Hour = entry.Hour ?? TimeOfDayNode.DefaultHour;
+                    time.NoonAzimuth = entry.NoonAzimuth ?? TimeOfDayNode.DefaultNoonAzimuth;
+                    time.FollowsSunPath = entry.FollowSunPath ?? true;
+                    time.Keys.ReplaceAll((entry.Keys ?? []).Select(KeyCodec.DecodeTime).OfType<TimeKey>());
+                    time.HasUnregisteredChange = entry.Unregistered;
                     break;
                 case TestObjectNode test:
                     test.SpinWithFrame = entry.SpinWithFrame ?? test.SpinWithFrame;
@@ -1461,6 +1485,26 @@ internal static class KeyCodec
         var pose = new EffectPose(v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], v[9], v[10], v[11], v[12], v[13],
             Vector3.Clamp(new Vector3(v[14], v[15], v[16]), Vector3.Zero, Vector3.One));
         return new EffectKey((int)v[0], pose, curve, v[17] == 1 ? KeyInterpolationKind.Step : KeyInterpolationKind.Curve);
+    }
+
+    public static float[] Encode(TimeKey k)
+    {
+        var values = new List<float> { k.Frame, k.Hour, k.Kind == KeyInterpolationKind.Step ? 1 : 0 };
+        if (!k.Curve.IsLinear)
+        {
+            values.AddRange([k.Curve.Control1.X, k.Curve.Control1.Y, k.Curve.Control2.X, k.Curve.Control2.Y]);
+        }
+        return [.. values];
+    }
+
+    public static TimeKey? DecodeTime(float[] v)
+    {
+        if (v is not { Length: 3 or 7 } || !v.All(float.IsFinite) || v[0] < 0)
+        {
+            return null;
+        }
+        BezierCurve curve = v.Length == 7 ? Curve(v, 3) : BezierCurve.Linear;
+        return new TimeKey((int)v[0], Math.Clamp(v[1], 0f, TimeOfDayNode.MaxHour), curve, v[2] == 1 ? KeyInterpolationKind.Step : KeyInterpolationKind.Curve);
     }
 
     public static float[] Encode(SelfShadowKey k) => [k.Frame, k.Mode, k.Distance];
