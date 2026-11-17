@@ -28,12 +28,15 @@ public sealed record ExpressionOverlay(IReadOnlyList<(int Morph, float Value, fl
 /// - トラッキングの開始・停止（前に使った映像で）・「正面にする」・仮想カメラの入・切: 押したときに 1 回動かす。
 /// - カメラの切り替え: 押したときに、プレビューと配信（配信用の画面・仮想カメラ）の両方を、決めたカメラにする
 ///   （キーは配信の最中にわざわざ押すものなので、カメラ情報の「配信用画面に適用」を待たない。設計判断記録 78 章の 7 段目）。
+/// - 時刻: 押したときに、サンライトと画面の色合いを決めた時刻へ、決めた秒数をかけて移す（時刻は先へ進む。設計判断記録 89 章）。
+///   元に戻すの履歴には入れない（カメラの切り替えと同じ）。
 /// </summary>
 public sealed class HotkeyService : IDisposable
 {
     private readonly EditorContext _context;
     private readonly HotkeySettings _settings;
     private readonly HotkeyState _state = new();
+    private readonly TimeOfDayTransition _time = new();
     private readonly GlobalHotkeys _keys = new();
     private readonly Dictionary<int, Guid> _ids = [];
     private readonly Dictionary<Guid, string> _status = [];
@@ -59,6 +62,10 @@ public sealed class HotkeyService : IDisposable
             if ((e.Node == context.Scene.ModelsGroup || e.Node == context.Scene.CamerasGroup) && e.PropertyName == nameof(SceneNode.Children))
             {
                 Refresh(); // モデル・カメラを足した・外した
+            }
+            else if (e.Node is TimeOfDayNode or LightNode && e.PropertyName == nameof(SceneNode.IsLocked))
+            {
+                Refresh(); // 時刻・サンライトのロック
             }
         };
         context.RenderLoop.Ticking += (_, step) => OnTick(step);
@@ -213,6 +220,12 @@ public sealed class HotkeyService : IDisposable
                 return model.Morphs.Any(m => m.Name == binding.Name) ? null : $"モーフ「{binding.Name}」がありません";
             case HotkeyAction.CameraSwitch:
                 return ResolveCamera(binding) is null ? "カメラを選んでください" : null;
+            case HotkeyAction.TimeOfDay:
+                if (TimeOfDayHotkeys.TargetHour(binding.Name, 12f) is null)
+                {
+                    return "時刻を選んでください";
+                }
+                return _context.Scene.TimeOfDay.CanEdit && _context.Scene.MainLight.CanEdit ? null : "時刻かサンライトがロックされています";
             default:
                 return null;
         }
@@ -284,6 +297,9 @@ public sealed class HotkeyService : IDisposable
                 break;
             case HotkeyAction.CameraSwitch:
                 SwitchCamera(binding, key);
+                break;
+            case HotkeyAction.TimeOfDay:
+                ChangeTime(binding, key);
                 break;
         }
         _dirty = true;
@@ -369,6 +385,39 @@ public sealed class HotkeyService : IDisposable
         Notice?.Invoke(this, ($"カメラを「{camera.Name}」に切り替えました", false));
     }
 
+    // 時刻を決めた時刻へ移す（秒数が 0 ならすぐ）。太陽は影を落とす（時刻のボタンと同じく、サンライトを出してセルフシャドウを入れる）
+    private void ChangeTime(HotkeyBinding binding, string key)
+    {
+        TimeOfDayNode time = _context.Scene.TimeOfDay;
+        LightNode sun = _context.Scene.MainLight;
+        if (TimeOfDayHotkeys.TargetHour(binding.Name, time.Hour) is not { } target)
+        {
+            Notice?.Invoke(this, ("時刻を選んでください（設定画面の「キー操作」）", true));
+            return;
+        }
+        if (!time.CanEdit || !sun.CanEdit)
+        {
+            Notice?.Invoke(this, ("時刻かサンライトがロックされているため、時刻を変えられません", true));
+            return;
+        }
+        using (_context.Animation.SuspendTracking())
+        {
+            sun.IsVisible = true;
+            _context.Rendering.SelfShadow = true;
+        }
+        string clock = SunClock.FormatClock(target);
+        if (_time.Start(time.Hour, target, binding.Duration))
+        {
+            AppLog.Info($"キー {key}: 時刻を {SunClock.FormatClock(time.Hour)} から {clock} へ、{binding.Duration:0.#} 秒で移します");
+            Notice?.Invoke(this, ($"時刻を {clock} へ移しています（{binding.Duration:0.#} 秒）", false));
+            return;
+        }
+        _time.Stop();
+        TimeOfDayPresets.SetLive(_context.Animation, target);
+        AppLog.Info($"キー {key}: 時刻を {clock} にしました");
+        Notice?.Invoke(this, ($"時刻を {clock} にしました", false));
+    }
+
     // カメラの切り替えのカメラ（null ならライブカメラ。外したカメラなら null）
     private CameraNode? ResolveCamera(HotkeyBinding binding) =>
         binding.Model is { } id ? _context.Scene.AddedCameras.FirstOrDefault(c => c.Id == id) : _context.Scene.MainCamera;
@@ -381,6 +430,7 @@ public sealed class HotkeyService : IDisposable
             HotkeyAction.Expression => $"表情「{binding.Name}」（{target}）",
             HotkeyAction.Morph => $"モーフ「{binding.Name}」（{target}）",
             HotkeyAction.ModelVisibility => $"「{target}」の表示の入れ替え",
+            HotkeyAction.TimeOfDay => $"時刻「{TimeOfDayHotkeys.Label(binding.Name)}」",
             _ => HotkeyActions.DisplayName(binding.Action),
         };
     }
@@ -416,6 +466,10 @@ public sealed class HotkeyService : IDisposable
     // ===== 当てはめ =====
     private void OnTick(TimeSpan step)
     {
+        if (_time.Update(step.TotalSeconds) is { } hour && !TimeOfDayPresets.SetLive(_context.Animation, hour))
+        {
+            _time.Stop(); // 途中でロックされた
+        }
         if (_state.Update(step.TotalSeconds) || _dirty)
         {
             Apply();

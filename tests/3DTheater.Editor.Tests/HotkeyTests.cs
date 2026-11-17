@@ -141,6 +141,83 @@ public sealed class HotkeyTests
     }
 
     [TestMethod]
+    public void TimeOfDayKeysPickTheTimeAndMoveForward()
+    {
+        // 次の時刻: 朝 → 昼 → 夕 → 夜 → 朝
+        Assert.AreEqual(8f, TimeOfDayPresets.NextHour(7f));
+        Assert.AreEqual(12f, TimeOfDayPresets.NextHour(8f), "ボタンの時刻ちょうどなら、その次");
+        Assert.AreEqual(17f, TimeOfDayPresets.NextHour(12f));
+        Assert.AreEqual(17f, TimeOfDayPresets.NextHour(16.9f));
+        Assert.AreEqual(22f, TimeOfDayPresets.NextHour(17f));
+        Assert.AreEqual(8f, TimeOfDayPresets.NextHour(22f), "夜の次は朝");
+        Assert.AreEqual(8f, TimeOfDayPresets.NextHour(23.5f));
+        Assert.AreEqual(17f, TimeOfDayPresets.NextHour(36f), "36 時は次の日の 12 時");
+
+        // キーの決まりの時刻
+        Assert.AreEqual(17f, TimeOfDayHotkeys.TargetHour("17", 3f));
+        Assert.AreEqual(22f, TimeOfDayHotkeys.TargetHour(TimeOfDayHotkeys.Next, 17f));
+        Assert.AreEqual(1f, TimeOfDayHotkeys.TargetHour("25", 3f), "25 時は 1 時");
+        Assert.IsNull(TimeOfDayHotkeys.TargetHour("夕方", 3f));
+        Assert.IsNull(TimeOfDayHotkeys.TargetHour("50", 3f));
+        Assert.IsNull(TimeOfDayHotkeys.TargetHour(null, 3f));
+        Assert.AreEqual("夕（17:00）", TimeOfDayHotkeys.Label("17"));
+        Assert.AreEqual("13:30", TimeOfDayHotkeys.Label("13.5"));
+        Assert.IsNull(TimeOfDayHotkeys.Label("夕方"));
+        Assert.IsTrue(HotkeyActions.UsesName(HotkeyAction.TimeOfDay));
+        Assert.IsTrue(HotkeyActions.UsesDuration(HotkeyAction.TimeOfDay));
+        Assert.IsFalse(HotkeyActions.UsesModel(HotkeyAction.TimeOfDay));
+        Assert.IsFalse(HotkeyActions.HasMode(HotkeyAction.TimeOfDay), "押したときに 1 回変えるだけ");
+        Assert.IsFalse(HotkeyActions.UsesDuration(HotkeyAction.Expression));
+
+        // 移り変わり: 先へ進み、真ん中で半分、着いたら止まる
+        var transition = new TimeOfDayTransition();
+        Assert.IsTrue(transition.Start(17f, 22f, 5));
+        Assert.AreEqual(19.5f, transition.Update(2.5)!.Value, 1e-4f, "なめらかな曲線でも、真ん中では半分");
+        Assert.AreEqual(19.5f, transition.Update(0)!.Value, 1e-4f, "時間を進めなければ同じ");
+        Assert.AreEqual(22f, transition.Update(2.5));
+        Assert.IsFalse(transition.IsRunning, "着いたら止まる");
+        Assert.IsNull(transition.Update(1));
+        Assert.IsTrue(transition.Start(22f, 8f, 10), "夜から朝へ");
+        Assert.AreEqual(3f, transition.Update(5)!.Value, 1e-4f, "夜明けを通って先へ進む（22 時 + 5 時間 = 3 時）");
+        Assert.IsTrue(transition.Start(17f, 12f, 4), "夕から昼へも先へ進む（19 時間）");
+        Assert.AreEqual(2.5f, transition.Update(2)!.Value, 1e-4f, "17 時 + 9.5 時間 = 2.5 時");
+        Assert.IsFalse(transition.Start(8f, 8f, 5), "同じ時刻なら移らない");
+        Assert.IsFalse(transition.Start(8f, 12f, 0), "0 秒ならすぐ変える");
+
+        // 時刻を変える（元に戻すの履歴に入れず、時刻のキーがあっても未登録の変更にしない）
+        var (scene, _, animation, _) = AnimationFixtures.Create();
+        TimeOfDayNode time = scene.TimeOfDay;
+        time.Keys.Set(new TimeKey(0, 12f, BezierCurve.Linear));
+        Assert.IsTrue(TimeOfDayPresets.SetLive(animation, 41f));
+        Assert.AreEqual(17f, time.Hour, "0〜24 時に収める");
+        Assert.AreEqual(SunClock.SunRotation(time), scene.MainLight.Rotation);
+        Assert.AreEqual(SunClock.Evening.Color, scene.MainLight.Color);
+        Assert.IsFalse(time.HasUnregisteredChange);
+        Assert.IsFalse(scene.MainLight.HasUnregisteredChange);
+        scene.MainLight.IsLocked = true;
+        Assert.IsFalse(TimeOfDayPresets.SetLive(animation, 8f), "サンライトがロックされていれば変えない");
+        Assert.AreEqual(17f, time.Hour);
+
+        // 保存して開き直す（時刻と移り変わる秒数）
+        var settings = new HotkeySettings();
+        settings.Add(HotkeyBinding.Create(HotkeyAction.TimeOfDay) with { Gesture = HotkeyGesture.Parse("Ctrl+Alt+N"), Name = TimeOfDayHotkeys.Next, Duration = 5 });
+        settings.Add(HotkeyBinding.Create(HotkeyAction.TimeOfDay) with { Gesture = HotkeyGesture.Parse("Ctrl+Alt+E"), Name = "17" });
+        settings.Add(HotkeyBinding.Create() with { Name = "笑顔", Duration = 9 });
+        string json = ProjectSerializer.Serialize(new ProjectFile { Mode = AppModes.LiveName, Live = LiveEntry.From(new LiveOutputSettings(), null, settings) });
+        StringAssert.Contains(json, "\"action\":\"timeOfDay\"");
+        StringAssert.Contains(json, "\"duration\":5");
+        Assert.AreEqual(1, System.Text.RegularExpressions.Regex.Count(json, "\"duration\""), "すぐ変えるもの・表情には書かない");
+        var read = new HotkeySettings();
+        ProjectSerializer.Deserialize(json, new LoadReport())!.Live!.ApplyTo(read, _ => null);
+        Assert.AreEqual(HotkeyAction.TimeOfDay, read.Bindings[0].Action);
+        Assert.AreEqual(TimeOfDayHotkeys.Next, read.Bindings[0].Name);
+        Assert.AreEqual(5, read.Bindings[0].Duration);
+        Assert.AreEqual("17", read.Bindings[1].Name);
+        Assert.AreEqual(0, read.Bindings[1].Duration);
+        Assert.AreEqual(0, read.Bindings[2].Duration, "表情は秒数を持たない");
+    }
+
+    [TestMethod]
     public void CameraSwitchKeysAreSavedWithTheCameraNumber()
     {
         // ライブカメラと、足したカメラ 2 つ（設計判断記録 78 章の 7 段目）

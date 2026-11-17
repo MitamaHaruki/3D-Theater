@@ -75,6 +75,8 @@ public partial class HotkeyPanel : UserControl
 
         public ComboBox ModeCombo { get; } = new() { MinHeight = 0, Padding = new Thickness(6, 2, 6, 2), FontSize = 12 };
 
+        public ComboBox DurationCombo { get; } = new() { MinHeight = 0, Padding = new Thickness(6, 2, 6, 2), FontSize = 12 };
+
         public Button TryButton { get; } = new() { Content = "試す", MinWidth = 64, Margin = new Thickness(6, 0, 0, 0) };
 
         public Button DeleteButton { get; } = new() { Content = "", Margin = new Thickness(6, 0, 0, 0), ToolTip = "このキーを消す" };
@@ -95,6 +97,10 @@ public partial class HotkeyPanel : UserControl
         {
             row.ModeCombo.Items.Add(new ComboBoxItem { Content = HotkeyActions.DisplayName(mode) });
         }
+        foreach (var (_, label) in TimeOfDayHotkeys.Durations)
+        {
+            row.DurationCombo.Items.Add(new ComboBoxItem { Content = label });
+        }
 
         var line1 = new DockPanel();
         DockPanel.SetDock(row.DeleteButton, Dock.Right);
@@ -113,7 +119,10 @@ public partial class HotkeyPanel : UserControl
         var line3 = new DockPanel { Margin = new Thickness(0, 6, 0, 0) };
         DockPanel.SetDock(row.TryButton, Dock.Right);
         line3.Children.Add(row.TryButton);
-        line3.Children.Add(row.ModeCombo);
+        var modeOrDuration = new Grid(); // 押し方と、時刻の移り変わる長さは、どちらか一方だけを出す
+        modeOrDuration.Children.Add(row.ModeCombo);
+        modeOrDuration.Children.Add(row.DurationCombo);
+        line3.Children.Add(modeOrDuration);
 
         var stack = new StackPanel();
         stack.Children.Add(line1);
@@ -130,13 +139,22 @@ public partial class HotkeyPanel : UserControl
             HotkeyAction action = HotkeyActions.All[Math.Max(0, row.ActionCombo.SelectedIndex)];
             // モデルとカメラは同じ欄に持つので、モデルを使うものどうしの間だけ選んだモデルを残す（カメラはライブカメラから）
             bool keepModel = HotkeyActions.UsesModel(action) && HotkeyActions.UsesModel(b.Action);
-            return action == b.Action ? b : b with { Action = action, Model = keepModel ? b.Model : null, Name = null };
+            // 時刻は「次の時刻へ」から始める（選ばないままにしない）
+            return action == b.Action ? b : b with
+            {
+                Action = action,
+                Model = keepModel ? b.Model : null,
+                Name = action == HotkeyAction.TimeOfDay ? TimeOfDayHotkeys.Next : null,
+            };
         });
         row.ModelCombo.DropDownOpened += (_, _) => FillModels(row, Binding(row));
         row.ModelCombo.SelectionChanged += (_, _) => Change(row, b => b with { Model = (row.ModelCombo.SelectedItem as ComboBoxItem)?.Tag as Guid? });
         row.NameCombo.DropDownOpened += (_, _) => FillNames(row, Binding(row));
         row.NameCombo.SelectionChanged += (_, _) => Change(row, b => b with { Name = (row.NameCombo.SelectedItem as ComboBoxItem)?.Tag as string });
         row.ModeCombo.SelectionChanged += (_, _) => Change(row, b => b with { Mode = row.ModeCombo.SelectedIndex == 1 ? HotkeyMode.Hold : HotkeyMode.Toggle });
+        row.DurationCombo.SelectionChanged += (_, _) => Change(row, b => row.DurationCombo.SelectedIndex < 0
+            ? b
+            : b with { Duration = TimeOfDayHotkeys.Durations[row.DurationCombo.SelectedIndex].Seconds });
         row.TryButton.Click += (_, _) => _service.Try(row.Id);
         row.DeleteButton.Click += (_, _) => _settings.Remove(row.Id);
         return row;
@@ -195,17 +213,27 @@ public partial class HotkeyPanel : UserControl
             AutomationProperties.SetName(row.ModelCombo, HotkeyActions.UsesCamera(binding.Action) ? $"カメラ {number}" : $"モデル {number}");
             AutomationProperties.SetName(row.NameCombo, $"名前 {number}");
             AutomationProperties.SetName(row.ModeCombo, $"押し方 {number}");
+            AutomationProperties.SetName(row.DurationCombo, $"移り変わり {number}");
             AutomationProperties.SetName(row.TryButton, $"試す {number}");
             AutomationProperties.SetName(row.DeleteButton, $"キーを消す {number}");
             AutomationProperties.SetAutomationId(row.StatusText, $"HotkeyStatus{number}");
             row.KeyButton.ToolTip = "押してから、決めたいキー（Ctrl・Alt・Shift と一緒に）を押します。Esc でやめます";
 
             row.ActionCombo.SelectedIndex = (int)binding.Action;
-            row.ModelCombo.Visibility = HotkeyActions.UsesModel(binding.Action) || HotkeyActions.UsesCamera(binding.Action) ? Visibility.Visible : Visibility.Collapsed;
+            bool usesModel = HotkeyActions.UsesModel(binding.Action) || HotkeyActions.UsesCamera(binding.Action);
+            row.ModelCombo.Visibility = usesModel ? Visibility.Visible : Visibility.Collapsed;
             row.NameCombo.Visibility = HotkeyActions.UsesName(binding.Action) ? Visibility.Visible : Visibility.Collapsed;
             Grid.SetColumnSpan(row.ModelCombo, HotkeyActions.UsesName(binding.Action) ? 1 : 2);
+            // モデルを選ばないもの（時刻）は、名前の欄を 1 行いっぱいに
+            Grid.SetColumn(row.NameCombo, usesModel ? 1 : 0);
+            Grid.SetColumnSpan(row.NameCombo, usesModel ? 1 : 2);
+            row.NameCombo.Margin = new Thickness(usesModel ? 6 : 0, 0, 0, 0);
             row.ModeCombo.SelectedIndex = (int)binding.EffectiveMode;
             row.ModeCombo.IsEnabled = HotkeyActions.HasMode(binding.Action);
+            bool usesDuration = HotkeyActions.UsesDuration(binding.Action);
+            row.ModeCombo.Visibility = usesDuration ? Visibility.Collapsed : Visibility.Visible;
+            row.DurationCombo.Visibility = usesDuration ? Visibility.Visible : Visibility.Collapsed;
+            row.DurationCombo.SelectedIndex = NearestDuration(binding.Duration);
             FillModels(row, binding);
             FillNames(row, binding);
         }
@@ -267,6 +295,19 @@ public partial class HotkeyPanel : UserControl
         try
         {
             row.NameCombo.Items.Clear();
+            if (binding.Action == HotkeyAction.TimeOfDay)
+            {
+                foreach (var (value, label) in TimeOfDayHotkeys.Choices)
+                {
+                    row.NameCombo.Items.Add(new ComboBoxItem { Content = label, Tag = value });
+                }
+                if (binding.Name is { } chosen && !TimeOfDayHotkeys.Choices.Any(c => c.Value == chosen))
+                {
+                    row.NameCombo.Items.Add(new ComboBoxItem { Content = TimeOfDayHotkeys.Label(chosen) ?? $"{chosen}（読めません）", Tag = chosen });
+                }
+                row.NameCombo.SelectedIndex = row.NameCombo.Items.Cast<ComboBoxItem>().ToList().FindIndex(i => (i.Tag as string) == binding.Name);
+                return;
+            }
             IEnumerable<string> names = binding.Action switch
             {
                 HotkeyAction.Expression => _context.MorphPresets.Presets.Select(p => p.Name),
@@ -288,6 +329,20 @@ public partial class HotkeyPanel : UserControl
         {
             _updating = wasUpdating;
         }
+    }
+
+    // いちばん近い移り変わりの長さの番号
+    private static int NearestDuration(double seconds)
+    {
+        int best = 0;
+        for (int i = 1; i < TimeOfDayHotkeys.Durations.Count; i++)
+        {
+            if (Math.Abs(TimeOfDayHotkeys.Durations[i].Seconds - seconds) < Math.Abs(TimeOfDayHotkeys.Durations[best].Seconds - seconds))
+            {
+                best = i;
+            }
+        }
+        return best;
     }
 
     private void UpdateStatuses()

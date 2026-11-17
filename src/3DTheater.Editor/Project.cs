@@ -145,9 +145,9 @@ public sealed class LiveEntry
 }
 
 /// <summary>
-/// キー 1 つ。キーは「Ctrl+Shift+1」の形、動かすものは expression・visibility・morph・trackingToggle・trackingCalibrate・virtualCamera・camera、
-/// 押し方は toggle・hold。モデルは、モデルの目印（<see cref="ModelEntry.Id"/>）で書く。名前は表情のプリセットかモーフの名前。
-/// カメラ（camera）は番号で書く（<see cref="Camera"/>）。
+/// キー 1 つ。キーは「Ctrl+Shift+1」の形、動かすものは expression・visibility・morph・trackingToggle・trackingCalibrate・virtualCamera・camera・
+/// timeOfDay、押し方は toggle・hold。モデルは、モデルの目印（<see cref="ModelEntry.Id"/>）で書く。名前は表情のプリセットかモーフの名前か
+/// 時刻（"17" か "next"）。カメラ（camera）は番号で書く（<see cref="Camera"/>）。時刻は移り変わる秒数も書く（<see cref="Duration"/>）。
 /// </summary>
 public sealed class HotkeyEntry
 {
@@ -160,6 +160,7 @@ public sealed class HotkeyEntry
         (HotkeyAction.TrackingCalibrate, "trackingCalibrate"),
         (HotkeyAction.VirtualCameraToggle, "virtualCamera"),
         (HotkeyAction.CameraSwitch, "camera"),
+        (HotkeyAction.TimeOfDay, "timeOfDay"),
     ];
 
     public string? Key { get; set; }
@@ -178,6 +179,9 @@ public sealed class HotkeyEntry
     /// </summary>
     public int? Camera { get; set; }
 
+    /// <summary>時刻が移り変わる秒数（時刻だけ。無いときは 0 = すぐ変える）。</summary>
+    public double? Duration { get; set; }
+
     /// <param name="cameraNumber">カメラの Id（null ならライブカメラ）から番号を出す（見つからなければ null）。カメラの切り替えだけで使う。</param>
     public static HotkeyEntry From(HotkeyBinding binding, Func<Guid?, int?>? cameraNumber = null)
     {
@@ -190,6 +194,7 @@ public sealed class HotkeyEntry
             Model = camera ? null : binding.Model?.ToString("N"),
             Name = binding.Name,
             Camera = camera ? (cameraNumber is null ? (binding.Model is null ? 0 : null) : cameraNumber(binding.Model)) : null,
+            Duration = HotkeyActions.UsesDuration(binding.Action) && binding.Duration > 0 ? binding.Duration : null,
         };
     }
 
@@ -216,7 +221,8 @@ public sealed class HotkeyEntry
             }
             : string.IsNullOrEmpty(Model) ? null : findModel(Model);
         string? name = string.IsNullOrWhiteSpace(Name) ? null : Name;
-        return new HotkeyBinding(Guid.NewGuid(), HotkeyGesture.Parse(Key), action, mode, model, name);
+        double duration = HotkeyActions.UsesDuration(action) && Duration is { } d && double.IsFinite(d) ? Math.Clamp(d, 0, 600) : 0;
+        return new HotkeyBinding(Guid.NewGuid(), HotkeyGesture.Parse(Key), action, mode, model, name, duration);
     }
 }
 

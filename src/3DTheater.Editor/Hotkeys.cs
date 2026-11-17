@@ -147,6 +147,12 @@ public enum HotkeyAction
 
     /// <summary>カメラを切り替える（プレビューと、配信用の画面・仮想カメラの両方に映す。設計判断記録 78 章の 7 段目）。</summary>
     CameraSwitch,
+
+    /// <summary>
+    /// 時刻を変える（サンライトと画面の色合い。設計判断記録 89 章）。<see cref="HotkeyBinding.Name"/> に時刻（<see cref="TimeOfDayHotkeys"/>）、
+    /// <see cref="HotkeyBinding.Duration"/> に移り変わる秒数を持つ。
+    /// </summary>
+    TimeOfDay,
 }
 
 /// <summary>キーの押し方。</summary>
@@ -173,6 +179,7 @@ public static class HotkeyActions
         HotkeyAction.TrackingCalibrate => "トラッキングの「正面にする」",
         HotkeyAction.VirtualCameraToggle => "仮想カメラの入・切",
         HotkeyAction.CameraSwitch => "カメラの切り替え",
+        HotkeyAction.TimeOfDay => "時刻",
         _ => action.ToString(),
     };
 
@@ -182,8 +189,11 @@ public static class HotkeyActions
     /// <summary>モデルを選ぶか。</summary>
     public static bool UsesModel(HotkeyAction action) => action is HotkeyAction.Expression or HotkeyAction.ModelVisibility or HotkeyAction.Morph;
 
-    /// <summary>名前（表情のプリセット・モーフ）を選ぶか。</summary>
-    public static bool UsesName(HotkeyAction action) => action is HotkeyAction.Expression or HotkeyAction.Morph;
+    /// <summary>名前（表情のプリセット・モーフ・時刻）を選ぶか。</summary>
+    public static bool UsesName(HotkeyAction action) => action is HotkeyAction.Expression or HotkeyAction.Morph or HotkeyAction.TimeOfDay;
+
+    /// <summary>移り変わる秒数を選ぶか（時刻）。</summary>
+    public static bool UsesDuration(HotkeyAction action) => action is HotkeyAction.TimeOfDay;
 
     /// <summary>カメラを選ぶか（<see cref="HotkeyBinding.Model"/> にカメラの Id を持つ。null ならライブカメラ）。</summary>
     public static bool UsesCamera(HotkeyAction action) => action is HotkeyAction.CameraSwitch;
@@ -193,9 +203,11 @@ public static class HotkeyActions
 
 /// <summary>
 /// キー 1 つの決まり。<see cref="Model"/> はシーンのモデルの Id（表情は null ならトラッキングのキャラクター。
-/// カメラの切り替えはカメラの Id で、null ならライブカメラ）、<see cref="Name"/> は表情のプリセットかモーフの名前。
+/// カメラの切り替えはカメラの Id で、null ならライブカメラ）、<see cref="Name"/> は表情のプリセットかモーフの名前か時刻
+/// （<see cref="TimeOfDayHotkeys"/>）。<see cref="Duration"/> は時刻が移り変わる秒数（0 ならすぐ変える）。
 /// </summary>
-public sealed record HotkeyBinding(Guid Id, HotkeyGesture? Gesture, HotkeyAction Action, HotkeyMode Mode, Guid? Model, string? Name)
+public sealed record HotkeyBinding(Guid Id, HotkeyGesture? Gesture, HotkeyAction Action, HotkeyMode Mode, Guid? Model, string? Name,
+    double Duration = 0)
 {
     public static HotkeyBinding Create(HotkeyAction action = HotkeyAction.Expression) => new(Guid.NewGuid(), null, action, HotkeyMode.Toggle, null, null);
 
