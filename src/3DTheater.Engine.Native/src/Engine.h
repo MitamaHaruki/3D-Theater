@@ -316,6 +316,9 @@ private:
     ComPtr<ID3D11VertexShader> modelVertexShader_;
     ComPtr<ID3D11PixelShader> modelPixelShader_;
     ComPtr<ID3D11PixelShader> modelOpaquePixelShader_; // ふつうの描画用（捨てる処理が無いので、隠れた所は先に奥行きで省ける）
+    // レイトレーシングでの影を使わない回の軽い版（光線をたどる処理を外したもの。設計判断記録 90 章）
+    ComPtr<ID3D11PixelShader> modelNoRaysPixelShader_;
+    ComPtr<ID3D11PixelShader> modelOpaqueNoRaysPixelShader_;
     ComPtr<ID3D11VertexShader> edgeVertexShader_;
     ComPtr<ID3D11PixelShader> edgePixelShader_;
     ComPtr<ID3D11InputLayout> modelInputLayout_;

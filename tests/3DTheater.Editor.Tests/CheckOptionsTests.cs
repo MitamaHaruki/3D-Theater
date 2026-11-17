@@ -77,4 +77,23 @@ public sealed class CheckOptionsTests
             StringAssert.Contains(read.Problems[0], bad);
         }
     }
+
+    [TestMethod]
+    public void CameraDistanceIsRead()
+    {
+        CheckOptions options = CheckOptions.Parse(["--camera-distance=15"]);
+        Assert.AreEqual(15f, options.CameraDistance);
+        Assert.IsFalse(options.IsEmpty);
+        Assert.IsEmpty(options.Problems);
+        Assert.AreEqual(12.5f, CheckOptions.Parse(["--Camera-Distance=\"12.5\""]).CameraDistance, "大文字・引用符・小数でもよい");
+        Assert.IsNull(CheckOptions.None.CameraDistance);
+
+        foreach (string bad in new[] { "--camera-distance", "--camera-distance=near", "--camera-distance=1", "--camera-distance=5000", "--camera-distance=NaN" })
+        {
+            CheckOptions read = CheckOptions.Parse([bad]);
+            Assert.IsNull(read.CameraDistance, bad);
+            Assert.HasCount(1, read.Problems, bad);
+            StringAssert.Contains(read.Problems[0], bad);
+        }
+    }
 }

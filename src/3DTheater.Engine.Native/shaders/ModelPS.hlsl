@@ -1,8 +1,14 @@
+// MODEL_NO_RAYS を決めて組み立てると、レイトレーシングでの影（光線をたどる処理）を外した軽い版になる（ModelNoRaysPS・
+// ModelOpaqueNoRaysPS）。光線をたどる処理は、使わない回も画素ごとに大きな作業用の場所（たどる途中の積み上げの配列）を取り、
+// 画面を区画に分けて描く GPU（ノートパソコンの Adreno など）では、同時に走らせる画素が減って遅くなるため（設計判断記録 81・90 章）。
+// 色の計算は同じ。描画エンジンは、レイトレーシングでの影を使わない回にこちらを使う
 #include "Model.hlsli"
 #include "Shadow.hlsli"
 #include "Environment.hlsli"
+#ifndef MODEL_NO_RAYS
 #include "RayTrace.hlsli"
 #include "RayShadow.hlsli"
+#endif
 
 static const float kPi = 3.14159265;
 
@@ -18,6 +24,7 @@ static const float kGroundScale = 0.3;
 static const float kReflectionSkyScale = 1.6;
 static const float kReflectionGroundScale = 0.45;
 
+#ifndef MODEL_NO_RAYS
 // レイトレーシングでの影: 面から照明へ光線を出し、影を落とす材質に当たれば影（1 = 光が当たる、0 = 影）。
 // 光線は照明の向きに少し進めた所から出す（同じ直線の上なので、影の位置はずれない）。面の向きにはわずかに浮かせるだけにする
 // （面の向きに浮かせると、斜めの光では影が照明の側へずれる）。ただし、三角形そのものが照明に背を向けている所（なめらかに見せた
@@ -61,14 +68,17 @@ float RayTracedShadow(ModelPSInput input, float3 n)
     return RayShadowVisibility(RayShadowOrigin(position, toLight, normal), toLight, ShadowSoftness.y, (int)(RayShadowParams.z + 0.5),
         (uint)(RayShadowParams.y + 0.5), kRayCastShadow, input.position.xy);
 }
+#endif
 
 // セルフシャドウの光の当たる割合（奥行きの画像か、レイトレーシング）。MMD の照明が影を落とさないとき（RayShadowParams.w）は 1
 float ShadowAt(ModelPSInput input, float3 n)
 {
+#ifndef MODEL_NO_RAYS
     if (RayShadowParams.x > 0.5)
     {
         return RayShadowParams.w > 0.5 ? 1.0 : RayTracedShadow(input, n);
     }
+#endif
     return SelfShadowFactor(input.shadowPosition, input.position.xy);
 }
 
@@ -100,6 +110,9 @@ float3 ExtraLightAt(uint index, float3 worldPosition, out float3 toLight)
 // 照明の位置までを調べる（照明より向こうの物は影を落とさない）。toLight は ExtraLightAt の向き
 float ExtraLightShadow(ModelPSInput input, uint index, float3 n, float3 toLight)
 {
+#ifdef MODEL_NO_RAYS
+    return 1.0; // 軽い版はレイトレーシングでの影を使わない回だけに使うので、足す照明は影を落とさない
+#else
     ExtraLight light = Lights[index];
     if (RayShadowParams.x < 0.5 || Options.w < 0.5 || light.spot.y < 0.5)
     {
@@ -130,6 +143,7 @@ float ExtraLightShadow(ModelPSInput input, uint index, float3 n, float3 toLight)
         direction = offset / reach;
     }
     return TraceShadowRay(origin, direction, reach, (uint)(RayShadowParams.y + 0.5), kRayCastShadow) ? 0.0 : 1.0;
+#endif
 }
 
 // トゥーンの材質への足す照明: 光の当たる側を、材質の色（拡散色 × テクスチャ）× 照明の色で明るくする。
@@ -409,8 +423,10 @@ ModelPSOutput main(ModelPSInput input)
     output.target1 = 0.0;
     output.target2 = 0.0;
     output.target3 = 0.0;
+#ifndef MODEL_NO_RAYS
     float3 worldPosition = CameraPosition.xyz - input.eye;
     g_faceNormal = cross(ddx(worldPosition), ddy(worldPosition));
+#endif
     float3 n = normalize(input.normal);
     if (RenderPass() != 0)
     {

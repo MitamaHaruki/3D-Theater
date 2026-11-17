@@ -13,16 +13,24 @@ namespace Theater3D.Editor;
 /// <item>「--preview-quality=light・standard・high」（軽い・ふつう・きれい）: プレビューの品質をその回だけ変える（設定には残さない）。</item>
 /// <item>「--window=maximized」か「--window=幅x高さ」（拡大率 100% のときの大きさ）: 窓をその回だけ最大化する・その大きさにする
 /// （覚えている窓の置き場所は変えない）。描画の速さを、決まった大きさで測るため（設計判断記録 81 章）。</item>
+/// <item>「--camera-distance=数」: ライブカメラ（決まった役目のカメラ）の注視点までの距離を、その回だけ変える。キャラクターを近くから
+/// 写したとき（配信でよくある上半身）の描画の速さを測るため（設計判断記録 90 章。初めは 45 で全身が入る。15 ほどで上半身）。</item>
 /// </list>
 /// </summary>
 public sealed record CheckOptions(bool TrackCamera, string? CameraName, TimeSpan? ExitAfter, IReadOnlyList<string> Problems, string? SceneFolder = null,
-    PreviewQuality? Quality = null, CheckWindow? Window = null)
+    PreviewQuality? Quality = null, CheckWindow? Window = null, float? CameraDistance = null)
 {
     public const string TrackCameraOption = "--track-camera";
     public const string ExitAfterOption = "--exit-after";
     public const string SceneFolderOption = "--scene-folder";
     public const string PreviewQualityOption = "--preview-quality";
     public const string WindowOption = "--window";
+    public const string CameraDistanceOption = "--camera-distance";
+
+    /// <summary>注視点までの距離の範囲。</summary>
+    public const float MinimumCameraDistance = 2f;
+
+    public const float MaximumCameraDistance = 1000f;
 
     /// <summary>閉じるまでの秒数の範囲（10 秒〜1 日）。</summary>
     public const int MinimumExitSeconds = 10;
@@ -31,7 +39,7 @@ public sealed record CheckOptions(bool TrackCamera, string? CameraName, TimeSpan
 
     public static CheckOptions None { get; } = new(false, null, null, []);
 
-    public bool IsEmpty => !TrackCamera && ExitAfter is null && SceneFolder is null && Quality is null && Window is null;
+    public bool IsEmpty => !TrackCamera && ExitAfter is null && SceneFolder is null && Quality is null && Window is null && CameraDistance is null;
 
     /// <summary>起動の引数（「--」で始まるもの）から読む。読めない指定は <see cref="Problems"/> に入れる（起動は止めない）。</summary>
     public static CheckOptions Parse(IReadOnlyList<string> switches)
@@ -42,6 +50,7 @@ public sealed record CheckOptions(bool TrackCamera, string? CameraName, TimeSpan
         string? sceneFolder = null;
         PreviewQuality? quality = null;
         CheckWindow? window = null;
+        float? cameraDistance = null;
         var problems = new List<string>();
         foreach (string option in switches)
         {
@@ -91,8 +100,20 @@ public sealed record CheckOptions(bool TrackCamera, string? CameraName, TimeSpan
                     problems.Add($"「{option}」は読めません（{WindowOption}=maximized か {WindowOption}=1280x800 の形で渡してください）");
                 }
             }
+            else if (name.Equals(CameraDistanceOption, StringComparison.OrdinalIgnoreCase))
+            {
+                if (float.TryParse((value ?? string.Empty).Trim().Trim('"'), NumberStyles.Float, CultureInfo.InvariantCulture, out float distance)
+                    && distance is >= MinimumCameraDistance and <= MaximumCameraDistance)
+                {
+                    cameraDistance = distance;
+                }
+                else
+                {
+                    problems.Add($"「{option}」は読めません（{CameraDistanceOption}={MinimumCameraDistance}〜{MaximumCameraDistance} の数で渡してください）");
+                }
+            }
         }
-        return new CheckOptions(track, camera, exitAfter, problems, sceneFolder, quality, window);
+        return new CheckOptions(track, camera, exitAfter, problems, sceneFolder, quality, window, cameraDistance);
     }
 
     private static PreviewQuality? ParseQuality(string? value) => (value ?? string.Empty).Trim().Trim('"').ToLowerInvariant() switch

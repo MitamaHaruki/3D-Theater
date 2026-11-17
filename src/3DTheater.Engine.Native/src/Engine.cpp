@@ -40,6 +40,8 @@
 #include "LinearDepthPS.h"
 #include "ModelPS.h"
 #include "ModelOpaquePS.h"
+#include "ModelNoRaysPS.h"
+#include "ModelOpaqueNoRaysPS.h"
 #include "ModelVS.h"
 #include "ShadowVS.h"
 
@@ -373,6 +375,8 @@ void Engine::ReleaseDevice() noexcept
     edgeVertexShader_.Reset();
     modelPixelShader_.Reset();
     modelOpaquePixelShader_.Reset();
+    modelNoRaysPixelShader_.Reset();
+    modelOpaqueNoRaysPixelShader_.Reset();
     modelVertexShader_.Reset();
     overlayDepthState_.Reset();
     overlayVertexBuffer_.Reset();
@@ -1605,9 +1609,13 @@ void Engine::DrawMesh(const Mesh& mesh, DirectX::FXMMATRIX world, const ModelFra
     WriteObjectConstants(world, world * XMLoadFloat4x4(&frame.viewProj), frame);
     BindMesh(mesh);
     ctx->VSSetShader(modelVertexShader_.Get(), nullptr, 0);
-    // レンダーパスでも床の映り込みでもなければ、捨てる処理の無い方（隠れた所を、ピクセルシェーダーの前に奥行きで省ける）
+    // レンダーパスでも床の映り込みでもなければ、捨てる処理の無い方（隠れた所を、ピクセルシェーダーの前に奥行きで省ける）。
+    // レイトレーシングでの影を使わない回は、光線をたどる処理を外した軽い版（弱い GPU で速い。設計判断記録 90 章）
     const bool clipping = drawingReflection_ || frame.passParams.x > 0.5f;
-    ctx->PSSetShader(clipping ? modelPixelShader_.Get() : modelOpaquePixelShader_.Get(), nullptr, 0);
+    const bool rays = frame.rayShadowParams.x > 0.5f;
+    ID3D11PixelShader* pixelShader = clipping ? (rays ? modelPixelShader_.Get() : modelNoRaysPixelShader_.Get())
+                                              : (rays ? modelOpaquePixelShader_.Get() : modelOpaqueNoRaysPixelShader_.Get());
+    ctx->PSSetShader(pixelShader, nullptr, 0);
     ID3D11SamplerState* samplers[] = {textureSampler_.Get(), clampSampler_.Get(), shadowSampler_.Get(), environmentSampler_.Get()};
     ctx->PSSetSamplers(0, 4, samplers);
     ctx->OMSetDepthStencilState(modelDepthState_.Get(), 0);
@@ -2094,6 +2102,10 @@ void Engine::CreateModelResources()
     CheckHr(device_->CreatePixelShader(g_ModelPS, sizeof(g_ModelPS), nullptr, &modelPixelShader_), L"モデルのピクセルシェーダーの作成");
     CheckHr(device_->CreatePixelShader(g_ModelOpaquePS, sizeof(g_ModelOpaquePS), nullptr, &modelOpaquePixelShader_),
         L"モデルのピクセルシェーダー（捨てる処理なし）の作成");
+    CheckHr(device_->CreatePixelShader(g_ModelNoRaysPS, sizeof(g_ModelNoRaysPS), nullptr, &modelNoRaysPixelShader_),
+        L"モデルのピクセルシェーダー（光線なし）の作成");
+    CheckHr(device_->CreatePixelShader(g_ModelOpaqueNoRaysPS, sizeof(g_ModelOpaqueNoRaysPS), nullptr, &modelOpaqueNoRaysPixelShader_),
+        L"モデルのピクセルシェーダー（捨てる処理・光線なし）の作成");
     CheckHr(device_->CreateVertexShader(g_EdgeVS, sizeof(g_EdgeVS), nullptr, &edgeVertexShader_), L"輪郭線の頂点シェーダーの作成");
     CheckHr(device_->CreatePixelShader(g_EdgePS, sizeof(g_EdgePS), nullptr, &edgePixelShader_), L"輪郭線のピクセルシェーダーの作成");
 

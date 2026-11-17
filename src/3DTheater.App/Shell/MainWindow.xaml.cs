@@ -893,6 +893,16 @@ public partial class MainWindow : Window, Live.ILiveSceneActions, Live.ILiveScen
             }
             AppLog.Info($"確かめのため、窓を{(size.Maximized ? "最大化" : $"幅 {size.Width}・高さ {size.Height}（拡大率 100% のときの大きさ）")}にします（覚えている窓の置き場所は変えません）");
         }
+        if (check.CameraDistance is { } distance)
+        {
+            // 元に戻すの履歴には入れない（確かめのためのその回だけの値。閉じるときに保存を尋ねない「--exit-after」と一緒に使う）
+            Domain.CameraNode camera = _context.Scene.MainCamera;
+            using (_context.Animation.SuspendTracking())
+            {
+                camera.ApplyPose(camera.Pose with { Distance = distance }); // 注視点はそのままで、近づける・離れる
+            }
+            AppLog.Info($"確かめのため、「{camera.Name}」の注視点までの距離を {distance.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)} にします");
+        }
         if (check.TrackCamera)
         {
             StartTrackingForCheck(check.CameraName);

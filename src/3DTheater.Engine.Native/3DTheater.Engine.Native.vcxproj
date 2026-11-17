@@ -122,6 +122,12 @@
     <FxCompile Include="shaders\ModelOpaquePS.hlsl">
       <ShaderType>Pixel</ShaderType>
     </FxCompile>
+    <FxCompile Include="shaders\ModelNoRaysPS.hlsl">
+      <ShaderType>Pixel</ShaderType>
+    </FxCompile>
+    <FxCompile Include="shaders\ModelOpaqueNoRaysPS.hlsl">
+      <ShaderType>Pixel</ShaderType>
+    </FxCompile>
     <FxCompile Include="shaders\EdgeVS.hlsl">
       <ShaderType>Vertex</ShaderType>
     </FxCompile>
