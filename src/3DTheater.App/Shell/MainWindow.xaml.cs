@@ -739,6 +739,10 @@ public partial class MainWindow : Window, Live.ILiveSceneActions, Live.ILiveScen
         {
             SetStatus(device, isError: true);
         }
+        else if (_context.Tracking?.Problem is { } trackingProblem)
+        {
+            SetStatus(trackingProblem, isError: true); // 映像が届かない・開き直している（ライブでは左下に赤い字で出る。設計判断記録 97 章）
+        }
         else if (!_busy)
         {
             bool recovered = _renderFailure is null && DateTime.Now - _recoveredAt < TimeSpan.FromSeconds(8);

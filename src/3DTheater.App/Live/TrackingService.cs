@@ -16,6 +16,7 @@ namespace Theater3D.App.Live;
 /// 結果は最新の 1 つだけを持つ（画面は時々読みに来る。<see cref="Latest"/>・<see cref="ReadFrame"/>）。
 /// 動画のファイルは、映像の時刻に合わせて実際の速さで読む（終わりで先頭に戻る）。
 /// 速さ（処理の時間・回数・顔を見つけた割合）を <see cref="Statistics"/> に数え、止めたときにまとめをログに書く。
+/// カメラから映像が届かないときは知らせ（<see cref="Problem"/>）、読み出しに失敗した・止まったときは開き直す（<see cref="VideoWatch"/>。設計判断記録 97 章）。
 /// </summary>
 public sealed class TrackingService : IDisposable
 {
@@ -24,8 +25,12 @@ public sealed class TrackingService : IDisposable
 
     private readonly object _lock = new();
     private readonly object _captureLock = new();
+    private readonly VideoWatch _watch = new();
+    private readonly Stopwatch _clock = Stopwatch.StartNew();
     private Thread? _thread;
+    private Timer? _watchTimer;
     private volatile bool _stop;
+    private volatile bool _stalled; // 映像が届かないので、見張りが読み込みをやめさせた
     private CameraCapture? _capture;
     private TrackingSnapshot _latest = TrackingSnapshot.Empty;
     private byte[]? _frame;
@@ -46,6 +51,14 @@ public sealed class TrackingService : IDisposable
 
     /// <summary>最後に止まったときのエラー（無ければ null）。</summary>
     public string? Error { get; private set; }
+
+    /// <summary>
+    /// 今の困りごと（無ければ null）: 動いている間は、映像が届かない・開き直している（<see cref="VideoWatch.Problem"/>）。
+    /// エラーで止まった後は、そのエラー（次に始めるまで）。画面の状態の行と、ライブモードの左下の赤い字に出す。
+    /// </summary>
+    public string? Problem => IsRunning
+        ? _watch.Problem(_clock.Elapsed, SourceName)
+        : Error is { } error ? $"顔のトラッキングが止まりました: {error}" : null;
 
     public TrackingSnapshot Latest
     {
@@ -70,9 +83,9 @@ public sealed class TrackingService : IDisposable
         }
     }
 
-    public void StartCamera(CameraDevice camera) => Start(camera.Name, () => Run(() => CameraCapture.OpenCamera(camera.Id)));
+    public void StartCamera(CameraDevice camera) => Start(camera.Name, () => Run(() => CameraCapture.OpenCamera(camera.Id)), watch: true);
 
-    public void StartFile(string path) => Start(Path.GetFileName(path), () => Run(() => CameraCapture.OpenFile(path, loop: true)));
+    public void StartFile(string path) => Start(Path.GetFileName(path), () => Run(() => CameraCapture.OpenFile(path, loop: true)), watch: true);
 
     /// <summary>
     /// スマホから受け取る。<paramref name="phone"/> があれば、VTube Studio の形式で、そのスマホに「送って」と頼み続ける（MeowFace も同じ）。
@@ -81,7 +94,7 @@ public sealed class TrackingService : IDisposable
     public void StartPhone(IPAddress? phone)
     {
         string name = phone is null ? "スマホ（iFacialMocap・MeowFace から送る）" : $"スマホ（VTube Studio・MeowFace {phone}）";
-        Start(name, () => RunPhone(phone));
+        Start(name, () => RunPhone(phone), watch: false);
     }
 
     /// <summary>前に始めた映像で、もう一度始められるか（キーの「トラッキングの開始・停止」に使う）。</summary>
@@ -94,23 +107,34 @@ public sealed class TrackingService : IDisposable
         {
             return false;
         }
-        Start(last.Name, last.Run);
+        Start(last.Name, last.Run, last.Watch);
         return true;
     }
 
-    private (string Name, Action Run)? _lastStart;
+    private (string Name, Action Run, bool Watch)? _lastStart;
 
-    private void Start(string name, Action run)
+    private void Start(string name, Action run, bool watch)
     {
         Stop();
-        _lastStart = (name, run);
+        _lastStart = (name, run, watch);
         _stop = false;
+        _stalled = false;
         SourceName = name;
         Error = null;
         lock (_lock)
         {
             _latest = TrackingSnapshot.Empty;
             _frame = null;
+        }
+        if (watch)
+        {
+            // 映像が届かないまま止まっていないかを、1 秒ごとに見る（スマホは見張らない。送ってこないのは、スマホの側の都合のため）
+            _watch.Reset(_clock.Elapsed);
+            _watchTimer = new Timer(_ => CheckStall(), null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+        }
+        else
+        {
+            _watch.Stop();
         }
         _thread = new Thread(() => run()) { IsBackground = true, Name = "顔のトラッキング" };
         _thread.Start();
@@ -120,6 +144,8 @@ public sealed class TrackingService : IDisposable
 
     public void Stop()
     {
+        _watchTimer?.Dispose();
+        _watchTimer = null;
         if (_thread is not { } thread)
         {
             return;
@@ -139,94 +165,184 @@ public sealed class TrackingService : IDisposable
             AppLog.Info($"顔のトラッキングを止めるのに {took.TotalSeconds:F1} 秒かかりました");
         }
         LogSummary(); // スレッドが止まりきらなくても、まとめは書く（スレッドが先に書いていれば、何もしない）
+        _watch.Stop();
         _thread = null;
         StateChanged?.Invoke(this, EventArgs.Empty);
     }
 
-    private void Run(Func<CameraCapture> open)
+    // 見張り（1 秒ごと。タイマーのスレッド）: 映像が届かないまま止まっていれば、読み込みをやめさせて開き直させる
+    private void CheckStall()
     {
-        CameraCapture? capture = null;
-        try
+        if (_stop || _stalled || !_watch.IsStalled(_clock.Elapsed))
         {
-            _phase = "カメラを開いている";
-            capture = open();
-            lock (_captureLock)
+            return;
+        }
+        lock (_captureLock)
+        {
+            if (_capture is { } capture)
             {
-                _capture = capture;
-            }
-            _phase = "顔のモデルを読んでいる";
-            using var tracker = new FaceTracker();
-            AppLog.Info($"映像を開きました（{capture.Width} × {capture.Height}・{capture.FrameRate:F1} 回/秒{(capture.IsFile ? "・動画のファイル" : string.Empty)}）");
-            var buffers = new[] { new byte[capture.FrameBytes], new byte[capture.FrameBytes] };
-            Statistics.Begin(phone: false);
-            int current = 0;
-            long? firstTime = null;
-            long wallStart = 0;
-            long previousTime = long.MinValue;
-            var rate = new RateCounter();
-            while (!_stop)
-            {
-                byte[] frame = buffers[current];
-                _phase = "映像が届くのを待っている";
-                long readStart = Stopwatch.GetTimestamp();
-                if (!capture.Read(frame, out long timestamp))
-                {
-                    break;
-                }
-                double waitMilliseconds = Stopwatch.GetElapsedTime(readStart).TotalMilliseconds; // 映像が届くのを待った時間
-                if (capture.IsFile)
-                {
-                    // 動画のファイルは、映像の時刻に合わせて待つ（先頭に戻ったら測り直す）
-                    if (firstTime is null || timestamp < previousTime)
-                    {
-                        firstTime = timestamp;
-                        wallStart = Stopwatch.GetTimestamp();
-                    }
-                    previousTime = timestamp;
-                    TimeSpan due = TimeSpan.FromTicks(timestamp - firstTime.Value) - Stopwatch.GetElapsedTime(wallStart);
-                    if (due > TimeSpan.Zero)
-                    {
-                        Thread.Sleep(due);
-                    }
-                }
-                _phase = "顔を読んでいる";
-                FaceTrackingResult result = tracker.Process(new BgraImage(frame, capture.Width, capture.Height));
-                Statistics.AddCameraFrame(result.Milliseconds, waitMilliseconds, result.Found, result.Detected);
-                if (result.Found)
-                {
-                    DrawDots(frame, capture.Width, capture.Height, result.Landmarks);
-                }
-                double fps = rate.Tick();
-                lock (_lock)
-                {
-                    _latest = new TrackingSnapshot(result, capture.Width, capture.Height, fps, _latest.Sequence + 1);
-                    _frame = frame;
-                }
-                current ^= 1; // 画面が写している間に書き換えないよう、交互に使う
+                _stalled = true;
+                AppLog.Warning($"顔のトラッキング: 映像が {VideoWatch.StallAfter.TotalSeconds:F0} 秒届かないため、映像を開き直します（{_phase}）");
+                capture.Cancel();
             }
         }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
+    }
+
+    // カメラ（動画のファイル）を開いて読む。読み出しに失敗した・映像が止まったときは、間をあけて開き直す（VideoWatch.RetryDelays の回数まで）
+    private void Run(Func<CameraCapture> open)
+    {
+        FaceTracker? tracker = null;
+        try
         {
-            if (!_stop)
+            var rate = new RateCounter();
+            bool begun = false;
+            while (!_stop)
             {
-                Error = ex.Message;
-                AppLog.Error("顔のトラッキングが止まりました", ex);
+                string? failure = null;
+                CameraCapture? capture = null;
+                try
+                {
+                    _phase = "カメラを開いている";
+                    _watch.Opening(_clock.Elapsed);
+                    capture = open();
+                    lock (_captureLock)
+                    {
+                        _capture = capture;
+                    }
+                    if (_stop)
+                    {
+                        break;
+                    }
+                    if (tracker is null)
+                    {
+                        _phase = "顔のモデルを読んでいる";
+                        tracker = new FaceTracker();
+                    }
+                    AppLog.Info($"映像を開きました（{capture.Width} × {capture.Height}・{capture.FrameRate:F1} 回/秒{(capture.IsFile ? "・動画のファイル" : string.Empty)}）");
+                    if (!begun)
+                    {
+                        Statistics.Begin(phone: false);
+                        begun = true;
+                    }
+                    _watch.Opened(_clock.Elapsed);
+                    ReadFrames(capture, tracker, rate);
+                    if (!_stop && _stalled)
+                    {
+                        failure = $"{VideoWatch.StallAfter.TotalSeconds:F0} 秒届きません";
+                    }
+                }
+                catch (Exception ex) when (ex is not OutOfMemoryException)
+                {
+                    if (_stop)
+                    {
+                        break;
+                    }
+                    failure = _stalled ? $"{VideoWatch.StallAfter.TotalSeconds:F0} 秒届きません" : ex.Message;
+                    if (!_stalled)
+                    {
+                        AppLog.Warning($"顔のトラッキング: 映像を読めませんでした（{ex.GetType().Name}: {ex.Message}）");
+                    }
+                }
+                finally
+                {
+                    if (_stop)
+                    {
+                        // まとめは、カメラを閉じるより先に書く（閉じるのに時間がかかると、アプリが先に終わって、まとめが抜けるため。ノートパソコンで起きた）
+                        LogSummary();
+                    }
+                    lock (_captureLock)
+                    {
+                        _capture = null;
+                    }
+                    CloseCapture(capture);
+                    _stalled = false;
+                }
+                if (_stop || failure is null)
+                {
+                    break; // 止めた・動画のファイルの終わり（繰り返さないとき）
+                }
+                if (_watch.Failed(failure, _clock.Elapsed) is not { } delay)
+                {
+                    Error = $"映像を読めません（{VideoWatch.RetryDelays.Count} 回開き直しても届きませんでした。{failure}）";
+                    AppLog.Error($"顔のトラッキングが止まりました: {Error}");
+                    break;
+                }
+                // 動いているままなので、StateChanged は出さない（出すと、始めたときと同じに正面を覚え直してしまう）。画面は Problem を読みに来る
+                AppLog.Warning($"顔のトラッキング: {delay.TotalSeconds:F0} 秒後に映像を開き直します（{_watch.Failures}/{VideoWatch.RetryDelays.Count} 回目。{failure}）");
+                WaitUnlessStopped(delay);
             }
         }
         finally
         {
-            // まとめは、カメラを閉じるより先に書く（閉じるのに時間がかかると、アプリが先に終わって、まとめが抜けるため。ノートパソコンで起きた）
             LogSummary();
-            lock (_captureLock)
-            {
-                _capture = null;
-            }
-            CloseCapture(capture);
+            tracker?.Dispose();
             _phase = string.Empty;
             if (!_stop)
             {
                 StateChanged?.Invoke(this, EventArgs.Empty);
             }
+        }
+    }
+
+    // 開き直すまで待つ（止められたら、すぐ戻る）
+    private void WaitUnlessStopped(TimeSpan delay)
+    {
+        _phase = "カメラを開き直すのを待っている";
+        long start = Stopwatch.GetTimestamp();
+        while (!_stop && Stopwatch.GetElapsedTime(start) < delay)
+        {
+            Thread.Sleep(100);
+        }
+    }
+
+    // 開いたカメラ（動画のファイル）から、止めるまで・読めなくなるまで読む
+    private void ReadFrames(CameraCapture capture, FaceTracker tracker, RateCounter rate)
+    {
+        var buffers = new[] { new byte[capture.FrameBytes], new byte[capture.FrameBytes] };
+        int current = 0;
+        long? firstTime = null;
+        long wallStart = 0;
+        long previousTime = long.MinValue;
+        while (!_stop)
+        {
+            byte[] frame = buffers[current];
+            _phase = "映像が届くのを待っている";
+            long readStart = Stopwatch.GetTimestamp();
+            if (!capture.Read(frame, out long timestamp))
+            {
+                break;
+            }
+            _watch.FrameArrived(_clock.Elapsed);
+            double waitMilliseconds = Stopwatch.GetElapsedTime(readStart).TotalMilliseconds; // 映像が届くのを待った時間
+            if (capture.IsFile)
+            {
+                // 動画のファイルは、映像の時刻に合わせて待つ（先頭に戻ったら測り直す）
+                if (firstTime is null || timestamp < previousTime)
+                {
+                    firstTime = timestamp;
+                    wallStart = Stopwatch.GetTimestamp();
+                }
+                previousTime = timestamp;
+                TimeSpan due = TimeSpan.FromTicks(timestamp - firstTime.Value) - Stopwatch.GetElapsedTime(wallStart);
+                if (due > TimeSpan.Zero)
+                {
+                    Thread.Sleep(due);
+                }
+            }
+            _phase = "顔を読んでいる";
+            FaceTrackingResult result = tracker.Process(new BgraImage(frame, capture.Width, capture.Height));
+            Statistics.AddCameraFrame(result.Milliseconds, waitMilliseconds, result.Found, result.Detected);
+            if (result.Found)
+            {
+                DrawDots(frame, capture.Width, capture.Height, result.Landmarks);
+            }
+            double fps = rate.Tick();
+            lock (_lock)
+            {
+                _latest = new TrackingSnapshot(result, capture.Width, capture.Height, fps, _latest.Sequence + 1);
+                _frame = frame;
+            }
+            current ^= 1; // 画面が写している間に書き換えないよう、交互に使う
         }
     }
 

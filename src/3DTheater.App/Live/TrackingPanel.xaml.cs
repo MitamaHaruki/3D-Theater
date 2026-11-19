@@ -186,15 +186,39 @@ public partial class TrackingPanel : UserControl
         StartButton.IsEnabled = !running;
         StopButton.IsEnabled = running;
         SourceCombo.IsEnabled = !running;
-        StatusText.Text = running
-            ? $"{(_tracking.SourceName?.StartsWith("スマホ", StringComparison.Ordinal) == true ? "受け取っています" : "読んでいます")}: {_tracking.SourceName}"
-            : _tracking.Error is { } error ? $"止まりました: {error}" : "止まっています（映像を選んで「開始」）";
-        StatusText.ToolTip = StatusText.Text;
+        UpdateStatusLine();
         _timer.Start(); // 止めたときも、キャラクターを正面に戻しきるまで様子を見る
+    }
+
+    // 状態の行。映像が届かない・開き直している・エラーで止まったときは、赤い字で折り返して出す（設計判断記録 97 章）
+    private void UpdateStatusLine()
+    {
+        string? problem = _tracking.Problem;
+        string text = problem
+            ?? (_tracking.IsRunning
+                ? $"{(_tracking.SourceName?.StartsWith("スマホ", StringComparison.Ordinal) == true ? "受け取っています" : "読んでいます")}: {_tracking.SourceName}"
+                : "止まっています（映像を選んで「開始」）");
+        if (StatusText.Text == text)
+        {
+            return;
+        }
+        StatusText.Text = text;
+        StatusText.ToolTip = text;
+        if (problem is null)
+        {
+            StatusText.ClearValue(TextBlock.ForegroundProperty);
+            StatusText.TextWrapping = TextWrapping.NoWrap;
+        }
+        else
+        {
+            StatusText.SetResourceReference(TextBlock.ForegroundProperty, "LiveErrorBrush");
+            StatusText.TextWrapping = TextWrapping.Wrap;
+        }
     }
 
     private void Refresh()
     {
+        UpdateStatusLine(); // 映像が届かない秒数・開き直すまでの秒数を出し直す
         TrackingSnapshot snapshot = _tracking.Latest;
         if (!_tracking.IsRunning)
         {
