@@ -88,8 +88,8 @@ public static class CameraOrbit
         return pivot + (offset * (wanted / distance));
     }
 
-    /// <summary>ホイールの量（120 で 1 段）を、回る角度にする。</summary>
-    public static float Degrees(float wheelDelta) => wheelDelta / 120f * DegreesPerWheelStep;
+    /// <summary>ホイールの量（120 で 1 段）を、回る角度にする（<paramref name="speed"/> は回る速さの倍率。<see cref="CameraControlSettings.OrbitSpeed"/>）。</summary>
+    public static float Degrees(float wheelDelta, float speed = 1f) => wheelDelta / 120f * DegreesPerWheelStep * speed;
 
     /// <summary>ホイールの量を、近づく倍率にする（奥へ回す・指を広げる = 正で近づく）。</summary>
     public static float DollyFactor(float wheelDelta) => MathF.Pow(DollyPerWheelStep, wheelDelta / 120f);
@@ -122,8 +122,14 @@ public static class CameraOrbit
 /// <summary>ライブモードのプレビューの操作の、利用者ごとの設定（設計判断記録 78 章の 7 段目。PC ごとに違うので、シーンには入れない）。</summary>
 public sealed class CameraControlSettings
 {
+    /// <summary>回る速さの範囲（倍）。</summary>
+    public const float MinOrbitSpeed = 0.25f;
+
+    public const float MaxOrbitSpeed = 3f;
+
     private bool _touchpad;
     private bool _reverseTouchpad;
+    private float _orbitSpeed = 1f;
 
     public event EventHandler? Changed;
 
@@ -132,6 +138,29 @@ public sealed class CameraControlSettings
 
     /// <summary>2 本指でなでたときの向きを逆にする。</summary>
     public bool ReverseTouchpad { get => _reverseTouchpad; set => Set(ref _reverseTouchpad, value); }
+
+    /// <summary>
+    /// 2 本指でなでたときの回る速さ（倍。1 で、ホイール 1 段 = <see cref="CameraOrbit.DegreesPerWheelStep"/> 度）。
+    /// <see cref="MinOrbitSpeed"/>〜<see cref="MaxOrbitSpeed"/> に収める（数でない値は変えない）。設計判断記録 93 章。
+    /// </summary>
+    public float OrbitSpeed
+    {
+        get => _orbitSpeed;
+        set
+        {
+            if (!float.IsFinite(value))
+            {
+                return;
+            }
+            float clamped = Math.Clamp(value, MinOrbitSpeed, MaxOrbitSpeed);
+            if (clamped == _orbitSpeed)
+            {
+                return;
+            }
+            _orbitSpeed = clamped;
+            Changed?.Invoke(this, EventArgs.Empty);
+        }
+    }
 
     private void Set(ref bool field, bool value)
     {

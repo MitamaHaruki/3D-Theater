@@ -920,7 +920,9 @@ public partial class ViewportControl : UserControl, IDisposable
             return;
         }
         Vector3 center = BeginGesture(GestureKind.Orbit, camera);
-        EditLiveCamera(c => (c.Position, c.Rotation) = CameraOrbit.Orbit(c.Position, c.Rotation, center, CameraOrbit.Degrees(finger.X), CameraOrbit.Degrees(finger.Y)));
+        float speed = _context.CameraControls.OrbitSpeed;
+        EditLiveCamera(c => (c.Position, c.Rotation) = CameraOrbit.Orbit(c.Position, c.Rotation, center,
+            CameraOrbit.Degrees(finger.X, speed), CameraOrbit.Degrees(finger.Y, speed)));
     }
 
     // 指を広げる・つまむ（Ctrl＋ホイール）: キャラクターへ近づく・離れる。平行投影のカメラは、写る大きさを変える

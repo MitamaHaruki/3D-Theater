@@ -178,6 +178,7 @@ public partial class MainWindow : Window, Live.ILiveSceneActions, Live.ILiveScen
         context.Gizmo.LocalSpace = _settings.Gizmo.LocalSpace;
         context.CameraControls.Touchpad = _settings.LiveTouchpad;
         context.CameraControls.ReverseTouchpad = _settings.LiveTouchpadReverse;
+        context.CameraControls.OrbitSpeed = (float)_settings.LiveTouchpadOrbitSpeed;
         context.Gizmo.Changed += (_, _) => UpdateGizmoControls();
         UpdateGizmoControls();
         context.Physics.Changed += (_, _) => UpdatePhysicsControls();
@@ -240,6 +241,7 @@ public partial class MainWindow : Window, Live.ILiveSceneActions, Live.ILiveScen
         _settings.Rendering = new RenderingPreferences { PreviewQuality = _checkKeptQuality ?? _context.PreviewQuality.Quality };
         _settings.LiveTouchpad = _context.CameraControls.Touchpad;
         _settings.LiveTouchpadReverse = _context.CameraControls.ReverseTouchpad;
+        _settings.LiveTouchpadOrbitSpeed = _context.CameraControls.OrbitSpeed;
         if (_live is not null)
         {
             _settings.LiveSections = [.. _live.ExpandedSections];
@@ -1827,16 +1829,48 @@ public partial class MainWindow : Window, Live.ILiveSceneActions, Live.ILiveScen
         }
         CheckBox reverse = Option("2 本指でなでたときの向きを逆にする", "2 本指の向きを逆にする", _context.CameraControls.ReverseTouchpad,
             on => _context.CameraControls.ReverseTouchpad = on);
+        // 回る速さ（設計判断記録 93 章。指で試しながら、その場で変えられる）
+        var speedValue = new TextBlock { Width = 64, TextAlignment = TextAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
+        var speed = new Slider
+        {
+            Minimum = CameraControlSettings.MinOrbitSpeed,
+            Maximum = CameraControlSettings.MaxOrbitSpeed,
+            SmallChange = 0.05,
+            LargeChange = 0.25,
+            TickFrequency = 0.05,
+            IsSnapToTickEnabled = true,
+            Value = _context.CameraControls.OrbitSpeed,
+            VerticalAlignment = VerticalAlignment.Center,
+            ToolTip = "2 本指でなでたときに、キャラクターの周りを回る速さ。1 が初めの速さで、2 なら同じだけなでて 2 倍回ります",
+        };
+        System.Windows.Automation.AutomationProperties.SetName(speed, "回る速さ");
+        void ShowSpeed() => speedValue.Text = string.Format(System.Globalization.CultureInfo.InvariantCulture, "{0:0.00} 倍", speed.Value);
+        speed.ValueChanged += (_, e) =>
+        {
+            _context.CameraControls.OrbitSpeed = (float)e.NewValue;
+            ShowSpeed();
+        };
+        ShowSpeed();
+        var speedLabel = new TextBlock { Text = "回る速さ", Width = 72, VerticalAlignment = VerticalAlignment.Center };
+        var speedRow = new DockPanel { Margin = new Thickness(24, 2, 0, 6) };
+        DockPanel.SetDock(speedLabel, System.Windows.Controls.Dock.Left);
+        DockPanel.SetDock(speedValue, System.Windows.Controls.Dock.Right);
+        speedRow.Children.Add(speedLabel);
+        speedRow.Children.Add(speedValue);
+        speedRow.Children.Add(speed);
         CheckBox touchpad = Option("タッチパッドで操作する（2 本指でなでるとキャラクターの周りを回り、指を広げる・つまむと近づく・離れる。Shift を押しながらなでると上下左右にずらす）",
             "タッチパッドで操作する", _context.CameraControls.Touchpad, on =>
             {
                 _context.CameraControls.Touchpad = on;
                 reverse.IsEnabled = on;
+                speedRow.IsEnabled = on;
             });
         reverse.IsEnabled = _context.CameraControls.Touchpad;
+        speedRow.IsEnabled = _context.CameraControls.Touchpad;
         reverse.Margin = new Thickness(24, 0, 0, 6);
         panel.Children.Add(touchpad);
         panel.Children.Add(reverse);
+        panel.Children.Add(speedRow);
         panel.Children.Add(new TextBlock
         {
             Text = "入れると、ホイール（2 本指で上下になでる）で視野角を変えなくなります（視野角は、カメラ情報の数の欄で変えます）。"

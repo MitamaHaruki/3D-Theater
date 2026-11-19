@@ -109,6 +109,29 @@ public sealed class CameraOrbitTests
         Assert.AreEqual(CameraOrbit.PixelsPerWheelStep / 2, CameraOrbit.Pixels(60), Tolerance);
     }
 
+    [TestMethod]
+    public void OrbitSpeedScalesTheTurn()
+    {
+        // 回る速さ（設計判断記録 93 章）: 同じだけなでて、速さの倍だけ回る
+        Assert.AreEqual(CameraOrbit.DegreesPerWheelStep * 2, CameraOrbit.Degrees(120, 2f), Tolerance);
+        Assert.AreEqual(CameraOrbit.DegreesPerWheelStep / 2, CameraOrbit.Degrees(120, 0.5f), Tolerance);
+
+        var settings = new CameraControlSettings();
+        int changed = 0;
+        settings.Changed += (_, _) => changed++;
+        Assert.AreEqual(1f, settings.OrbitSpeed, "初めは 1 倍");
+        settings.OrbitSpeed = 1.5f;
+        Assert.AreEqual(1.5f, settings.OrbitSpeed);
+        settings.OrbitSpeed = 10f;
+        Assert.AreEqual(CameraControlSettings.MaxOrbitSpeed, settings.OrbitSpeed, "速すぎる値は収める");
+        settings.OrbitSpeed = 0f;
+        Assert.AreEqual(CameraControlSettings.MinOrbitSpeed, settings.OrbitSpeed, "0 にはしない（回らなくならない）");
+        settings.OrbitSpeed = float.NaN;
+        Assert.AreEqual(CameraControlSettings.MinOrbitSpeed, settings.OrbitSpeed, "数でない値は入れない");
+        settings.OrbitSpeed = CameraControlSettings.MinOrbitSpeed;
+        Assert.AreEqual(3, changed, "変わったときだけ知らせる");
+    }
+
     // カメラから見た所（カメラの向きの中での座標。画面のどこに映るかが同じなら同じ）
     private static Vector3 InCamera(Vector3 position, Vector3 rotation, Vector3 point) =>
         Vector3.Transform(point - position, Quaternion.Inverse(SceneRotation.ToQuaternion(rotation)));

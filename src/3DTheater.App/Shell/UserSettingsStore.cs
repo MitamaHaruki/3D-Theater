@@ -53,6 +53,9 @@ public sealed class UserSettings
     /// <summary>タッチパッドの 2 本指でなでたときの向きを逆にするか。</summary>
     public bool LiveTouchpadReverse { get; set; }
 
+    /// <summary>タッチパッドの 2 本指でなでたときの回る速さ（倍。1 で初めの速さ。設計判断記録 93 章）。</summary>
+    public double LiveTouchpadOrbitSpeed { get; set; } = 1;
+
     /// <summary>前回起動したモード（モードを選ぶ画面で、初めに選んでおく）。</summary>
     public Theater3D.Editor.AppMode? LastMode { get; set; }
 
