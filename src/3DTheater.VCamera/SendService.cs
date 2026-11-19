@@ -29,6 +29,7 @@ public sealed class SendService : IDisposable
 
     // 1 分ごとのまとめ（読み込み用のスレッドだけが書く）
     private readonly List<double> _process = [];
+    private readonly List<double> _model = []; // 顔のモデルだけの時間（本アプリのトラッキングの「処理」と同じ区間）
     private int _frames;
     private int _found;
     private long _periodStart;
@@ -261,6 +262,7 @@ public sealed class SendService : IDisposable
             _frames++;
             _found += result.Found ? 1 : 0;
             _process.Add(process);
+            _model.Add(result.Milliseconds);
             WriteSummary(force: false);
         }
     }
@@ -279,17 +281,22 @@ public sealed class SendService : IDisposable
             double[] process = [.. _process];
             Array.Sort(process);
             double p95 = process[Math.Min(process.Length - 1, (int)Math.Ceiling(process.Length * 0.95) - 1)];
+            double[] model = [.. _model];
+            Array.Sort(model);
+            double modelP95 = model[Math.Min(model.Length - 1, (int)Math.Ceiling(model.Length * 0.95) - 1)];
             RoundTripSummary trip = sender.TakeSummary();
             string tripText = trip.Replied > 0
                 ? string.Format(c, "往復 平均 {0:F1} ms・95% {1:F1} ms・最大 {2:F1} ms・返事なし {3} 回", trip.Average, trip.P95, trip.Max, trip.Unanswered)
                 : "返事なし（3D Theater が受け取っていないか、ほかのアプリへ送っている）";
-            VLog.Info(string.Format(c, "[速さ] {0}: 読み取り {1:F1} 回/秒（絵が届いてから送るまで 平均 {2:F1} ms・95% {3:F1} ms・顔あり {4:F0}%）／送った {5} 回・{6}（送り先 {7}）",
-                elapsed.TotalSeconds >= 59.5 ? "1 分" : $"{elapsed.TotalSeconds:F0} 秒", _frames / Math.Max(1, elapsed.TotalSeconds), process.Average(), p95,
-                100.0 * _found / _frames, trip.Sent, tripText, Destination));
+            VLog.Info(string.Format(c,
+                "[速さ] {0}: 読み取り {1:F1} 回/秒（顔のモデル 平均 {2:F1} ms・95% {3:F1} ms／絵が届いてから送るまで 平均 {4:F1} ms・95% {5:F1} ms・顔あり {6:F0}%）／送った {7} 回・{8}（送り先 {9}）",
+                elapsed.TotalSeconds >= 59.5 ? "1 分" : $"{elapsed.TotalSeconds:F0} 秒", _frames / Math.Max(1, elapsed.TotalSeconds), model.Average(), modelP95,
+                process.Average(), p95, 100.0 * _found / _frames, trip.Sent, tripText, Destination));
         }
         _frames = 0;
         _found = 0;
         _process.Clear();
+        _model.Clear();
         _periodStart = Stopwatch.GetTimestamp();
     }
 }
