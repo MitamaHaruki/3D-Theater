@@ -16,6 +16,9 @@ namespace Theater3D.App.Shell;
 /// 保存したレイアウトに知らないパネル（無効になったプラグインのパネルなど）があっても、そのパネルだけ外して起動する。
 /// プラグインのパネル（<see cref="RegisterPluginPanel"/>）も、アプリのパネルと同じ決まりで出し入れ・保存・復元する。
 /// ライブモードでは、タイムラインとグラフを作らず、並びも別のファイルに保存する。
+/// プレビューは、AvalonDock の「文書」ではなく、文書の場所にもタブで置ける「道具の窓」（<see cref="LayoutAnchorable"/>）にする。
+/// AvalonDock は、文書をドラッグしている間は文書の場所にしか置き場所の印を出さないため、文書のままでは、シーンなどのパネルの横に
+/// 置けなかった（設計判断記録 92 章）。× は、隠す代わりに閉じる（今までの文書と同じ）。
 /// </summary>
 public sealed class DockingLayout
 {
@@ -68,13 +71,16 @@ public sealed class DockingLayout
         {
             _panels[HotkeysId] = ("キー操作", new Live.HotkeyPanel(context), AnchorableShowStrategy.Right); // キー操作もライブだけ
         }
-        dock.DocumentClosed += (_, e) =>
+        dock.DocumentClosed += (_, e) => RemovePreview(e.Document);
+        // プレビューの × は、隠さずに閉じる（隠すと、見えないプレビューが残って描き続けるため）
+        dock.AnchorableHiding += (_, e) =>
         {
-            if (e.Document.Content is PreviewPanel preview)
+            if (IsPreview(e.Anchorable))
             {
-                RemovePreview(preview);
+                e.CloseInsteadOfHide = true;
             }
         };
+        dock.AnchorableClosed += (_, e) => RemovePreview(e.Anchorable);
     }
 
     public event EventHandler<PreviewPanel>? PreviewCreated;
@@ -183,8 +189,8 @@ public sealed class DockingLayout
         }
 
         var documents = new LayoutDocumentPaneGroup { Orientation = Orientation.Horizontal };
-        documents.Children.Add(new LayoutDocumentPane(CreatePreviewDocument(PreviewSettings.Default(PreviewLayout.Quad))));
-        documents.Children.Add(new LayoutDocumentPane(CreatePreviewDocument(
+        documents.Children.Add(new LayoutDocumentPane(CreatePreviewPanel(PreviewSettings.Default(PreviewLayout.Quad))));
+        documents.Children.Add(new LayoutDocumentPane(CreatePreviewPanel(
             new PreviewSettings(PreviewLayout.Single, PreviewLayouts.DefaultQuadPreset.Name, [ViewKind.Camera], true))));
 
         var bottom = new LayoutAnchorablePane { DockHeight = new GridLength(240) };
@@ -220,9 +226,9 @@ public sealed class DockingLayout
     private void ResetToLiveDefault()
     {
         var documents = new LayoutDocumentPaneGroup { Orientation = Orientation.Horizontal };
-        documents.Children.Add(new LayoutDocumentPane(CreatePreviewDocument(
+        documents.Children.Add(new LayoutDocumentPane(CreatePreviewPanel(
             new PreviewSettings(PreviewLayout.Single, PreviewLayouts.DefaultQuadPreset.Name, [ViewKind.Free], true))));
-        documents.Children.Add(new LayoutDocumentPane(CreatePreviewDocument(
+        documents.Children.Add(new LayoutDocumentPane(CreatePreviewPanel(
             new PreviewSettings(PreviewLayout.Single, PreviewLayouts.DefaultQuadPreset.Name, [ViewKind.Camera], true))));
 
         var bottom = new LayoutAnchorablePane { DockHeight = new GridLength(160) };
@@ -305,16 +311,16 @@ public sealed class DockingLayout
 
     public PreviewPanel AddPreview(PreviewSettings? settings = null)
     {
-        LayoutDocument document = CreatePreviewDocument(settings ?? PreviewSettings.Default(PreviewLayout.Quad));
-        LayoutDocumentPane? pane = _dock.Layout.Descendents().OfType<LayoutDocumentPane>().FirstOrDefault();
+        LayoutAnchorable panel = CreatePreviewPanel(settings ?? PreviewSettings.Default(PreviewLayout.Quad));
+        LayoutDocumentPane? pane = _dock.Layout.Descendents().OfType<LayoutDocumentPane>().FirstOrDefault(p => p.FindParent<LayoutFloatingWindow>() is null);
         if (pane is null)
         {
             pane = new LayoutDocumentPane();
             _dock.Layout.RootPanel.Children.Add(pane);
         }
-        pane.Children.Add(document);
-        document.IsActive = true;
-        return (PreviewPanel)document.Content;
+        pane.Children.Add(panel);
+        panel.IsActive = true;
+        return (PreviewPanel)panel.Content;
     }
 
     public bool IsPanelShown(string id) => FindAnchorable(id) is { IsHidden: false };
@@ -375,6 +381,8 @@ public sealed class DockingLayout
             throw;
         }
 
+        UpgradePreviewDocuments();
+
         // 前回のレイアウトに無かった標準パネル（後の版で増えたパネルなど）・プラグインのパネルは足しておく
         foreach (string id in _panels.Keys.Concat(_pluginPanels.Keys).Where(id => FindAnchorable(id) is null).ToList())
         {
@@ -424,11 +432,45 @@ public sealed class DockingLayout
         public FrameworkElement GetContent() => _content ??= createContent();
     }
 
-    private LayoutDocument CreatePreviewDocument(PreviewSettings settings)
+    private LayoutAnchorable CreatePreviewPanel(PreviewSettings settings)
     {
         int number = _previews.Select(p => int.TryParse(p.ContentId[PreviewPrefix.Length..], out int n) ? n : 0).DefaultIfEmpty(0).Max() + 1;
         string id = PreviewPrefix + number;
-        return new LayoutDocument { ContentId = id, Title = $"プレビュー {number}", Content = CreatePreview(id, settings), CanClose = true };
+        return PreviewAnchorable(id, $"プレビュー {number}", CreatePreview(id, settings));
+    }
+
+    // プレビューの入れ物: 文書の場所にもタブで置け、パネルの横にも置ける。自動で隠す（ピン）は使わない（× と同じく閉じたいため）
+    private static LayoutAnchorable PreviewAnchorable(string id, string title, PreviewPanel content) => new()
+    {
+        ContentId = id,
+        Title = title,
+        Content = content,
+        CanClose = true,
+        CanAutoHide = false,
+        CanDockAsTabbedDocument = true,
+    };
+
+    private static bool IsPreview(LayoutContent content) => content.ContentId?.StartsWith(PreviewPrefix, StringComparison.Ordinal) == true;
+
+    /// <summary>
+    /// 前の版のレイアウト（プレビューが文書）を開いたとき: 文書のプレビューを、同じ場所の道具の窓に置き換える（中身はそのまま）。
+    /// 浮かせた窓の中の文書は、文書の浮かせた窓に道具の窓は入れられないので、そのままにする（閉じて開き直すと、文書の場所へ戻る）。
+    /// </summary>
+    private void UpgradePreviewDocuments()
+    {
+        foreach (LayoutDocument document in _dock.Layout.Descendents().OfType<LayoutDocument>().Where(IsPreview).ToList())
+        {
+            if (document.Content is not PreviewPanel preview || document.Parent is not ILayoutContainer parent
+                || document.FindParent<LayoutFloatingWindow>() is not null)
+            {
+                continue;
+            }
+            bool selected = document.IsSelected;
+            document.Content = null; // 中身は 1 つの入れ物にしか入れられないので、先に外す
+            LayoutAnchorable panel = PreviewAnchorable(document.ContentId, document.Title, preview);
+            parent.ReplaceChild(document, panel);
+            panel.IsSelected = selected;
+        }
     }
 
     private PreviewPanel CreatePreview(string id, PreviewSettings? settings)
@@ -437,6 +479,20 @@ public sealed class DockingLayout
         _previews.Add(preview);
         PreviewCreated?.Invoke(this, preview);
         return preview;
+    }
+
+    // 閉じた入れ物のプレビューを片付ける（中身が外れていても、名前で探す）
+    private void RemovePreview(LayoutContent content)
+    {
+        if (!IsPreview(content))
+        {
+            return;
+        }
+        PreviewPanel? preview = content.Content as PreviewPanel ?? _previews.FirstOrDefault(p => p.ContentId == content.ContentId);
+        if (preview is not null && _previews.Contains(preview))
+        {
+            RemovePreview(preview);
+        }
     }
 
     private void RemovePreview(PreviewPanel preview)
