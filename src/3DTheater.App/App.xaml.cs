@@ -25,6 +25,7 @@ public partial class App : Application
         AppLog.Info($"CPU: {Logging.SystemInfo.MachineText}・論理 CPU {Environment.ProcessorCount} 個");
         RegisterExceptionHandlers();
         NativeLog.MessageReceived += OnNativeLog;
+        AutomationNames.Register(); // 読み上げで出るタブとボタンの名前（設計判断記録 95 章）
 
         // 仮想カメラの元の登録・外す（管理者として起動し直されたとき）。窓を出さずに終える
         if (Live.VirtualCameraSetup.TryRunCommand(e.Args, out int setupExitCode))
