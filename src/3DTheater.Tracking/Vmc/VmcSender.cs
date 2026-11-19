@@ -51,7 +51,7 @@ public sealed class VmcSender : IDisposable
     public bool Send(VmcFaceFrame frame)
     {
         ArgumentNullException.ThrowIfNull(frame);
-        byte[] bundle = Osc.WriteBundle(VmcProtocol.FaceMessages(frame));
+        byte[] bundle = Osc.WriteBundle(VmcProtocol.FrameMessages(frame));
         int slot = (int)((uint)frame.Sequence % Slots);
         lock (_lock)
         {

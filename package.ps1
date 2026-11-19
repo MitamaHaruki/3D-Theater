@@ -87,7 +87,7 @@ Copy-Item (Join-Path $root 'docs\ライセンス一覧.md') $stage
 # 6) 要る物がそろっているか確かめる
 $required = '3DTheater.exe', '3DTheater.dll', 'coreclr.dll', 'PresentationFramework.dll', 'onnxruntime.dll', 'vcruntime140.dll', 'vcruntime140_1.dll',
     'msvcp140.dll', 'msvcp140_1.dll', '3DTheater.Engine.Native.dll', '3DTheater.Physics.Native.dll', '3DTheater.Video.Native.dll',
-    '3DTheater.VirtualCamera.dll', 'Models\FaceLandmarker\face_landmarks_detector.onnx', 'Plugins\SceneInfo\plugin.json',
+    '3DTheater.VirtualCamera.dll', 'Models\FaceLandmarker\face_landmarks_detector.onnx', 'Models\HandLandmarker\hand_landmarks_detector.onnx', 'Plugins\SceneInfo\plugin.json',
     '3DTheater.VCamera.exe', '3DTheater.VCamera.dll', 'System.Windows.Forms.dll'
 $missing = @($required | Where-Object { -not (Test-Path (Join-Path $stage $_)) })
 if ($missing.Count -gt 0) { throw "zip に入れる物が足りません: $($missing -join ', ')" }

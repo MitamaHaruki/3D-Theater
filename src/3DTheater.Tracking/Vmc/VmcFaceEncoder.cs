@@ -56,6 +56,13 @@ public sealed class VmcFaceEncoder
             processMilliseconds, time);
     }
 
+    /// <summary>顔と手の結果から、送る 1 枚分を作る（<paramref name="hands"/> が null なら、手を読んでいない）。</summary>
+    public VmcFaceFrame Encode(FaceTrackingResult result, HandTrackingResult? hands, float processMilliseconds, float time)
+    {
+        VmcFaceFrame frame = Encode(result, processMilliseconds, time);
+        return hands is null ? frame : frame with { HandsTracked = true, Hands = [.. hands.Hands.Select(h => h.Pose)] };
+    }
+
     // 回転の平均（近い回転どうしなので、向きをそろえて足して長さ 1 にする）
     private static Quaternion Average(List<Quaternion> rotations)
     {

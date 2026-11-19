@@ -14,6 +14,7 @@ namespace Theater3D.App.Live;
 /// 場面の値（ボーン・モーフの項目）は書き換えない（元に戻すの履歴・保存・待機モーションの邪魔をしない）。
 /// トラッキングを始めたとき・「正面にする」を押したときは、続く 15 枚の顔の平均を正面として覚える。
 /// 止めた・見失ったときは、なめらかに正面へ戻してから重ねを外す。
+/// 3D Theater VCamera が手も送ってくれば、指のボーンも重ねる（<see cref="HandRetarget"/>・<see cref="HandRig"/>。設計判断記録 99 章）。
 /// </summary>
 public sealed class TrackingDriver
 {
@@ -29,6 +30,9 @@ public sealed class TrackingDriver
     private bool _calibrating;
     private ModelNode? _target;
     private FaceRig? _rig;
+    private HandRig? _handRig;
+    private readonly HandRetarget _handRetarget = new();
+    private List<HandSignal>? _hands;
     private long _stoppedAt = -1;
 
     private readonly PhoneTrackingSettings _phone;
@@ -99,6 +103,7 @@ public sealed class TrackingDriver
             }
             _lastSequence = snapshot.Sequence;
             signal = snapshot.Phone is { } phone ? ToSignal(phone) : ToSignal(snapshot.Result);
+            _hands = snapshot.Phone is { Hands.Count: > 0 } p ? [.. p.Hands.Select(h => new HandSignal(h.IsRight, h.Angles))] : null;
             if (_calibrating)
             {
                 if (signal is not null)
@@ -111,7 +116,7 @@ public sealed class TrackingDriver
                 }
                 _retarget.Calibrate(FaceRetarget.Average(_calibration));
                 _calibrating = false;
-                Status = _rig.Describe(target.Name, _retarget.Settings.PerfectSync);
+                Status = DescribeRig(target.Name);
                 AppLog.Info($"顔のトラッキングの正面を覚えました（{CalibrationFrames} 枚の平均）。{Status}");
             }
             if (!_retarget.IsCalibrated)
@@ -126,8 +131,19 @@ public sealed class TrackingDriver
 
         bool perfectSync = _retarget.Settings.PerfectSync && _rig.HasPerfectSync;
         FaceOutput output = _retarget.Compute(signal, now, perfectSync);
-        loaded.FaceOverlay = _rig.Build(output, perfectSync);
+        FaceOverlay overlay = _rig.Build(output, perfectSync);
         Applied = perfectSync ? DescribePerfectSync(output) : Describe(output);
+        if (_handRig is { BoneCount: > 0 } handRig)
+        {
+            // 指: 見つかっている手だけ動かし、見失った手・止めたときはもとの形へ戻していく
+            HandOutput hands = _handRetarget.Compute(running ? _hands : null, now, _retarget.Settings.Mirror, _retarget.Settings.Smoothing);
+            var bones = new List<(int Bone, Quaternion Rotation)>(overlay.Bones);
+            handRig.Build(hands, bones);
+            overlay = overlay with { Bones = bones };
+            Applied += string.Format(System.Globalization.CultureInfo.CurrentCulture, "・指の握り 左 {0:F2} 右 {1:F2}（キャラクターの左右）",
+                HandOutput.Grip(hands.Left), HandOutput.Grip(hands.Right));
+        }
+        loaded.FaceOverlay = overlay;
         if (!running && Stopwatch.GetElapsedTime(_stoppedAt) > EaseOutTime)
         {
             loaded.FaceOverlay = null; // 戻しきったので外す
@@ -155,9 +171,10 @@ public sealed class TrackingDriver
             }
             _target = target;
             _rig = target is not null && _context.GetLoaded(target) is { } loaded ? FaceRig.Create(target, loaded.Document) : null;
+            _handRig = target is not null && _context.GetLoaded(target) is { } withHands ? HandRig.Create(withHands.Document) : null;
             if (_rig is not null && !_calibrating)
             {
-                Status = _rig.Describe(target!.Name, _retarget.Settings.PerfectSync);
+                Status = DescribeRig(target!.Name);
             }
             else if (target is null)
             {
@@ -165,6 +182,13 @@ public sealed class TrackingDriver
             }
         }
         return target;
+    }
+
+    // 当てはめた先の説明（指のボーンがあれば、その数も）
+    private string DescribeRig(string modelName)
+    {
+        string text = _rig!.Describe(modelName, _retarget.Settings.PerfectSync);
+        return _handRig is { BoneCount: > 0 } hands ? $"{text}。指のボーン {hands.BoneCount} 本（3D Theater VCamera が手も送るとき動かします）" : text;
     }
 
     private static string Describe(FaceOutput o)

@@ -40,7 +40,10 @@ public readonly record struct FaceRegion(Vector2 Center, float Size, float Rotat
     public static float NormalizeAngle(float angle) => angle - (2 * MathF.PI * MathF.Floor((angle + MathF.PI) / (2 * MathF.PI)));
 }
 
-/// <summary>顔を探すモデルが見つけた顔（画素の座標）。点は右目・左目・鼻先・口・右耳・左耳の 6 つ（本人から見た左右）。</summary>
+/// <summary>
+/// 顔を探すモデルが見つけた顔（画素の座標）。点は右目・左目・鼻先・口・右耳・左耳の 6 つ（本人から見た左右）。
+/// 掌を探すモデルの結果にも使う（点は 7 つ。<see cref="HandDetectorMath"/>）。
+/// </summary>
 public sealed record FaceDetection(Vector2 Min, Vector2 Max, Vector2[] Keypoints, float Score)
 {
     /// <summary>顔の点を求める範囲（右目 → 左目を水平にする）。</summary>
@@ -106,10 +109,15 @@ public static class FaceDetectorMath
     /// <summary>位置の候補（0〜1）。16 × 16 の升に 2 つずつ、8 × 8 の升に 6 つずつ。</summary>
     public static IReadOnlyList<Vector2> Anchors { get; } = CreateAnchors();
 
-    private static Vector2[] CreateAnchors()
+    private static Vector2[] CreateAnchors() => SsdAnchors(InputSize, [8, 16, 16, 16]);
+
+    /// <summary>
+    /// MediaPipe の SSD の位置の候補（0〜1）。同じ間隔の層はまとめ、1 つの升に層ごとに 2 つ（縦横比 1 と、その間の大きさ。大きさは決まった 1）。
+    /// 顔（128 × 128）と掌（192 × 192。設計判断記録 99 章）で使う。
+    /// </summary>
+    internal static Vector2[] SsdAnchors(int inputSize, int[] strides)
     {
-        int[] strides = [8, 16, 16, 16];
-        var anchors = new List<Vector2>(AnchorCount);
+        var anchors = new List<Vector2>();
         for (int layer = 0; layer < strides.Length;)
         {
             int stride = strides[layer];
@@ -120,7 +128,7 @@ public static class FaceDetectorMath
                 perCell += 2; // 縦横比 1 と、その間の大きさの 2 つ（大きさは決まった 1）
                 last++;
             }
-            int cells = (int)Math.Ceiling(InputSize / (double)stride);
+            int cells = (int)Math.Ceiling(inputSize / (double)stride);
             for (int y = 0; y < cells; y++)
             {
                 for (int x = 0; x < cells; x++)
@@ -154,6 +162,10 @@ public static class FaceDetectorMath
             ReadOnlySpan<float> r = regressors.Slice(i * 16, 16);
             var center = new Vector2((r[0] / InputSize) + a.X, (r[1] / InputSize) + a.Y);
             var half = new Vector2(r[2] / InputSize, r[3] / InputSize) * 0.5f;
+            if (!(half.X > 0 && half.Y > 0 && float.IsFinite(center.X) && float.IsFinite(center.Y)))
+            {
+                continue; // 大きさの無い箱・数でない値は捨てる
+            }
             var keypoints = new Vector2[6];
             for (int k = 0; k < 6; k++)
             {
@@ -164,25 +176,29 @@ public static class FaceDetectorMath
         return WeightedSuppression(candidates);
     }
 
-    public static List<FaceDetection> WeightedSuppression(List<FaceDetection> candidates)
+    public static List<FaceDetection> WeightedSuppression(List<FaceDetection> candidates) => WeightedSuppression(candidates, OverlapThreshold);
+
+    /// <summary>重なりが <paramref name="threshold"/> を超える候補を、点数で重みを付けて平均する（MediaPipe の WEIGHTED）。</summary>
+    public static List<FaceDetection> WeightedSuppression(List<FaceDetection> candidates, float threshold)
     {
         var remaining = candidates.OrderByDescending(c => c.Score).ToList();
         var result = new List<FaceDetection>();
         while (remaining.Count > 0)
         {
             FaceDetection best = remaining[0];
-            List<FaceDetection> cluster = [.. remaining.Where(c => Overlap(best, c) > OverlapThreshold)];
+            // いちばん良い候補は必ず取り除く（大きさが 0 の箱は自分とも重ならないので、重なりだけで選ぶと終わらない）
+            List<FaceDetection> cluster = [best, .. remaining.Skip(1).Where(c => Overlap(best, c) > threshold)];
             remaining.RemoveAll(c => cluster.Contains(c));
             float total = cluster.Sum(c => c.Score);
             Vector2 min = Vector2.Zero;
             Vector2 max = Vector2.Zero;
-            var keypoints = new Vector2[6];
+            var keypoints = new Vector2[best.Keypoints.Length];
             foreach (FaceDetection c in cluster)
             {
                 float w = c.Score / total;
                 min += c.Min * w;
                 max += c.Max * w;
-                for (int k = 0; k < 6; k++)
+                for (int k = 0; k < keypoints.Length; k++)
                 {
                     keypoints[k] += c.Keypoints[k] * w;
                 }

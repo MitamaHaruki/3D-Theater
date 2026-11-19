@@ -33,6 +33,7 @@ public partial class MainWindow : Window
         HostBox.Text = settings.Host;
         PortBox.Text = settings.Port.ToString(CultureInfo.InvariantCulture);
         StartOnLaunchCheck.IsChecked = settings.StartOnLaunch;
+        HandsCheck.IsChecked = settings.Hands;
         RefreshSources();
         _service.StateChanged += (_, _) => Dispatcher.BeginInvoke(UpdateState);
         _timer = new DispatcherTimer(TimeSpan.FromMilliseconds(250), DispatcherPriority.Background, (_, _) => UpdateState(), Dispatcher);
@@ -48,6 +49,7 @@ public partial class MainWindow : Window
             return;
         }
         SaveSettings();
+        _service.TrackHands = _settings.Hands;
         if (_video is { } path)
         {
             _service.StartFile(path, destination);
@@ -177,6 +179,7 @@ public partial class MainWindow : Window
             _settings.Camera = camera.Name;
         }
         _settings.StartOnLaunch = StartOnLaunchCheck.IsChecked == true;
+        _settings.Hands = HandsCheck.IsChecked == true;
         _settings.Save();
     }
 
@@ -188,6 +191,7 @@ public partial class MainWindow : Window
         SourceCombo.IsEnabled = !running;
         HostBox.IsEnabled = !running;
         PortBox.IsEnabled = !running;
+        HandsCheck.IsEnabled = !running;
         CultureInfo c = CultureInfo.CurrentCulture;
         if (_service.Problem is { } problem)
         {
@@ -197,9 +201,10 @@ public partial class MainWindow : Window
         else
         {
             StatusText.ClearValue(TextBlock.ForegroundProperty);
-            var (found, ms, rate) = _service.Latest;
+            var (found, hands, ms, rate) = _service.Latest;
+            string handText = hands is { } h ? (h == 0 ? "・手が見つかりません" : $"・手 {h} つ") : string.Empty;
             StatusText.Text = running
-                ? string.Format(c, "読んでいます: {0}・{1}・{2:F1} 回/秒・処理 {3:F1} ms", _service.SourceName, found ? "顔あり" : "顔が見つかりません", rate, ms)
+                ? string.Format(c, "読んでいます: {0}・{1}{2}・{3:F1} 回/秒・処理 {4:F1} ms", _service.SourceName, found ? "顔あり" : "顔が見つかりません", handText, rate, ms)
                 : "止めています";
         }
         if (running)

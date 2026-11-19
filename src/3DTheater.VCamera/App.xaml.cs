@@ -54,6 +54,10 @@ public partial class App : Application
         {
             settings.Camera = camera;
         }
+        if (options.Hands is { } hands)
+        {
+            settings.Hands = hands;
+        }
 
         _service = new SendService();
         _window = new MainWindow(_service, settings, options.Video);

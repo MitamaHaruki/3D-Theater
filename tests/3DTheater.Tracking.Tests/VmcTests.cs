@@ -74,7 +74,7 @@ public sealed class VmcTests
         var blend = new Dictionary<string, float> { ["_neutral"] = 0.9f, ["eyeBlinkLeft"] = 0.8f, ["jawOpen"] = 0.5f, ["mouthPucker"] = 2f };
         Quaternion head = VmcProtocol.HeadRotation(10f, 5f, 0f);
         var frame = new VmcFaceFrame(7, true, 12f, -3f, 4f, new Vector2(640, 360), 300f, blend, head, 9.5f, 1.25f);
-        IReadOnlyList<OscMessage> messages = VmcProtocol.FaceMessages(frame);
+        IReadOnlyList<OscMessage> messages = VmcProtocol.FrameMessages(frame);
 
         OscMessage bone = messages.Single(m => m.Address == VmcProtocol.BonePos);
         Assert.AreEqual("Head", bone.String(0));
@@ -90,7 +90,7 @@ public sealed class VmcTests
         Assert.AreEqual(7, messages[^1].Int(0));
 
         // 顔が無い枚は、ボーンと表情を送らない（受け手は前の形のまま）。顔なしの知らせと番号は送る
-        IReadOnlyList<OscMessage> lost = VmcProtocol.FaceMessages(frame with { Found = false });
+        IReadOnlyList<OscMessage> lost = VmcProtocol.FrameMessages(frame with { Found = false });
         Assert.IsFalse(lost.Any(m => m.Address is VmcProtocol.BonePos or VmcProtocol.BlendVal));
         Assert.AreEqual(0, lost.Single(m => m.Address == VmcProtocol.Face).Int(0));
     }
@@ -102,7 +102,7 @@ public sealed class VmcTests
         var state = new VmcState();
         var blend = new Dictionary<string, float> { ["eyeBlinkLeft"] = 0.8f, ["jawOpen"] = 0.5f };
         var frame = new VmcFaceFrame(1, true, 12f, -3f, 4f, new Vector2(640, 360), 300f, blend, Quaternion.Identity, 5f, 0f);
-        foreach (OscMessage m in Osc.Read(Osc.WriteBundle(VmcProtocol.FaceMessages(frame))))
+        foreach (OscMessage m in Osc.Read(Osc.WriteBundle(VmcProtocol.FrameMessages(frame))))
         {
             state.Apply(m);
         }

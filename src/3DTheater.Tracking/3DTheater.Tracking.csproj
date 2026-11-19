@@ -16,4 +16,10 @@
     <None Include="$(RepoRoot)models\face_landmarker\NOTICE.txt" Link="Models\FaceLandmarker\NOTICE.txt" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <!-- 手のモデル（models/hand_landmarker。Apache-2.0。設計判断記録 99 章）を、出力の Models\HandLandmarker に置く -->
+  <ItemGroup>
+    <None Include="$(RepoRoot)models\hand_landmarker\*.onnx" Link="Models\HandLandmarker\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(RepoRoot)models\hand_landmarker\NOTICE.txt" Link="Models\HandLandmarker\NOTICE.txt" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

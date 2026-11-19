@@ -42,7 +42,9 @@
 
     <TextBlock x:Name="StatusText" Margin="0,14,0,0" TextWrapping="Wrap" AutomationProperties.AutomationId="VCameraStatus" />
     <TextBlock x:Name="ReplyText" Margin="0,4,0,0" TextWrapping="Wrap" AutomationProperties.AutomationId="VCameraReply" />
-    <CheckBox x:Name="StartOnLaunchCheck" Margin="0,12,0,0" Content="起動したら、すぐ送り始める" Click="OnStartOnLaunchClick" />
+    <CheckBox x:Name="HandsCheck" Margin="0,12,0,0" Content="手と指も読む（顔だけより重くなります）" Click="OnStartOnLaunchClick"
+              ToolTip="カメラに映った手の指の曲がりも送ります（3D Theater で、キャラクターの指を動かします）。送っている間は変えられません" />
+    <CheckBox x:Name="StartOnLaunchCheck" Margin="0,6,0,0" Content="起動したら、すぐ送り始める" Click="OnStartOnLaunchClick" />
     <TextBlock Margin="0,10,0,0" TextWrapping="Wrap" Opacity="0.7" FontSize="12"
                Text="窓を閉じても、画面の右下の通知領域で動き続けます（終わるには、通知領域のアイコンを右クリックして「終了」）。ほかの PC の 3D Theater へ送るときは、その PC で、Windows のファイアウォールの確認に「許可」を押してください。" />
   </StackPanel>

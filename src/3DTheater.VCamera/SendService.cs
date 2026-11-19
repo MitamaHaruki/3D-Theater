@@ -8,7 +8,8 @@ using Theater3D.Tracking.Vmc;
 namespace Theater3D.VCamera;
 
 /// <summary>
-/// カメラ（確かめ用の動画のファイル）を読んで顔を読み取り、1 枚ごとに VMC プロトコルで送る（設計判断記録 98 章）。読み込み用のスレッドで動く。
+/// カメラ（確かめ用の動画のファイル）を読んで顔（と手。99 章）を読み取り、1 枚ごとに VMC プロトコルで送る（設計判断記録 98 章）。読み込み用のスレッドで動く。
+/// 手は、顔と同じ絵を別のスレッドで同時に読む（両方そろってから送る。遅れは、顔と手の遅いほうだけ）。
 /// 映像が届かないときは知らせ、読めなくなった・止まったときは開き直す（本アプリと同じ <see cref="VideoWatch"/> の決まり。97 章）。
 /// 1 分ごとに、読み取りの速さと往復の時間をログに書く。
 /// </summary>
@@ -30,8 +31,10 @@ public sealed class SendService : IDisposable
     // 1 分ごとのまとめ（読み込み用のスレッドだけが書く）
     private readonly List<double> _process = [];
     private readonly List<double> _model = []; // 顔のモデルだけの時間（本アプリのトラッキングの「処理」と同じ区間）
+    private readonly List<double> _handModel = []; // 手のモデルだけの時間
     private int _frames;
     private int _found;
+    private int _handFound;
     private long _periodStart;
 
     /// <summary>始めた・止めた（読み込み用のスレッドから知らせることがある）。</summary>
@@ -51,8 +54,11 @@ public sealed class SendService : IDisposable
     /// <summary>今の困りごと（映像が届かない・開き直している・エラーで止まった。無ければ null）。</summary>
     public string? Problem => IsRunning ? _watch.Problem(_clock.Elapsed, SourceName) : Error is { } e ? $"止まりました: {e}" : null;
 
-    /// <summary>直近の 1 枚（顔があったか・処理の時間）。</summary>
-    public (bool Found, double Milliseconds, double Rate) Latest { get; private set; }
+    /// <summary>直近の 1 枚（顔があったか・見つけた手の数（手を読んでいなければ null）・処理の時間）。</summary>
+    public (bool Found, int? Hands, double Milliseconds, double Rate) Latest { get; private set; }
+
+    /// <summary>手と指も読むか（次に始めるときから）。</summary>
+    public bool TrackHands { get; set; } = true;
 
     /// <summary>送り先から返事があるか（3D Theater が受け取っているか）と、直近の往復の時間（ms）。</summary>
     public (bool Answered, double? RoundTrip) Reply => _sender is { } s ? (s.IsAnswered, s.LastRoundTrip) : (false, null);
@@ -128,6 +134,8 @@ public sealed class SendService : IDisposable
     private void Run(Func<CameraCapture> open)
     {
         FaceTracker? tracker = null;
+        HandTracker? hands = null;
+        bool trackHands = TrackHands;
         var encoder = new VmcFaceEncoder();
         _periodStart = Stopwatch.GetTimestamp();
         try
@@ -149,9 +157,13 @@ public sealed class SendService : IDisposable
                         break;
                     }
                     tracker ??= new FaceTracker();
-                    VLog.Info($"映像を開きました（{capture.Width} × {capture.Height}・{capture.FrameRate:F1} 回/秒{(capture.IsFile ? "・動画のファイル" : string.Empty)}）");
+                    if (trackHands)
+                    {
+                        hands ??= new HandTracker();
+                    }
+                    VLog.Info($"映像を開きました（{capture.Width} × {capture.Height}・{capture.FrameRate:F1} 回/秒{(capture.IsFile ? "・動画のファイル" : string.Empty)}・{(trackHands ? "顔と手" : "顔だけ")}）");
                     _watch.Opened(_clock.Elapsed);
-                    ReadAndSend(capture, tracker, encoder);
+                    ReadAndSend(capture, tracker, hands, encoder);
                     if (!_stop && _stalled)
                     {
                         failure = $"{VideoWatch.StallAfter.TotalSeconds:F0} 秒届きません";
@@ -200,6 +212,7 @@ public sealed class SendService : IDisposable
         {
             WriteSummary(force: true);
             tracker?.Dispose();
+            hands?.Dispose();
             if (!_stop)
             {
                 StateChanged?.Invoke(this, EventArgs.Empty);
@@ -207,7 +220,7 @@ public sealed class SendService : IDisposable
         }
     }
 
-    private void ReadAndSend(CameraCapture capture, FaceTracker tracker, VmcFaceEncoder encoder)
+    private void ReadAndSend(CameraCapture capture, FaceTracker tracker, HandTracker? hands, VmcFaceEncoder encoder)
     {
         var frame = new byte[capture.FrameBytes];
         long? firstTime = null;
@@ -246,9 +259,13 @@ public sealed class SendService : IDisposable
                 encoder.Recalibrate();
                 VLog.Info("正面を覚え直します");
             }
-            FaceTrackingResult result = tracker.Process(new BgraImage(frame, capture.Width, capture.Height));
+            var image = new BgraImage(frame, capture.Width, capture.Height);
+            // 手は別のスレッドで同時に読む（絵は、両方が読み終わるまで書き換えない）
+            Task<HandTrackingResult>? handTask = hands is null ? null : Task.Run(() => hands.Process(image));
+            FaceTrackingResult result = tracker.Process(image);
+            HandTrackingResult? handResult = handTask?.GetAwaiter().GetResult();
             float process = (float)Stopwatch.GetElapsedTime(arrived).TotalMilliseconds;
-            VmcFaceFrame face = encoder.Encode(result, process, (float)_clock.Elapsed.TotalSeconds);
+            VmcFaceFrame face = encoder.Encode(result, handResult, process, (float)_clock.Elapsed.TotalSeconds);
             _sender?.Send(face);
 
             rateCount++;
@@ -258,11 +275,16 @@ public sealed class SendService : IDisposable
                 rateCount = 0;
                 rateStart = Stopwatch.GetTimestamp();
             }
-            Latest = (result.Found, result.Milliseconds, rate);
+            Latest = (result.Found, handResult?.Hands.Count, result.Milliseconds, rate);
             _frames++;
             _found += result.Found ? 1 : 0;
             _process.Add(process);
             _model.Add(result.Milliseconds);
+            if (handResult is not null)
+            {
+                _handModel.Add(handResult.Milliseconds);
+                _handFound += handResult.Hands.Count > 0 ? 1 : 0;
+            }
             WriteSummary(force: false);
         }
     }
@@ -284,19 +306,29 @@ public sealed class SendService : IDisposable
             double[] model = [.. _model];
             Array.Sort(model);
             double modelP95 = model[Math.Min(model.Length - 1, (int)Math.Ceiling(model.Length * 0.95) - 1)];
+            string handText = string.Empty;
+            if (_handModel.Count > 0)
+            {
+                double[] hand = [.. _handModel];
+                Array.Sort(hand);
+                double handP95 = hand[Math.Min(hand.Length - 1, (int)Math.Ceiling(hand.Length * 0.95) - 1)];
+                handText = string.Format(c, "・手のモデル 平均 {0:F1} ms・95% {1:F1} ms・手あり {2:F0}%", hand.Average(), handP95, 100.0 * _handFound / _handModel.Count);
+            }
             RoundTripSummary trip = sender.TakeSummary();
             string tripText = trip.Replied > 0
                 ? string.Format(c, "往復 平均 {0:F1} ms・95% {1:F1} ms・最大 {2:F1} ms・返事なし {3} 回", trip.Average, trip.P95, trip.Max, trip.Unanswered)
                 : "返事なし（3D Theater が受け取っていないか、ほかのアプリへ送っている）";
             VLog.Info(string.Format(c,
-                "[速さ] {0}: 読み取り {1:F1} 回/秒（顔のモデル 平均 {2:F1} ms・95% {3:F1} ms／絵が届いてから送るまで 平均 {4:F1} ms・95% {5:F1} ms・顔あり {6:F0}%）／送った {7} 回・{8}（送り先 {9}）",
+                "[速さ] {0}: 読み取り {1:F1} 回/秒（顔のモデル 平均 {2:F1} ms・95% {3:F1} ms{10}／絵が届いてから送るまで 平均 {4:F1} ms・95% {5:F1} ms・顔あり {6:F0}%）／送った {7} 回・{8}（送り先 {9}）",
                 elapsed.TotalSeconds >= 59.5 ? "1 分" : $"{elapsed.TotalSeconds:F0} 秒", _frames / Math.Max(1, elapsed.TotalSeconds), model.Average(), modelP95,
-                process.Average(), p95, 100.0 * _found / _frames, trip.Sent, tripText, Destination));
+                process.Average(), p95, 100.0 * _found / _frames, trip.Sent, tripText, Destination, handText));
         }
         _frames = 0;
         _found = 0;
+        _handFound = 0;
         _process.Clear();
         _model.Clear();
+        _handModel.Clear();
         _periodStart = Stopwatch.GetTimestamp();
     }
 }

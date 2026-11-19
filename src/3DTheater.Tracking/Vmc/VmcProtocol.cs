@@ -18,7 +18,14 @@ public sealed record VmcFaceFrame(
     IReadOnlyDictionary<string, float> Blendshapes,
     Quaternion Head,
     float ProcessMilliseconds,
-    float Time);
+    float Time)
+{
+    /// <summary>手を読んでいるか（読んでいなければ、手の知らせを送らない。受け手は指を動かさない）。</summary>
+    public bool HandsTracked { get; init; }
+
+    /// <summary>見つけた手（本人の左右。0〜2 つ。設計判断記録 99 章）。</summary>
+    public IReadOnlyList<HandPose> Hands { get; init; } = [];
+}
 
 /// <summary>
 /// VMC プロトコル（OSC の上の、VTuber 向けのアプリの間の決まり。https://protocol.vmc.info/）の、3D Theater で使う所（設計判断記録 98 章）。
@@ -43,6 +50,12 @@ public static class VmcProtocol
 
     /// <summary>3D Theater の足し: 顔（i 顔あり・f 左右・f 上下・f 傾き・f 真ん中 x・f 真ん中 y・f 大きさ）。カメラのトラッキングと同じ決まり。</summary>
     public const string Face = "/3DTheater/Face";
+
+    /// <summary>
+    /// 3D Theater の足し: 手（i 左右 0 = 本人の左手・1 = 本人の右手・i 手あり・f × 20 指の曲がりと開き（度。<see cref="HandPose"/> の並び））。
+    /// 手を読んでいる間は、見つからない手も「手なし」として毎枚送る（設計判断記録 99 章）。
+    /// </summary>
+    public const string Hand = "/3DTheater/Hand";
 
     /// <summary>3D Theater の足し: 1 枚の番号（i 番号・f 絵が届いてから送るまでの時間 ms）。</summary>
     public const string Frame = "/3DTheater/Frame";
@@ -100,9 +113,9 @@ public static class VmcProtocol
 
     /// <summary>
     /// 1 枚分の知らせ（バンドルに入れる順）。状態・時刻・根元・頭のボーン・表情（パーフェクトシンクの名前と、VRM の基本の表情）・
-    /// 表情を当てる合図と、3D Theater の足し（顔・番号）。顔が無いときは、ボーンと表情を送らない（受け手は前の形のまま）。
+    /// 表情を当てる合図と、3D Theater の足し（顔・手・番号）。顔が無いときは、ボーンと表情を送らない（受け手は前の形のまま）。
     /// </summary>
-    public static IReadOnlyList<OscMessage> FaceMessages(VmcFaceFrame frame)
+    public static IReadOnlyList<OscMessage> FrameMessages(VmcFaceFrame frame)
     {
         ArgumentNullException.ThrowIfNull(frame);
         var messages = new List<OscMessage>(frame.Blendshapes.Count + 16)
@@ -130,8 +143,27 @@ public static class VmcProtocol
             messages.Add(new OscMessage(BlendApply));
         }
         messages.Add(new OscMessage(Face, frame.Found ? 1 : 0, frame.Yaw, frame.Pitch, frame.Roll, frame.Center.X, frame.Center.Y, frame.Size));
+        if (frame.HandsTracked)
+        {
+            messages.Add(HandMessage(frame.Hands.FirstOrDefault(h => !h.IsRight), isRight: false));
+            messages.Add(HandMessage(frame.Hands.FirstOrDefault(h => h.IsRight), isRight: true));
+        }
         messages.Add(new OscMessage(Frame, frame.Sequence, frame.ProcessMilliseconds));
         return messages;
+    }
+
+    /// <summary>手 1 つの知らせ（<paramref name="hand"/> が null なら「手なし」）。</summary>
+    public static OscMessage HandMessage(HandPose? hand, bool isRight)
+    {
+        var arguments = new object[2 + HandPose.ValueCount];
+        arguments[0] = isRight ? 1 : 0;
+        arguments[1] = hand is null ? 0 : 1;
+        for (int i = 0; i < HandPose.ValueCount; i++)
+        {
+            float value = hand is not null && i < hand.Angles.Length ? hand.Angles[i] : 0f;
+            arguments[2 + i] = float.IsFinite(value) ? value : 0f;
+        }
+        return new OscMessage(Hand, arguments);
     }
 
     /// <summary>

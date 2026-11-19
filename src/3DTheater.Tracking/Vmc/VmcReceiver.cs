@@ -18,6 +18,7 @@ public sealed class VmcState
     private readonly Dictionary<string, float> _pending = new(StringComparer.Ordinal);
     private Dictionary<string, float> _blend = new(StringComparer.Ordinal);
     private (bool Found, Vector3 Rotation, Vector3 Position)? _face;
+    private readonly HandPose?[] _hands = new HandPose?[2]; // 本人の左手・右手（3D Theater VCamera の手の知らせ）
 
     /// <summary>3D Theater VCamera の 1 枚の番号（届いていなければ null）。受け手が返す。</summary>
     public int? LastSequence { get; private set; }
@@ -40,6 +41,10 @@ public sealed class VmcState
             case VmcProtocol.Face when message.Int(0) is { } found && Floats(message, 1, 6) is { } f:
                 _face = (found != 0, new Vector3(f[0], f[1], f[2]), new Vector3(f[3], f[4], f[5]));
                 return true;
+            case VmcProtocol.Hand when message.Int(0) is { } side and (0 or 1) && message.Int(1) is { } found
+                && Floats(message, 2, HandPose.ValueCount) is { } angles:
+                _hands[side] = found != 0 ? new HandPose(side == 1, angles) : null;
+                return true;
             case VmcProtocol.Frame when message.Int(0) is { } sequence:
                 LastSequence = sequence;
                 return false;
@@ -52,13 +57,15 @@ public sealed class VmcState
     /// 今の形を、スマホと同じ 1 枚分にする（<see cref="PhoneProtocol.Vmc"/>）。
     /// 3D Theater VCamera の顔の知らせがあれば、その向き・位置（カメラのトラッキングと同じ値。正面に合わせる前）を使い、
     /// 無ければ（ほかのアプリ）頭までのボーンの回転から向きを求める（位置は無し）。頭のボーンも表情も無ければ null。
+    /// 手の知らせ（3D Theater VCamera）があれば、見つかっている手を <see cref="PhoneFrame.Hands"/> に入れる。
     /// </summary>
     public PhoneFrame? ToFrame()
     {
         Dictionary<string, float> blend = Normalize(_blend);
+        HandPose[] hands = [.. _hands.OfType<HandPose>()];
         if (_face is { } face)
         {
-            return new PhoneFrame(PhoneProtocol.Vmc, face.Found, face.Rotation, face.Position, blend) { FromFaceTracker = true };
+            return new PhoneFrame(PhoneProtocol.Vmc, face.Found, face.Rotation, face.Position, blend) { FromFaceTracker = true, Hands = hands };
         }
         bool hasHead = false;
         Quaternion head = Quaternion.Identity;
