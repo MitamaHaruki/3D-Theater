@@ -4,7 +4,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>Theater3D.Physics</RootNamespace>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <NativeOutDir>$(RepoRoot)artifacts\native\x64\$(Configuration)\</NativeOutDir>
+    <NativeOutDir>$(RepoRoot)artifacts\native\$(NativePlatform)\$(Configuration)\</NativeOutDir>
   </PropertyGroup>
 
   <ItemGroup>
@@ -16,7 +16,7 @@
     <ProjectReference Include="..\3DTheater.Physics.Native\3DTheater.Physics.Native.vcxproj"
                       ReferenceOutputAssembly="false"
                       SkipGetTargetFrameworkProperties="true"
-                      SetPlatform="Platform=x64"
+                      SetPlatform="Platform=$(NativePlatform)"
                       Private="false" />
   </ItemGroup>
   <ItemGroup>

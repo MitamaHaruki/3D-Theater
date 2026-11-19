@@ -11,6 +11,23 @@
       <Configuration>Release</Configuration>
       <Platform>x64</Platform>
     </ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|ARM64">
+      <Configuration>Debug</Configuration>
+      <Platform>ARM64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|ARM64">
+      <Configuration>Release</Configuration>
+      <Platform>ARM64</Platform>
+    </ProjectConfiguration>
+    <!-- ARM64EC は、ARM64 の版を ARM64X（x64 のアプリからも ARM64 のアプリからも読める形）にするときだけ使う（設計判断記録 94 章） -->
+    <ProjectConfiguration Include="Debug|ARM64EC">
+      <Configuration>Debug</Configuration>
+      <Platform>ARM64EC</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|ARM64EC">
+      <Configuration>Release</Configuration>
+      <Platform>ARM64EC</Platform>
+    </ProjectConfiguration>
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>18.0</VCProjectVersion>
@@ -31,6 +48,11 @@
   <PropertyGroup Condition="'$(Configuration)'=='Release'" Label="Configuration">
     <UseDebugLibraries>false</UseDebugLibraries>
     <WholeProgramOptimization>true</WholeProgramOptimization>
+  </PropertyGroup>
+  <!-- ARM64 の版は ARM64X にする。カメラの元は、Windows のカメラの仕組み（ARM64）のほか、カメラを使うアプリの中にも読み込まれる。
+       ARM64 の PC では、そのアプリが x64 の版（まねて動かしている）のこともあるので、どちらからも読めるようにする -->
+  <PropertyGroup Condition="'$(Platform)'=='ARM64'" Label="Configuration">
+    <BuildAsX>true</BuildAsX>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <ImportGroup Label="PropertySheets">

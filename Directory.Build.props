@@ -9,8 +9,13 @@
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Platforms>x64</Platforms>
+    <!-- x64 と ARM64（Snapdragon などの PC で、まねずに動かす版。設計判断記録 94 章）。テストは x64 だけ -->
+    <Platforms>x64;ARM64</Platforms>
     <PlatformTarget>x64</PlatformTarget>
+    <PlatformTarget Condition="'$(Platform)' == 'ARM64'">ARM64</PlatformTarget>
+    <!-- C++ の部品を作る CPU の作り（artifacts\native\<これ>\<構成> にできる） -->
+    <NativePlatform>x64</NativePlatform>
+    <NativePlatform Condition="'$(Platform)' == 'ARM64'">ARM64</NativePlatform>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <Version>0.1.0</Version>
     <Product>3D Theater</Product>

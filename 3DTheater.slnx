@@ -3,43 +3,56 @@
     <BuildType Name="Debug" />
     <BuildType Name="Release" />
     <Platform Name="x64" />
+    <Platform Name="ARM64" />
   </Configurations>
   <Folder Name="/src/">
     <Project Path="src/3DTheater.Animation/3DTheater.Animation.csproj">
-      <Platform Project="x64" />
+      <Platform Solution="*|x64" Project="x64" />
+      <Platform Solution="*|ARM64" Project="ARM64" />
     </Project>
     <Project Path="src/3DTheater.App/3DTheater.App.csproj">
-      <Platform Project="x64" />
+      <Platform Solution="*|x64" Project="x64" />
+      <Platform Solution="*|ARM64" Project="ARM64" />
     </Project>
     <Project Path="src/3DTheater.Domain/3DTheater.Domain.csproj">
-      <Platform Project="x64" />
+      <Platform Solution="*|x64" Project="x64" />
+      <Platform Solution="*|ARM64" Project="ARM64" />
     </Project>
     <Project Path="src/3DTheater.Editor/3DTheater.Editor.csproj">
-      <Platform Project="x64" />
+      <Platform Solution="*|x64" Project="x64" />
+      <Platform Solution="*|ARM64" Project="ARM64" />
     </Project>
     <Project Path="src/3DTheater.Formats/3DTheater.Formats.csproj">
-      <Platform Project="x64" />
+      <Platform Solution="*|x64" Project="x64" />
+      <Platform Solution="*|ARM64" Project="ARM64" />
     </Project>
     <Project Path="src/3DTheater.Media/3DTheater.Media.csproj">
-      <Platform Project="x64" />
+      <Platform Solution="*|x64" Project="x64" />
+      <Platform Solution="*|ARM64" Project="ARM64" />
     </Project>
     <Project Path="src/3DTheater.Physics/3DTheater.Physics.csproj">
-      <Platform Project="x64" />
+      <Platform Solution="*|x64" Project="x64" />
+      <Platform Solution="*|ARM64" Project="ARM64" />
     </Project>
     <Project Path="src/3DTheater.Tracking/3DTheater.Tracking.csproj">
-      <Platform Project="x64" />
+      <Platform Solution="*|x64" Project="x64" />
+      <Platform Solution="*|ARM64" Project="ARM64" />
     </Project>
     <Project Path="src/3DTheater.Engine.Interop/3DTheater.Engine.Interop.csproj">
-      <Platform Project="x64" />
+      <Platform Solution="*|x64" Project="x64" />
+      <Platform Solution="*|ARM64" Project="ARM64" />
     </Project>
     <Project Path="src/Plugin.Core/Plugin.Core.csproj">
-      <Platform Project="x64" />
+      <Platform Solution="*|x64" Project="x64" />
+      <Platform Solution="*|ARM64" Project="ARM64" />
     </Project>
     <Project Path="src/Plugin.UI.Wpf/Plugin.UI.Wpf.csproj">
-      <Platform Project="x64" />
+      <Platform Solution="*|x64" Project="x64" />
+      <Platform Solution="*|ARM64" Project="ARM64" />
     </Project>
     <Project Path="src/3DTheater.Plugin.SDK/3DTheater.Plugin.SDK.csproj">
-      <Platform Project="x64" />
+      <Platform Solution="*|x64" Project="x64" />
+      <Platform Solution="*|ARM64" Project="ARM64" />
     </Project>
     <Project Path="src/3DTheater.Engine.Native/3DTheater.Engine.Native.vcxproj" Id="1a745fae-c32c-4add-8be6-151c2fa9a983" />
     <Project Path="src/3DTheater.Physics.Native/3DTheater.Physics.Native.vcxproj" Id="a4c72fb4-58d8-4b48-9f09-a3562d583da5" />
@@ -48,7 +61,8 @@
   </Folder>
   <Folder Name="/plugins/">
     <Project Path="plugins/3DTheater.SamplePlugin/3DTheater.SamplePlugin.csproj">
-      <Platform Project="x64" />
+      <Platform Solution="*|x64" Project="x64" />
+      <Platform Solution="*|ARM64" Project="ARM64" />
     </Project>
   </Folder>
   <Folder Name="/external/">
@@ -57,31 +71,42 @@
   <Folder Name="/tests/">
     <Project Path="tests/3DTheater.Animation.Tests/3DTheater.Animation.Tests.csproj">
       <Platform Project="x64" />
+      <Build Solution="*|ARM64" Project="false" />
     </Project>
     <Project Path="tests/3DTheater.Editor.Tests/3DTheater.Editor.Tests.csproj">
       <Platform Project="x64" />
+      <Build Solution="*|ARM64" Project="false" />
     </Project>
     <Project Path="tests/3DTheater.Formats.Tests/3DTheater.Formats.Tests.csproj">
       <Platform Project="x64" />
+      <Build Solution="*|ARM64" Project="false" />
     </Project>
     <Project Path="tests/3DTheater.Media.Tests/3DTheater.Media.Tests.csproj">
       <Platform Project="x64" />
+      <Build Solution="*|ARM64" Project="false" />
     </Project>
     <Project Path="tests/3DTheater.Physics.Tests/3DTheater.Physics.Tests.csproj">
       <Platform Project="x64" />
+      <Build Solution="*|ARM64" Project="false" />
     </Project>
     <Project Path="tests/3DTheater.Tracking.Tests/3DTheater.Tracking.Tests.csproj">
       <Platform Project="x64" />
+      <Build Solution="*|ARM64" Project="false" />
     </Project>
     <Project Path="tests/3DTheater.Engine.Interop.Tests/3DTheater.Engine.Interop.Tests.csproj">
       <Platform Project="x64" />
+      <Build Solution="*|ARM64" Project="false" />
     </Project>
     <Project Path="tests/Plugin.Core.Tests/Plugin.Core.Tests.csproj">
       <Platform Project="x64" />
+      <Build Solution="*|ARM64" Project="false" />
     </Project>
     <Project Path="tests/Plugin.TestPlugins/Plugin.TestPlugins.csproj">
       <Platform Project="x64" />
+      <Build Solution="*|ARM64" Project="false" />
     </Project>
-    <Project Path="tests/3DTheater.Engine.Native.Tests/3DTheater.Engine.Native.Tests.vcxproj" Id="b8e2677a-83c6-4b34-83f3-8d71d45138d6" />
+    <Project Path="tests/3DTheater.Engine.Native.Tests/3DTheater.Engine.Native.Tests.vcxproj" Id="b8e2677a-83c6-4b34-83f3-8d71d45138d6">
+      <Build Solution="*|ARM64" Project="false" />
+    </Project>
   </Folder>
 </Solution>

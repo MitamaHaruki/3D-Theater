@@ -7,17 +7,23 @@
     アプリの隣に置く（app-local。Visual Studio の再頒布用のフォルダーから写す）。確かめの手順書・Claude への指示書・
     ログを集める道具・ライセンス一覧を足して、artifacts\package に zip を作る（指示書は zip の隣にも置く）。
     テストは流さない（先に .\build.ps1 で流しておく）。
+    -Platform ARM64 で、ARM64 の PC（Snapdragon など）で、まねずに動く版を作る（設計判断記録 94 章）。
 
 .EXAMPLE
-    .\package.ps1                     # artifacts\package\3DTheater-確かめ用-日付.zip を作る
+    .\package.ps1                     # artifacts\package\3DTheater-確かめ用-版-x64-日付.zip を作る
+    .\package.ps1 -Platform ARM64     # ARM64 の PC 向けの zip（3DTheater-確かめ用-版-ARM64-日付.zip）を作る
     .\package.ps1 -OutDir D:\受け渡し  # 置き場所を変える
 #>
 param(
-    [string]$OutDir = (Join-Path $PSScriptRoot 'artifacts\package')
+    [string]$OutDir = (Join-Path $PSScriptRoot 'artifacts\package'),
+    [ValidateSet('x64', 'ARM64')]
+    [string]$Platform = 'x64'
 )
 
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
+# .NET の発行と、Visual C++ の再頒布用のフォルダーでの呼び方（win-x64・win-arm64、x64・arm64）
+$arch = $Platform.ToLowerInvariant()
 
 function Find-VisualStudio {
     $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
@@ -32,20 +38,20 @@ function Find-VisualStudio {
 }
 
 # 1) Release でビルドする（C++ の DLL と、サンプルのプラグインを作る）
-& (Join-Path $root 'build.ps1') -Configuration Release -SkipTests
-$built = Join-Path $root 'src\3DTheater.App\bin\x64\Release\net10.0-windows'
+& (Join-Path $root 'build.ps1') -Configuration Release -Platform $Platform -SkipTests
+$built = Join-Path $root "src\3DTheater.App\bin\$Platform\Release\net10.0-windows"
 
-# 2) .NET を中に入れて発行する
+# 2) .NET を中に入れて発行する（zip の中のフォルダーの名前は、どちらの版も「3D Theater」）
 $vs = Find-VisualStudio
 $msbuild = Join-Path $vs 'MSBuild\Current\Bin\amd64\MSBuild.exe'
-$stage = Join-Path $OutDir '3D Theater'
+$stage = Join-Path $OutDir "$Platform\3D Theater"
 if (Test-Path $stage) {
     Remove-Item $stage -Recurse -Force
 }
 New-Item -ItemType Directory -Force $stage | Out-Null
 Write-Host '==> 発行（.NET を中に入れる）' -ForegroundColor Cyan
 & $msbuild (Join-Path $root 'src\3DTheater.App\3DTheater.App.csproj') -restore -t:Publish -nologo -v:minimal -m `
-    '-p:Configuration=Release' '-p:Platform=x64' '-p:RuntimeIdentifier=win-x64' '-p:SelfContained=true' "-p:PublishDir=$stage\"
+    '-p:Configuration=Release' "-p:Platform=$Platform" "-p:RuntimeIdentifier=win-$arch" '-p:SelfContained=true' "-p:PublishDir=$stage\"
 if ($LASTEXITCODE -ne 0) { throw "発行に失敗しました（終了コード $LASTEXITCODE）" }
 
 # 3) 発行には入らないもの: サンプルのプラグイン（ビルドの後に出力へ写している）と、C++ の DLL（無ければ写す）
@@ -60,8 +66,8 @@ foreach ($native in '3DTheater.Engine.Native', '3DTheater.Physics.Native', '3DTh
 }
 
 # 4) Visual C++ の実行時ライブラリ（v145）をアプリの隣に置く（相手の PC に再頒布パッケージを入れなくてよいように）
-$crt = Get-ChildItem (Join-Path $vs 'VC\Redist\MSVC\*\x64\Microsoft.VC145.CRT') -Directory | Sort-Object FullName | Select-Object -Last 1
-if (-not $crt) { throw 'Visual C++ の再頒布用の実行時ライブラリ（Microsoft.VC145.CRT）が見つかりません' }
+$crt = Get-ChildItem (Join-Path $vs "VC\Redist\MSVC\*\$arch\Microsoft.VC145.CRT") -Directory | Sort-Object FullName | Select-Object -Last 1
+if (-not $crt) { throw "Visual C++ の再頒布用の実行時ライブラリ（$arch\Microsoft.VC145.CRT）が見つかりません" }
 Copy-Item (Join-Path $crt.FullName '*.dll') $stage -Force
 Write-Host "==> Visual C++ の実行時ライブラリ: $($crt.FullName)" -ForegroundColor Cyan
 
@@ -82,11 +88,20 @@ $missing = @($required | Where-Object { -not (Test-Path (Join-Path $stage $_)) }
 if ($missing.Count -gt 0) { throw "zip に入れる物が足りません: $($missing -join ', ')" }
 $config = Get-Content (Join-Path $stage '3DTheater.runtimeconfig.json') -Raw | ConvertFrom-Json
 if (-not $config.runtimeOptions.includedFrameworks) { throw '.NET が中に入っていません（self-contained になっていません）' }
+# 入れた物が、選んだ CPU の作りになっているか（違う作りの物が混ざると、その PC では起動しない・部品を読めない）
+# （PE の見出しの「機械」の欄。x64 = 0x8664、ARM64 = 0xAA64。仮想カメラの部品の ARM64X も 0xAA64）
+$machine = @{ x64 = 0x8664; ARM64 = 0xAA64 }[$Platform]
+foreach ($name in '3DTheater.exe', '3DTheater.dll', 'coreclr.dll', 'onnxruntime.dll', 'vcruntime140.dll', '3DTheater.Engine.Native.dll',
+                  '3DTheater.Physics.Native.dll', '3DTheater.Video.Native.dll', '3DTheater.VirtualCamera.dll', 'Plugins\SceneInfo\3DTheater.SamplePlugin.dll') {
+    $bytes = [System.IO.File]::ReadAllBytes((Join-Path $stage $name))
+    $found = [BitConverter]::ToUInt16($bytes, [BitConverter]::ToInt32($bytes, 0x3C) + 4)
+    if ($found -ne $machine) { throw ('{0} が {1} の作りではありません（0x{2:X4}）' -f $name, $Platform, $found) }
+}
 
 # 7) zip にする（中の名前は UTF-8）
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $version = (Get-Item (Join-Path $stage '3DTheater.exe')).VersionInfo.ProductVersion
-$zip = Join-Path $OutDir ('3DTheater-確かめ用-{0}-{1}.zip' -f ($version -replace '\+.*$', ''), (Get-Date -Format 'yyyyMMdd-HHmm'))
+$zip = Join-Path $OutDir ('3DTheater-確かめ用-{0}-{1}-{2}.zip' -f ($version -replace '\+.*$', ''), $Platform, (Get-Date -Format 'yyyyMMdd-HHmm'))
 if (Test-Path $zip) { Remove-Item $zip -Force }
 [System.IO.Compression.ZipFile]::CreateFromDirectory($stage, $zip, [System.IO.Compression.CompressionLevel]::Optimal, $true, [System.Text.Encoding]::UTF8)
 $files = Get-ChildItem $stage -Recurse -File
