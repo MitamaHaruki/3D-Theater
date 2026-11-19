@@ -79,6 +79,24 @@ public sealed class CheckOptionsTests
     }
 
     [TestMethod]
+    public void VmcReceivingIsRead()
+    {
+        // VMC プロトコルで受け取る（設計判断記録 98 章）: ポートを書かなければ 39539
+        CheckOptions options = CheckOptions.Parse(["--track-vmc"]);
+        Assert.AreEqual(39539, options.VmcPort, "VMC プロトコルの受け手の初めのポート");
+        Assert.IsFalse(options.IsEmpty);
+        Assert.IsEmpty(options.Problems);
+        Assert.AreEqual(40000, CheckOptions.Parse(["--Track-Vmc=40000"]).VmcPort);
+        Assert.IsNull(CheckOptions.None.VmcPort);
+        foreach (string bad in new[] { "--track-vmc=80", "--track-vmc=abc", "--track-vmc=70000" })
+        {
+            CheckOptions read = CheckOptions.Parse([bad]);
+            Assert.IsNull(read.VmcPort, bad);
+            Assert.HasCount(1, read.Problems, bad);
+        }
+    }
+
+    [TestMethod]
     public void CameraDistanceIsRead()
     {
         CheckOptions options = CheckOptions.Parse(["--camera-distance=15"]);

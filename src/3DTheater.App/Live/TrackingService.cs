@@ -7,6 +7,7 @@ using Theater3D.App.Logging;
 using Theater3D.Editor;
 using Theater3D.Media;
 using Theater3D.Tracking;
+using Theater3D.Tracking.Vmc;
 
 namespace Theater3D.App.Live;
 
@@ -96,6 +97,13 @@ public sealed class TrackingService : IDisposable
         string name = phone is null ? "スマホ（iFacialMocap・MeowFace から送る）" : $"スマホ（VTube Studio・MeowFace {phone}）";
         Start(name, () => RunPhone(phone), watch: false);
     }
+
+    /// <summary>
+    /// VMC プロトコルで受け取る（ほかの PC の 3D Theater VCamera・VMC プロトコルを送るアプリ。設計判断記録 98 章）。
+    /// <paramref name="port"/> で待ち受け、3D Theater VCamera には 1 枚ごとに番号を返す（送り手が往復の時間を測る）。
+    /// </summary>
+    public void StartVmc(int port = Theater3D.Tracking.Vmc.VmcProtocol.MarionettePort) =>
+        Start($"ほかの PC・アプリ（VMC プロトコル・ポート {port}）", () => RunVmc(port), watch: false);
 
     /// <summary>前に始めた映像で、もう一度始められるか（キーの「トラッキングの開始・停止」に使う）。</summary>
     public bool CanRestart => _lastStart is not null;
@@ -379,6 +387,57 @@ public sealed class TrackingService : IDisposable
             {
                 Error = $"ポート {string.Join("・", ports)} で受け取れません（ほかのアプリが使っている可能性があります）: {ex.Message}";
                 AppLog.Error("スマホから受け取れませんでした", ex);
+            }
+        }
+        finally
+        {
+            LogSummary();
+            if (!_stop)
+            {
+                StateChanged?.Invoke(this, EventArgs.Empty);
+            }
+        }
+    }
+
+    // VMC プロトコルで受け取る（受け取りは VmcReceiver のスレッド。ここでは止めるまで待つ）
+    private void RunVmc(int port)
+    {
+        try
+        {
+            var rate = new RateCounter();
+            using var receiver = new Theater3D.Tracking.Vmc.VmcReceiver(port, IPAddress.Any);
+            receiver.FrameReceived += (frame, from) =>
+            {
+                Statistics.AddPhoneFrame(frame.FaceFound);
+                lock (_lock)
+                {
+                    double fps = rate.Tick();
+                    _latest = new TrackingSnapshot(null, 0, 0, fps, _latest.Sequence + 1) { Phone = frame, PhoneSender = from.Address.ToString() };
+                    _frame = null;
+                }
+            };
+            receiver.Start(); // 初めてのときは、Windows のファイアウォールの確認が出ることがある
+            Statistics.Begin(phone: true, source: "VMC プロトコル");
+            AppLog.Info($"VMC プロトコルで受け取ります（ポート {port}・この PC の IP {string.Join("・", LocalNetwork.Addresses())}）");
+            string? sender = null;
+            while (!_stop)
+            {
+                Thread.Sleep(100);
+                string? from = Latest.PhoneSender;
+                if (from is not null && from != sender)
+                {
+                    sender = from;
+                    AppLog.Info($"VMC プロトコルの送り手: {from}（{(Latest.Phone?.FromFaceTracker == true ? "3D Theater VCamera" : "ほかのアプリ")}）");
+                }
+            }
+            AppLog.Info($"VMC プロトコルの受け取りを止めました（届いた {receiver.Packets}・形にできた {receiver.Frames}）");
+        }
+        catch (System.Net.Sockets.SocketException ex)
+        {
+            if (!_stop)
+            {
+                Error = $"ポート {port} で受け取れません（ほかのアプリが使っている可能性があります）: {ex.Message}";
+                AppLog.Error("VMC プロトコルで受け取れませんでした", ex);
             }
         }
         finally

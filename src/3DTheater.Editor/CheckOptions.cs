@@ -15,12 +15,18 @@ namespace Theater3D.Editor;
 /// （覚えている窓の置き場所は変えない）。描画の速さを、決まった大きさで測るため（設計判断記録 81 章）。</item>
 /// <item>「--camera-distance=数」: ライブカメラ（決まった役目のカメラ）の注視点までの距離を、その回だけ変える。キャラクターを近くから
 /// 写したとき（配信でよくある上半身）の描画の速さを測るため（設計判断記録 90 章。初めは 45 で全身が入る。15 ほどで上半身）。</item>
+/// <item>「--track-vmc」か「--track-vmc=ポート」: 起動したら、VMC プロトコル（ほかの PC の 3D Theater VCamera など）で受け取って、
+/// 顔のトラッキングを始める（ライブモード。初めのポートは 39539。設計判断記録 98 章）。</item>
 /// </list>
 /// </summary>
 public sealed record CheckOptions(bool TrackCamera, string? CameraName, TimeSpan? ExitAfter, IReadOnlyList<string> Problems, string? SceneFolder = null,
-    PreviewQuality? Quality = null, CheckWindow? Window = null, float? CameraDistance = null)
+    PreviewQuality? Quality = null, CheckWindow? Window = null, float? CameraDistance = null, int? VmcPort = null)
 {
     public const string TrackCameraOption = "--track-camera";
+    public const string TrackVmcOption = "--track-vmc";
+
+    /// <summary>VMC プロトコルの初めのポート（受け手。Tracking の VmcProtocol.MarionettePort と同じ）。</summary>
+    public const int DefaultVmcPort = 39539;
     public const string ExitAfterOption = "--exit-after";
     public const string SceneFolderOption = "--scene-folder";
     public const string PreviewQualityOption = "--preview-quality";
@@ -39,7 +45,7 @@ public sealed record CheckOptions(bool TrackCamera, string? CameraName, TimeSpan
 
     public static CheckOptions None { get; } = new(false, null, null, []);
 
-    public bool IsEmpty => !TrackCamera && ExitAfter is null && SceneFolder is null && Quality is null && Window is null && CameraDistance is null;
+    public bool IsEmpty => !TrackCamera && ExitAfter is null && SceneFolder is null && Quality is null && Window is null && CameraDistance is null && VmcPort is null;
 
     /// <summary>起動の引数（「--」で始まるもの）から読む。読めない指定は <see cref="Problems"/> に入れる（起動は止めない）。</summary>
     public static CheckOptions Parse(IReadOnlyList<string> switches)
@@ -51,6 +57,7 @@ public sealed record CheckOptions(bool TrackCamera, string? CameraName, TimeSpan
         PreviewQuality? quality = null;
         CheckWindow? window = null;
         float? cameraDistance = null;
+        int? vmcPort = null;
         var problems = new List<string>();
         foreach (string option in switches)
         {
@@ -59,6 +66,21 @@ public sealed record CheckOptions(bool TrackCamera, string? CameraName, TimeSpan
             {
                 track = true;
                 camera = string.IsNullOrWhiteSpace(value) ? null : value.Trim().Trim('"');
+            }
+            else if (name.Equals(TrackVmcOption, StringComparison.OrdinalIgnoreCase))
+            {
+                if (string.IsNullOrWhiteSpace(value))
+                {
+                    vmcPort = DefaultVmcPort;
+                }
+                else if (int.TryParse(value.Trim().Trim('"'), NumberStyles.None, CultureInfo.InvariantCulture, out int port) && port is >= 1024 and <= 65535)
+                {
+                    vmcPort = port;
+                }
+                else
+                {
+                    problems.Add($"「{option}」は読めません（{TrackVmcOption}=1024〜65535 のポートで渡してください）");
+                }
             }
             else if (name.Equals(ExitAfterOption, StringComparison.OrdinalIgnoreCase))
             {
@@ -113,7 +135,7 @@ public sealed record CheckOptions(bool TrackCamera, string? CameraName, TimeSpan
                 }
             }
         }
-        return new CheckOptions(track, camera, exitAfter, problems, sceneFolder, quality, window, cameraDistance);
+        return new CheckOptions(track, camera, exitAfter, problems, sceneFolder, quality, window, cameraDistance, vmcPort);
     }
 
     private static PreviewQuality? ParseQuality(string? value) => (value ?? string.Empty).Trim().Trim('"').ToLowerInvariant() switch

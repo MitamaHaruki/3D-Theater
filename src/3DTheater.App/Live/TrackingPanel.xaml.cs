@@ -29,6 +29,9 @@ public partial class TrackingPanel : UserControl
         Push,    // iFacialMocap・FaceMotion3D・MeowFace から送ってもらう（PC の IP をスマホに入れる）
     }
 
+    // 映像の選択肢のうち、VMC プロトコル（ほかの PC の 3D Theater VCamera など。設計判断記録 98 章）
+    private sealed record VmcChoice(int Port);
+
     private readonly EditorContext _context;
     private readonly TrackingService _tracking;
     private readonly PhoneTrackingSettings _phone;
@@ -89,6 +92,11 @@ public partial class TrackingPanel : UserControl
             SourceCombo.Items.Add(new ComboBoxItem { Content = FileChoice });
             SourceCombo.Items.Add(new ComboBoxItem { Content = "スマホ（VTube Studio・MeowFace。スマホの IP を入れる）", Tag = PhoneChoice.Request });
             SourceCombo.Items.Add(new ComboBoxItem { Content = "スマホ（iFacialMocap・FaceMotion3D・MeowFace。PC の IP をスマホに入れる）", Tag = PhoneChoice.Push });
+            SourceCombo.Items.Add(new ComboBoxItem
+            {
+                Content = "ほかの PC・アプリ（VMC プロトコル。3D Theater VCamera など）",
+                Tag = new VmcChoice(Theater3D.Tracking.Vmc.VmcProtocol.MarionettePort),
+            });
             SourceCombo.SelectedIndex = selected is ComboBoxItem { Tag: CameraDevice old }
                 ? Math.Max(0, SourceCombo.Items.Cast<ComboBoxItem>().ToList().FindIndex(i => i.Tag is CameraDevice c && c.Id == old.Id))
                 : 0;
@@ -97,7 +105,7 @@ public partial class TrackingPanel : UserControl
         {
             _refreshingSources = false;
         }
-        AppLog.Info($"カメラの一覧: {SourceCombo.Items.Count - 3} 台");
+        AppLog.Info($"カメラの一覧: {SourceCombo.Items.Count - 4} 台");
     }
 
     // スマホを選んだら、一覧を閉じたときに IP などを入れる窓を出す（利用者と決めた）。キャンセルしたら選んだまま、「開始」でまた出す。
@@ -129,6 +137,10 @@ public partial class TrackingPanel : UserControl
         {
             StartPhone(choice);
             return;
+        }
+        else if (item.Tag is VmcChoice vmc)
+        {
+            _tracking.StartVmc(vmc.Port); // 送り手（3D Theater VCamera）に、この PC の IP を入れてもらう（状態の行に出す）
         }
         else
         {
@@ -196,7 +208,7 @@ public partial class TrackingPanel : UserControl
         string? problem = _tracking.Problem;
         string text = problem
             ?? (_tracking.IsRunning
-                ? $"{(_tracking.SourceName?.StartsWith("スマホ", StringComparison.Ordinal) == true ? "受け取っています" : "読んでいます")}: {_tracking.SourceName}"
+                ? RunningText(_tracking.SourceName)
                 : "止まっています（映像を選んで「開始」）");
         if (StatusText.Text == text)
         {
@@ -207,7 +219,8 @@ public partial class TrackingPanel : UserControl
         if (problem is null)
         {
             StatusText.ClearValue(TextBlock.ForegroundProperty);
-            StatusText.TextWrapping = TextWrapping.NoWrap;
+            // VMC プロトコルは、送り手に入れてもらう IP が切れないよう折り返す
+            StatusText.TextWrapping = _tracking.IsRunning && IsVmc(_tracking.SourceName) ? TextWrapping.Wrap : TextWrapping.NoWrap;
         }
         else
         {
@@ -242,6 +255,9 @@ public partial class TrackingPanel : UserControl
         _shownSequence = snapshot.Sequence;
         bool show = ShowVideo;
         PreviewNote.Visibility = show && snapshot.Phone is not null ? Visibility.Visible : Visibility.Collapsed;
+        PreviewNote.Text = snapshot.Phone is { Protocol: PhoneProtocol.Vmc } vmc
+            ? $"{(vmc.FromFaceTracker ? "3D Theater VCamera" : "VMC プロトコルのアプリ")}から受け取っています（映像はありません）"
+            : "スマホから受け取っています（映像はありません）";
         if (show && snapshot.Phone is null)
         {
             _tracking.ReadFrame((pixels, width, height) =>
@@ -263,10 +279,28 @@ public partial class TrackingPanel : UserControl
         ValuesText.Text = Describe(snapshot);
     }
 
+    private static bool IsVmc(string? source) => source?.StartsWith("ほかの PC", StringComparison.Ordinal) == true;
+
+    // 動いているときの状態の行（スマホ・VMC プロトコルは「受け取っています」。VMC プロトコルは、送り手に入れてもらう、この PC の IP も）
+    private static string RunningText(string? source)
+    {
+        if (IsVmc(source))
+        {
+            IReadOnlyList<string> addresses = Theater3D.Tracking.Vmc.LocalNetwork.Addresses();
+            return $"受け取っています: {source}。送り手に、この PC の IP（{(addresses.Count > 0 ? string.Join("・", addresses) : "見つかりません")}）を入れてください";
+        }
+        return $"{(source?.StartsWith("スマホ", StringComparison.Ordinal) == true ? "受け取っています" : "読んでいます")}: {source}";
+    }
+
     // 映像を出しているときの、短い様子（1 行）
     private static string Summary(TrackingSnapshot s)
     {
         CultureInfo c = CultureInfo.CurrentCulture;
+        if (s.Phone is { Protocol: PhoneProtocol.Vmc } v)
+        {
+            return string.Format(c, "{0}: {1}・{2:F0} 回/秒（送り手 {3}）", v.FromFaceTracker ? "3D Theater VCamera" : "VMC プロトコル",
+                v.FaceFound ? "顔あり" : "顔が見つかりません", s.FramesPerSecond, s.PhoneSender);
+        }
         if (s.Phone is { } p)
         {
             return string.Format(c, "スマホ: {0}・{1:F0} 回/秒（送り手 {2}）", p.FaceFound ? "顔あり" : "顔が見つかりません", s.FramesPerSecond, s.PhoneSender);
@@ -282,6 +316,17 @@ public partial class TrackingPanel : UserControl
     private static string Describe(TrackingSnapshot s)
     {
         CultureInfo c = CultureInfo.CurrentCulture;
+        if (s.Phone is { Protocol: PhoneProtocol.Vmc } v)
+        {
+            return string.Join('\n',
+                string.Format(c, "{0}: {1}（送り手 {2}・{3:F0} 回/秒）", v.FromFaceTracker ? "3D Theater VCamera" : "VMC プロトコル",
+                    v.FaceFound ? "顔あり" : "顔が見つかりません", s.PhoneSender, s.FramesPerSecond),
+                string.Format(c, "頭の向き: 左右 {0:+0.0;-0.0;0.0}°・上下 {1:+0.0;-0.0;0.0}°・傾き {2:+0.0;-0.0;0.0}°", v.Rotation.X, v.Rotation.Y, v.Rotation.Z),
+                string.Format(c, "目を閉じる: 左 {0:F2}・右 {1:F2}（本人から見た左右）", v.Blendshape("eyeBlinkLeft"), v.Blendshape("eyeBlinkRight")),
+                string.Format(c, "口を開ける: {0:F2}・すぼめる: {1:F2}・笑顔: 左 {2:F2} 右 {3:F2}", v.Blendshape("jawOpen"), v.Blendshape("mouthPucker"),
+                    v.Blendshape("mouthSmileLeft"), v.Blendshape("mouthSmileRight")),
+                string.Format(c, "表情の値: {0} 個", v.Blendshapes.Count));
+        }
         if (s.Phone is { } p)
         {
             string app = p.Protocol == PhoneProtocol.VTubeStudio ? "VTube Studio の形式" : "iFacialMocap の形式";

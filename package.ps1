@@ -53,6 +53,10 @@ Write-Host '==> 発行（.NET を中に入れる）' -ForegroundColor Cyan
 & $msbuild (Join-Path $root 'src\3DTheater.App\3DTheater.App.csproj') -restore -t:Publish -nologo -v:minimal -m `
     '-p:Configuration=Release' "-p:Platform=$Platform" "-p:RuntimeIdentifier=win-$arch" '-p:SelfContained=true' "-p:PublishDir=$stage\"
 if ($LASTEXITCODE -ne 0) { throw "発行に失敗しました（終了コード $LASTEXITCODE）" }
+# 3D Theater VCamera（ほかの PC のカメラで顔を読んで送る常駐アプリ。設計判断記録 98 章）も同じフォルダーに発行する（.NET・顔のモデル・C++ の DLL を一緒に使う）
+& $msbuild (Join-Path $root 'src\3DTheater.VCamera\3DTheater.VCamera.csproj') -restore -t:Publish -nologo -v:minimal -m `
+    '-p:Configuration=Release' "-p:Platform=$Platform" "-p:RuntimeIdentifier=win-$arch" '-p:SelfContained=true' "-p:PublishDir=$stage\"
+if ($LASTEXITCODE -ne 0) { throw "3D Theater VCamera の発行に失敗しました（終了コード $LASTEXITCODE）" }
 
 # 3) 発行には入らないもの: サンプルのプラグイン（ビルドの後に出力へ写している）と、C++ の DLL（無ければ写す）
 Copy-Item (Join-Path $built 'Plugins') $stage -Recurse -Force
@@ -83,7 +87,8 @@ Copy-Item (Join-Path $root 'docs\ライセンス一覧.md') $stage
 # 6) 要る物がそろっているか確かめる
 $required = '3DTheater.exe', '3DTheater.dll', 'coreclr.dll', 'PresentationFramework.dll', 'onnxruntime.dll', 'vcruntime140.dll', 'vcruntime140_1.dll',
     'msvcp140.dll', 'msvcp140_1.dll', '3DTheater.Engine.Native.dll', '3DTheater.Physics.Native.dll', '3DTheater.Video.Native.dll',
-    '3DTheater.VirtualCamera.dll', 'Models\FaceLandmarker\face_landmarks_detector.onnx', 'Plugins\SceneInfo\plugin.json'
+    '3DTheater.VirtualCamera.dll', 'Models\FaceLandmarker\face_landmarks_detector.onnx', 'Plugins\SceneInfo\plugin.json',
+    '3DTheater.VCamera.exe', '3DTheater.VCamera.dll', 'System.Windows.Forms.dll'
 $missing = @($required | Where-Object { -not (Test-Path (Join-Path $stage $_)) })
 if ($missing.Count -gt 0) { throw "zip に入れる物が足りません: $($missing -join ', ')" }
 $config = Get-Content (Join-Path $stage '3DTheater.runtimeconfig.json') -Raw | ConvertFrom-Json
@@ -92,7 +97,8 @@ if (-not $config.runtimeOptions.includedFrameworks) { throw '.NET が中に入�
 # （PE の見出しの「機械」の欄。x64 = 0x8664、ARM64 = 0xAA64。仮想カメラの部品の ARM64X も 0xAA64）
 $machine = @{ x64 = 0x8664; ARM64 = 0xAA64 }[$Platform]
 foreach ($name in '3DTheater.exe', '3DTheater.dll', 'coreclr.dll', 'onnxruntime.dll', 'vcruntime140.dll', '3DTheater.Engine.Native.dll',
-                  '3DTheater.Physics.Native.dll', '3DTheater.Video.Native.dll', '3DTheater.VirtualCamera.dll', 'Plugins\SceneInfo\3DTheater.SamplePlugin.dll') {
+                  '3DTheater.Physics.Native.dll', '3DTheater.Video.Native.dll', '3DTheater.VirtualCamera.dll', 'Plugins\SceneInfo\3DTheater.SamplePlugin.dll',
+                  '3DTheater.VCamera.exe', '3DTheater.VCamera.dll') {
     $bytes = [System.IO.File]::ReadAllBytes((Join-Path $stage $name))
     $found = [BitConverter]::ToUInt16($bytes, [BitConverter]::ToInt32($bytes, 0x3C) + 4)
     if ($found -ne $machine) { throw ('{0} が {1} の作りではありません（0x{2:X4}）' -f $name, $Platform, $found) }

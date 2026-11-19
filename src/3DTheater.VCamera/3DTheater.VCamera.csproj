@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- 3D Theater VCamera: ほかの PC のカメラで顔を読み、3D Theater（とほかのアプリ）へ VMC プロトコルで送る常駐アプリ（設計判断記録 98 章） -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <!-- 通知領域のアイコン（NotifyIcon）だけに使う。WPF の型と名前がぶつからないよう、名前空間は自動では入れない -->
+    <UseWindowsForms>true</UseWindowsForms>
+    <AssemblyName>3DTheater.VCamera</AssemblyName>
+    <RootNamespace>Theater3D.VCamera</RootNamespace>
+    <Product>3D Theater VCamera</Product>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <SatelliteResourceLanguages>ja</SatelliteResourceLanguages>
+    <!-- Win32 の呼び出し（LibraryImport）が生成するコードに必要 -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- 拡大率の追い方は、窓（WPF）の決まりどおり app.manifest に書く。Windows Forms は通知領域のアイコンだけなので、その勧め（WFO0003）は使わない -->
+    <NoWarn>$(NoWarn);WFO0003</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\3DTheater.Tracking\3DTheater.Tracking.csproj" />
+    <ProjectReference Include="..\3DTheater.Media\3DTheater.Media.csproj" />
+  </ItemGroup>
+
+</Project>

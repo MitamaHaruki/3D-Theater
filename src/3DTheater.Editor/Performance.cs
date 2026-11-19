@@ -84,6 +84,9 @@ public readonly record struct TimeSummary(long Count, double Mean, double P95, d
 /// <summary>顔のトラッキングの、ある間の速さ（<see cref="Duration"/> は、トラッキングを動かしていた時間）。</summary>
 public sealed record TrackingPeriod(bool Phone, TimeSpan Duration, long Frames, long Found, long Detected, TimeSummary Process, TimeSummary Wait)
 {
+    /// <summary>受け取ったものの名前（「VMC プロトコル」など。無ければ、スマホかカメラかで決める）。</summary>
+    public string? Source { get; init; }
+
     public double FramesPerSecond => Duration > TimeSpan.Zero ? Frames / Duration.TotalSeconds : 0;
 
     /// <summary>顔を見つけた割合（0〜1）。</summary>
@@ -121,8 +124,11 @@ public sealed class TrackingStats
         }
     }
 
-    /// <summary>始めた（映像を開けた・受け取りを始めた）。前の 1 回分が終わっていなければ、そこで区切る。</summary>
-    public void Begin(bool phone)
+    /// <summary>
+    /// 始めた（映像を開けた・受け取りを始めた）。前の 1 回分が終わっていなければ、そこで区切る。<paramref name="source"/> は、スマホ以外から受け取るときの名前
+    /// （ログに「トラッキング（VMC プロトコル）」のように出す）。
+    /// </summary>
+    public void Begin(bool phone, string? source = null)
     {
         lock (_gate)
         {
@@ -133,9 +139,11 @@ public sealed class TrackingStats
             }
             _running = true;
             _mark = now;
-            _run = new Accumulator { Phone = phone };
+            _run = new Accumulator { Phone = phone, Source = source };
             _interval.Phone = phone;
+            _interval.Source = source;
             _total.Phone = phone;
+            _total.Source = source;
         }
     }
 
@@ -186,7 +194,7 @@ public sealed class TrackingStats
                 Credit(_time.GetTimestamp());
             }
             TrackingPeriod period = _interval.ToPeriod();
-            _interval = new Accumulator { Phone = _interval.Phone };
+            _interval = new Accumulator { Phone = _interval.Phone, Source = _interval.Source };
             return period;
         }
     }
@@ -220,6 +228,8 @@ public sealed class TrackingStats
     {
         public bool Phone { get; set; }
 
+        public string? Source { get; set; }
+
         public TimeSpan Active { get; set; }
 
         private readonly TimeHistogram _process = new();
@@ -243,7 +253,7 @@ public sealed class TrackingStats
             _found += found ? 1 : 0;
         }
 
-        public TrackingPeriod ToPeriod() => new(Phone, Active, _frames, _found, _detected, _process.Summarize(), _wait.Summarize());
+        public TrackingPeriod ToPeriod() => new(Phone, Active, _frames, _found, _detected, _process.Summarize(), _wait.Summarize()) { Source = Source };
     }
 }
 
@@ -639,7 +649,7 @@ public static class PerformanceText
         return string.Format(C, "{0} {1:F1} 回/秒（{2}）", TrackingName(p), p.FramesPerSecond, string.Join("・", parts));
     }
 
-    private static string TrackingName(TrackingPeriod p) => p.Phone ? "トラッキング（スマホ）" : "トラッキング";
+    private static string TrackingName(TrackingPeriod p) => p.Source is { } source ? $"トラッキング（{source}）" : p.Phone ? "トラッキング（スマホ）" : "トラッキング";
 
     private static List<string> TrackingDetails(TrackingPeriod p)
     {

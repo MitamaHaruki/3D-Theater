@@ -195,6 +195,12 @@ public sealed class TrackingDriver
         {
             return null;
         }
+        if (phone.FromFaceTracker)
+        {
+            // 3D Theater VCamera: このアプリのカメラのトラッキングと同じ値なので、カメラと同じに当てる（スマホの「逆にする」は使わない。設計判断記録 98 章）
+            PhonePose same = PhonePoseMapping.ToCameraConvention(phone, false, false, false);
+            return new FaceSignal(same.Yaw, same.Pitch, same.Roll, same.Center, same.Size, phone.Blendshapes);
+        }
         PhonePose pose = PhonePoseMapping.ToCameraConvention(phone, _phone.InvertYaw, _phone.InvertPitch, _phone.InvertRoll);
         return new FaceSignal(pose.Yaw, pose.Pitch, pose.Roll, pose.Center, pose.Size, phone.Blendshapes) { BlinkRange = FaceRetarget.PhoneBlinkRange };
     }
@@ -205,16 +211,8 @@ public sealed class TrackingDriver
         {
             return null;
         }
-        var blend = new Dictionary<string, float>(FaceBlendshapes.Count);
-        for (int i = 0; i < FaceBlendshapes.Count && i < r.Blendshapes.Length; i++)
-        {
-            blend[FaceBlendshapes.Names[i]] = r.Blendshapes[i];
-        }
-        // 顔の真ん中は鼻先、大きさは右目尻から左目尻までの 3 倍（顔の範囲とほぼ同じ。回しても変わりにくい）
-        Vector3 nose = r.Landmarks[HeadPose.NoseTip];
-        float eyes = Vector2.Distance(new Vector2(r.Landmarks[HeadPose.RightEyeOuter].X, r.Landmarks[HeadPose.RightEyeOuter].Y),
-            new Vector2(r.Landmarks[HeadPose.LeftEyeOuter].X, r.Landmarks[HeadPose.LeftEyeOuter].Y));
-        return new FaceSignal(r.Pose.Yaw, r.Pose.Pitch, r.Pose.Roll, new Vector2(nose.X, nose.Y), eyes * 3f, blend);
+        // 顔の真ん中は鼻先、大きさは右目尻から左目尻までの 3 倍（3D Theater VCamera も同じ値を送る）
+        return new FaceSignal(r.Pose.Yaw, r.Pose.Pitch, r.Pose.Roll, r.Center, r.Size, r.BlendshapeMap());
     }
 }
 

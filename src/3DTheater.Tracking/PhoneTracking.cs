@@ -18,14 +18,27 @@ public enum PhoneProtocol
 
     /// <summary>iFacialMocap（iPhone）の形式。スマホに PC の IP を入れると、スマホが PC のポート 49983 へ文字で送る（FaceMotion3D も同じ）。</summary>
     IFacialMocap,
+
+    /// <summary>
+    /// VMC プロトコル（ほかの PC の 3D Theater VCamera・VMC プロトコルを送るアプリ。設計判断記録 98 章）。
+    /// <see cref="PhoneFrame.Rotation"/> はカメラのトラッキングと同じ決まりの（左右・上下・傾き）、
+    /// <see cref="PhoneFrame.Position"/> は（真ん中 x・真ん中 y・大きさ。画素）で、大きさが 0 なら位置が無い。
+    /// </summary>
+    Vmc,
 }
 
 /// <summary>
 /// スマホから受け取った 1 枚分。表情の値は ARKit の名前（eyeBlinkLeft など）で 0〜1。
 /// 頭の向き（<see cref="Rotation"/>。度）と位置（<see cref="Position"/>）は、アプリの決まりのまま（x = 上下、y = 左右、z = 傾き）。
+/// VMC プロトコルのときは <see cref="PhoneProtocol.Vmc"/> に書いた決まり。
 /// </summary>
 public sealed record PhoneFrame(PhoneProtocol Protocol, bool FaceFound, Vector3 Rotation, Vector3 Position, IReadOnlyDictionary<string, float> Blendshapes)
 {
+    /// <summary>
+    /// 本アプリと同じ顔のトラッキング（MediaPipe）で読んだ値か（3D Theater VCamera）。まばたきの値の幅を、カメラのときと同じにする。
+    /// </summary>
+    public bool FromFaceTracker { get; init; }
+
     public float Blendshape(string name) => Blendshapes.TryGetValue(name, out float value) ? value : 0f;
 }
 
@@ -242,6 +255,15 @@ public static class PhonePoseMapping
         float yawSign = invertYaw ? -1 : 1;
         float pitchSign = invertPitch ? -1 : 1;
         float rollSign = invertRoll ? -1 : 1;
+        if (frame.Protocol == PhoneProtocol.Vmc)
+        {
+            // すでにカメラの決まり。位置（真ん中と大きさ）は、送り手の絵の画素のまま
+            Vector3 angles = frame.Rotation;
+            Vector3 place = frame.Position;
+            return place.Z > 0
+                ? new PhonePose(angles.X * yawSign, angles.Y * pitchSign, angles.Z * rollSign, new Vector2(place.X, place.Y), place.Z)
+                : new PhonePose(angles.X * yawSign, angles.Y * pitchSign, angles.Z * rollSign, Vector2.Zero, 1f);
+        }
         if (frame.Protocol == PhoneProtocol.VTubeStudio)
         {
             float yaw = -frame.Rotation.X * yawSign;

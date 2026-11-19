@@ -913,6 +913,18 @@ public partial class MainWindow : Window, Live.ILiveSceneActions, Live.ILiveScen
         {
             StartTrackingForCheck(check.CameraName);
         }
+        else if (check.VmcPort is { } vmcPort)
+        {
+            if (_context.Tracking is { } vmcTracking)
+            {
+                AppLog.Info($"確かめのため、VMC プロトコル（ポート {vmcPort}）で受け取って、トラッキングを始めます");
+                vmcTracking.StartVmc(vmcPort);
+            }
+            else
+            {
+                AppLog.Warning($"{CheckOptions.TrackVmcOption} は、ライブモードでだけ使えます");
+            }
+        }
         if (check.ExitAfter is { } after)
         {
             AppLog.Info($"確かめのため、起動してから {PerformanceText.Duration(after)}で閉じます（保存は尋ねません）");

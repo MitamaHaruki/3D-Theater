@@ -1,0 +1,49 @@
+<Window x:Class="Theater3D.VCamera.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="3D Theater VCamera" Width="560" SizeToContent="Height" ResizeMode="CanMinimize" WindowStartupLocation="CenterScreen">
+  <StackPanel Margin="16">
+    <TextBlock Text="カメラで顔を読み、3D Theater（とほかのアプリ）へ送ります（VMC プロトコル）" TextWrapping="Wrap" Margin="0,0,0,12" />
+
+    <Grid>
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="80" />
+        <ColumnDefinition Width="*" />
+        <ColumnDefinition Width="Auto" />
+      </Grid.ColumnDefinitions>
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="Auto" />
+      </Grid.RowDefinitions>
+      <TextBlock Text="カメラ" VerticalAlignment="Center" />
+      <ComboBox x:Name="SourceCombo" Grid.Column="1" AutomationProperties.Name="カメラ" />
+      <Button Grid.Column="2" Margin="8,0,0,0" Padding="10,2" Content="一覧を更新" Click="OnRefreshClick" />
+
+      <TextBlock Grid.Row="1" Margin="0,8,0,0" Text="送り先" VerticalAlignment="Center"
+                 ToolTip="3D Theater の PC の IP。3D Theater の「トラッキング情報」で「ほかの PC・アプリ（VMC プロトコル）」を選んで開始すると出ます。同じ PC なら 127.0.0.1" />
+      <Grid Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Margin="0,8,0,0">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*" />
+          <ColumnDefinition Width="Auto" />
+          <ColumnDefinition Width="90" />
+        </Grid.ColumnDefinitions>
+        <TextBox x:Name="HostBox" AutomationProperties.Name="送り先の IP" />
+        <TextBlock Grid.Column="1" Margin="12,0,8,0" Text="ポート" VerticalAlignment="Center" />
+        <TextBox x:Name="PortBox" Grid.Column="2" AutomationProperties.Name="送り先のポート" />
+      </Grid>
+    </Grid>
+
+    <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
+      <Button x:Name="StartButton" MinWidth="96" Content="送り始める" Click="OnStartClick" AutomationProperties.Name="送り始める" />
+      <Button x:Name="StopButton" MinWidth="96" Margin="8,0,0,0" Content="止める" Click="OnStopClick" AutomationProperties.Name="止める" />
+      <Button MinWidth="96" Margin="8,0,0,0" Content="正面にする" Click="OnCalibrateClick" AutomationProperties.Name="正面にする"
+              ToolTip="今の顔（カメラの方をまっすぐ見た顔）を正面として覚え直します（ほかのアプリへ送る頭の向き。3D Theater は自分で正面を合わせます）" />
+    </StackPanel>
+
+    <TextBlock x:Name="StatusText" Margin="0,14,0,0" TextWrapping="Wrap" AutomationProperties.AutomationId="VCameraStatus" />
+    <TextBlock x:Name="ReplyText" Margin="0,4,0,0" TextWrapping="Wrap" AutomationProperties.AutomationId="VCameraReply" />
+    <CheckBox x:Name="StartOnLaunchCheck" Margin="0,12,0,0" Content="起動したら、すぐ送り始める" Click="OnStartOnLaunchClick" />
+    <TextBlock Margin="0,10,0,0" TextWrapping="Wrap" Opacity="0.7" FontSize="12"
+               Text="窓を閉じても、画面の右下の通知領域で動き続けます（終わるには、通知領域のアイコンを右クリックして「終了」）。ほかの PC の 3D Theater へ送るときは、その PC で、Windows のファイアウォールの確認に「許可」を押してください。" />
+  </StackPanel>
+</Window>

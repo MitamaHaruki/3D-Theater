@@ -24,6 +24,35 @@ public sealed record FaceTrackingResult(
         int i = FaceBlendshapes.IndexOf(name);
         return i >= 0 && i < Blendshapes.Length ? Blendshapes[i] : 0f;
     }
+
+    /// <summary>顔の真ん中（鼻先。画素）。顔が無ければ 0。</summary>
+    public Vector2 Center => Found && Landmarks.Length > HeadPose.NoseTip ? new Vector2(Landmarks[HeadPose.NoseTip].X, Landmarks[HeadPose.NoseTip].Y) : Vector2.Zero;
+
+    /// <summary>顔の大きさ（右目尻から左目尻までの 3 倍。画素。顔の範囲とほぼ同じで、回しても変わりにくい）。顔が無ければ 0。</summary>
+    public float Size
+    {
+        get
+        {
+            if (!Found || Landmarks.Length <= Math.Max(HeadPose.RightEyeOuter, HeadPose.LeftEyeOuter))
+            {
+                return 0f;
+            }
+            Vector3 r = Landmarks[HeadPose.RightEyeOuter];
+            Vector3 l = Landmarks[HeadPose.LeftEyeOuter];
+            return Vector2.Distance(new Vector2(r.X, r.Y), new Vector2(l.X, l.Y)) * 3f;
+        }
+    }
+
+    /// <summary>表情の値を名前で引けるようにする（ARKit の名前。MediaPipe の「_neutral」も入る）。</summary>
+    public Dictionary<string, float> BlendshapeMap()
+    {
+        var map = new Dictionary<string, float>(FaceBlendshapes.Count, StringComparer.Ordinal);
+        for (int i = 0; i < FaceBlendshapes.Count && i < Blendshapes.Length; i++)
+        {
+            map[FaceBlendshapes.Names[i]] = Blendshapes[i];
+        }
+        return map;
+    }
 }
 
 /// <summary>
