@@ -526,8 +526,57 @@ public sealed class PropertiesViewModel : ObservableObject
         set => EditSunPath(null, value, "太陽の向きを時刻で動かす");
     }
 
+    /// <summary>季節の欄の選べる名前（1〜12 月。「3 月（春分）」など）。</summary>
+    public IReadOnlyList<string> MonthLabels => AllMonthLabels;
+
+    private static readonly IReadOnlyList<string> AllMonthLabels = [.. Enumerable.Range(1, 12).Select(TimeOfDayPresets.MonthLabel)];
+
+    /// <summary>季節（<see cref="MonthLabels"/> の番号。0 = 1 月）。変えるとサンライトが、同じ時刻のその季節の光になる（設計判断記録 96 章）。</summary>
+    public int TimeMonthIndex
+    {
+        get => _context.Scene.TimeOfDay.Month - 1;
+        set
+        {
+            if (value < 0 || value >= 12 || value == _context.Scene.TimeOfDay.Month - 1)
+            {
+                return;
+            }
+            EditSeason(value + 1, null, "季節");
+        }
+    }
+
+    /// <summary>緯度（度。0〜60）。</summary>
+    public double TimeLatitude
+    {
+        get => _context.Scene.TimeOfDay.Latitude;
+        set => EditSeason(null, (float)value, "緯度");
+    }
+
+    /// <summary>今の季節・緯度の日の出・日の入りと昼の太陽の高さ（「日の出 6:00・日の入り 18:00・昼の高さ 54.7°」）。</summary>
+    public string SunDayText
+    {
+        get
+        {
+            TimeOfDayNode time = _context.Scene.TimeOfDay;
+            SunDay day = SunDay.Of(time);
+            float noon = SunClock.PositionAt(12f, day).Elevation;
+            return $"日の出 {SunClock.FormatClock(day.Sunrise)}・日の入り {SunClock.FormatClock(day.Sunset)}・昼の高さ {noon:0.0}°";
+        }
+    }
+
     /// <summary>時刻のキーの数。</summary>
     public string TimeKeyCountText => TimeKeyText(_context.Scene.TimeOfDay);
+
+    private void EditSeason(int? month, float? latitude, string what)
+    {
+        if (!IsTimeEditable)
+        {
+            OnPropertyChanged(string.Empty);
+            return;
+        }
+        _context.Playback.Pause();
+        TimeOfDayPresets.SetSeason(_context.Edits, _context.Animation, month, latitude, what, mergeKey: $"time:{what}");
+    }
 
     private void EditSunPath(float? noonAzimuth, bool? follows, string what)
     {
@@ -549,7 +598,7 @@ public sealed class PropertiesViewModel : ObservableObject
         }
         _context.Playback.Pause();
         TimeOfDayPresets.Apply(_context.Edits, _context.Animation, _context.Rendering, time);
-        AppLog.Info($"時刻を「{TimeOfDayPresets.NameOf(time)}」（{SunClock.FormatClock(TimeOfDayPresets.HourOf(time))}）にしました（サンライトの向き・色・明るさと、画面の色合い）");
+        AppLog.Info($"時刻を「{TimeOfDayPresets.NameOf(time)}」（{SunClock.FormatClock(_context.Scene.TimeOfDay.Hour)}）にしました（サンライトの向き・色・明るさと、画面の色合い）");
     }
 
     /// <summary>今のフレームに時刻のキーを置く（元に戻せる）。</summary>

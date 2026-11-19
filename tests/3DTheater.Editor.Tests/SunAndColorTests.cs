@@ -1,6 +1,7 @@
 using System.Numerics;
 using Theater3D.Domain;
 using Theater3D.Formats;
+using Theater3D.Formats.Vmd;
 
 namespace Theater3D.Editor.Tests;
 
@@ -216,22 +217,216 @@ public sealed class SunAndColorTests
         Assert.AreEqual(1, KeyEditing.Delete([new KeyRef(time, 150)]));
         Assert.HasCount(2, KeyEditing.InRange([time], 0, 200));
 
-        // 保存して開き直しても同じ（時刻・昼の向き・向きを動かすか・キー）
+        // 保存して開き直しても同じ（時刻・昼の向き・向きを動かすか・季節・緯度・キー）
         time.NoonAzimuth = 30f;
         time.FollowsSunPath = false;
+        time.Month = 7;
+        time.Latitude = 43.1f;
         string json = ProjectSerializer.Serialize(ProjectCapture.Capture(scene, playback, animation, null, []));
         var (scene2, playback2, animation2, _) = AnimationFixtures.Create();
         ProjectApply.ApplyScene(scene2, playback2, animation2, ProjectSerializer.Deserialize(json, new LoadReport())!, new LoadReport());
         Assert.AreEqual(time.Hour, scene2.TimeOfDay.Hour);
         Assert.AreEqual(30f, scene2.TimeOfDay.NoonAzimuth);
         Assert.IsFalse(scene2.TimeOfDay.FollowsSunPath);
+        Assert.AreEqual(7, scene2.TimeOfDay.Month);
+        Assert.AreEqual(43.1f, scene2.TimeOfDay.Latitude);
         CollectionAssert.AreEqual(time.Keys.ToArray(), scene2.TimeOfDay.Keys.ToArray());
+
+        // 季節と緯度の無い前の版のファイルは、春分と初めの緯度（今までと同じ道筋）
+        var (scene3, playback3, animation3, _) = AnimationFixtures.Create();
+        scene3.TimeOfDay.Month = 12;
+        ProjectApply.ApplyScene(scene3, playback3, animation3, ProjectSerializer.Deserialize(
+            """{"format":"3DTheater.Project","version":1,"nodes":{"timeOfDay":{"name":"時刻","visible":true,"hour":17}}}""", new LoadReport())!, new LoadReport());
+        Assert.AreEqual(TimeOfDayNode.DefaultMonth, scene3.TimeOfDay.Month);
+        Assert.AreEqual(TimeOfDayNode.DefaultLatitude, scene3.TimeOfDay.Latitude);
 
         // 新しいプロジェクトに戻すと、時刻も初めに戻る
         scene.ResetToDefault();
         Assert.AreEqual(TimeOfDayNode.DefaultHour, time.Hour);
         Assert.AreEqual(0, time.Keys.Count);
         Assert.IsTrue(time.FollowsSunPath);
+        Assert.AreEqual(TimeOfDayNode.DefaultMonth, time.Month);
+        Assert.AreEqual(TimeOfDayNode.DefaultLatitude, time.Latitude);
+    }
+
+    [TestMethod]
+    public void SeasonAndLatitudeMoveTheSunPath()
+    {
+        // 初め（3 月・35.3°）は今までと同じ: 6 時に昇り 18 時に沈む。9 月も同じ
+        Assert.AreEqual(6f, SunDay.Default.Sunrise);
+        Assert.AreEqual(18f, SunDay.Default.Sunset);
+        Assert.AreEqual(0f, SunDay.Default.Declination);
+        Assert.AreEqual(SunDay.Default, SunDay.Of(9, TimeOfDayNode.DefaultLatitude));
+        CollectionAssert.AreEqual(new[] { 8f, 12f, 17f, 22f },
+            new[] { TimeOfDay.Morning, TimeOfDay.Noon, TimeOfDay.Evening, TimeOfDay.Night }.Select(TimeOfDayPresets.HourOf).ToArray());
+
+        // 夏至: 昼の太陽が高く、朝早く昇って遅く沈む（12 時をはさんで同じだけ）。日の出の太陽は、真東より北から
+        SunDay summer = SunDay.Of(6, TimeOfDayNode.DefaultLatitude);
+        Assert.AreEqual(SunDay.Tilt, summer.Declination);
+        Assert.AreEqual(90f - TimeOfDayNode.DefaultLatitude + SunDay.Tilt, SunClock.PositionAt(12f, summer).Elevation, 1e-3f, "夏の昼は 78.2°");
+        Assert.AreEqual(4.81f, summer.Sunrise, 0.01f);
+        Assert.AreEqual(19.19f, summer.Sunset, 0.01f);
+        Assert.AreEqual(12f, (summer.Sunrise + summer.Sunset) / 2f, 1e-4f);
+        Assert.IsLessThan(-90f, SunClock.PositionAt(summer.Sunrise + 0.01f, summer).Azimuth, "夏の朝日は北東から");
+        Assert.IsFalse(SunClock.PositionAt(summer.Sunrise + 0.01f, summer).IsMoon);
+        Assert.IsTrue(SunClock.PositionAt(summer.Sunrise - 0.01f, summer).IsMoon, "日の出の前は月");
+        Assert.AreEqual(90f - TimeOfDayNode.DefaultLatitude - SunDay.Tilt, SunClock.PositionAt(0f, summer).Elevation, 1e-3f, "夏の満月は低い（31.3°）");
+
+        // 冬至: 昼の太陽が低く、昼が短い。満月は高い
+        SunDay winter = SunDay.Of(12, TimeOfDayNode.DefaultLatitude);
+        Assert.AreEqual(90f - TimeOfDayNode.DefaultLatitude - SunDay.Tilt, SunClock.PositionAt(12f, winter).Elevation, 1e-3f, "冬の昼は 31.3°");
+        Assert.AreEqual(24f - summer.DayLength, winter.DayLength, 1e-3f, "冬の昼の長さは、夏の夜の長さ");
+        Assert.AreEqual(90f - TimeOfDayNode.DefaultLatitude + SunDay.Tilt, SunClock.PositionAt(0f, winter).Elevation, 1e-3f, "冬の満月は高い");
+        Assert.AreEqual(-SunClock.PositionAt(9f, winter).Azimuth, SunClock.PositionAt(15f, winter).Azimuth, 1e-3f, "昼をはさんで左右に同じだけ");
+
+        // 光の値を決めた時刻も、日の出・日の入りに合わせて動く（決めた時刻ちょうどはその値）
+        IReadOnlyList<(float Hour, DaylightLook Look)> anchors = SunClock.AnchorsFor(summer);
+        Assert.AreEqual(summer.Sunrise, anchors[2].Hour);
+        Assert.AreEqual(SunClock.Morning, SunClock.LookAt(anchors[3].Hour, summer));
+        Assert.AreEqual(SunClock.Evening, SunClock.LookAt(anchors[6].Hour, summer));
+        Assert.AreEqual(SunClock.Twilight, SunClock.LookAt(winter.Sunset, winter), "冬は 16:49 に日が沈む");
+        Assert.AreEqual(SunClock.Night, SunClock.LookAt(19f, winter), "冬の 19 時はもう夜");
+        Assert.AreNotEqual(SunClock.Night, SunClock.LookAt(19f, summer), "夏の 19 時はまだ明るい");
+        for (int i = 1; i < anchors.Count; i++)
+        {
+            Assert.IsGreaterThanOrEqualTo(anchors[i - 1].Hour, anchors[i].Hour, $"時刻の順（夏 {i}）");
+        }
+        SunDay farWinter = SunDay.Of(12, TimeOfDayNode.MaxLatitude);
+        IReadOnlyList<(float Hour, DaylightLook Look)> far = SunClock.AnchorsFor(farWinter);
+        for (int i = 1; i < far.Count; i++)
+        {
+            Assert.IsGreaterThanOrEqualTo(far[i - 1].Hour, far[i].Hour, $"昼がとても短くても時刻の順（{i}）");
+        }
+
+        // ボタンの時刻（15 分刻み）: 夏は朝が早く夕が遅い。冬はその逆
+        Assert.AreEqual(7.25f, TimeOfDayPresets.HourOf(TimeOfDay.Morning, summer));
+        Assert.AreEqual(18f, TimeOfDayPresets.HourOf(TimeOfDay.Evening, summer));
+        Assert.AreEqual(22.5f, TimeOfDayPresets.HourOf(TimeOfDay.Night, summer));
+        Assert.AreEqual(8.75f, TimeOfDayPresets.HourOf(TimeOfDay.Morning, winter));
+        Assert.AreEqual(16f, TimeOfDayPresets.HourOf(TimeOfDay.Evening, winter));
+        Assert.AreEqual(21.5f, TimeOfDayPresets.HourOf(TimeOfDay.Night, winter));
+        Assert.AreEqual(12f, TimeOfDayPresets.HourOf(TimeOfDay.Noon, winter));
+
+        // 緯度の低い所の夏は、昼に頭の上より北を通る。昼の向きから見て、朝は左・夕は右のまま
+        SunDay tropic = SunDay.Of(6, 10f);
+        Assert.AreEqual(90f - (SunDay.Tilt - 10f), SunClock.PositionAt(12f, tropic).Elevation, 1e-3f);
+        Assert.AreEqual(0f, SunClock.PositionAt(12f, tropic).Azimuth, 1e-3f);
+        Assert.IsLessThan(0f, SunClock.PositionAt(9f, tropic).Azimuth, "朝は左");
+        Assert.IsGreaterThan(0f, SunClock.PositionAt(15f, tropic).Azimuth, "夕は右");
+        Assert.AreEqual(90f, SunClock.PositionAt(12f, SunDay.Of(3, 0f)).Elevation, 1e-3f, "赤道の春分の昼は真上");
+
+        // 範囲: 緯度は 0〜60、季節は 1〜12
+        var time = new TimeOfDayNode { Latitude = 80f, Month = 15 };
+        Assert.AreEqual(TimeOfDayNode.MaxLatitude, time.Latitude);
+        Assert.AreEqual(12, time.Month);
+        time.Latitude = -5f;
+        time.Month = 0;
+        Assert.AreEqual(0f, time.Latitude);
+        Assert.AreEqual(1, time.Month);
+        time.Latitude = float.NaN;
+        Assert.AreEqual(0f, time.Latitude, "数でない値は入れない");
+        Assert.AreEqual("6 月（夏至）", TimeOfDayPresets.MonthLabel(6));
+        Assert.AreEqual("7 月", TimeOfDayPresets.MonthLabel(7));
+    }
+
+    [TestMethod]
+    public void TimeKeysAreExportedAsLightKeysAlongTheSunPath()
+    {
+        var (scene, _, _, _, _, _) = Create();
+        TimeOfDayNode time = scene.TimeOfDay;
+        LightNode sun = scene.MainLight;
+        CameraNode camera = scene.FindFirst<CameraNode>()!;
+        time.Month = 6; // 夏の道筋でも
+        time.Keys.SetRange([
+            new TimeKey(0, 8f, BezierCurve.Linear, KeyInterpolationKind.Curve),
+            new TimeKey(300, 17f, BezierCurve.Linear, KeyInterpolationKind.Curve),
+            new TimeKey(400, 22f, BezierCurve.Linear, KeyInterpolationKind.Step), // 夜へ切り替える
+        ]);
+        sun.Keys.Set(new LightKey(0, new LightPose(sun.Position, new Vector3(30, 0, 0), Vector3.One, 1f, sun.Range, sun.SpotAngle, sun.SpotSoftness), BezierCurve.Linear));
+        var report = new LoadReport();
+
+        VmdDocument written = VmdReader.Read(VmdWriter.Write(CameraMotion.CreateVmd(camera, 30, report, sun, scene.SelfShadow, time))).Document!;
+        IReadOnlyList<VmdLightKey> keys = written.LightKeys;
+
+        Assert.AreEqual(0, keys[0].Frame);
+        Assert.AreEqual(400, keys[^1].Frame);
+        Assert.IsLessThan(200, keys.Count, "1 フレームごとには書かない（直線でつないで違わない所は省く）");
+        Assert.IsGreaterThan(5, keys.Count, "太陽が空の道筋をたどるように分ける");
+        Assert.IsTrue(keys.Any(k => k.Frame == 399) && keys.Any(k => k.Frame == 400), "段階の切り替えの前後");
+
+        // MMD と同じに直線でつなぐと、どのフレームでも時刻の光と同じ（許しの中）
+        SunDay day = SunDay.Of(time);
+        for (int frame = 0; frame <= 400; frame++)
+        {
+            Assert.IsTrue(KeyframeEvaluator.TryEvaluate(time.Keys, frame, out float hour));
+            DaylightLook look = SunClock.LookAt(hour, day);
+            Vector3 color = look.Color * (look.Intensity * SceneLighting.MmdIntensity);
+            Vector3 direction = SceneLighting.DirectionOf(SunClock.SunRotationAt(time, hour));
+            int i = Math.Max(0, keys.Count(k => k.Frame <= frame) - 1);
+            VmdLightKey a = keys[i], b = keys[Math.Min(i + 1, keys.Count - 1)];
+            float t = b.Frame > a.Frame ? (frame - a.Frame) / (float)(b.Frame - a.Frame) : 0f;
+            Vector3 mmdColor = Vector3.Lerp(a.Color, b.Color, t);
+            Vector3 mmdDirection = Vector3.Normalize(Vector3.Lerp(a.Direction, b.Direction, t));
+            float angle = MathF.Acos(Math.Clamp(Vector3.Dot(mmdDirection, direction), -1f, 1f)) * 180f / MathF.PI;
+            Assert.IsLessThan(LightMotion.TimeAngleTolerance + 0.01f, angle, $"{frame} フレーム目の向き");
+            Vector3 diff = Vector3.Abs(mmdColor - color);
+            Assert.IsLessThan(LightMotion.TimeColorTolerance + 1e-4f, MathF.Max(diff.X, MathF.Max(diff.Y, diff.Z)), $"{frame} フレーム目の色");
+        }
+        // （上のフレームごとの確かめに、夏の昼の高い所を通る 133 フレーム目も入っている）
+        Assert.IsTrue(report.Issues.Any(i => i.Message.Contains("時刻で動くサンライト")));
+        Assert.IsTrue(report.Issues.Any(i => i.Message.Contains("サンライトの照明のキー")), "サンライトの照明のキーは書かないと知らせる");
+        Assert.IsTrue(report.Issues.Any(i => i.Message.Contains("色合い")));
+
+        // 60 fps の作品は、MMD の 30 fps に直す
+        var report60 = new LoadReport();
+        IReadOnlyList<VmdLightKey> keys60 = LightMotion.CreateKeysFromTime(time, sun, 60, report60);
+        Assert.AreEqual(200, keys60[^1].Frame);
+        Assert.IsTrue(report60.Issues.Any(i => i.Message.Contains("30 fps")));
+
+        // 時刻のキーが無ければ、今まで通りサンライトの照明のキーを書く
+        time.Keys.Clear();
+        Assert.HasCount(1, CameraMotion.CreateVmd(camera, 30, new LoadReport(), sun, scene.SelfShadow, time).LightKeys);
+    }
+
+    [TestMethod]
+    public void SeasonChangesTheSunAtTheSameTime()
+    {
+        var (scene, _, animation, settings, undo, edits) = Create();
+        LightNode sun = scene.MainLight;
+        TimeOfDayNode time = scene.TimeOfDay;
+        TimeOfDayPresets.SetHour(edits, animation, settings, 17f, "時刻");
+        float equinox = sun.Rotation.X;
+
+        // 季節を冬にすると、同じ 17 時でも日の入りの後（弱い光と夜の色合い）
+        TimeOfDayPresets.SetSeason(edits, animation, 12, null, "季節");
+        Assert.AreEqual(17f, time.Hour, "時刻は変えない");
+        Assert.AreEqual(SunClock.SunRotation(time, sun.Rotation.Z), sun.Rotation);
+        Assert.AreEqual(SunClock.LookAt(17f, SunDay.Of(time)).Color, sun.Color);
+        Assert.AreNotEqual(SunClock.Evening.Grade, SunClock.GradeFor(settings.Effects, time), "描くときの色合いも季節で変わる");
+        Assert.AreEqual("季節", undo.UndoDescription);
+        undo.Undo();
+        Assert.AreEqual(TimeOfDayNode.DefaultMonth, time.Month);
+        Assert.AreEqual(equinox, sun.Rotation.X, 1e-4f);
+
+        // 夕のボタンは、季節に合わせた時刻（夏は 18 時）
+        TimeOfDayPresets.SetSeason(edits, animation, 6, null, "季節");
+        TimeOfDayPresets.Apply(edits, animation, settings, TimeOfDay.Evening);
+        Assert.AreEqual(18f, time.Hour);
+        Assert.AreEqual(SunClock.LookAt(18f, SunDay.Of(time)), new DaylightLook(sun.Color, sun.Intensity, SunClock.LookAt(time).Grade));
+
+        // 緯度を続けて変えると、1 回の元に戻すにまとまる
+        int before = undo.UndoCount;
+        foreach (float latitude in new[] { 36f, 37f, 38f })
+        {
+            TimeOfDayPresets.SetSeason(edits, animation, null, latitude, "緯度", mergeKey: "time:緯度");
+        }
+        Assert.AreEqual(before + 1, undo.UndoCount);
+        Assert.AreEqual(38f, time.Latitude);
+
+        // 時刻のキーで動かすときも、季節の道筋をたどる
+        time.Keys.Set(new TimeKey(0, 12f, BezierCurve.Linear, KeyInterpolationKind.Curve));
+        animation.ApplyFrame();
+        Assert.AreEqual(90f - 38f + SunDay.Tilt, sun.Rotation.X, 1e-3f, "夏の昼の高さ");
     }
 
     [TestMethod]

@@ -18,13 +18,35 @@ public enum TimeOfDay
 /// </summary>
 public static class TimeOfDayPresets
 {
-    /// <summary>ボタンの時刻（朝 8 時・昼 12 時・夕 17 時・夜 22 時）。</summary>
-    public static float HourOf(TimeOfDay time) => time switch
+    /// <summary>初めの季節（春分）のボタンの時刻（朝 8 時・昼 12 時・夕 17 時・夜 22 時）。</summary>
+    public static float HourOf(TimeOfDay time) => HourOf(time, SunDay.Default);
+
+    /// <summary>
+    /// 季節・緯度が <paramref name="day"/> の日のボタンの時刻（15 分刻み）。朝と夕は、その日の朝・夕の光の時刻（<see cref="SunClock.AnchorsFor"/>）、
+    /// 昼はいつも 12 時、夜は日の入りから、夜の長さの 3 分の 1 ほど後。春分では 8 時・12 時・17 時・22 時（設計判断記録 96 章）。
+    /// </summary>
+    public static float HourOf(TimeOfDay time, SunDay day)
     {
-        TimeOfDay.Morning => 8f,
-        TimeOfDay.Evening => 17f,
-        TimeOfDay.Night => 22f,
-        _ => 12f,
+        float d = day.DayLength / 12f;
+        float n = (24f - day.DayLength) / 12f;
+        float hour = time switch
+        {
+            TimeOfDay.Morning => day.Sunrise + (2f * d),
+            TimeOfDay.Evening => day.Sunset - d,
+            TimeOfDay.Night => day.Sunset + (4f * n),
+            _ => 12f,
+        };
+        return MathF.Round(hour * 4f) / 4f;
+    }
+
+    /// <summary>季節の欄に出す名前（「3 月（春分）」など。21 日ごろの太陽）。</summary>
+    public static string MonthLabel(int month) => Math.Clamp(month, 1, 12) switch
+    {
+        3 => "3 月（春分）",
+        6 => "6 月（夏至）",
+        9 => "9 月（秋分）",
+        12 => "12 月（冬至）",
+        int m => $"{m} 月",
     };
 
     public static string NameOf(TimeOfDay time) => time switch
@@ -35,9 +57,12 @@ public static class TimeOfDayPresets
         _ => "昼",
     };
 
-    /// <summary>時刻のボタン: 時刻を <paramref name="time"/> のボタンの時刻にする。</summary>
-    public static void Apply(EditService edits, AnimationService animation, RenderSettings rendering, TimeOfDay time) =>
-        SetHour(edits, animation, rendering, HourOf(time), $"時刻を「{NameOf(time)}」に");
+    /// <summary>時刻のボタン: 時刻を <paramref name="time"/> のボタンの時刻（時刻の項目の季節・緯度に合わせる）にする。</summary>
+    public static void Apply(EditService edits, AnimationService animation, RenderSettings rendering, TimeOfDay time)
+    {
+        ArgumentNullException.ThrowIfNull(animation);
+        SetHour(edits, animation, rendering, HourOf(time, SunDay.Of(animation.Scene.TimeOfDay)), $"時刻を「{NameOf(time)}」に");
+    }
 
     /// <summary>
     /// 時刻を <paramref name="hour"/>（時）にし、サンライトをその時刻の光にする。<paramref name="mergeKey"/> を渡すと、続けて変えたとき
@@ -93,18 +118,44 @@ public static class TimeOfDayPresets
         }, mergeKey);
     }
 
+    /// <summary>
+    /// 季節（<paramref name="month"/>）か緯度（<paramref name="latitude"/>）を変え、サンライトを今の時刻の光にする（null の値は変えない。設計判断記録 96 章）。
+    /// 時刻そのものは変えない（同じ時刻でも、季節で太陽の高さと光が変わる）。
+    /// </summary>
+    public static void SetSeason(EditService edits, AnimationService animation, int? month, float? latitude, string description, string? mergeKey = null)
+    {
+        ArgumentNullException.ThrowIfNull(edits);
+        ArgumentNullException.ThrowIfNull(animation);
+        TimeOfDayNode time = animation.Scene.TimeOfDay;
+        edits.Change(description, [time, animation.Scene.MainLight], () =>
+        {
+            if (month is { } m)
+            {
+                time.Month = m;
+            }
+            if (latitude is { } l)
+            {
+                time.Latitude = l;
+            }
+            animation.ApplyTimeToSun();
+        }, mergeKey);
+    }
+
+    /// <summary>初めの季節（春分）で、朝・昼・夕・夜の順に <paramref name="hour"/> の次のボタンの時刻。</summary>
+    public static float NextHour(float hour) => NextHour(hour, SunDay.Default);
+
     /// <summary>朝・昼・夕・夜の順で、<paramref name="hour"/> の次のボタンの時刻（夜の次は朝。ボタンの時刻ちょうどなら、その次）。</summary>
-    public static float NextHour(float hour)
+    public static float NextHour(float hour, SunDay day)
     {
         float h = SunClock.Wrap(hour);
         foreach (TimeOfDay time in new[] { TimeOfDay.Morning, TimeOfDay.Noon, TimeOfDay.Evening, TimeOfDay.Night })
         {
-            if (HourOf(time) > h + 1e-3f)
+            if (HourOf(time, day) > h + 1e-3f)
             {
-                return HourOf(time);
+                return HourOf(time, day);
             }
         }
-        return HourOf(TimeOfDay.Morning);
+        return HourOf(TimeOfDay.Morning, day);
     }
 
     /// <summary>
@@ -166,7 +217,8 @@ public static class TimeOfDayPresets
 
 /// <summary>
 /// キー操作で選べる時刻と、移り変わる長さ（設計判断記録 89 章）。キーの決まりの名前（<see cref="HotkeyBinding.Name"/>）には、
-/// 時（"17" など。小数も可）か <see cref="Next"/> を持つ。
+/// 時（"17" など。小数も可）か <see cref="Next"/> を持つ。朝・昼・夕・夜の 4 つ（"8"・"12"・"17"・"22"）は、春分のボタンの時刻の名前のまま、
+/// 時刻の項目の季節に合わせたボタンの時刻へ行く（冬の夕は 16 時など。設計判断記録 96 章）。
 /// </summary>
 public static class TimeOfDayHotkeys
 {
@@ -176,12 +228,16 @@ public static class TimeOfDayHotkeys
     /// <summary>選べる時刻（決まりの名前と、出す名前）。</summary>
     public static IReadOnlyList<(string Value, string Label)> Choices { get; } =
     [
-        ("8", "朝（8:00）"),
+        ("8", "朝"),
         ("12", "昼（12:00）"),
-        ("17", "夕（17:00）"),
-        ("22", "夜（22:00）"),
+        ("17", "夕"),
+        ("22", "夜"),
         (Next, "次の時刻へ（朝→昼→夕→夜）"),
     ];
+
+    // 朝・昼・夕・夜の決まりの名前と、そのボタン
+    private static readonly (string Value, TimeOfDay Time)[] Presets =
+        [("8", TimeOfDay.Morning), ("12", TimeOfDay.Noon), ("17", TimeOfDay.Evening), ("22", TimeOfDay.Night)];
 
     /// <summary>選べる移り変わりの長さ（秒と、出す名前）。</summary>
     public static IReadOnlyList<(double Seconds, string Label)> Durations { get; } =
@@ -207,12 +263,25 @@ public static class TimeOfDayHotkeys
         return TryParseHour(value, out float hour) ? SunClock.FormatClock(hour) : null;
     }
 
-    /// <summary>今の時刻 <paramref name="currentHour"/> から見た、行き先の時刻（0〜24）。決まりの名前が読めなければ null。</summary>
-    public static float? TargetHour(string? value, float currentHour)
+    /// <summary>初めの季節（春分）で、今の時刻 <paramref name="currentHour"/> から見た行き先の時刻。</summary>
+    public static float? TargetHour(string? value, float currentHour) => TargetHour(value, currentHour, SunDay.Default);
+
+    /// <summary>
+    /// 季節・緯度が <paramref name="day"/> の日に、今の時刻 <paramref name="currentHour"/> から見た、行き先の時刻（0〜24）。決まりの名前が読めなければ null。
+    /// 朝・昼・夕・夜は、その季節のボタンの時刻。
+    /// </summary>
+    public static float? TargetHour(string? value, float currentHour, SunDay day)
     {
         if (value == Next)
         {
-            return TimeOfDayPresets.NextHour(currentHour);
+            return TimeOfDayPresets.NextHour(currentHour, day);
+        }
+        foreach (var (preset, time) in Presets)
+        {
+            if (value == preset)
+            {
+                return TimeOfDayPresets.HourOf(time, day);
+            }
         }
         return TryParseHour(value, out float hour) ? SunClock.Wrap(hour) : null;
     }

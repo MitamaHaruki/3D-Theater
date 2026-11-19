@@ -31,7 +31,8 @@ public sealed record SelfShadowState(bool HasUnregisteredChange, KeySnapshot<Sel
 public sealed record EffectsState(bool HasUnregisteredChange, KeySnapshot<EffectKey>? Keys);
 
 /// <summary>時刻の項目の値。</summary>
-public sealed record TimeOfDayState(float Hour, float NoonAzimuth, bool FollowsSunPath, bool HasUnregisteredChange, KeySnapshot<TimeKey>? Keys);
+public sealed record TimeOfDayState(float Hour, float NoonAzimuth, bool FollowsSunPath, int Month, float Latitude, bool HasUnregisteredChange,
+    KeySnapshot<TimeKey>? Keys);
 
 /// <summary>モデルの表示・IK の値。</summary>
 public sealed record DisplayState(bool Shown, IkSwitchSet Ik, bool HasUnregisteredChange, KeySnapshot<DisplayKey>? Keys);

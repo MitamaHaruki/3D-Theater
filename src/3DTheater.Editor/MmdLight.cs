@@ -161,6 +161,131 @@ public static class LightMotion
         return [.. written.Values];
     }
 
+    /// <summary>時刻のキーを照明のキーにするときに許す、色の違い（0〜1。MMD の色の 1 段）。</summary>
+    public const float TimeColorTolerance = 1f / 255f;
+
+    /// <summary>時刻のキーを照明のキーにするときに許す、光の向きの違い（度）。</summary>
+    public const float TimeAngleTolerance = 0.25f;
+
+    /// <summary>
+    /// 時刻のキーで動くサンライトを、VMD の照明のキーにする（設計判断記録 96 章）。時刻のキーが無ければ、サンライトの照明のキーを書く（<see cref="CreateKeys"/>）。
+    /// <list type="bullet">
+    /// <item>MMD の照明はキーの間を直線でつなぐだけなので、時刻のキーの最初から最後まで、MMD の 1 フレームごとに太陽（夜は月）の向きと色を求め、
+    /// 直線でつないでも <see cref="TimeAngleTolerance"/>・<see cref="TimeColorTolerance"/> より違わない所のキーを省く（太陽が空の道筋をたどるように）。</item>
+    /// <item>時刻のキーがあるときは、サンライトは時刻で決まる（このアプリでも同じ）ので、サンライトの照明のキーは書かない。</item>
+    /// <item>画面の色合い（時刻が色調補正に重ねる分）は、VMD に入らない（知らせる）。</item>
+    /// </list>
+    /// </summary>
+    public static IReadOnlyList<VmdLightKey> CreateKeysFromTime(TimeOfDayNode time, LightNode sun, int frameRate, LoadReport report)
+    {
+        ArgumentNullException.ThrowIfNull(time);
+        ArgumentNullException.ThrowIfNull(sun);
+        ArgumentNullException.ThrowIfNull(report);
+        if (time.Keys.Count == 0)
+        {
+            return CreateKeys(sun, frameRate, report);
+        }
+        double scale = MotionImport.MmdFrameRate / (double)frameRate;
+        int first = (int)Math.Round(time.Keys.FirstFrame * scale, MidpointRounding.AwayFromZero);
+        int last = (int)Math.Round(time.Keys.LastFrame * scale, MidpointRounding.AwayFromZero);
+        SunDay day = SunDay.Of(time);
+
+        // MMD の 1 フレームごとの光（作品のフレームに直すと半端になることがある。時刻のキーは半端なフレームでも求められる）
+        var samples = new List<VmdLightKey>(last - first + 1);
+        for (int frame = first; frame <= last; frame++)
+        {
+            float hour = KeyframeEvaluator.TryEvaluate(time.Keys, (float)(frame / scale), out float h) ? h : time.Hour;
+            DaylightLook look = SunClock.LookAt(hour, day);
+            Vector3 color = Vector3.Clamp(look.Color * (look.Intensity * SceneLighting.MmdIntensity), Vector3.Zero, Vector3.One);
+            samples.Add(new VmdLightKey(frame, color, SceneLighting.DirectionOf(SunClock.SunRotationAt(time, hour))));
+        }
+        IReadOnlyList<VmdLightKey> keys = Simplify(samples);
+
+        if (scale != 1)
+        {
+            InfoOnce(report, $"作品のフレームの速さ（{frameRate} fps）から、MMD の 30 fps に直してキーの位置を {scale:0.##} 倍にしました");
+        }
+        report.Info(LoadIssueCategory.Note,
+            $"時刻で動くサンライトを、照明のキー {keys.Count:N0} 個にして書き出しました（MMD の照明はキーの間を直線でつなぐので、太陽が空の道筋をたどるように細かく分けました）");
+        report.Info(LoadIssueCategory.Note, "時刻の画面の色合い（映像効果の色調補正に重ねる分）は、VMD に入りません");
+        if (sun.Keys.Count > 0)
+        {
+            report.Info(LoadIssueCategory.Note,
+                $"サンライトの照明のキー（{sun.Keys.Count:N0} 件）は、時刻のキーが優先されるため書き出していません（このアプリでも、時刻のキーがあるときはサンライトは時刻で決まります）");
+        }
+        if (time.HasUnregisteredChange)
+        {
+            report.Warning(LoadIssueCategory.Note, "時刻にキーに登録していない変更があり、書き出していません（書き出すには先に登録してください）");
+        }
+        if (sun.HasUnregisteredChange)
+        {
+            report.Warning(LoadIssueCategory.Note, "サンライトに手で変えた変更があり、書き出していません（時刻のキーから求めた光を書き出しました）");
+        }
+        return keys;
+    }
+
+    /// <summary>
+    /// 1 フレームごとの照明のキーから、前後のキーを直線でつないでも違いが許しの中に収まるキーを省く（両端は残す）。
+    /// 許しを超える所でいちばん違うキーを残して、その左右を同じように調べる（Douglas–Peucker の方法）。
+    /// </summary>
+    internal static IReadOnlyList<VmdLightKey> Simplify(IReadOnlyList<VmdLightKey> samples)
+    {
+        if (samples.Count <= 2)
+        {
+            return [.. samples];
+        }
+        var keep = new bool[samples.Count];
+        keep[0] = keep[^1] = true;
+        var stack = new Stack<(int Start, int End)>();
+        stack.Push((0, samples.Count - 1));
+        while (stack.Count > 0)
+        {
+            var (start, end) = stack.Pop();
+            if (end - start < 2)
+            {
+                continue;
+            }
+            VmdLightKey a = samples[start], b = samples[end];
+            int worst = -1;
+            float worstError = 0f;
+            for (int i = start + 1; i < end; i++)
+            {
+                float t = (samples[i].Frame - a.Frame) / (float)(b.Frame - a.Frame);
+                // MMD は向きも色も直線でつなぐ（向きは、つないだ後の向きで照らす）
+                Vector3 color = Vector3.Lerp(a.Color, b.Color, t);
+                Vector3 direction = Vector3.Lerp(a.Direction, b.Direction, t);
+                float colorError = MaxAbs(color - samples[i].Color) / TimeColorTolerance;
+                // 向きの違いの角度（2 つの向きの先の間の長さから求める。小さい角度でも正確）。いちばん違う所で分けるので、大きな違いも数のまま比べる
+                float angle = direction.LengthSquared() > 1e-12f
+                    ? 2f * MathF.Asin(Math.Min(1f, Vector3.Distance(Vector3.Normalize(direction), Vector3.Normalize(samples[i].Direction)) / 2f)) * 180f / MathF.PI
+                    : 180f;
+                float error = MathF.Max(colorError, angle / TimeAngleTolerance);
+                if (error > worstError)
+                {
+                    worstError = error;
+                    worst = i;
+                }
+            }
+            if (worst >= 0 && worstError > 1f)
+            {
+                keep[worst] = true;
+                stack.Push((start, worst));
+                stack.Push((worst, end));
+            }
+        }
+        var kept = new List<VmdLightKey>();
+        for (int i = 0; i < samples.Count; i++)
+        {
+            if (keep[i])
+            {
+                kept.Add(samples[i]);
+            }
+        }
+        return kept;
+
+        static float MaxAbs(Vector3 v) => MathF.Max(MathF.Abs(v.X), MathF.Max(MathF.Abs(v.Y), MathF.Abs(v.Z)));
+    }
+
     private static Vector3 Finite(Vector3 v) => float.IsFinite(v.X) && float.IsFinite(v.Y) && float.IsFinite(v.Z) ? Vector3.Max(v, Vector3.Zero) : Vector3.Zero;
 
     // カメラと照明を一緒に読み書きするとき、同じ知らせを 2 度出さない

@@ -117,9 +117,11 @@ public static class CameraMotion
     /// <summary>
     /// シーンのカメラのキーを VMD（カメラ・照明用）にする。30 fps に直し、段階の補間は 1 つ前のフレームにキーを足して表す。
     /// <paramref name="light"/>（MMD の照明）・<paramref name="selfShadow"/> にキーがあれば、照明・セルフ影のキーも一緒に書く
-    /// （<see cref="LightMotion.CreateKeys"/>・<see cref="SelfShadowMotion.CreateKeys"/>）。
+    /// （<see cref="LightMotion.CreateKeys"/>・<see cref="SelfShadowMotion.CreateKeys"/>）。<paramref name="time"/>（時刻の項目）にキーがあれば、
+    /// 照明のキーは、時刻で動くサンライトから作る（<see cref="LightMotion.CreateKeysFromTime"/>）。
     /// </summary>
-    public static VmdDocument CreateVmd(CameraNode camera, int frameRate, LoadReport report, LightNode? light = null, SelfShadowNode? selfShadow = null)
+    public static VmdDocument CreateVmd(CameraNode camera, int frameRate, LoadReport report, LightNode? light = null, SelfShadowNode? selfShadow = null,
+        TimeOfDayNode? time = null)
     {
         double scale = MotionImport.MmdFrameRate / (double)frameRate;
         int Scale(int frame) => (int)Math.Round(frame * scale, MidpointRounding.AwayFromZero);
@@ -157,7 +159,9 @@ public static class CameraMotion
         {
             report.Warning(LoadIssueCategory.Note, "カメラにキーに登録していない変更があり、書き出していません（書き出すには先に登録してください）");
         }
-        IReadOnlyList<VmdLightKey> lights = light is null ? [] : LightMotion.CreateKeys(light, frameRate, report);
+        IReadOnlyList<VmdLightKey> lights = light is null ? []
+            : time is not null ? LightMotion.CreateKeysFromTime(time, light, frameRate, report)
+            : LightMotion.CreateKeys(light, frameRate, report);
         IReadOnlyList<VmdShadowKey> shadows = selfShadow is null ? [] : SelfShadowMotion.CreateKeys(selfShadow, frameRate, report);
         if (written.Count == 0 && lights.Count == 0 && shadows.Count == 0)
         {

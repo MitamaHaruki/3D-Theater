@@ -548,6 +548,12 @@ public sealed class NodeEntry
     /// <summary>太陽の向きも時刻で動かすか（時刻の項目だけ。無いときは動かす）。</summary>
     public bool? FollowSunPath { get; set; }
 
+    /// <summary>季節（何月の 21 日ごろか。時刻の項目だけ。無い古いファイルは 3 月 = 春分）。</summary>
+    public int? Month { get; set; }
+
+    /// <summary>緯度（度。時刻の項目だけ。無い古いファイルは、春分の昼の高さが MMD の初めの照明と同じになる 35.3°）。</summary>
+    public float? Latitude { get; set; }
+
     /// <summary>カメラ・照明の未登録の変更。</summary>
     public bool Unregistered { get; set; }
 
@@ -878,6 +884,8 @@ public static class ProjectCapture
                 entry.Hour = time.Hour;
                 entry.NoonAzimuth = time.NoonAzimuth;
                 entry.FollowSunPath = time.FollowsSunPath;
+                entry.Month = time.Month;
+                entry.Latitude = time.Latitude;
                 entry.Unregistered = time.HasUnregisteredChange;
                 entry.Keys = time.Keys.Count > 0 ? [.. time.Keys.Keys.Select(KeyCodec.Encode)] : null;
                 break;
@@ -1112,6 +1120,8 @@ public static class ProjectApply
                     time.Hour = entry.Hour ?? TimeOfDayNode.DefaultHour;
                     time.NoonAzimuth = entry.NoonAzimuth ?? TimeOfDayNode.DefaultNoonAzimuth;
                     time.FollowsSunPath = entry.FollowSunPath ?? true;
+                    time.Month = entry.Month ?? TimeOfDayNode.DefaultMonth;
+                    time.Latitude = entry.Latitude ?? TimeOfDayNode.DefaultLatitude;
                     time.Keys.ReplaceAll((entry.Keys ?? []).Select(KeyCodec.DecodeTime).OfType<TimeKey>());
                     time.HasUnregisteredChange = entry.Unregistered;
                     break;

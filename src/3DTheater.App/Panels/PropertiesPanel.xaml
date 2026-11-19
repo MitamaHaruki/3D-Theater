@@ -378,13 +378,13 @@
           <TextBlock Text="時刻（太陽と画面の色合い）" Style="{StaticResource SectionHeaderStyle}" Margin="0,14,0,6" />
           <UniformGrid Columns="4">
             <Button Margin="0,0,4,0" Content="朝" Tag="Morning" HorizontalAlignment="Stretch" Click="OnTimeOfDayClick" IsEnabled="{Binding IsTimeEditable}"
-                    AutomationProperties.Name="時刻を朝にする" ToolTip="8 時。低い太陽のやわらかい光と、少し暖かい色合い" />
+                    AutomationProperties.Name="時刻を朝にする" ToolTip="日の出の 2 時間ほど後（3 月・9 月は 8 時。季節で変わります）。低い太陽のやわらかい光と、少し暖かい色合い" />
             <Button Margin="2,0,2,0" Content="昼" Tag="Noon" HorizontalAlignment="Stretch" Click="OnTimeOfDayClick" IsEnabled="{Binding IsTimeEditable}"
-                    AutomationProperties.Name="時刻を昼にする" ToolTip="12 時。MMD の初めの照明と同じ高さ・明るさで、色合いを変えません" />
+                    AutomationProperties.Name="時刻を昼にする" ToolTip="12 時。太陽がいちばん高く（3 月・9 月は MMD の初めの照明と同じ高さ）、色合いを変えません" />
             <Button Margin="2,0,2,0" Content="夕" Tag="Evening" HorizontalAlignment="Stretch" Click="OnTimeOfDayClick" IsEnabled="{Binding IsTimeEditable}"
-                    AutomationProperties.Name="時刻を夕にする" ToolTip="17 時。とても低い太陽のだいだい色の光と、暖かく鮮やかな色合い" />
+                    AutomationProperties.Name="時刻を夕にする" ToolTip="日の入りの 1 時間ほど前（3 月・9 月は 17 時。季節で変わります）。とても低い太陽のだいだい色の光と、暖かく鮮やかな色合い" />
             <Button Margin="4,0,0,0" Content="夜" Tag="Night" HorizontalAlignment="Stretch" Click="OnTimeOfDayClick" IsEnabled="{Binding IsTimeEditable}"
-                    AutomationProperties.Name="時刻を夜にする" ToolTip="22 時。青白い月明かりと、暗く青っぽい色合い" />
+                    AutomationProperties.Name="時刻を夜にする" ToolTip="日の入りから 4 時間ほど後（3 月・9 月は 22 時。季節で変わります）。青白い月明かりと、暗く青っぽい色合い" />
           </UniformGrid>
           <Grid Margin="0,6,0,0">
             <Grid.ColumnDefinitions>
@@ -393,6 +393,8 @@
               <ColumnDefinition Width="84" />
             </Grid.ColumnDefinitions>
             <Grid.RowDefinitions>
+              <RowDefinition Height="28" />
+              <RowDefinition Height="28" />
               <RowDefinition Height="28" />
               <RowDefinition Height="28" />
               <RowDefinition Height="Auto" />
@@ -406,7 +408,15 @@
                        ToolTip="昼の太陽の向き。真上から見て、昼（12 時）に光が来る向き（サンライトの回転の Y と同じ）。窓から光が入るように合わせます。昼の太陽に向かって、朝は左から、夕方は右から光が来ます" />
             <c:NumberBox Grid.Row="1" Grid.Column="2" Value="{Binding NoonAzimuth}" Step="1" Format="0.0" IsEnabled="{Binding IsTimeEditable}"
                          AutomationProperties.Name="昼の太陽の向き" />
-            <Grid Grid.Row="2" Grid.ColumnSpan="3" Height="28" Visibility="{Binding IsMainLight, Converter={StaticResource BoolToVisibility}}">
+            <TextBlock Grid.Row="2" Text="季節" Style="{StaticResource RowLabelStyle}"
+                       ToolTip="何月の 21 日ごろの太陽か。夏は昼の太陽が高く、朝早く昇って遅く沈みます。冬はその逆です。夜の満月は、夏は低く、冬は高く通ります" />
+            <ComboBox Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" Margin="0,2,0,2" ItemsSource="{Binding MonthLabels}"
+                      SelectedIndex="{Binding TimeMonthIndex}" IsEnabled="{Binding IsTimeEditable}" AutomationProperties.Name="季節" />
+            <TextBlock Grid.Row="3" Text="緯度（度）" Style="{StaticResource RowLabelStyle}"
+                       ToolTip="0〜60 度（北半球）。高いほど昼の太陽が低く、夏と冬の昼の長さの違いが大きくなります。初めは、3 月の昼の高さが MMD の初めの照明と同じになる 35.3 度（東京は 35.7 度・札幌は 43.1 度・那覇は 26.2 度）" />
+            <c:NumberBox Grid.Row="3" Grid.Column="2" Value="{Binding TimeLatitude}" Step="0.5" Format="0.0" IsEnabled="{Binding IsTimeEditable}"
+                         AutomationProperties.Name="緯度" />
+            <Grid Grid.Row="4" Grid.ColumnSpan="3" Height="28" Visibility="{Binding IsMainLight, Converter={StaticResource BoolToVisibility}}">
               <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="96" />
                 <ColumnDefinition Width="*" />
@@ -417,6 +427,7 @@
               <c:NumberBox Grid.Column="2" Value="{Binding SunElevation}" Step="1" Format="0.0" AutomationProperties.Name="太陽の高さ" />
             </Grid>
           </Grid>
+          <TextBlock Margin="0,2,0,0" Text="{Binding SunDayText}" Style="{StaticResource PlannedNoteStyle}" TextTrimming="CharacterEllipsis" />
           <CheckBox Margin="0,4,0,0" Content="太陽の向きも時刻で動かす" IsChecked="{Binding FollowsSunPath}" IsEnabled="{Binding IsTimeEditable}"
                     ToolTip="朝は左（東）から、昼は「昼の太陽の向き」から、夕方は右（西）から光が来ます。外すと、いつも「昼の太陽の向き」から照らします（窓からいつも光を入れたいとき）" />
           <DockPanel Margin="0,8,0,0" shell:ModeOnly.Edit="True">
@@ -425,7 +436,7 @@
             <TextBlock Margin="8,0,0,0" VerticalAlignment="Center" Text="{Binding TimeKeyCountText}" TextTrimming="CharacterEllipsis" />
           </DockPanel>
           <TextBlock Margin="0,6,0,0" Style="{StaticResource PlannedNoteStyle}"
-                     Text="時刻を変えると、サンライトの向き・高さ・色・明るさがその時刻の光になり、画面の色合いも変わります（色合いは、映像効果の色調補正に重ねます。映像効果の値は変えません）。太陽は 6 時に昇り、12 時にいちばん高く、18 時に沈みます。夜は月明かりです。変えた後も、照明の欄で色・明るさを直せます。" />
+                     Text="時刻を変えると、サンライトの向き・高さ・色・明るさがその時刻の光になり、画面の色合いも変わります（色合いは、映像効果の色調補正に重ねます。映像効果の値は変えません）。太陽は、季節と緯度で決まる日の出に昇り（3 月・9 月は 6 時）、12 時にいちばん高く、日の入りに沈みます。夜は月明かりです。朝・夕・夜のボタンの時刻も、季節に合わせて動きます。変えた後も、照明の欄で色・明るさを直せます。" />
           <TextBlock Margin="0,4,0,0" Style="{StaticResource PlannedNoteStyle}" shell:ModeOnly.Edit="True"
                      Text="時刻のキーがあるときは、サンライトの向き・高さ・色・明るさは時刻で決まります（サンライトの照明のキーより、時刻が優先されます）。手で変えると未登録の変更になります。" />
         </StackPanel>

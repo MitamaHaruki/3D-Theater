@@ -55,7 +55,8 @@ internal static class MotionExporter
             return;
         }
         var report = new LoadReport();
-        VmdDocument vmd = CameraMotion.CreateVmd(camera, context.Playback.FrameRate, report, context.Scene.MainLight, context.Scene.SelfShadow);
+        VmdDocument vmd = CameraMotion.CreateVmd(camera, context.Playback.FrameRate, report, context.Scene.MainLight, context.Scene.SelfShadow,
+            context.Scene.TimeOfDay);
         Write(owner, dialog.FileName, VmdWriter.Write(vmd), report, "カメラ・照明のモーション",
             $"カメラ・照明のモーションを書き出しました: {dialog.FileName}（カメラのキー {vmd.CameraKeys.Count:N0}・照明のキー {vmd.LightKeys.Count:N0}・"
             + $"セルフ影のキー {vmd.ShadowKeys.Count:N0}）");

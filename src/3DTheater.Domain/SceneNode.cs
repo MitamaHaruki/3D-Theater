@@ -843,9 +843,22 @@ public sealed class TimeOfDayNode : SceneNode
     /// <summary>初めの、昼の太陽の向き（MMD の初めの照明の左右の向き）。</summary>
     public const float DefaultNoonAzimuth = -45f;
 
+    /// <summary>初めの季節（3 月 = 春分のころ。昼と夜の長さが同じ）。</summary>
+    public const int DefaultMonth = 3;
+
+    /// <summary>初めの緯度（度）。春分・秋分の昼の太陽の高さが、MMD の初めの照明（54.73561°）と同じになる値（東京は 35.7°）。</summary>
+    public const float DefaultLatitude = 90f - 54.73561f;
+
+    /// <summary>緯度の範囲（度。北半球。60° を越えると、季節によって太陽が沈まない・昇らない日がある）。</summary>
+    public const float MinLatitude = 0f;
+
+    public const float MaxLatitude = 60f;
+
     private float _hour = DefaultHour;
     private float _noonAzimuth = DefaultNoonAzimuth;
     private bool _followsSunPath = true;
+    private int _month = DefaultMonth;
+    private float _latitude = DefaultLatitude;
     private bool _hasUnregisteredChange;
 
     public TimeOfDayNode()
@@ -879,6 +892,22 @@ public sealed class TimeOfDayNode : SceneNode
         set => SetProperty(ref _followsSunPath, value);
     }
 
+    /// <summary>
+    /// 季節（何月の 21 日ごろか。1〜12）。太陽の道筋（昼の高さ・日の出と日の入りの時刻）が変わる。3 月・9 月は春分・秋分、6 月は夏至、12 月は冬至。
+    /// </summary>
+    public int Month
+    {
+        get => _month;
+        set => SetProperty(ref _month, Math.Clamp(value, 1, 12));
+    }
+
+    /// <summary>緯度（度。<see cref="MinLatitude"/>〜<see cref="MaxLatitude"/>）。高いほど昼の太陽が低く、夏と冬の昼の長さの違いが大きい。</summary>
+    public float Latitude
+    {
+        get => _latitude;
+        set => SetProperty(ref _latitude, float.IsFinite(value) ? Math.Clamp(value, MinLatitude, MaxLatitude) : _latitude);
+    }
+
     /// <summary>キーフレーム（時刻を動かす）。</summary>
     public KeyTrack<TimeKey> Keys { get; } = new();
 
@@ -890,7 +919,7 @@ public sealed class TimeOfDayNode : SceneNode
     }
 
     protected override object? CaptureExtra(bool includeKeys) =>
-        new TimeOfDayState(Hour, NoonAzimuth, FollowsSunPath, HasUnregisteredChange, includeKeys ? new KeySnapshot<TimeKey>(Keys.ToArray()) : null);
+        new TimeOfDayState(Hour, NoonAzimuth, FollowsSunPath, Month, Latitude, HasUnregisteredChange, includeKeys ? new KeySnapshot<TimeKey>(Keys.ToArray()) : null);
 
     protected override void RestoreExtra(object? extra)
     {
@@ -903,6 +932,8 @@ public sealed class TimeOfDayNode : SceneNode
             Hour = s.Hour;
             NoonAzimuth = s.NoonAzimuth;
             FollowsSunPath = s.FollowsSunPath;
+            Month = s.Month;
+            Latitude = s.Latitude;
             HasUnregisteredChange = s.HasUnregisteredChange;
         }
     }

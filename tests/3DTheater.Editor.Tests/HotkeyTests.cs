@@ -160,8 +160,15 @@ public sealed class HotkeyTests
         Assert.IsNull(TimeOfDayHotkeys.TargetHour("夕方", 3f));
         Assert.IsNull(TimeOfDayHotkeys.TargetHour("50", 3f));
         Assert.IsNull(TimeOfDayHotkeys.TargetHour(null, 3f));
-        Assert.AreEqual("夕（17:00）", TimeOfDayHotkeys.Label("17"));
+        Assert.AreEqual("夕", TimeOfDayHotkeys.Label("17"), "朝・夕・夜は季節で時刻が変わるので、時刻を書かない");
         Assert.AreEqual("13:30", TimeOfDayHotkeys.Label("13.5"));
+
+        // 朝・昼・夕・夜は、時刻の項目の季節のボタンの時刻へ（冬の夕は 16 時。設計判断記録 96 章）
+        SunDay winter = SunDay.Of(12, TimeOfDayNode.DefaultLatitude);
+        Assert.AreEqual(16f, TimeOfDayHotkeys.TargetHour("17", 3f, winter));
+        Assert.AreEqual(12f, TimeOfDayHotkeys.TargetHour("12", 3f, winter));
+        Assert.AreEqual(16f, TimeOfDayHotkeys.TargetHour(TimeOfDayHotkeys.Next, 12f, winter), "次の時刻も季節に合わせる");
+        Assert.AreEqual(17.5f, TimeOfDayHotkeys.TargetHour("17.5", 3f, winter), "決めた時刻はそのまま");
         Assert.IsNull(TimeOfDayHotkeys.Label("夕方"));
         Assert.IsTrue(HotkeyActions.UsesName(HotkeyAction.TimeOfDay));
         Assert.IsTrue(HotkeyActions.UsesDuration(HotkeyAction.TimeOfDay));

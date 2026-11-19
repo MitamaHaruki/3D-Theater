@@ -390,7 +390,7 @@ public sealed class HotkeyService : IDisposable
     {
         TimeOfDayNode time = _context.Scene.TimeOfDay;
         LightNode sun = _context.Scene.MainLight;
-        if (TimeOfDayHotkeys.TargetHour(binding.Name, time.Hour) is not { } target)
+        if (TimeOfDayHotkeys.TargetHour(binding.Name, time.Hour, SunDay.Of(time)) is not { } target)
         {
             Notice?.Invoke(this, ("時刻を選んでください（設定画面の「キー操作」）", true));
             return;
