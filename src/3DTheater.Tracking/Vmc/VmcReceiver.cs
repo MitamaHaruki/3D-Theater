@@ -43,7 +43,9 @@ public sealed class VmcState
                 return true;
             case VmcProtocol.Hand when message.Int(0) is { } side and (0 or 1) && message.Int(1) is { } found
                 && Floats(message, 2, HandPose.ValueCount) is { } angles:
-                _hands[side] = found != 0 ? new HandPose(side == 1, angles) : null;
+                _hands[side] = found != 0
+                    ? new HandPose(side == 1, angles) { Quality = message.Float(2 + HandPose.ValueCount) is { } q && float.IsFinite(q) ? Math.Clamp(q, 0f, 1f) : 1f }
+                    : null;
                 return true;
             case VmcProtocol.Frame when message.Int(0) is { } sequence:
                 LastSequence = sequence;

@@ -64,6 +64,32 @@ public sealed class HandRetargetTests
     }
 
     [TestMethod]
+    public void UncertainHandsAreSmoothedMore()
+    {
+        // 同じ揺れ（±8° を交互に）を、確かさ 1 と 0 で当てる。確かさの低いほうが、出る揺れが小さい
+        float Jitter(float quality)
+        {
+            var retarget = new HandRetarget();
+            var outputs = new List<float>();
+            for (int i = 0; i < 90; i++)
+            {
+                float[] angles = [.. OpenHand];
+                angles[9] = 16 + 40 + ((i % 2 == 0) ? 8 : -8); // 中指の中の関節
+                HandOutput o = retarget.Compute([new HandSignal(true, angles) { Quality = quality }], i / 30.0, false, 0.5f);
+                if (i >= 30)
+                {
+                    outputs.Add(o.Right[9]);
+                }
+            }
+            return outputs.Max() - outputs.Min();
+        }
+        float sure = Jitter(1f);
+        float unsure = Jitter(0f);
+        Assert.IsGreaterThan(0f, sure);
+        Assert.IsLessThan(sure * 0.5f, unsure, $"確かさ 1: {sure:F2}°・確かさ 0: {unsure:F2}°");
+    }
+
+    [TestMethod]
     public void LostHandsEaseBackToTheModelShape()
     {
         var retarget = new HandRetarget();

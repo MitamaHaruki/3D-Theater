@@ -144,6 +144,21 @@ public sealed record HandPose(bool IsRight, float[] Angles)
     public const int ValuesPerFinger = 4;
     public const int ValueCount = FingerCount * ValuesPerFinger;
 
+    /// <summary>
+    /// 指が掌と反対の側へ曲がっている度合いが、これより強ければ、奥行きが裏返って読めたとみなす（指の先・親指の先が、平均して掌の向きと
+    /// 逆を向く。手の甲の側へ大きく反る指はほとんど無い）。
+    /// </summary>
+    public const float MirroredBelow = -0.25f;
+
+    /// <summary>
+    /// 読み取りの確かさ（0〜1）。掌か手の甲がカメラを向いているほど高く、掌を横に向けた・指がカメラの方を向いたときは低い
+    /// （そういう向きでは、モデルの読んだ角度が 2〜4 倍揺れる。確かめ用の動画で測った）。
+    /// </summary>
+    public float Quality { get; init; } = 1f;
+
+    /// <summary>奥行きが裏返って読めたので、直したか。</summary>
+    public bool DepthMirrored { get; init; }
+
     public static IReadOnlyList<string> FingerNames { get; } = ["親指", "人差し指", "中指", "薬指", "小指"];
 
     /// <summary>曲がり（<paramref name="joint"/> は 0 = 根元・1 = 中・2 = 先）。</summary>
@@ -152,12 +167,26 @@ public sealed record HandPose(bool IsRight, float[] Angles)
     /// <summary>開き。</summary>
     public float Spread(int finger) => Angles[(finger * ValuesPerFinger) + 3];
 
-    /// <summary>手の 21 点（メートル）から求める。<paramref name="isRight"/> は本人の右手か（掌の向きを決める）。</summary>
-    public static HandPose FromWorld(ReadOnlySpan<Vector3> p, bool isRight)
+    /// <summary>
+    /// 手の 21 点（メートル）から求める。<paramref name="isRight"/> は本人の右手か（掌の向きを決める）。
+    /// 1 枚のカメラの絵では、手の奥行きが前後に裏返って読めることがある（掌の側と手の甲の側の取り違え。左右の見分けとも食い違う）。
+    /// 指が掌と反対の側へ大きく曲がって読めたら、奥行きを手首の所で裏返してから求める。
+    /// </summary>
+    public static HandPose FromWorld(ReadOnlySpan<Vector3> points, bool isRight)
     {
-        if (p.Length < HandTracker.LandmarkCount)
+        if (points.Length < HandTracker.LandmarkCount)
         {
-            throw new ArgumentException($"手の点は {HandTracker.LandmarkCount} 個要ります", nameof(p));
+            throw new ArgumentException($"手の点は {HandTracker.LandmarkCount} 個要ります", nameof(points));
+        }
+        Vector3[] p = points[..HandTracker.LandmarkCount].ToArray();
+        bool mirrored = CurlToPalm(p, isRight) < MirroredBelow;
+        if (mirrored)
+        {
+            float z = p[0].Z;
+            for (int k = 0; k < p.Length; k++)
+            {
+                p[k].Z = (2 * z) - p[k].Z;
+            }
         }
         Vector3 wrist = p[0];
         Vector3 forward = Unit(p[9] - wrist); // 手首 → 中指の付け根
@@ -209,7 +238,28 @@ public sealed record HandPose(bool IsRight, float[] Angles)
                 angles[i] = 0f;
             }
         }
-        return new HandPose(isRight, angles);
+        // 確かさ: 掌の向きがカメラの向き（z）に近いほど、指の向きがカメラの向きから離れているほど高い
+        float facing = Math.Clamp((MathF.Abs(normal.Z) - 0.3f) / 0.55f, 0f, 1f);
+        float across = Math.Clamp((0.85f - MathF.Abs(forward.Z)) / 0.45f, 0f, 1f);
+        return new HandPose(isRight, angles) { Quality = facing * across, DepthMirrored = mirrored };
+    }
+
+    /// <summary>
+    /// 指の先（と親指の先）が、掌の側へ向いている度合い（-1〜1 の平均）。正なら、左右の見分けと点の 3D の形が合っている。
+    /// </summary>
+    public static float CurlToPalm(ReadOnlySpan<Vector3> p, bool isRight)
+    {
+        Vector3 normal = Unit(Vector3.Cross(p[5] - p[0], p[17] - p[0]));
+        if (!isRight)
+        {
+            normal = -normal;
+        }
+        float sum = Vector3.Dot(Unit(p[4] - p[2]), normal);
+        for (int b = 5; b <= 17; b += 4)
+        {
+            sum += Vector3.Dot(Unit(p[b + 3] - p[b]), normal);
+        }
+        return sum / 5f;
     }
 
     private static Vector3 Unit(Vector3 v)

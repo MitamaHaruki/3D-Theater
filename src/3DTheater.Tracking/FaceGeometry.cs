@@ -50,49 +50,92 @@ public sealed record FaceDetection(Vector2 Min, Vector2 Max, Vector2[] Keypoints
     public FaceRegion Region => FaceRegion.From(Min, Max, Keypoints[0], Keypoints[1]);
 }
 
-/// <summary>絵の切り出し（双一次補間）と、モデルへ渡す数の並びへの書き込み。</summary>
+/// <summary>
+/// 絵の切り出し（双一次補間）と、モデルへ渡す数の並びへの書き込み。切り出し方は、元の画像の座標 = 始まり + u × 横の向き + v × 縦の向き
+/// （u・v は出力の 0〜1）の形だけ（回した範囲も、縦横比を保った縮小も、この形）。画素ごとに関数を呼ばず、足していくだけにして速くした（設計判断記録 99 章）。
+/// </summary>
 internal static class ImageSampler
 {
     /// <summary>
-    /// <paramref name="sourcePoint"/>（出力の画素の真ん中 → 元の画像の座標）で、元の画像から <paramref name="size"/> × <paramref name="size"/> を切り出し、
+    /// 元の画像の <c>origin + u × axisU + v × axisV</c>（u・v は出力の 0〜1）を <paramref name="size"/> × <paramref name="size"/> に切り出し、
     /// RGB の順に <c>値 × scale + offset</c> を並べる（NHWC）。外は 0 の色。
     /// </summary>
-    public static void Sample(BgraImage image, int size, Func<float, float, Vector2> sourcePoint, Span<float> rgb, float scale, float offset)
+    public static void Sample(BgraImage image, int size, Vector2 origin, Vector2 axisU, Vector2 axisV, Span<float> rgb, float scale, float offset)
     {
         byte[] p = image.Pixels;
         int stride = image.Stride;
+        int width = image.Width;
+        int height = image.Height;
+        Vector2 du = axisU / size;
+        Vector2 dv = axisV / size;
+        // 出力の画素の真ん中に当たる場所（画素の真ん中が整数＋0.5 なので、0.5 引いて補間の位置にする）
+        Vector2 first = origin + ((du + dv) * 0.5f) - new Vector2(0.5f);
         int index = 0;
         for (int v = 0; v < size; v++)
         {
-            for (int u = 0; u < size; u++)
+            Vector2 s = first + (dv * v);
+            for (int u = 0; u < size; u++, s += du)
             {
-                Vector2 s = sourcePoint((u + 0.5f) / size, (v + 0.5f) / size);
-                float sx = s.X - 0.5f;
-                float sy = s.Y - 0.5f;
-                int x0 = (int)MathF.Floor(sx);
-                int y0 = (int)MathF.Floor(sy);
-                float fx = sx - x0;
-                float fy = sy - y0;
-                float r = 0, g = 0, b = 0;
-                for (int k = 0; k < 4; k++)
+                int x0 = (int)MathF.Floor(s.X);
+                int y0 = (int)MathF.Floor(s.Y);
+                float fx = s.X - x0;
+                float fy = s.Y - y0;
+                float r, g, b;
+                if ((uint)x0 < (uint)(width - 1) && (uint)y0 < (uint)(height - 1))
                 {
-                    int x = x0 + (k & 1);
-                    int y = y0 + (k >> 1);
-                    if ((uint)x >= (uint)image.Width || (uint)y >= (uint)image.Height)
+                    // 4 つとも画像の中（ほとんどの画素）
+                    int i = (y0 * stride) + (x0 * 4);
+                    int j = i + stride;
+                    float w00 = (1 - fx) * (1 - fy);
+                    float w10 = fx * (1 - fy);
+                    float w01 = (1 - fx) * fy;
+                    float w11 = fx * fy;
+                    b = (p[i] * w00) + (p[i + 4] * w10) + (p[j] * w01) + (p[j + 4] * w11);
+                    g = (p[i + 1] * w00) + (p[i + 5] * w10) + (p[j + 1] * w01) + (p[j + 5] * w11);
+                    r = (p[i + 2] * w00) + (p[i + 6] * w10) + (p[j + 2] * w01) + (p[j + 6] * w11);
+                }
+                else
+                {
+                    r = g = b = 0;
+                    for (int k = 0; k < 4; k++)
                     {
-                        continue;
+                        int x = x0 + (k & 1);
+                        int y = y0 + (k >> 1);
+                        if ((uint)x >= (uint)width || (uint)y >= (uint)height)
+                        {
+                            continue;
+                        }
+                        float w = ((k & 1) == 0 ? 1 - fx : fx) * ((k >> 1) == 0 ? 1 - fy : fy);
+                        int i = (y * stride) + (x * 4);
+                        b += p[i] * w;
+                        g += p[i + 1] * w;
+                        r += p[i + 2] * w;
                     }
-                    float w = ((k & 1) == 0 ? 1 - fx : fx) * ((k >> 1) == 0 ? 1 - fy : fy);
-                    int i = (y * stride) + (x * 4);
-                    b += p[i] * w;
-                    g += p[i + 1] * w;
-                    r += p[i + 2] * w;
                 }
                 rgb[index++] = (r * scale) + offset;
                 rgb[index++] = (g * scale) + offset;
                 rgb[index++] = (b * scale) + offset;
             }
         }
+    }
+
+    /// <summary>回した範囲（<see cref="FaceRegion"/>）を切り出す。</summary>
+    public static void Sample(BgraImage image, int size, FaceRegion region, Span<float> rgb, float scale, float offset)
+    {
+        Vector2 origin = region.ToImage(0, 0);
+        Sample(image, size, origin, region.ToImage(1, 0) - origin, region.ToImage(0, 1) - origin, rgb, scale, offset);
+    }
+
+    /// <summary>
+    /// 画像全体を、縦横比を保って <paramref name="size"/> × <paramref name="size"/> に収める（足りない所は 0 の色）。
+    /// 縮めた倍率と、上下・左右の余白（出力の画素）を返す（出力の座標 p は、元の画像の (p − pad) ÷ scale）。
+    /// </summary>
+    public static (float Scale, Vector2 Pad) SampleLetterbox(BgraImage image, int size, Span<float> rgb, float scale, float offset)
+    {
+        float factor = Math.Min(size / (float)image.Width, size / (float)image.Height);
+        var pad = new Vector2((size - (image.Width * factor)) * 0.5f, (size - (image.Height * factor)) * 0.5f);
+        Sample(image, size, -pad / factor, new Vector2(size / factor, 0), new Vector2(0, size / factor), rgb, scale, offset);
+        return (factor, pad);
     }
 }
 

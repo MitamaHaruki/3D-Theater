@@ -10,6 +10,10 @@
     <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.23.2" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="3DTheater.Tracking.Tests" />
+  </ItemGroup>
+
   <!-- 顔のモデル（models/face_landmarker。Apache-2.0）を、出力の Models\FaceLandmarker に置く -->
   <ItemGroup>
     <None Include="$(RepoRoot)models\face_landmarker\*.onnx" Link="Models\FaceLandmarker\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />

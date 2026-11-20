@@ -7,7 +7,11 @@ namespace Theater3D.Editor;
 /// 手のトラッキングの 1 つの手（本人の左右）。角度は度で、指ごと（親指・人差し指・中指・薬指・小指）に 根元・中・先の曲がりと開きの 4 つ
 /// （3D Theater VCamera が送る値。トラッキングの HandPose と同じ並び。設計判断記録 99 章）。
 /// </summary>
-public sealed record HandSignal(bool IsRight, float[] Angles);
+public sealed record HandSignal(bool IsRight, float[] Angles)
+{
+    /// <summary>読み取りの確かさ（0〜1。手を横に向けた・指がカメラの方を向いたときは低い）。低いほど強くならす。</summary>
+    public float Quality { get; init; } = 1f;
+}
 
 /// <summary>キャラクターの左右の手に当てる角度（度。<see cref="HandSignal"/> と同じ並び。ずれを差し引き、強め、範囲に収めた後）。</summary>
 public sealed record HandOutput(float[] Left, float[] Right)
@@ -34,7 +38,12 @@ public sealed record HandOutput(float[] Left, float[] Right)
 /// <list type="bullet">
 /// <item>トラッキングは、開いた手でも少し曲がって読め、握っても曲がりきらないので、開いた手の分を差し引いて強める（確かめ用の動画で、開いた手と握った手の値から決めた）。</item>
 /// <item>指の開きは、根元を大きく曲げるとあてにならないので、曲げるほど弱める。</item>
-/// <item>値を One Euro フィルターでならし、手を見失ったら <see cref="FadeOutSeconds"/> かけて伸ばした形（モデルのもとの形）へ戻す。</item>
+/// <item>
+/// 値を One Euro フィルターでならす。読み取りの確かさが低いとき（手を横に向けた・指がカメラの方を向いたとき）ほど強くならす。
+/// 速さでならしを弱める強さは小さくする（読み取りの揺れを速い動きと取り違えて、揺れを通してしまうため。ノートパソコンの確かめで
+/// 「手の向きによって指が震える」と分かり、確かめ用の動画で比べて決めた）。
+/// </item>
+/// <item>手を見失ったら <see cref="FadeOutSeconds"/> かけて伸ばした形（モデルのもとの形）へ戻す。</item>
 /// <item>キャラクターは本人と同じ側の手を動かす（鏡のようにする設定なら、反対の手）。</item>
 /// </list>
 /// </summary>
@@ -42,6 +51,12 @@ public sealed class HandRetarget
 {
     public const float FadeInSeconds = 0.15f;
     public const float FadeOutSeconds = 0.6f;
+
+    /// <summary>速さでならしを弱める強さ（度/秒あたりの Hz）。</summary>
+    public const float SpeedBeta = 0.01f;
+
+    /// <summary>確かさが 0 のときの、ならしの切れ目の割合（確かさ 1 で 1 倍）。</summary>
+    public const float LowQualityCutoff = 0.25f;
 
     // 開いた手で読める分（指ごとに 根元・中・先・開き。度）
     private static readonly float[] Offsets =
@@ -89,11 +104,13 @@ public sealed class HandRetarget
             {
                 float[] mapped = Map(hand.Angles);
                 float cutoff = 5f - (4.6f * Math.Clamp(smoothing, 0f, 1f)); // 顔と同じ（なめらかさ 0 → 5 Hz、1 → 0.4 Hz）
+                float quality = float.IsFinite(hand.Quality) ? Math.Clamp(hand.Quality, 0f, 1f) : 1f;
+                cutoff *= LowQualityCutoff + ((1f - LowQualityCutoff) * quality);
                 for (int i = 0; i < mapped.Length; i++)
                 {
                     OneEuroFilter filter = _filters[side, i] ??= new OneEuroFilter();
                     filter.MinCutoff = cutoff;
-                    filter.Beta = 0.05f; // 角度（度）なので、速さでの上げ方は小さめ
+                    filter.Beta = SpeedBeta;
                     _last[side][i] = filter.Filter(mapped[i], time);
                 }
                 _weight[side] = _weight[side] <= 0 && dt <= 0 ? 1f : Math.Min(1f, _weight[side] + (dt / FadeInSeconds));

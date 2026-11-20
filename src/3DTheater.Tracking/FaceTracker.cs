@@ -146,9 +146,7 @@ public sealed class FaceTracker : IDisposable
     {
         const int size = FaceDetectorMath.InputSize;
         // 縦横比を保って 128 × 128 に収める（足りない所は 0）
-        float scale = Math.Min(size / (float)image.Width, size / (float)image.Height);
-        var pad = new Vector2((size - (image.Width * scale)) * 0.5f, (size - (image.Height * scale)) * 0.5f);
-        ImageSampler.Sample(image, size, (u, v) => (new Vector2(u * size, v * size) - pad) / scale, _detectorInput, 2f / 255f, -1f);
+        (float scale, Vector2 pad) = ImageSampler.SampleLetterbox(image, size, _detectorInput, 2f / 255f, -1f);
         using OrtValue input = OrtValue.CreateTensorValueFromMemory(_detectorInput, [1, size, size, 3]);
         using IDisposableReadOnlyCollection<OrtValue> outputs = _detector.Run(_run, [_detector.InputNames[0]], [input], _detector.OutputNames);
         // 出力の並びはモデルの書き方しだいなので、大きさで見分ける（箱は 896 × 16、顔らしさは 896）
@@ -162,7 +160,7 @@ public sealed class FaceTracker : IDisposable
 
     private (Vector3[] Landmarks, float Presence) Landmarks(BgraImage image, FaceRegion region)
     {
-        ImageSampler.Sample(image, LandmarkInputSize, region.ToImage, _landmarkInput, 1f / 255f, 0f);
+        ImageSampler.Sample(image, LandmarkInputSize, region, _landmarkInput, 1f / 255f, 0f);
         using OrtValue input = OrtValue.CreateTensorValueFromMemory(_landmarkInput, [1, LandmarkInputSize, LandmarkInputSize, 3]);
         using IDisposableReadOnlyCollection<OrtValue> outputs = _landmarker.Run(_run, [_landmarker.InputNames[0]], [input], _landmarker.OutputNames);
         ReadOnlySpan<float> raw = default;

@@ -103,7 +103,7 @@ public sealed class TrackingDriver
             }
             _lastSequence = snapshot.Sequence;
             signal = snapshot.Phone is { } phone ? ToSignal(phone) : ToSignal(snapshot.Result);
-            _hands = snapshot.Phone is { Hands.Count: > 0 } p ? [.. p.Hands.Select(h => new HandSignal(h.IsRight, h.Angles))] : null;
+            _hands = snapshot.Phone is { Hands.Count: > 0 } p ? [.. p.Hands.Select(h => new HandSignal(h.IsRight, h.Angles) { Quality = h.Quality })] : null;
             if (_calibrating)
             {
                 if (signal is not null)

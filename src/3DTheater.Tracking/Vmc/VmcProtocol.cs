@@ -52,7 +52,8 @@ public static class VmcProtocol
     public const string Face = "/3DTheater/Face";
 
     /// <summary>
-    /// 3D Theater の足し: 手（i 左右 0 = 本人の左手・1 = 本人の右手・i 手あり・f × 20 指の曲がりと開き（度。<see cref="HandPose"/> の並び））。
+    /// 3D Theater の足し: 手（i 左右 0 = 本人の左手・1 = 本人の右手・i 手あり・f × 20 指の曲がりと開き（度。<see cref="HandPose"/> の並び）・
+    /// f 読み取りの確かさ 0〜1。古い送り手は送らないので、無ければ 1）。
     /// 手を読んでいる間は、見つからない手も「手なし」として毎枚送る（設計判断記録 99 章）。
     /// </summary>
     public const string Hand = "/3DTheater/Hand";
@@ -155,7 +156,7 @@ public static class VmcProtocol
     /// <summary>手 1 つの知らせ（<paramref name="hand"/> が null なら「手なし」）。</summary>
     public static OscMessage HandMessage(HandPose? hand, bool isRight)
     {
-        var arguments = new object[2 + HandPose.ValueCount];
+        var arguments = new object[3 + HandPose.ValueCount];
         arguments[0] = isRight ? 1 : 0;
         arguments[1] = hand is null ? 0 : 1;
         for (int i = 0; i < HandPose.ValueCount; i++)
@@ -163,6 +164,7 @@ public static class VmcProtocol
             float value = hand is not null && i < hand.Angles.Length ? hand.Angles[i] : 0f;
             arguments[2 + i] = float.IsFinite(value) ? value : 0f;
         }
+        arguments[2 + HandPose.ValueCount] = hand is not null && float.IsFinite(hand.Quality) ? Math.Clamp(hand.Quality, 0f, 1f) : 0f;
         return new OscMessage(Hand, arguments);
     }
 

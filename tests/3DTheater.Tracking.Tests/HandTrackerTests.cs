@@ -154,6 +154,17 @@ public sealed class HandTrackerTests
         Assert.HasCount(1, received.Hands);
         Assert.IsTrue(received.Hands[0].IsRight);
         CollectionAssert.AreEqual(angles, received.Hands[0].Angles);
+        Assert.AreEqual(1f, received.Hands[0].Quality, "確かさも届く");
+
+        // 確かさの低い手。古い送り手（確かさを送らない）は 1 とみなす
+        foreach (OscMessage m in Osc.Read(Osc.WriteBundle(VmcProtocol.FrameMessages(frame with { Hands = [hand with { Quality = 0.4f }] }))))
+        {
+            state.Apply(m);
+        }
+        Assert.AreEqual(0.4f, state.ToFrame()!.Hands[0].Quality, 1e-6f);
+        object[] old = [1, 1, .. angles.Cast<object>()];
+        state.Apply(new OscMessage(VmcProtocol.Hand, old));
+        Assert.AreEqual(1f, state.ToFrame()!.Hands[0].Quality);
 
         // 右手を見失った
         foreach (OscMessage m in Osc.Read(Osc.WriteBundle(VmcProtocol.FrameMessages(frame with { Hands = [] }))))
@@ -174,8 +185,117 @@ public sealed class HandTrackerTests
         Assert.IsEmpty(tracker.Detect(blank));
         HandTrackingResult result = tracker.Process(blank);
         Assert.IsEmpty(result.Hands);
-        Assert.IsTrue(result.Detected, "手を追っていなければ、毎枚探す");
+        Assert.IsTrue(result.Detected, "初めの絵では探す");
         Assert.AreEqual(0, tracker.TrackingCount);
+        Assert.IsFalse(tracker.Process(blank).Detected, "手が無い間は、1 枚おきに探す（掌を探すモデルは重い）");
+        Assert.IsTrue(tracker.Process(blank).Detected);
+        tracker.Reset();
+        Assert.IsTrue(tracker.Process(blank).Detected, "探し直すときは、すぐ探す");
+    }
+
+    [TestMethod]
+    public void HandednessStaysUntilTheModelClearlyDisagrees()
+    {
+        var state = HandednessFilter.Next(null, 0.8f);
+        Assert.IsTrue(state.IsRight, "新しく見つけた手は、答えのまま");
+        state = HandednessFilter.Next(state, 0.1f);
+        Assert.IsTrue(state.IsRight, "1 枚だけ反対の答えが出ても、変えない");
+        for (int i = 0; i < 3; i++)
+        {
+            state = HandednessFilter.Next(state, 0.05f);
+        }
+        Assert.IsFalse(state.IsRight, "続けて反対なら変える");
+
+        // 2 つの手が同じ側: あいまいなほうを反対にする
+        Vector3[] none = new Vector3[21];
+        List<TrackedHand> hands =
+        [
+            new(none, none, true, 0.9f, 1f, default),
+            new(none, none, true, 0.6f, 1f, default),
+        ];
+        HandednessFilter.Separate(hands);
+        Assert.IsTrue(hands[0].IsRight);
+        Assert.IsFalse(hands[1].IsRight);
+        Assert.AreEqual(0.4f, hands[1].Handedness, 1e-6f, "ならした答えも反対の側へ写す");
+    }
+
+    [TestMethod]
+    public void DepthReadBackwardIsMirroredBack()
+    {
+        // 4 本の指を掌の側（カメラの方 = -z）へ曲げた右手。奥行きを裏返して読むと、指は手の甲の側へ曲がって見える
+        Vector3[] curled = UprightRightHand(Vector2.Zero, 0.1f);
+        for (int b = 5; b <= 17; b += 4)
+        {
+            float segment = Vector3.Distance(curled[b], curled[b + 1]);
+            curled[b + 2] = curled[b + 1] + new Vector3(0, 0, -segment);
+            curled[b + 3] = curled[b + 1] + new Vector3(0, 0, -2 * segment);
+        }
+        HandPose straight = HandPose.FromWorld(curled, isRight: true);
+        Assert.IsFalse(straight.DepthMirrored);
+        Assert.AreEqual(90f, straight.Bend(2, 1), 1f);
+
+        Vector3[] backward = [.. curled.Select(p => p with { Z = -p.Z })];
+        Assert.IsLessThan(HandPose.MirroredBelow, HandPose.CurlToPalm(backward, isRight: true), "指が手の甲の側へ曲がっている");
+        HandPose fixedPose = HandPose.FromWorld(backward, isRight: true);
+        Assert.IsTrue(fixedPose.DepthMirrored);
+        for (int i = 0; i < HandPose.ValueCount; i++)
+        {
+            Assert.AreEqual(straight.Angles[i], fixedPose.Angles[i], 0.01f, $"{i} 番目");
+        }
+    }
+
+    [TestMethod]
+    public void QualityIsHighWhenThePalmFacesTheCamera()
+    {
+        Vector3[] facing = UprightRightHand(Vector2.Zero, 0.1f);
+        Assert.AreEqual(1f, HandPose.FromWorld(facing, true).Quality, 1e-4f, "掌がカメラを向いている");
+        // 縦の軸で 90° 回す（掌が横を向く）
+        Vector3[] sideways = [.. facing.Select(p => new Vector3(p.Z, p.Y, -p.X))];
+        Assert.AreEqual(0f, HandPose.FromWorld(sideways, true).Quality, 1e-4f, "掌が横を向いている");
+        // 横の軸で 70° 倒す（指がカメラの方を向く）
+        float c = MathF.Cos(70 * MathF.PI / 180), s = MathF.Sin(70 * MathF.PI / 180);
+        Vector3[] pointing = [.. facing.Select(p => new Vector3(p.X, (p.Y * c) - (p.Z * s), (p.Y * s) + (p.Z * c)))];
+        Assert.IsLessThan(0.3f, HandPose.FromWorld(pointing, true).Quality, "指がカメラの方を向いている");
+    }
+
+    [TestMethod]
+    public void SamplerCopiesRotatesAndLetterboxes()
+    {
+        // 8 × 8 の絵。画素 (x, y) の赤 = x × 10、緑 = y × 10
+        var pixels = new byte[8 * 8 * 4];
+        for (int y = 0; y < 8; y++)
+        {
+            for (int x = 0; x < 8; x++)
+            {
+                int i = ((y * 8) + x) * 4;
+                pixels[i + 2] = (byte)(x * 10);
+                pixels[i + 1] = (byte)(y * 10);
+                pixels[i + 3] = 255;
+            }
+        }
+        var image = new BgraImage(pixels, 8, 8);
+        var rgb = new float[8 * 8 * 3];
+        float R(int u, int v) => rgb[((v * 8) + u) * 3];
+        float G(int u, int v) => rgb[(((v * 8) + u) * 3) + 1];
+
+        ImageSampler.Sample(image, 8, new FaceRegion(new Vector2(4, 4), 8, 0), rgb, 1, 0);
+        Assert.AreEqual(30f, R(3, 5), 1e-3f, "そのまま写す");
+        Assert.AreEqual(50f, G(3, 5), 1e-3f);
+
+        // 時計回りに 90° 回した範囲: 出力の (u, v) は、元の (7 − v, u)
+        ImageSampler.Sample(image, 8, new FaceRegion(new Vector2(4, 4), 8, MathF.PI / 2), rgb, 1, 0);
+        Assert.AreEqual((7 - 5) * 10f, R(3, 5), 1e-3f);
+        Assert.AreEqual(3 * 10f, G(3, 5), 1e-3f);
+
+        // 横長の 8 × 4 を 8 × 8 に収める: 上下 2 画素ずつ余白（0 の色）
+        var wide = new BgraImage(pixels[..(8 * 4 * 4)], 8, 4);
+        (float scale, Vector2 pad) = ImageSampler.SampleLetterbox(wide, 8, rgb, 1, 0);
+        Assert.AreEqual(1f, scale);
+        Assert.AreEqual(new Vector2(0, 2), pad);
+        Assert.AreEqual(0f, G(4, 0));
+        Assert.AreEqual(0f, R(4, 7));
+        Assert.AreEqual(10f, G(4, 3), 1e-3f, "元の 1 行目");
+        Assert.AreEqual(40f, R(4, 3), 1e-3f);
     }
 
     // 指を上へ伸ばした右手（掌はカメラの方。親指は画像の右）。手首が origin、手の長さが scale ほど
