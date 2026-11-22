@@ -102,6 +102,12 @@ public sealed class PoseUpdater
             }
         }
 
+        if (model.FaceOverlay is { Aims.Count: > 0 } aiming)
+        {
+            // トラッキングの腕と手首: 親の今の置き方から見た回転にして、入力に書く（設計判断記録 100 章）
+            PoseAims.Apply(model.Rig, input, model.State, aiming.Aims);
+        }
+
         if (_context.Physics.Enabled && model.Physics is { } physics)
         {
             PoseEvaluator.EvaluateBeforePhysics(model.Rig, input, model.State);

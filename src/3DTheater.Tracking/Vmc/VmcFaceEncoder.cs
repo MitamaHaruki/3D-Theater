@@ -57,10 +57,22 @@ public sealed class VmcFaceEncoder
     }
 
     /// <summary>顔と手の結果から、送る 1 枚分を作る（<paramref name="hands"/> が null なら、手を読んでいない）。</summary>
-    public VmcFaceFrame Encode(FaceTrackingResult result, HandTrackingResult? hands, float processMilliseconds, float time)
+    public VmcFaceFrame Encode(FaceTrackingResult result, HandTrackingResult? hands, float processMilliseconds, float time) =>
+        Encode(result, hands, null, processMilliseconds, time);
+
+    /// <summary>顔・手・体の結果から、送る 1 枚分を作る（<paramref name="hands"/>・<paramref name="body"/> が null なら、それを読んでいない）。</summary>
+    public VmcFaceFrame Encode(FaceTrackingResult result, HandTrackingResult? hands, PoseTrackingResult? body, float processMilliseconds, float time)
     {
         VmcFaceFrame frame = Encode(result, processMilliseconds, time);
-        return hands is null ? frame : frame with { HandsTracked = true, Hands = [.. hands.Hands.Select(h => h.Pose)] };
+        if (hands is not null)
+        {
+            frame = frame with { HandsTracked = true, Hands = [.. hands.Hands.Select(h => h.Pose)] };
+        }
+        if (body is not null)
+        {
+            frame = frame with { BodyTracked = true, Body = body.Found ? body.Body : null };
+        }
+        return frame;
     }
 
     // 回転の平均（近い回転どうしなので、向きをそろえて足して長さ 1 にする）

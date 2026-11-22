@@ -192,7 +192,29 @@ public sealed class VmcTests
         Assert.AreEqual(5, summary.Sent);
         Assert.IsGreaterThan(0, summary.Replied, "受け手が番号を返す");
         Assert.IsLessThan(100.0, summary.Max, "同じ PC の中なら、とても短い");
+        Assert.AreEqual(0, summary.Unanswered, "返事の来た確かめで、返事なしは 0");
         Assert.AreEqual(0, sender.TakeSummary().Sent, "読むと数え直す");
+    }
+
+    [TestMethod]
+    public void OnlyRepliesThatNeverCameAreCountedAsUnanswered()
+    {
+        // 誰も待ち受けていないポートへ送る（返事は来ない）
+        int port = 42000 + Random.Shared.Next(2000);
+        using var sender = new VmcSender(new IPEndPoint(IPAddress.Loopback, port));
+        var encoder = new VmcFaceEncoder();
+        for (int i = 0; i < 3; i++)
+        {
+            sender.Send(encoder.Encode(Face(0f, 0f, 0f), 6f, i / 30f));
+        }
+        RoundTripSummary soon = sender.TakeSummary();
+        Assert.AreEqual(3, soon.Sent);
+        Assert.AreEqual(0, soon.Unanswered, "送ったばかりの枚は、まだ返事を待っている（数えない）");
+        Thread.Sleep(VmcSender.ReplyTimeout + TimeSpan.FromMilliseconds(200));
+        RoundTripSummary later = sender.TakeSummary();
+        Assert.AreEqual(0, later.Sent);
+        Assert.AreEqual(3, later.Unanswered, "待つ時間を過ぎたら、返事なし（送った分のまとめでなくても数える）");
+        Assert.AreEqual(0, sender.TakeSummary().Unanswered, "2 度は数えない");
     }
 
     // 顔の結果（向きと、鼻先・目尻の点だけ）

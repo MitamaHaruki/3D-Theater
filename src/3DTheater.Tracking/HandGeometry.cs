@@ -119,8 +119,8 @@ public static class HandDetectorMath
         return union <= 0 ? 0 : intersection / union;
     }
 
-    // start → end が画像の上を向くように回す角度（画像の上で、時計回りが正）
-    private static float Upward(Vector2 start, Vector2 end) =>
+    // start → end が画像の上を向くように回す角度（画像の上で、時計回りが正。体の範囲も同じ。設計判断記録 100 章）
+    internal static float Upward(Vector2 start, Vector2 end) =>
         FaceRegion.NormalizeAngle((MathF.PI * 0.5f) - MathF.Atan2(-(end.Y - start.Y), end.X - start.X));
 
     // MediaPipe の RectTransformationCalculator（画素で）。ずらす向きは、回した範囲の上下
@@ -158,6 +158,15 @@ public sealed record HandPose(bool IsRight, float[] Angles)
 
     /// <summary>奥行きが裏返って読めたので、直したか。</summary>
     public bool DepthMirrored { get; init; }
+
+    /// <summary>
+    /// 手の向き: 手首から中指の付け根への向き（長さ 1。カメラから見た x 右・y 下・z 奥）。手首と腕の当てはめに使う（設計判断記録 100 章）。
+    /// 分からない（古い送り手）ときは 0。
+    /// </summary>
+    public Vector3 Forward { get; init; }
+
+    /// <summary>手の向き: 掌の向き（掌の側へ。長さ 1。<see cref="Forward"/> と直角）。分からないときは 0。</summary>
+    public Vector3 Normal { get; init; }
 
     public static IReadOnlyList<string> FingerNames { get; } = ["親指", "人差し指", "中指", "薬指", "小指"];
 
@@ -241,7 +250,7 @@ public sealed record HandPose(bool IsRight, float[] Angles)
         // 確かさ: 掌の向きがカメラの向き（z）に近いほど、指の向きがカメラの向きから離れているほど高い
         float facing = Math.Clamp((MathF.Abs(normal.Z) - 0.3f) / 0.55f, 0f, 1f);
         float across = Math.Clamp((0.85f - MathF.Abs(forward.Z)) / 0.45f, 0f, 1f);
-        return new HandPose(isRight, angles) { Quality = facing * across, DepthMirrored = mirrored };
+        return new HandPose(isRight, angles) { Quality = facing * across, DepthMirrored = mirrored, Forward = forward, Normal = normal };
     }
 
     /// <summary>

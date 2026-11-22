@@ -1,0 +1,22 @@
+MediaPipe Pose Landmarker のモデル（pose_detector・pose_landmarks_detector。軽い版）
+
+出どころ: https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task
+（SHA-256: 59929e1d1ee95287735ddd833b19cf4ac46d29bc7afddbbf6753c459690d574a）
+中の 2 つの TFLite を、tf2onnx 1.17.0（TensorFlow 2.15.1・opset 17）で ONNX に変えたもの。
+変えた所: 体を探すモデルの、疎な形（0 を省いた形）で入っていた重みを、ふつうの形に戻した（値は同じ）。体の点のモデルから、
+使わない出力（人の形の切り抜き・点の濃さの図）と、それだけを作る所を外した。ほかの中身（重み）は変えていない。
+変換の手順: tools/convert_pose_models.py
+
+Copyright 2023 The MediaPipe Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.

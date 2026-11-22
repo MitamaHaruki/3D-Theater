@@ -231,8 +231,10 @@ public sealed class FaceRetarget
     /// <summary>
     /// 1 枚分を当てはめる（<paramref name="time"/> は秒。なめらかにするのに使う）。<paramref name="signal"/> が null（顔を見失った）なら、
     /// 正面に向かってなめらかに戻す。<paramref name="perfectSync"/> なら、パーフェクトシンクの値（<see cref="FaceOutput.PerfectSync"/>）も求める。
+    /// <paramref name="torso"/> は、体のトラッキングの上半身の回り（肩の線から。モデルの座標）と重み（設計判断記録 100 章）。重みの分だけ、
+    /// 上半身を首の動きの一部の代わりにその回りにし（画面の中の顔の位置での左右の傾けもやめる）、首と頭は、頭の向きの残りの分だけ回す。
     /// </summary>
-    public FaceOutput Compute(FaceSignal? signal, double time, bool perfectSync = false)
+    public FaceOutput Compute(FaceSignal? signal, double time, bool perfectSync = false, (Quaternion Rotation, float Weight)? torso = null)
     {
         FaceSignal neutral = _neutral ?? new FaceSignal(0, 0, 0, signal?.FaceCenter ?? Vector2.Zero, signal?.FaceSize ?? 1, new Dictionary<string, float>());
         FaceSignal s = signal ?? neutral;
@@ -251,8 +253,16 @@ public sealed class FaceRetarget
 
         float bodyShare = Settings.UpperBody ? UpperBodyShare : 0f;
         Quaternion upperBody = Quaternion.Slerp(Quaternion.Identity, head, bodyShare);
-        Quaternion neck = Quaternion.Slerp(Quaternion.Identity, head, NeckShare);
-        Quaternion headOnly = Quaternion.Slerp(Quaternion.Identity, head, 1f - bodyShare - NeckShare);
+        float torsoWeight = torso is { } t && float.IsFinite(t.Weight) ? Math.Clamp(t.Weight, 0f, 1f) : 0f;
+        if (torsoWeight > 0)
+        {
+            upperBody = Quaternion.Normalize(Quaternion.Slerp(upperBody, Quaternion.Normalize(torso!.Value.Rotation), torsoWeight));
+        }
+        // 首と頭: 頭の向きのうち、上半身で回した残りを分ける（上半身を首の動きの一部にするときは、首 35%・頭 50% の割合のまま）
+        Quaternion remaining = Quaternion.Normalize(Quaternion.Inverse(upperBody) * head);
+        float neckFraction = NeckShare / (1f - bodyShare);
+        Quaternion neck = Quaternion.Slerp(Quaternion.Identity, remaining, neckFraction);
+        Quaternion headOnly = Quaternion.Slerp(Quaternion.Identity, remaining, 1f - neckFraction);
 
         // 顔の位置で上半身をずらす（左右に動いた分は傾け、近づいた分は前へ傾ける）
         if (Settings.BodySway && neutral.FaceSize > 1e-3f)
@@ -260,7 +270,7 @@ public sealed class FaceRetarget
             float dx = (s.FaceCenter.X - neutral.FaceCenter.X) / neutral.FaceSize;
             float screenDx = mirror ? -dx : dx; // 画面の右へ動いたら正
             float closer = (s.FaceSize / neutral.FaceSize) - 1f;
-            float sway = Filter("sway", Clamp(screenDx * 25f, MaxSwayDegrees), time, smooth);
+            float sway = Filter("sway", Clamp(screenDx * 25f, MaxSwayDegrees), time, smooth) * (1f - torsoWeight); // 肩の線で傾けるときは使わない
             float lean = Filter("lean", Clamp(-closer * 30f, MaxSwayDegrees * 0.7f), time, smooth);
             upperBody = Quaternion.Normalize(upperBody * ModelRotation(0, lean, sway));
         }

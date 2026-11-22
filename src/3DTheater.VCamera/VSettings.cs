@@ -22,6 +22,9 @@ public sealed class VSettings
     /// <summary>手と指も読んで送る（顔だけより重くなる。設計判断記録 99 章）。</summary>
     public bool Hands { get; set; } = true;
 
+    /// <summary>腕と上半身（体の点）も読んで送る（さらに重くなる。設計判断記録 100 章）。</summary>
+    public bool Body { get; set; } = true;
+
     private static readonly JsonSerializerOptions Options = new() { WriteIndented = true };
 
     public static string FilePath { get; } = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "3DTheater", "VCamera", "settings.json");

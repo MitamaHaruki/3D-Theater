@@ -58,6 +58,10 @@ public partial class App : Application
         {
             settings.Hands = hands;
         }
+        if (options.Body is { } body)
+        {
+            settings.Body = body;
+        }
 
         _service = new SendService();
         _window = new MainWindow(_service, settings, options.Video);

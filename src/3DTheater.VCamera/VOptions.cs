@@ -8,13 +8,16 @@ namespace Theater3D.VCamera;
 /// <item>「--camera=名前の一部」: そのカメラを使う。「--video=パス」: カメラの代わりに動画のファイルを読む。</item>
 /// <item>「--send=送り先」か「--send=送り先:ポート」: 送り先（3D Theater の PC の IP）。</item>
 /// <item>「--start」: 起動したら送り始める。「--hidden」: 窓を出さずに、通知領域で動く。「--exit-after=秒」: その秒数で終わる。</item>
-/// <item>「--hands=on」「--hands=off」: 手と指も読むか（設定を書き換える）。</item>
+/// <item>「--hands=on」「--hands=off」: 手と指も読むか（設定を書き換える）。「--body=on」「--body=off」: 腕と上半身も読むか（同じ）。</item>
 /// </list>
 /// </summary>
 public sealed record VOptions(string? Camera, string? Video, string? Host, int? Port, bool Start, bool Hidden, TimeSpan? ExitAfter, IReadOnlyList<string> Problems)
 {
     /// <summary>手と指も読むか（指定が無ければ null で、設定のまま）。</summary>
     public bool? Hands { get; init; }
+
+    /// <summary>腕と上半身も読むか（指定が無ければ null で、設定のまま）。</summary>
+    public bool? Body { get; init; }
 
     public static VOptions Parse(IReadOnlyList<string> args)
     {
@@ -23,6 +26,7 @@ public sealed record VOptions(string? Camera, string? Video, string? Host, int? 
         bool start = false, hidden = false;
         TimeSpan? exitAfter = null;
         bool? hands = null;
+        bool? body = null;
         var problems = new List<string>();
         foreach (string arg in args)
         {
@@ -60,15 +64,17 @@ public sealed record VOptions(string? Camera, string? Video, string? Host, int? 
                     hidden = true;
                     break;
                 case "--hands":
-                    hands = value.ToLowerInvariant() switch
-                    {
-                        "on" => true,
-                        "off" => false,
-                        _ => null,
-                    };
+                    hands = OnOff(value);
                     if (hands is null)
                     {
                         problems.Add($"「{arg}」は読めません（--hands=on か --hands=off の形で渡してください）");
+                    }
+                    break;
+                case "--body":
+                    body = OnOff(value);
+                    if (body is null)
+                    {
+                        problems.Add($"「{arg}」は読めません（--body=on か --body=off の形で渡してください）");
                     }
                     break;
                 case "--exit-after":
@@ -86,6 +92,13 @@ public sealed record VOptions(string? Camera, string? Video, string? Host, int? 
                     break;
             }
         }
-        return new VOptions(camera, video, host, port, start, hidden, exitAfter, problems) { Hands = hands };
+        return new VOptions(camera, video, host, port, start, hidden, exitAfter, problems) { Hands = hands, Body = body };
     }
+
+    private static bool? OnOff(string value) => value.ToLowerInvariant() switch
+    {
+        "on" => true,
+        "off" => false,
+        _ => null,
+    };
 }

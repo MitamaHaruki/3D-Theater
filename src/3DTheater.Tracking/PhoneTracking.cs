@@ -42,6 +42,9 @@ public sealed record PhoneFrame(PhoneProtocol Protocol, bool FaceFound, Vector3 
     /// <summary>見つかっている手（本人の左右。3D Theater VCamera だけが送る。設計判断記録 99 章）。</summary>
     public IReadOnlyList<HandPose> Hands { get; init; } = [];
 
+    /// <summary>見つかっている体（3D Theater VCamera だけが送る。無ければ null。設計判断記録 100 章）。</summary>
+    public BodyPose? Body { get; init; }
+
     public float Blendshape(string name) => Blendshapes.TryGetValue(name, out float value) ? value : 0f;
 }
 

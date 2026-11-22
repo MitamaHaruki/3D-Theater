@@ -19,6 +19,7 @@ public sealed class VmcState
     private Dictionary<string, float> _blend = new(StringComparer.Ordinal);
     private (bool Found, Vector3 Rotation, Vector3 Position)? _face;
     private readonly HandPose?[] _hands = new HandPose?[2]; // 本人の左手・右手（3D Theater VCamera の手の知らせ）
+    private BodyPose? _body; // 3D Theater VCamera の体の知らせ
 
     /// <summary>3D Theater VCamera の 1 枚の番号（届いていなければ null）。受け手が返す。</summary>
     public int? LastSequence { get; private set; }
@@ -43,9 +44,10 @@ public sealed class VmcState
                 return true;
             case VmcProtocol.Hand when message.Int(0) is { } side and (0 or 1) && message.Int(1) is { } found
                 && Floats(message, 2, HandPose.ValueCount) is { } angles:
-                _hands[side] = found != 0
-                    ? new HandPose(side == 1, angles) { Quality = message.Float(2 + HandPose.ValueCount) is { } q && float.IsFinite(q) ? Math.Clamp(q, 0f, 1f) : 1f }
-                    : null;
+                _hands[side] = found != 0 ? ReadHand(message, side == 1, angles) : null;
+                return true;
+            case VmcProtocol.Body when message.Int(0) is { } found:
+                _body = found != 0 ? ReadBody(message) : null;
                 return true;
             case VmcProtocol.Frame when message.Int(0) is { } sequence:
                 LastSequence = sequence;
@@ -59,7 +61,8 @@ public sealed class VmcState
     /// 今の形を、スマホと同じ 1 枚分にする（<see cref="PhoneProtocol.Vmc"/>）。
     /// 3D Theater VCamera の顔の知らせがあれば、その向き・位置（カメラのトラッキングと同じ値。正面に合わせる前）を使い、
     /// 無ければ（ほかのアプリ）頭までのボーンの回転から向きを求める（位置は無し）。頭のボーンも表情も無ければ null。
-    /// 手の知らせ（3D Theater VCamera）があれば、見つかっている手を <see cref="PhoneFrame.Hands"/> に入れる。
+    /// 手の知らせ（3D Theater VCamera）があれば、見つかっている手を <see cref="PhoneFrame.Hands"/> に、体の知らせがあれば、見つかっている体を
+    /// <see cref="PhoneFrame.Body"/> に入れる。
     /// </summary>
     public PhoneFrame? ToFrame()
     {
@@ -67,7 +70,7 @@ public sealed class VmcState
         HandPose[] hands = [.. _hands.OfType<HandPose>()];
         if (_face is { } face)
         {
-            return new PhoneFrame(PhoneProtocol.Vmc, face.Found, face.Rotation, face.Position, blend) { FromFaceTracker = true, Hands = hands };
+            return new PhoneFrame(PhoneProtocol.Vmc, face.Found, face.Rotation, face.Position, blend) { FromFaceTracker = true, Hands = hands, Body = _body };
         }
         bool hasHead = false;
         Quaternion head = Quaternion.Identity;
@@ -128,6 +131,37 @@ public sealed class VmcState
         FromPreset("mouthPucker", "u", "ou");
         FromPreset("mouthFunnel", "o", "oh");
         return arkit;
+    }
+
+    // 手の知らせの続き: 確かさ（無ければ 1）と、手の向き・掌の向き（無ければ分からない = 0）
+    private static HandPose ReadHand(OscMessage message, bool isRight, float[] angles)
+    {
+        int q = 2 + HandPose.ValueCount;
+        float quality = message.Float(q) is { } v && float.IsFinite(v) ? Math.Clamp(v, 0f, 1f) : 1f;
+        Vector3 forward = Vector3.Zero;
+        Vector3 normal = Vector3.Zero;
+        if (Floats(message, q + 1, 6) is { } o)
+        {
+            forward = new Vector3(o[0], o[1], o[2]);
+            normal = new Vector3(o[3], o[4], o[5]);
+        }
+        return new HandPose(isRight, angles) { Quality = quality, Forward = forward, Normal = normal };
+    }
+
+    private static BodyPose? ReadBody(OscMessage message)
+    {
+        if (Floats(message, 1, 4 * VmcProtocol.BodyPointCount) is not { } v)
+        {
+            return null;
+        }
+        BodyPose body = BodyPose.Empty();
+        for (int k = 0; k < VmcProtocol.BodyPointCount; k++)
+        {
+            int point = BodyPose.SentFirst + k;
+            body.Points[point] = new Vector3(v[4 * k], v[(4 * k) + 1], v[(4 * k) + 2]);
+            body.Visibility[point] = Math.Clamp(v[(4 * k) + 3], 0f, 1f);
+        }
+        return body;
     }
 
     private static float[]? Floats(OscMessage message, int start, int count)

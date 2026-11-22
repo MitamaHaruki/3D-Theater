@@ -11,6 +11,12 @@ public sealed record HandSignal(bool IsRight, float[] Angles)
 {
     /// <summary>読み取りの確かさ（0〜1。手を横に向けた・指がカメラの方を向いたときは低い）。低いほど強くならす。</summary>
     public float Quality { get; init; } = 1f;
+
+    /// <summary>手首 → 中指の付け根の向き（カメラから見た x 右・y 下・z 奥。手首の当てはめに使う。設計判断記録 100 章）。分からなければ 0。</summary>
+    public Vector3 Forward { get; init; }
+
+    /// <summary>掌の向き（掌の側へ。同じ決まり）。分からなければ 0。</summary>
+    public Vector3 Normal { get; init; }
 }
 
 /// <summary>キャラクターの左右の手に当てる角度（度。<see cref="HandSignal"/> と同じ並び。ずれを差し引き、強め、範囲に収めた後）。</summary>

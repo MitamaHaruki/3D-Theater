@@ -44,6 +44,8 @@
     <TextBlock x:Name="ReplyText" Margin="0,4,0,0" TextWrapping="Wrap" AutomationProperties.AutomationId="VCameraReply" />
     <CheckBox x:Name="HandsCheck" Margin="0,12,0,0" Content="手と指も読む（顔だけより重くなります）" Click="OnStartOnLaunchClick"
               ToolTip="カメラに映った手の指の曲がりも送ります（3D Theater で、キャラクターの指を動かします）。送っている間は変えられません" />
+    <CheckBox x:Name="BodyCheck" Margin="0,6,0,0" Content="腕と上半身も読む（さらに重くなります）" Click="OnStartOnLaunchClick"
+              ToolTip="カメラに映った肩・ひじ・手首の位置も送ります（3D Theater で、キャラクターの腕と上半身を動かします。手首の向きは、手と指も読むときだけ）。送っている間は変えられません" />
     <CheckBox x:Name="StartOnLaunchCheck" Margin="0,6,0,0" Content="起動したら、すぐ送り始める" Click="OnStartOnLaunchClick" />
     <TextBlock Margin="0,10,0,0" TextWrapping="Wrap" Opacity="0.7" FontSize="12"
                Text="窓を閉じても、画面の右下の通知領域で動き続けます（終わるには、通知領域のアイコンを右クリックして「終了」）。ほかの PC の 3D Theater へ送るときは、その PC で、Windows のファイアウォールの確認に「許可」を押してください。" />

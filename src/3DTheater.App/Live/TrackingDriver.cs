@@ -15,6 +15,7 @@ namespace Theater3D.App.Live;
 /// トラッキングを始めたとき・「正面にする」を押したときは、続く 15 枚の顔の平均を正面として覚える。
 /// 止めた・見失ったときは、なめらかに正面へ戻してから重ねを外す。
 /// 3D Theater VCamera が手も送ってくれば、指のボーンも重ねる（<see cref="HandRetarget"/>・<see cref="HandRig"/>。設計判断記録 99 章）。
+/// 体も送ってくれば、上半身を肩の線で回し、腕・ひじ・手首を本人の腕の向きへ向ける（<see cref="BodyRetarget"/>・<see cref="ArmRig"/>。100 章）。
 /// </summary>
 public sealed class TrackingDriver
 {
@@ -33,6 +34,9 @@ public sealed class TrackingDriver
     private HandRig? _handRig;
     private readonly HandRetarget _handRetarget = new();
     private List<HandSignal>? _hands;
+    private ArmRig? _armRig;
+    private readonly BodyRetarget _bodyRetarget = new();
+    private BodySignal? _body;
     private long _stoppedAt = -1;
 
     private readonly PhoneTrackingSettings _phone;
@@ -74,6 +78,7 @@ public sealed class TrackingDriver
     public void RequestCalibration()
     {
         _calibration.Clear();
+        _bodyRetarget.RequestCalibration();
         _calibrating = true;
         Status = "正面合わせ中（カメラの方をまっすぐ見てください）";
     }
@@ -103,7 +108,10 @@ public sealed class TrackingDriver
             }
             _lastSequence = snapshot.Sequence;
             signal = snapshot.Phone is { } phone ? ToSignal(phone) : ToSignal(snapshot.Result);
-            _hands = snapshot.Phone is { Hands.Count: > 0 } p ? [.. p.Hands.Select(h => new HandSignal(h.IsRight, h.Angles) { Quality = h.Quality })] : null;
+            _hands = snapshot.Phone is { Hands.Count: > 0 } p
+                ? [.. p.Hands.Select(h => new HandSignal(h.IsRight, h.Angles) { Quality = h.Quality, Forward = h.Forward, Normal = h.Normal })]
+                : null;
+            _body = snapshot.Phone?.Body is { } b ? new BodySignal(b.Points, b.Visibility) : null;
             if (_calibrating)
             {
                 if (signal is not null)
@@ -130,7 +138,10 @@ public sealed class TrackingDriver
         }
 
         bool perfectSync = _retarget.Settings.PerfectSync && _rig.HasPerfectSync;
-        FaceOutput output = _retarget.Compute(signal, now, perfectSync);
+        // 体（上半身の回りと腕の向き）を先に求め、上半身の回りを顔の当てはめに渡す（首と頭は、その残りを回す）
+        BodyOutput body = _bodyRetarget.Compute(running ? _body : null, running ? _hands : null, now, _retarget.Settings.Mirror, _retarget.Settings.Smoothing);
+        bool torso = _retarget.Settings.UpperBody && body.TorsoWeight > 0; // 「上半身も少し動かす」を外しているときは、肩の線でも回さない
+        FaceOutput output = _retarget.Compute(signal, now, perfectSync, torso ? (body.Torso, body.TorsoWeight) : null);
         FaceOverlay overlay = _rig.Build(output, perfectSync);
         Applied = perfectSync ? DescribePerfectSync(output) : Describe(output);
         if (_handRig is { BoneCount: > 0 } handRig)
@@ -142,6 +153,18 @@ public sealed class TrackingDriver
             overlay = overlay with { Bones = bones };
             Applied += string.Format(System.Globalization.CultureInfo.CurrentCulture, "・指の握り 左 {0:F2} 右 {1:F2}（キャラクターの左右）",
                 HandOutput.Grip(hands.Left), HandOutput.Grip(hands.Right));
+        }
+        if (_armRig is { BoneCount: > 0 } armRig)
+        {
+            // 腕: 見えている腕だけ向け、見えなくなった腕・止めたときは場面の姿勢へ戻していく
+            var aims = new List<(int Bone, int Reference, Quaternion Rotation, float Weight)>();
+            armRig.Build(body, aims);
+            overlay = overlay with { Aims = [.. aims.Select(a => new Animation.BoneAim(a.Bone, a.Reference, a.Rotation, a.Weight))] };
+            if (body.Left.Weight > 0 || body.Right.Weight > 0 || body.TorsoWeight > 0)
+            {
+                Applied += string.Format(System.Globalization.CultureInfo.CurrentCulture, "・腕 左 {0:F2} 右 {1:F2}・手首 左 {2:F2} 右 {3:F2}・上半身の回り {4:F0}°",
+                    body.Left.Weight, body.Right.Weight, body.Left.HandWeight, body.Right.HandWeight, Angle(body.Torso) * body.TorsoWeight);
+            }
         }
         loaded.FaceOverlay = overlay;
         if (!running && Stopwatch.GetElapsedTime(_stoppedAt) > EaseOutTime)
@@ -172,6 +195,7 @@ public sealed class TrackingDriver
             _target = target;
             _rig = target is not null && _context.GetLoaded(target) is { } loaded ? FaceRig.Create(target, loaded.Document) : null;
             _handRig = target is not null && _context.GetLoaded(target) is { } withHands ? HandRig.Create(withHands.Document) : null;
+            _armRig = target is not null && _context.GetLoaded(target) is { } withArms ? ArmRig.Create(withArms.Document) : null;
             if (_rig is not null && !_calibrating)
             {
                 Status = DescribeRig(target!.Name);
@@ -184,12 +208,22 @@ public sealed class TrackingDriver
         return target;
     }
 
-    // 当てはめた先の説明（指のボーンがあれば、その数も）
+    // 当てはめた先の説明（指・腕のボーンがあれば、その数も）
     private string DescribeRig(string modelName)
     {
         string text = _rig!.Describe(modelName, _retarget.Settings.PerfectSync);
-        return _handRig is { BoneCount: > 0 } hands ? $"{text}。指のボーン {hands.BoneCount} 本（3D Theater VCamera が手も送るとき動かします）" : text;
+        if (_handRig is { BoneCount: > 0 } hands)
+        {
+            text += $"。指のボーン {hands.BoneCount} 本（3D Theater VCamera が手も送るとき動かします）";
+        }
+        if (_armRig is { BoneCount: > 0 } arms)
+        {
+            text += $"。腕のボーン {arms.BoneCount} 本（3D Theater VCamera が体も送るとき動かします）";
+        }
+        return text;
     }
+
+    private static float Angle(Quaternion q) => 2 * MathF.Acos(Math.Clamp(MathF.Abs(q.W), 0f, 1f)) * 180f / MathF.PI;
 
     private static string Describe(FaceOutput o)
     {
@@ -247,6 +281,12 @@ public sealed class TrackingDriver
 public sealed record FaceOverlay(IReadOnlyList<(int Bone, Quaternion Rotation)> Bones, IReadOnlyList<(int Morph, float Weight)> Morphs,
     IReadOnlyList<(int Morph, float Weight)> EyeMorphs)
 {
+    /// <summary>
+    /// 向けるボーン（体のトラッキングの腕と手首。設計判断記録 100 章）。重ねる回転と違い、場面の回転と置き換える（重みで間をつなぐ）。
+    /// 描く前の計算で、<see cref="ApplyTo"/> の後に当てる（<see cref="Animation.PoseAims"/>）。
+    /// </summary>
+    public IReadOnlyList<Animation.BoneAim> Aims { get; init; } = [];
+
     /// <summary>ポーズの入力に重ねる（回転は今の回転の内側に掛け、モーフは大きいほう。まばたき・ウィンクは eyeScale 倍）。</summary>
     public void ApplyTo(Animation.PoseInput input, float eyeScale = 1f)
     {

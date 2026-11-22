@@ -53,14 +53,16 @@ public sealed record FaceDetection(Vector2 Min, Vector2 Max, Vector2[] Keypoints
 /// <summary>
 /// 絵の切り出し（双一次補間）と、モデルへ渡す数の並びへの書き込み。切り出し方は、元の画像の座標 = 始まり + u × 横の向き + v × 縦の向き
 /// （u・v は出力の 0〜1）の形だけ（回した範囲も、縦横比を保った縮小も、この形）。画素ごとに関数を呼ばず、足していくだけにして速くした（設計判断記録 99 章）。
+/// 画像の外は 0 の色か、いちばん近い端の色（体の点のモデル。MediaPipe の BORDER_REPLICATE。設計判断記録 100 章）。
 /// </summary>
 internal static class ImageSampler
 {
     /// <summary>
     /// 元の画像の <c>origin + u × axisU + v × axisV</c>（u・v は出力の 0〜1）を <paramref name="size"/> × <paramref name="size"/> に切り出し、
-    /// RGB の順に <c>値 × scale + offset</c> を並べる（NHWC）。外は 0 の色。
+    /// RGB の順に <c>値 × scale + offset</c> を並べる（NHWC）。外は 0 の色（<paramref name="clampEdges"/> なら、いちばん近い端の色）。
     /// </summary>
-    public static void Sample(BgraImage image, int size, Vector2 origin, Vector2 axisU, Vector2 axisV, Span<float> rgb, float scale, float offset)
+    public static void Sample(BgraImage image, int size, Vector2 origin, Vector2 axisU, Vector2 axisV, Span<float> rgb, float scale, float offset,
+        bool clampEdges = false)
     {
         byte[] p = image.Pixels;
         int stride = image.Stride;
@@ -101,7 +103,12 @@ internal static class ImageSampler
                     {
                         int x = x0 + (k & 1);
                         int y = y0 + (k >> 1);
-                        if ((uint)x >= (uint)width || (uint)y >= (uint)height)
+                        if (clampEdges)
+                        {
+                            x = Math.Clamp(x, 0, width - 1);
+                            y = Math.Clamp(y, 0, height - 1);
+                        }
+                        else if ((uint)x >= (uint)width || (uint)y >= (uint)height)
                         {
                             continue;
                         }
@@ -120,10 +127,10 @@ internal static class ImageSampler
     }
 
     /// <summary>回した範囲（<see cref="FaceRegion"/>）を切り出す。</summary>
-    public static void Sample(BgraImage image, int size, FaceRegion region, Span<float> rgb, float scale, float offset)
+    public static void Sample(BgraImage image, int size, FaceRegion region, Span<float> rgb, float scale, float offset, bool clampEdges = false)
     {
         Vector2 origin = region.ToImage(0, 0);
-        Sample(image, size, origin, region.ToImage(1, 0) - origin, region.ToImage(0, 1) - origin, rgb, scale, offset);
+        Sample(image, size, origin, region.ToImage(1, 0) - origin, region.ToImage(0, 1) - origin, rgb, scale, offset, clampEdges);
     }
 
     /// <summary>

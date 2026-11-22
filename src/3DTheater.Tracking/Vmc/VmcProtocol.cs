@@ -25,6 +25,12 @@ public sealed record VmcFaceFrame(
 
     /// <summary>見つけた手（本人の左右。0〜2 つ。設計判断記録 99 章）。</summary>
     public IReadOnlyList<HandPose> Hands { get; init; } = [];
+
+    /// <summary>体を読んでいるか（読んでいなければ、体の知らせを送らない。受け手は腕を動かさない）。</summary>
+    public bool BodyTracked { get; init; }
+
+    /// <summary>見つけた体（無ければ null。設計判断記録 100 章）。</summary>
+    public BodyPose? Body { get; init; }
 }
 
 /// <summary>
@@ -53,10 +59,20 @@ public static class VmcProtocol
 
     /// <summary>
     /// 3D Theater の足し: 手（i 左右 0 = 本人の左手・1 = 本人の右手・i 手あり・f × 20 指の曲がりと開き（度。<see cref="HandPose"/> の並び）・
-    /// f 読み取りの確かさ 0〜1。古い送り手は送らないので、無ければ 1）。
+    /// f 読み取りの確かさ 0〜1・f × 3 手の向き（手首 → 中指の付け根）・f × 3 掌の向き（カメラから見た x 右・y 下・z 奥。設計判断記録 100 章））。
+    /// 古い送り手は、確かさと向きを送らない（確かさが無ければ 1、向きが無ければ分からないとみなす）。
     /// 手を読んでいる間は、見つからない手も「手なし」として毎枚送る（設計判断記録 99 章）。
     /// </summary>
     public const string Hand = "/3DTheater/Hand";
+
+    /// <summary>
+    /// 3D Theater の足し: 体（i 体あり・続いて肩から腰までの 14 点（MediaPipe の 11〜24）ごとに f x・f y・f z（メートル。カメラから見た
+    /// x 右・y 下・z 奥。腰の真ん中が 0）・f 見えている度合い 0〜1）。体を読んでいる間は、体が無い枚も「体なし」として毎枚送る（設計判断記録 100 章）。
+    /// </summary>
+    public const string Body = "/3DTheater/Body";
+
+    /// <summary>体の知らせで送る点の数。</summary>
+    public const int BodyPointCount = BodyPose.SentLast - BodyPose.SentFirst + 1;
 
     /// <summary>3D Theater の足し: 1 枚の番号（i 番号・f 絵が届いてから送るまでの時間 ms）。</summary>
     public const string Frame = "/3DTheater/Frame";
@@ -149,6 +165,10 @@ public static class VmcProtocol
             messages.Add(HandMessage(frame.Hands.FirstOrDefault(h => !h.IsRight), isRight: false));
             messages.Add(HandMessage(frame.Hands.FirstOrDefault(h => h.IsRight), isRight: true));
         }
+        if (frame.BodyTracked)
+        {
+            messages.Add(BodyMessage(frame.Body));
+        }
         messages.Add(new OscMessage(Frame, frame.Sequence, frame.ProcessMilliseconds));
         return messages;
     }
@@ -156,17 +176,46 @@ public static class VmcProtocol
     /// <summary>手 1 つの知らせ（<paramref name="hand"/> が null なら「手なし」）。</summary>
     public static OscMessage HandMessage(HandPose? hand, bool isRight)
     {
-        var arguments = new object[3 + HandPose.ValueCount];
+        var arguments = new object[9 + HandPose.ValueCount];
         arguments[0] = isRight ? 1 : 0;
         arguments[1] = hand is null ? 0 : 1;
         for (int i = 0; i < HandPose.ValueCount; i++)
         {
             float value = hand is not null && i < hand.Angles.Length ? hand.Angles[i] : 0f;
-            arguments[2 + i] = float.IsFinite(value) ? value : 0f;
+            arguments[2 + i] = Finite(value);
         }
-        arguments[2 + HandPose.ValueCount] = hand is not null && float.IsFinite(hand.Quality) ? Math.Clamp(hand.Quality, 0f, 1f) : 0f;
+        int q = 2 + HandPose.ValueCount;
+        arguments[q] = hand is not null && float.IsFinite(hand.Quality) ? Math.Clamp(hand.Quality, 0f, 1f) : 0f;
+        Vector3 forward = hand?.Forward ?? Vector3.Zero;
+        Vector3 normal = hand?.Normal ?? Vector3.Zero;
+        arguments[q + 1] = Finite(forward.X);
+        arguments[q + 2] = Finite(forward.Y);
+        arguments[q + 3] = Finite(forward.Z);
+        arguments[q + 4] = Finite(normal.X);
+        arguments[q + 5] = Finite(normal.Y);
+        arguments[q + 6] = Finite(normal.Z);
         return new OscMessage(Hand, arguments);
     }
+
+    /// <summary>体の知らせ（<paramref name="body"/> が null なら「体なし」）。</summary>
+    public static OscMessage BodyMessage(BodyPose? body)
+    {
+        var arguments = new object[1 + (4 * BodyPointCount)];
+        arguments[0] = body is null ? 0 : 1;
+        for (int k = 0; k < BodyPointCount; k++)
+        {
+            int point = BodyPose.SentFirst + k;
+            Vector3 p = body is not null && point < body.Points.Length ? body.Points[point] : Vector3.Zero;
+            float seen = body is not null && point < body.Visibility.Length ? body.Visibility[point] : 0f;
+            arguments[1 + (4 * k)] = Finite(p.X);
+            arguments[2 + (4 * k)] = Finite(p.Y);
+            arguments[3 + (4 * k)] = Finite(p.Z);
+            arguments[4 + (4 * k)] = float.IsFinite(seen) ? Math.Clamp(seen, 0f, 1f) : 0f;
+        }
+        return new OscMessage(Body, arguments);
+    }
+
+    private static float Finite(float value) => float.IsFinite(value) ? value : 0f;
 
     /// <summary>
     /// パーフェクトシンクの無いモデル向けの、VRM の基本の表情（まばたき・あ・う・お）。ARKit の値から作る（左右は本人から見た左右）。
