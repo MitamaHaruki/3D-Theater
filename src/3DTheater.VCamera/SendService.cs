@@ -285,6 +285,11 @@ public sealed class SendService : IDisposable
             FaceTrackingResult result = tracker.Process(image);
             HandTrackingResult? handResult = handTask?.GetAwaiter().GetResult();
             PoseTrackingResult? bodyResult = bodyTask?.GetAwaiter().GetResult();
+            if (handResult is not null && bodyResult is not null)
+            {
+                // 手の左右を体の手首で直し、手と結び付いた体の手首を見えているとする（設計判断記録 100 章）
+                (handResult, bodyResult) = BodyHandMatch.Apply(handResult, bodyResult);
+            }
             float process = (float)Stopwatch.GetElapsedTime(arrived).TotalMilliseconds;
             VmcFaceFrame face = encoder.Encode(result, handResult, bodyResult, process, (float)_clock.Elapsed.TotalSeconds);
             _sender?.Send(face);

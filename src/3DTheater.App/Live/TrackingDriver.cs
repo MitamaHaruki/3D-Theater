@@ -37,6 +37,8 @@ public sealed class TrackingDriver
     private ArmRig? _armRig;
     private readonly BodyRetarget _bodyRetarget = new();
     private BodySignal? _body;
+    private readonly JitterMeter _shake = new(); // 腕の骨・上半身の揺れ（1 分ごとにログへ。設計判断記録 100 章）
+    private long _shakeStart = Stopwatch.GetTimestamp();
     private long _stoppedAt = -1;
 
     private readonly PhoneTrackingSettings _phone;
@@ -165,6 +167,10 @@ public sealed class TrackingDriver
                 Applied += string.Format(System.Globalization.CultureInfo.CurrentCulture, "・腕 左 {0:F2} 右 {1:F2}・手首 左 {2:F2} 右 {3:F2}・上半身の回り {4:F0}°",
                     body.Left.Weight, body.Right.Weight, body.Left.HandWeight, body.Right.HandWeight, Angle(body.Torso) * body.TorsoWeight);
             }
+            if (running)
+            {
+                MeasureShake(armRig, body, aims);
+            }
         }
         loaded.FaceOverlay = overlay;
         if (!running && Stopwatch.GetElapsedTime(_stoppedAt) > EaseOutTime)
@@ -224,6 +230,41 @@ public sealed class TrackingDriver
     }
 
     private static float Angle(Quaternion q) => 2 * MathF.Acos(Math.Clamp(MathF.Abs(q.W), 0f, 1f)) * 180f / MathF.PI;
+
+    // 腕の骨（腕・ひじ・手首）と上半身の回転の揺れを測り、1 分ごとにログへ書く（腕を動かしていた間だけ。ノートパソコンでの確かめで、揺れを数で比べる）
+    private void MeasureShake(ArmRig rig, BodyOutput body, List<(int Bone, int Reference, Quaternion Rotation, float Weight)> aims)
+    {
+        for (int side = 0; side < 2; side++)
+        {
+            ArmOutput arm = side == 0 ? body.Left : body.Right;
+            if (rig.Bones(side == 1) is not { } bones)
+            {
+                continue;
+            }
+            Quaternion Of(int bone) => aims.FirstOrDefault(a => a.Bone == bone).Rotation;
+            bool active = arm.Weight >= 0.999f;
+            _shake.Add((side * 3) + 0, Of(bones.Upper), active);
+            _shake.Add((side * 3) + 1, Of(bones.Elbow), active);
+            _shake.Add((side * 3) + 2, Of(bones.Wrist), active && arm.HandWeight >= 0.999f);
+        }
+        _shake.Add(6, body.Torso, body.TorsoWeight >= 0.999f);
+        if (Stopwatch.GetElapsedTime(_shakeStart) < TimeSpan.FromMinutes(1))
+        {
+            return;
+        }
+        _shakeStart = Stopwatch.GetTimestamp();
+        IReadOnlyDictionary<int, (double Rms, double Max, double ActiveShare)> r = _shake.Take();
+        if (!r.Values.Any(v => v.ActiveShare > 0))
+        {
+            return;
+        }
+        var c = System.Globalization.CultureInfo.InvariantCulture;
+        string Pair(int left, int right) => string.Format(c, "左 {0:F1}°（最大 {1:F0}°）右 {2:F1}°（最大 {3:F0}°）",
+            r.GetValueOrDefault(left).Rms, r.GetValueOrDefault(left).Max, r.GetValueOrDefault(right).Rms, r.GetValueOrDefault(right).Max);
+        AppLog.Info(string.Format(c, "[腕] 1 分: 動かした割合 左 {0:F0}% 右 {1:F0}%・骨の回転の揺れ（RMS）: 腕 {2}・ひじ {3}・手首 {4}・上半身 {5:F1}°（最大 {6:F0}°）",
+            100 * r.GetValueOrDefault(0).ActiveShare, 100 * r.GetValueOrDefault(3).ActiveShare, Pair(0, 3), Pair(1, 4), Pair(2, 5),
+            r.GetValueOrDefault(6).Rms, r.GetValueOrDefault(6).Max));
+    }
 
     private static string Describe(FaceOutput o)
     {

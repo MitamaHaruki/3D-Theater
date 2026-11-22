@@ -29,6 +29,14 @@ public sealed record BodySignal(Vector3[] Points, float[] Visibility)
 public sealed record ArmOutput(float Weight, Vector3 Upper, Vector3 Fore, float HandWeight, Vector3 HandForward, Vector3 HandNormal)
 {
     public static ArmOutput None { get; } = new(0f, -Vector3.UnitY, -Vector3.UnitY, 0f, -Vector3.UnitY, Vector3.UnitZ);
+
+    /// <summary>
+    /// ひじの曲がる向き（腕に直角。前腕がそちらへ曲がる。ならした向き。0 なら、腕と前腕から求める）と、それをどれだけ使うか（0〜1。
+    /// ひじをほとんど伸ばしているときは 0 で、腕の捩りは、いちばん小さく回した向きにする）。
+    /// </summary>
+    public Vector3 Bend { get; init; }
+
+    public float BendWeight { get; init; }
 }
 
 /// <summary>上半身の回り（正面に合わせた後。モデルの座標）と、その重み、キャラクターの左右の腕。</summary>
@@ -41,7 +49,12 @@ public sealed record BodyOutput(Quaternion Torso, float TorsoWeight, ArmOutput L
 /// 体のトラッキングを、キャラクターの上半身と腕の向きにする（設計判断記録 100 章）。
 /// <list type="bullet">
 /// <item>点をカメラの決まりからモデルの決まりにする（y を逆に。キャラクターはカメラの方 = -Z を向き、本人と同じ側の腕を動かす）。鏡のようにするなら、左右を入れ替える。</item>
-/// <item>肩・ひじ・手首の点を One Euro フィルターでならす（奥行きは揺れが 2 倍ほどあるので、強めにならす）。</item>
+/// <item>肩・ひじ・手首の点を One Euro フィルターでならす（奥行きは揺れが 2 倍ほどあるので、強めにならす）。絵に見えていない点（ひじが絵の外など。
+/// 位置はモデルの見立てで、揺れやすい）ほど強くならす（ノートパソコンで「腕がとても震える」と分かり、近い形の動画で比べて決めた）。</item>
+/// <item>ひじの曲がる向き（腕の捩りを決める）もならし、曲がりが小さいうちは使わない（伸ばした腕では、曲がる向きが揺れで入れ替わり、腕が捩れて跳ねるため）。</item>
+/// <item>体のモデルは、ときどき 1 枚だけ腕の位置を大きく読み違える。そういう枚は、たいてい見えている度合いも 1 枚だけ下がるので、上の
+/// 「見えていない点ほど強くならす」で弱く効く（手の向きのように、跳ねた枚を捨てて続いたら使う形も試したが、捨てた後にまとめて飛び移るので、
+/// かえって揺れが増えた）。</item>
 /// <item>上半身の向き: 左右の肩を結ぶ線と、上（カメラの上）から決める（前後の傾きは、腰が絵に映らないことが多く読めないので使わない）。
 /// 正面合わせのときの向きからの回りを、キャラクターの上半身に当てる。</item>
 /// <item>腕の向き: 本人の上半身から見た向きにする（キャラクターの上半身が待機モーションなどで動いても、腕は上半身から見た向きを保つ）。</item>
@@ -49,12 +62,16 @@ public sealed record BodyOutput(Quaternion Torso, float TorsoWeight, ArmOutput L
 /// 読み取ったままの手の向きは、ふつうは 1 枚に 3° ほどしか変わらないが、ときどき 50° 以上跳ねる（奥行きの取り違えで掌の向きが裏返る・左右の手の
 /// 取り違え）。1〜2 枚だけの跳ねは使わず、続いたときも 1 秒に <see cref="MaxHandDegreesPerSecond"/> までしか回さない。</item>
 /// <item>肩と手首が見えている腕だけ動かす（ひじは絵の外でもよい。手を顔の前に上げると、ひじは下へはみ出しがちなため）。手首は、見え始め
-/// （<see cref="WristOnAbove"/>）と見えなくなり（<see cref="WristOffBelow"/>）の境を分けて、境の近くで動かす・戻すを繰り返さない。手のトラッキングが
-/// その側の手を見つけていれば、手首は見えているとみなす（手を顔の近くへ上げると、体の点のモデルの手首の見えている度合いが下がるため）。
+/// （<see cref="WristOnAbove"/>）と見えなくなり（<see cref="WristOffBelow"/>）の境を分けて、境の近くで動かす・戻すを繰り返さない。
+/// 手を顔の近くへ上げると、体の点のモデルの手首の見えている度合いが下がるが、3D Theater VCamera が、手と結び付いた手首を見えているとして送る
+/// （<c>BodyHandMatch</c>）。初めは、ここで手のトラッキングの手の左右で決めていたが、手の左右を取り違えた枚に、見えていない反対の腕を
+/// 動かしてしまった（ノートパソコンで「逆側が動く」）。</item>
 /// 見えなくなっても <see cref="WristHoldSeconds"/> は動かし続ける（絵の端で手を見つけたり見失ったりしても、腕が行き来しないように）。
 /// 見えなくなったら <see cref="FadeOutSeconds"/> かけて場面の姿勢（待機モーション・ポーズ。無ければモデルのもとの形）へ戻す。</item>
 /// </list>
-/// 揺れと遅れの釣り合いは、確かめ用の動画の点（揺れ）と、作った腕の動き（遅れ）で比べて決めた（設計判断記録 100 章）。
+/// 揺れと遅れの釣り合いは、確かめ用の動画の点（揺れ）と、作った腕の動き（遅れ）で比べて決めた。ノートパソコンで「腕がとても震える」と分かってから、
+/// 確かめ用の動画をノートパソコンに近い形（近寄って切り出し、1280 × 720 にして、ざらつきを足す）にしたものでも比べ、ならしを強めた
+/// （腕の骨の回転の揺れが半分ほどになるかわりに、腕の動きの遅れが 1 枚分ほど増える。設計判断記録 100 章）。
 /// </summary>
 public sealed class BodyRetarget
 {
@@ -67,14 +84,17 @@ public sealed class BodyRetarget
     /// <summary>上半身の回りの上限（度）。</summary>
     public const float MaxTorsoDegrees = 45f;
 
-    /// <summary>点のならしの切れ目（顔のならしの切れ目に対して）。腕の点は顔の向きより揺れるので低め。</summary>
-    public const float PointCutoffScale = 0.5f;
+    /// <summary>点のならしの切れ目（顔のならしの切れ目に対して）。腕の点は顔の向きより揺れるので低め（初めは 0.5）。</summary>
+    public const float PointCutoffScale = 0.35f;
 
     /// <summary>奥行き（z）のならしの切れ目（x・y に対して）。</summary>
     public const float DepthCutoffScale = 0.5f;
 
-    /// <summary>速さでならしを弱める強さ（メートル/秒あたりの Hz）。</summary>
-    public const float SpeedBeta = 4f;
+    /// <summary>
+    /// 速さでならしを弱める強さ（メートル/秒あたりの Hz。初めは 4）。見えていない点では、見えている度合いからの割合の 2 乗を掛けて弱める
+    /// （見えていない点の「速さ」はほとんど読み違いで、速い動きと取り違えると、読み違いをそのまま通してしまうため）。
+    /// </summary>
+    public const float SpeedBeta = 2f;
 
     /// <summary>手首が見え始めたとみなす度合い（これ以上）と、見えなくなったとみなす度合い（これより下）。</summary>
     public const float WristOnAbove = 0.6f;
@@ -95,6 +115,18 @@ public sealed class BodyRetarget
     /// <summary>手の読み取りの確かさが 0 のときの、手の向きのならしの切れ目の割合（指と同じ）。</summary>
     public const float LowQualityCutoff = 0.25f;
 
+    /// <summary>
+    /// 絵に見えていない点の、ならしの切れ目と速さでの弱め方の割合（見えている度合いが <see cref="HiddenBelow"/> 以下で、この割合。
+    /// <see cref="ShownAbove"/> 以上で 1 倍）。
+    /// </summary>
+    public const float HiddenCutoff = 0.2f;
+
+    public const float HiddenBelow = 0.3f;
+    public const float ShownAbove = 0.8f;
+
+    /// <summary>ひじの曲がる向きのならしの切れ目（点のならしの切れ目に対して）。</summary>
+    public const float BendCutoffScale = 0.5f;
+
     // キャラクターの左右（0 = 左・1 = 右）ごとの、肩・ひじ・手首の本人の点の番号（鏡にしないとき）
     private static readonly int[][] Joints =
     [
@@ -104,6 +136,9 @@ public sealed class BodyRetarget
 
     private readonly OneEuroFilter?[,,] _points = new OneEuroFilter?[2, 3, 3]; // 左右・肩ひじ手首・xyz
     private readonly OneEuroFilter?[,] _handFilters = new OneEuroFilter?[2, 6]; // 左右・手の向きと掌の向きの xyz
+    private readonly OneEuroFilter?[,] _bendFilters = new OneEuroFilter?[2, 3]; // 左右・ひじの曲がる向きの xyz
+    private readonly Vector3[] _bend = new Vector3[2];
+    private readonly float[] _bendWeight = new float[2];
     private readonly float[] _armWeight = new float[2];
     private readonly float[] _handWeight = new float[2];
     private readonly bool[] _wristSeen = new bool[2];
@@ -146,6 +181,7 @@ public sealed class BodyRetarget
             RequestCalibration();
             Array.Clear(_points);
             Array.Clear(_handFilters);
+            Array.Clear(_bendFilters);
         }
         _lastMirror = mirror;
 
@@ -158,8 +194,9 @@ public sealed class BodyRetarget
             {
                 for (int j = 0; j < 3; j++)
                 {
-                    Vector3 p = ToModel(body.Point(Index(side, j, mirror)), mirror);
-                    points[side, j] = Filter(_points, side, j, p, time, cutoff, reset: _armWeight[side] <= 0 && _torsoWeight <= 0);
+                    int index = Index(side, j, mirror);
+                    Vector3 p = ToModel(body.Point(index), mirror);
+                    points[side, j] = Filter(_points, side, j, p, time, cutoff, Shown(body.Seen(index)), reset: _armWeight[side] <= 0 && _torsoWeight <= 0);
                 }
             }
             torsoSeen = Seen(body, 0, 0, mirror) && Seen(body, 1, 0, mirror);
@@ -189,8 +226,7 @@ public sealed class BodyRetarget
         for (int side = 0; side < 2; side++)
         {
             bool characterRight = side == 1;
-            bool handHere = hands?.Any(h => (mirror ? !h.IsRight : h.IsRight) == characterRight) == true;
-            float wrist = handHere ? 1f : body?.Seen(Index(side, 2, mirror)) ?? 0f;
+            float wrist = body?.Seen(Index(side, 2, mirror)) ?? 0f;
             _wristSeen[side] = _wristSeen[side] ? wrist >= WristOffBelow : wrist >= WristOnAbove;
             if (_wristSeen[side])
             {
@@ -205,6 +241,20 @@ public sealed class BodyRetarget
                 {
                     _upper[side] = Vector3.Normalize(Vector3.Transform(upper, toTorso));
                     _fore[side] = Vector3.Normalize(Vector3.Transform(fore, toTorso));
+                    // ひじの曲がる向き（腕に直角な、前腕の向き）。曲がりが小さいと揺れで向きが入れ替わるので、ならし、曲がりに合わせて使う割合を決める
+                    float bendDegrees = Degrees(_upper[side], _fore[side]);
+                    Vector3 measured = Unit(_fore[side] - (_upper[side] * Vector3.Dot(_fore[side], _upper[side])));
+                    if (bendDegrees > ArmRig.PlaneFromDegrees * 0.5f && measured != Vector3.Zero)
+                    {
+                        bool resetBend = _armWeight[side] <= 0 || _bend[side] == Vector3.Zero;
+                        Vector3 bend = FilterBend(side, measured, time, cutoff * BendCutoffScale, resetBend);
+                        if (bend != Vector3.Zero)
+                        {
+                            _bend[side] = bend;
+                        }
+                    }
+                    float t = Math.Clamp((bendDegrees - ArmRig.PlaneFromDegrees) / (ArmRig.PlaneFullDegrees - ArmRig.PlaneFromDegrees), 0f, 1f);
+                    _bendWeight[side] = _bend[side] == Vector3.Zero ? 0f : t * t * (3f - (2f * t));
                 }
                 else
                 {
@@ -245,7 +295,11 @@ public sealed class BodyRetarget
             }
             _handWeight[side] = Step(_handWeight[side], hand is not null, dt);
             float armWeight = Smooth(_armWeight[side]);
-            arms[side] = new ArmOutput(armWeight, _upper[side], _fore[side], Math.Min(armWeight, Smooth(_handWeight[side])), _handForward[side], _handNormal[side]);
+            arms[side] = new ArmOutput(armWeight, _upper[side], _fore[side], Math.Min(armWeight, Smooth(_handWeight[side])), _handForward[side], _handNormal[side])
+            {
+                Bend = _bend[side],
+                BendWeight = _bendWeight[side],
+            };
         }
         return new BodyOutput(_torso, Smooth(_torsoWeight), arms[0], arms[1]);
     }
@@ -272,11 +326,17 @@ public sealed class BodyRetarget
 
     private static bool Seen(BodySignal body, int side, int joint, bool mirror) => body.Seen(Index(side, joint, mirror)) >= 0.5f;
 
+    // 見えている度合いから、ならしの切れ目の割合（見えていない点ほど強くならす）
+    private static float Shown(float visibility) =>
+        HiddenCutoff + ((1f - HiddenCutoff) * Math.Clamp((visibility - HiddenBelow) / (ShownAbove - HiddenBelow), 0f, 1f));
+
     // カメラの決まり（x 右・y 下・z 奥）→ モデルの決まり（+X = キャラクターの左・+Y = 上・-Z = 前）。キャラクターはカメラの方を向くので、
     // 画像の右（本人の左）がキャラクターの左。鏡のようにするなら、左右を逆にする
     private static Vector3 ToModel(Vector3 camera, bool mirror) => new(mirror ? -camera.X : camera.X, -camera.Y, camera.Z);
 
-    private static Vector3 Filter(OneEuroFilter?[,,] filters, int side, int joint, Vector3 value, double time, float cutoff, bool reset)
+    // shown は、見えている度合いからのならしの割合（見えていない点ほど小さい）。切れ目に掛け、速さでならしを弱める強さには 2 乗を掛ける
+    // （見えていない点の「速さ」は、ほとんど読み違いのため）
+    private static Vector3 Filter(OneEuroFilter?[,,] filters, int side, int joint, Vector3 value, double time, float cutoff, float shown, bool reset)
     {
         float Axis(int axis, float v)
         {
@@ -285,11 +345,27 @@ public sealed class BodyRetarget
                 filters[side, joint, axis] = null;
             }
             OneEuroFilter f = filters[side, joint, axis] ??= new OneEuroFilter();
-            f.MinCutoff = axis == 2 ? cutoff * DepthCutoffScale : cutoff;
-            f.Beta = SpeedBeta;
+            f.MinCutoff = (axis == 2 ? cutoff * DepthCutoffScale : cutoff) * shown;
+            f.Beta = SpeedBeta * shown * shown;
             return f.Filter(v, time);
         }
         return new Vector3(Axis(0, value.X), Axis(1, value.Y), Axis(2, value.Z));
+    }
+
+    private Vector3 FilterBend(int side, Vector3 value, double time, float cutoff, bool reset)
+    {
+        float Axis(int axis, float v)
+        {
+            if (reset)
+            {
+                _bendFilters[side, axis] = null;
+            }
+            OneEuroFilter f = _bendFilters[side, axis] ??= new OneEuroFilter();
+            f.MinCutoff = cutoff;
+            f.Beta = 0.1f; // 速さでほとんど弱めない（揺れで向きが急に変わったのを、速い動きと取り違えて通さない）
+            return f.Filter(v, time);
+        }
+        return Unit(new Vector3(Axis(0, value.X), Axis(1, value.Y), Axis(2, value.Z)));
     }
 
     private Vector3 FilterVector(int side, int offset, Vector3 value, double time, float cutoff, bool reset)
@@ -382,9 +458,13 @@ public sealed class ArmRig
     /// <summary>前腕の捩りの上限（度。もとの形から）。</summary>
     public const float MaxTwistDegrees = 120f;
 
-    // ひじの曲がる向きで腕の捩りを決め始める・決めきる曲がり（度）
-    private const float PlaneFromDegrees = 10f;
-    private const float PlaneFullDegrees = 30f;
+    /// <summary>
+    /// ひじの曲がる向きで腕の捩りを決め始める・決めきる曲がり（度）。初めは 10°・30° だったが、伸ばしぎみの腕で曲がる向きが揺れで入れ替わり、
+    /// 腕が捩れて跳ねたので上げた（近い形の動画で比べた。設計判断記録 100 章）。
+    /// </summary>
+    public const float PlaneFromDegrees = 20f;
+
+    public const float PlaneFullDegrees = 45f;
 
     private readonly int _reference;
     private readonly List<Arm> _arms;
@@ -403,6 +483,10 @@ public sealed class ArmRig
 
     /// <summary>左右それぞれ、腕のボーンがあるか。</summary>
     public (bool Left, bool Right) Sides => (_arms.Any(a => !a.Right), _arms.Any(a => a.Right));
+
+    /// <summary>キャラクターの左右の腕・ひじ・手首のボーンの番号（その腕が無ければ null）。揺れを測るのに使う。</summary>
+    public (int Upper, int Elbow, int Wrist)? Bones(bool right) =>
+        _arms.FirstOrDefault(a => a.Right == right) is { } arm ? (arm.Upper, arm.Elbow, arm.Wrist) : null;
 
     public static ArmRig Create(PmxDocument document)
     {
@@ -477,7 +561,7 @@ public sealed class ArmRig
             {
                 continue;
             }
-            (Quaternion upper, Quaternion elbow) = Solve(arm, o.Upper, o.Fore);
+            (Quaternion upper, Quaternion elbow) = Solve(arm, o.Upper, o.Fore, o.Bend, o.BendWeight);
             aims.Add((arm.Upper, _reference, upper, o.Weight));
             if (arm.UpperTwist >= 0)
             {
@@ -501,8 +585,8 @@ public sealed class ArmRig
         }
     }
 
-    // 腕とひじの向け先（上半身から見た回転）
-    private static (Quaternion Upper, Quaternion Elbow) Solve(Arm arm, Vector3 upper, Vector3 fore)
+    // 腕とひじの向け先（上半身から見た回転）。bend が 0 なら、曲がる向きと使う割合を、腕と前腕から求める
+    private static (Quaternion Upper, Quaternion Elbow) Solve(Arm arm, Vector3 upper, Vector3 fore, Vector3 givenBend, float givenWeight)
     {
         upper = Unit(upper);
         fore = Unit(fore);
@@ -514,13 +598,21 @@ public sealed class ArmRig
         Quaternion swing = FromTo(arm.UpperRest, upper);
         Vector3 bendSwing = Perpendicular(Vector3.Transform(arm.BendRest, swing), upper);
         // 本人のひじの曲がる向き（肩・ひじ・手首を含む面）。曲がりが小さいほど、いちばん小さく回した向きへ寄せる
-        float bendDegrees = MathF.Acos(Math.Clamp(Vector3.Dot(upper, fore), -1f, 1f)) * (180f / MathF.PI);
         Vector3 bend = bendSwing;
-        Vector3 measured = Perpendicular(fore, upper);
+        Vector3 measured = givenBend != Vector3.Zero ? Perpendicular(givenBend, upper) : Perpendicular(fore, upper);
         if (measured != Vector3.Zero && bendSwing != Vector3.Zero)
         {
-            float t = Math.Clamp((bendDegrees - PlaneFromDegrees) / (PlaneFullDegrees - PlaneFromDegrees), 0f, 1f);
-            t = t * t * (3f - (2f * t));
+            float t;
+            if (givenBend != Vector3.Zero)
+            {
+                t = Math.Clamp(givenWeight, 0f, 1f);
+            }
+            else
+            {
+                float bendDegrees = MathF.Acos(Math.Clamp(Vector3.Dot(upper, fore), -1f, 1f)) * (180f / MathF.PI);
+                t = Math.Clamp((bendDegrees - PlaneFromDegrees) / (PlaneFullDegrees - PlaneFromDegrees), 0f, 1f);
+                t = t * t * (3f - (2f * t));
+            }
             float angle = MathF.Atan2(Vector3.Dot(Vector3.Cross(bendSwing, measured), upper), Vector3.Dot(bendSwing, measured));
             bend = Vector3.Transform(bendSwing, Quaternion.CreateFromAxisAngle(upper, angle * t));
         }

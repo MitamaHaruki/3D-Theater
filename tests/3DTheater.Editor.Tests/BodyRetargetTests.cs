@@ -120,10 +120,13 @@ public sealed class BodyRetargetTests
         // 手首がぎりぎり（見えている度合い 0.45）でも、見え始めの境に届かなければ動かさない
         BodyOutput o = Run(retarget, _ => Body(leftWrist: 0.45f, rightWrist: 0.45f), 10, ref time);
         Assert.AreEqual(0f, o.Left.Weight, "見え始めの境に届かない");
-        // 手のトラッキングがその側の手を見つけていれば、手首は見えているとみなす
+        // 手のトラッキングの手があっても、それだけでは見えているとみなさない（手の左右の取り違えで、見えていない反対の腕を動かさない）
         IReadOnlyList<HandSignal> leftHand = [new HandSignal(false, new float[20])];
-        o = Run(retarget, _ => Body(leftWrist: 0.45f, rightWrist: 0.45f), 30, ref time, hands: _ => leftHand);
-        Assert.AreEqual(1f, o.Left.Weight, 1e-4f, "手が見えている側の腕は動かす");
+        o = Run(retarget, _ => Body(leftWrist: 0.45f, rightWrist: 0.45f), 10, ref time, hands: _ => leftHand);
+        Assert.AreEqual(0f, o.Left.Weight, "手だけでは動かさない");
+        // 3D Theater VCamera が、手と結び付いた手首を見えているとして送る（0.9）
+        o = Run(retarget, _ => Body(leftWrist: 0.9f, rightWrist: 0.45f), 30, ref time, hands: _ => leftHand);
+        Assert.AreEqual(1f, o.Left.Weight, 1e-4f, "見えている手首の腕は動かす");
         Assert.AreEqual(0f, o.Right.Weight);
 
         // 手首が見えなくなった: 少し待ってから、ゆっくり戻す
@@ -135,6 +138,36 @@ public sealed class BodyRetargetTests
         o = Run(retarget, _ => null, 30, ref time);
         Assert.AreEqual(0f, o.Left.Weight, "見失って少し経てば、場面の姿勢");
         Assert.AreEqual(0f, o.TorsoWeight);
+    }
+
+    [TestMethod]
+    public void HiddenElbowsAreSmoothedMore()
+    {
+        // ひじが 1 枚ごとに ±4 cm 揺れる腕。ひじが絵の外（見えている度合い 0.1）だと、見えているとき（1）より、腕の向きの揺れが小さい
+        float Shake(float elbowSeen)
+        {
+            var retarget = new BodyRetarget();
+            double time = 0;
+            var angles = new List<float>();
+            Vector3 previous = Vector3.Zero;
+            for (int i = 0; i < 120; i++, time += 1 / 30.0)
+            {
+                BodySignal body = Body(leftUpper: Vector3.UnitX, leftFore: Vector3.UnitX);
+                body.Points[13] += new Vector3(0, i % 2 == 0 ? 0.04f : -0.04f, 0);
+                body.Visibility[13] = elbowSeen;
+                BodyOutput o = retarget.Compute(body, null, time, false, 0.5f);
+                if (i >= 60)
+                {
+                    angles.Add(MathF.Acos(Math.Clamp(Vector3.Dot(o.Left.Upper, previous), -1f, 1f)) / ToRadians);
+                }
+                previous = o.Left.Upper;
+            }
+            return angles.Average();
+        }
+        float shown = Shake(1f);
+        float hidden = Shake(0.1f);
+        Assert.IsGreaterThan(0f, shown);
+        Assert.IsLessThan(shown * 0.5f, hidden, $"見えている: {shown:F2}°・見えていない: {hidden:F2}°");
     }
 
     [TestMethod]
@@ -200,6 +233,27 @@ public sealed class BodyRetargetTests
     }
 
     [TestMethod]
+    public void SmoothedBendDecidesTheUpperArmTwist()
+    {
+        PmxDocument model = ArmModel();
+        var rig = ArmRig.Create(model);
+        Vector3 P(string name) => model.Bones[Index(model, name)].Position;
+        Vector3 upperRest = Vector3.Normalize(P("左ひじ") - P("左腕"));
+        Vector3 bendRest = Vector3.Normalize(new Vector3(0, 0, -1) - (upperRest * Vector3.Dot(upperRest, new Vector3(0, 0, -1))));
+        Quaternion Upper(ArmOutput arm)
+        {
+            var aims = new List<(int Bone, int Reference, Quaternion Rotation, float Weight)>();
+            rig.Build(new BodyOutput(Quaternion.Identity, 0f, arm, ArmOutput.None), aims);
+            return aims.Single(a => a.Bone == Index(model, "左腕")).Rotation;
+        }
+        // 腕を横（+X）へ。ならした曲がる向きは上（+Y）
+        var arm = new ArmOutput(1f, Vector3.UnitX, Vector3.UnitX, 0f, Vector3.Zero, Vector3.Zero) { Bend = Vector3.UnitY, BendWeight = 1f };
+        AssertClose(Vector3.UnitY, Vector3.Transform(bendRest, Upper(arm)), 1e-3f, "曲がる向きを使う割合 1: ひじは上へ曲がる向き");
+        // 使う割合 0: いちばん小さく回した向き（もとの形の前のまま）
+        AssertClose(new Vector3(0, 0, -1), Vector3.Transform(bendRest, Upper(arm with { BendWeight = 0f })), 1e-3f, "使う割合 0: 前のまま");
+    }
+
+    [TestMethod]
     public void WristTakesTheHandDirectionWithinRange()
     {
         PmxDocument model = ArmModel();
@@ -228,6 +282,31 @@ public sealed class BodyRetargetTests
         Quaternion relative = Quaternion.Normalize(Quaternion.Inverse(elbow.Rotation) * limited.Rotation);
         float swing = MathF.Acos(Math.Clamp(Vector3.Dot(Vector3.Transform(handRest, relative), handRest), -1f, 1f)) / ToRadians;
         Assert.IsLessThan(ArmRig.MaxWristDegrees + 15f, swing, $"手首の曲がり {swing:F0}°");
+    }
+
+    [TestMethod]
+    public void JitterMeterCountsOnlyTheBackAndForth()
+    {
+        var meter = new JitterMeter();
+        // ゆっくり回し続ける（1 枚に 2°）: 揺れは 0
+        for (int i = 0; i < 30; i++)
+        {
+            meter.Add(0, Quaternion.CreateFromAxisAngle(Vector3.UnitY, i * 2 * ToRadians), true);
+        }
+        // ±3° を行ったり来たり: 揺れは 6° ほど（真ん中からのずれ）
+        for (int i = 0; i < 30; i++)
+        {
+            meter.Add(1, Quaternion.CreateFromAxisAngle(Vector3.UnitY, (i % 2 == 0 ? 3 : -3) * ToRadians), true);
+        }
+        // 動かしていない枚は数えない
+        meter.Add(2, Quaternion.Identity, false);
+        IReadOnlyDictionary<int, (double Rms, double Max, double ActiveShare)> r = meter.Take();
+        Assert.AreEqual(0, r[0].Rms, 0.05);
+        Assert.AreEqual(6, r[1].Rms, 0.1);
+        Assert.AreEqual(6, r[1].Max, 0.1);
+        Assert.AreEqual(1, r[1].ActiveShare, 1e-9);
+        Assert.AreEqual(0, r[2].ActiveShare, 1e-9);
+        Assert.AreEqual(0, meter.Take()[1].Rms, "読むと数え直す");
     }
 
     [TestMethod]

@@ -159,6 +159,72 @@ public sealed class PoseTrackerTests
         Assert.AreEqual(Vector3.Zero, received.Normal);
     }
 
+    // 体の結果（画面の点）: 本人の右肩 (500, 600)・左肩 (800, 600)、右手首・左手首は渡した所。手首はどちらも見えていない（0.2）
+    private static PoseTrackingResult BodyOnScreen(Vector2 rightWrist, Vector2 leftWrist)
+    {
+        var landmarks = new Vector3[BodyPose.PointCount];
+        landmarks[BodyPose.RightShoulder] = new Vector3(500, 600, 0);
+        landmarks[BodyPose.LeftShoulder] = new Vector3(800, 600, 0);
+        landmarks[BodyPose.RightWrist] = new Vector3(rightWrist, 0);
+        landmarks[BodyPose.LeftWrist] = new Vector3(leftWrist, 0);
+        BodyPose body = BodyPose.Empty();
+        body.Visibility[BodyPose.RightWrist] = 0.2f;
+        body.Visibility[BodyPose.LeftWrist] = 0.2f;
+        return new PoseTrackingResult(true, landmarks, body, 1f, false, 1);
+    }
+
+    private static TrackedHand HandAt(Vector2 wrist, bool isRight)
+    {
+        var landmarks = new Vector3[HandTracker.LandmarkCount];
+        landmarks[0] = new Vector3(wrist, 0);
+        return new TrackedHand(landmarks, new Vector3[HandTracker.LandmarkCount], isRight, isRight ? 0.7f : 0.3f, 1f, default);
+    }
+
+    [TestMethod]
+    public void HandsFollowTheBodyWristsTheyAreClearlyNear()
+    {
+        // 本人の右手首の近くにある手を、手のモデルは左手と答えた: 体に合わせて右手にし、右手首を見えているとする
+        PoseTrackingResult body = BodyOnScreen(rightWrist: new Vector2(420, 300), leftWrist: new Vector2(880, 650));
+        var hands = new HandTrackingResult([HandAt(new Vector2(430, 310), isRight: false)], false, 1);
+        (HandTrackingResult fixedHands, PoseTrackingResult fixedBody) = BodyHandMatch.Apply(hands, body);
+        Assert.IsTrue(fixedHands.Hands[0].IsRight, "体の右手首の近く → 右手");
+        Assert.AreEqual(0.7f, fixedHands.Hands[0].Handedness, 1e-6f, "ならした答えも反対の側へ写す");
+        Assert.AreEqual(BodyHandMatch.SeenVisibility, fixedBody.Body!.Visibility[BodyPose.RightWrist], 1e-6f, "右手首は見えている");
+        Assert.AreEqual(0.2f, fixedBody.Body.Visibility[BodyPose.LeftWrist], 1e-6f, "左手首はそのまま");
+        Assert.AreEqual(0.2f, body.Body!.Visibility[BodyPose.RightWrist], 1e-6f, "渡した結果は書き換えない");
+    }
+
+    [TestMethod]
+    public void AmbiguousHandsAreLeftAlone()
+    {
+        // 見えていない左手首が、見えている手の近くに見立てられた（2 つの手首がどちらも近い）: 何もしない
+        PoseTrackingResult body = BodyOnScreen(rightWrist: new Vector2(420, 300), leftWrist: new Vector2(450, 320));
+        var hands = new HandTrackingResult([HandAt(new Vector2(430, 310), isRight: false)], false, 1);
+        (HandTrackingResult h, PoseTrackingResult b) = BodyHandMatch.Apply(hands, body);
+        Assert.IsFalse(h.Hands[0].IsRight, "答えのまま");
+        Assert.AreEqual(0.2f, b.Body!.Visibility[BodyPose.RightWrist], 1e-6f);
+        Assert.AreEqual(0.2f, b.Body.Visibility[BodyPose.LeftWrist], 1e-6f);
+
+        // どちらの手首からも遠い手（肩幅の 0.6 倍より遠い）: 何もしない
+        PoseTrackingResult far = BodyOnScreen(rightWrist: new Vector2(420, 700), leftWrist: new Vector2(880, 700));
+        (h, b) = BodyHandMatch.Apply(new HandTrackingResult([HandAt(new Vector2(650, 200), isRight: true)], false, 1), far);
+        Assert.IsTrue(h.Hands[0].IsRight);
+        Assert.AreEqual(0.2f, b.Body!.Visibility[BodyPose.RightWrist], 1e-6f);
+    }
+
+    [TestMethod]
+    public void TwoHandsNearTheSameWristKeepTheCloserOne()
+    {
+        // 2 つの手が、どちらも右手首のほうが近い: 近いほうだけ右手に結び付け、もう一方は反対の側にする
+        PoseTrackingResult body = BodyOnScreen(rightWrist: new Vector2(420, 300), leftWrist: new Vector2(900, 300));
+        var hands = new HandTrackingResult([HandAt(new Vector2(560, 320), isRight: false), HandAt(new Vector2(430, 305), isRight: false)], false, 1);
+        (HandTrackingResult h, PoseTrackingResult b) = BodyHandMatch.Apply(hands, body);
+        Assert.IsTrue(h.Hands[1].IsRight, "近いほうは右手");
+        Assert.IsFalse(h.Hands[0].IsRight, "もう一方は左手");
+        Assert.AreEqual(BodyHandMatch.SeenVisibility, b.Body!.Visibility[BodyPose.RightWrist], 1e-6f);
+        Assert.AreEqual(0.2f, b.Body.Visibility[BodyPose.LeftWrist], 1e-6f, "結び付けていない手首は、そのまま");
+    }
+
     [TestMethod]
     public void HandPoseKnowsWhereTheHandPoints()
     {
